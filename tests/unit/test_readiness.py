@@ -13,6 +13,7 @@ from src.models import (
     CitationEntryRecord,
     DomainExpertConfig,
     FallbackEventRecord,
+    ManuscriptAuditResult,
     ReviewConfig,
     ReviewType,
     SettingsConfig,
@@ -61,6 +62,41 @@ async def _seed_citation(db_path: Path) -> None:
                 authors=["Smith"],
                 resolved=True,
             )
+        )
+
+
+async def _seed_manuscript_audit(
+    db_path: Path,
+    workflow_id: str,
+    *,
+    passed: bool,
+    gate_blocked: bool,
+    gate_action: str,
+    gate_failure_reasons: list[str] | None = None,
+) -> None:
+    async with get_db(str(db_path)) as db:
+        repo = WorkflowRepository(db)
+        await repo.save_manuscript_audit(
+            ManuscriptAuditResult(
+                audit_run_id=f"audit-{workflow_id}",
+                workflow_id=workflow_id,
+                mode="strict",
+                verdict="accept" if passed else "major_revisions",
+                passed=passed,
+                selected_profiles=["general_systematic_review"],
+                summary="ok" if passed else "needs revision",
+                total_findings=0 if passed else 2,
+                major_count=0 if passed else 1,
+                minor_count=0 if passed else 1,
+                note_count=0,
+                blocking_count=0 if passed else 1,
+                total_cost_usd=0.0,
+            ),
+            findings=[],
+            gate_blocked=gate_blocked,
+            gate_mode="advisory" if gate_action == "advisory_only" else "strict",
+            gate_action=gate_action,
+            gate_failure_reasons=gate_failure_reasons or [],
         )
 
 
@@ -126,9 +162,12 @@ async def test_readiness_reports_fallback_event_count(tmp_path: Path) -> None:
         contract_mode="observe",
     )
     assert scorecard.fallback_event_count == 1
+    assert scorecard.audit_ready is False
+    assert scorecard.submission_ready is False
     assert scorecard.ready is False
     assert scorecard.citation_lineage_valid is True
     assert any(check.name == "fallback_events" for check in scorecard.checks)
+    assert any(check.name == "manuscript_audit" and not check.ok for check in scorecard.checks)
 
 
 @pytest.mark.asyncio
@@ -184,6 +223,75 @@ async def test_readiness_blocks_invalid_citation_lineage(tmp_path: Path) -> None
     assert scorecard.citation_lineage_valid is False
     assert scorecard.ready is False
     assert any(check.name == "citation_lineage" and not check.ok for check in scorecard.checks)
+
+
+@pytest.mark.asyncio
+async def test_readiness_marks_audit_ready_when_latest_audit_passed(tmp_path: Path) -> None:
+    db_path = tmp_path / "runtime_readiness_audit_pass.db"
+    manuscript_md = tmp_path / "doc_manuscript.md"
+    manuscript_tex = tmp_path / "doc_manuscript.tex"
+    _write_minimal_manuscript(manuscript_md, manuscript_tex)
+
+    async with get_db(str(db_path)) as db:
+        repo = WorkflowRepository(db)
+        await repo.create_workflow("wf-ready-audit-pass", "topic", "hash")
+        await repo.save_checkpoint("wf-ready-audit-pass", "finalize", 1)
+    await _seed_citation(db_path)
+    await _seed_manuscript_audit(
+        db_path,
+        "wf-ready-audit-pass",
+        passed=True,
+        gate_blocked=False,
+        gate_action="pass",
+    )
+
+    scorecard = await compute_readiness_scorecard(
+        db_path=str(db_path),
+        workflow_id="wf-ready-audit-pass",
+        manuscript_md_path=str(manuscript_md),
+        manuscript_tex_path=str(manuscript_tex),
+        contract_mode="observe",
+    )
+
+    assert scorecard.contract_ready is True
+    assert scorecard.audit_ready is True
+    assert scorecard.submission_ready == scorecard.ready
+    assert any(check.name == "manuscript_audit" and check.ok for check in scorecard.checks)
+
+
+@pytest.mark.asyncio
+async def test_readiness_blocks_submission_when_audit_is_advisory_only(tmp_path: Path) -> None:
+    db_path = tmp_path / "runtime_readiness_advisory_audit.db"
+    manuscript_md = tmp_path / "doc_manuscript.md"
+    manuscript_tex = tmp_path / "doc_manuscript.tex"
+    _write_minimal_manuscript(manuscript_md, manuscript_tex)
+
+    async with get_db(str(db_path)) as db:
+        repo = WorkflowRepository(db)
+        await repo.create_workflow("wf-ready-audit-advisory", "topic", "hash")
+        await repo.save_checkpoint("wf-ready-audit-advisory", "finalize", 1)
+    await _seed_citation(db_path)
+    await _seed_manuscript_audit(
+        db_path,
+        "wf-ready-audit-advisory",
+        passed=False,
+        gate_blocked=True,
+        gate_action="advisory_only",
+        gate_failure_reasons=["audit gate failed in mode=strict (verdict=major_revisions, blocking=1)"],
+    )
+
+    scorecard = await compute_readiness_scorecard(
+        db_path=str(db_path),
+        workflow_id="wf-ready-audit-advisory",
+        manuscript_md_path=str(manuscript_md),
+        manuscript_tex_path=str(manuscript_tex),
+        contract_mode="observe",
+    )
+
+    assert scorecard.audit_ready is False
+    assert scorecard.submission_ready is False
+    assert scorecard.ready is False
+    assert any("manuscript audit blocked readiness" in reason for reason in scorecard.blocking_reasons)
 
 
 @pytest.mark.asyncio

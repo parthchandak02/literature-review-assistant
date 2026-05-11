@@ -18,6 +18,7 @@ from pathlib import Path
 from pydantic import BaseModel, Field
 
 from src.db.repositories import CitationRepository, WorkflowRepository
+from src.extraction.inference_utils import _is_substantive_finding, result_not_extractable_text
 from src.manuscript.prisma_disclosure import prisma_disclosure_gaps, should_use_db_prisma_flow_checks
 from src.manuscript.violation_policy import hard_failure, violation_category
 from src.models import ReviewConfig
@@ -604,6 +605,103 @@ def _missing_abstract_fields(md_text: str) -> list[str]:
     return [name for name, pattern in required.items() if re.search(pattern, abstract_text, flags=re.IGNORECASE) is None]
 
 
+def _extract_structured_abstract_fields(md_text: str) -> dict[str, str]:
+    fields: dict[str, str] = {}
+    for line in _extract_abstract_lines(md_text):
+        match = re.match(r"^\*\*([^:*]+):\*\*\s*(.+)$", line.strip())
+        if match:
+            fields[match.group(1).strip().lower()] = match.group(2).strip()
+    return fields
+
+
+def _find_abstract_results_placeholder(md_text: str) -> list[str]:
+    redirect_re = re.compile(
+        r"\b(?:reported|presented|described|discussed)\s+in\s+(?:the\s+)?(?:body|main text|results section|"
+        r"synthesis section|manuscript)\b|\bsee\s+(?:the\s+)?(?:body|results section|synthesis section)\b",
+        flags=re.IGNORECASE,
+    )
+    hits: list[str] = []
+    fields = _extract_structured_abstract_fields(md_text)
+    for label in ("results", "conclusions", "conclusion"):
+        value = fields.get(label, "")
+        if value and redirect_re.search(value) and not _is_substantive_finding(value):
+            hits.append(f"{label}: {value[:120]}")
+    return hits
+
+
+def _extract_study_table_key_findings(md_text: str) -> list[str]:
+    marker = "### Study Characteristics"
+    pos = md_text.find(marker)
+    if pos < 0:
+        return []
+    section = md_text[pos:]
+    findings: list[str] = []
+    saw_separator = False
+    in_table = False
+    for line in section.splitlines():
+        stripped = line.strip()
+        if stripped.startswith("| Study (Year) | Country | Design | N | Key Finding |"):
+            in_table = True
+            continue
+        if not in_table:
+            continue
+        if stripped.startswith("|---"):
+            saw_separator = True
+            continue
+        if saw_separator and stripped.startswith("### "):
+            break
+        if saw_separator and stripped.startswith("|"):
+            cells = [cell.strip() for cell in stripped.strip("|").split("|")]
+            if len(cells) >= 5:
+                findings.append(cells[4])
+    return findings
+
+
+def _find_grade_table_pipeline_jargon(md_text: str) -> list[str]:
+    jargon_re = re.compile(r"\b(?:\w+=\d+|auto-computed|configured\s+\w+\s+factors|downgrade=\d+)\b", re.IGNORECASE)
+    hits: list[str] = []
+    in_grade = False
+    for line in md_text.splitlines():
+        stripped = line.strip()
+        if stripped.lower().startswith("## grade summary of findings"):
+            in_grade = True
+            continue
+        if in_grade and stripped.startswith("## "):
+            break
+        if in_grade and stripped.startswith("|") and jargon_re.search(stripped):
+            hits.append(stripped[:160])
+    return hits
+
+
+def _find_quality_assessment_corruption(md_text: str) -> list[str]:
+    corruption_re = re.compile(r"\b(?:unreadable|corrupted|binary|garbled)\b", flags=re.IGNORECASE)
+    heading_re = re.compile(r"^#{2,3}\s+(.+)$")
+    active = False
+    hits: list[str] = []
+    for line in md_text.splitlines():
+        stripped = line.strip()
+        heading = heading_re.match(stripped)
+        if heading:
+            heading_text = heading.group(1).lower()
+            active = any(
+                token in heading_text
+                for token in ("quality assessment", "risk of bias", "robins-i", "rob 2", "casp", "mmat")
+            )
+            continue
+        if active and corruption_re.search(stripped):
+            hits.append(stripped[:160])
+    return hits
+
+
+def _summary_is_missing_or_non_substantive(summary: str) -> bool:
+    cleaned = str(summary or "").strip()
+    if not cleaned:
+        return True
+    if cleaned == result_not_extractable_text():
+        return True
+    return not _is_substantive_finding(cleaned)
+
+
 def _find_protocol_registration_future_tense(md_text: str) -> bool:
     """Detect future-tense protocol registration claims in finalized manuscript."""
     low = md_text.lower()
@@ -684,6 +782,19 @@ async def run_manuscript_contracts(
                 actual=str(table_row_count),
             )
         )
+    key_findings = _extract_study_table_key_findings(md_text)
+    if key_findings:
+        non_substantive = [finding for finding in key_findings if _summary_is_missing_or_non_substantive(finding)]
+        if len(non_substantive) / len(key_findings) > 0.5:
+            violations.append(
+                ContractViolation(
+                    code="STUDY_TABLE_FILLER_LEAK",
+                    severity="error",
+                    message="More than half of study table key-finding cells are non-substantive or unextractable.",
+                    expected="<= 50% non-substantive key findings",
+                    actual=str({"total": len(key_findings), "non_substantive": len(non_substantive)}),
+                )
+            )
 
     non_primary_included = await repository.db.execute(
         """
@@ -1079,6 +1190,16 @@ async def run_manuscript_contracts(
                 actual=str(missing_abs),
             )
         )
+    abstract_placeholder_hits = _find_abstract_results_placeholder(md_text)
+    if abstract_placeholder_hits:
+        violations.append(
+            ContractViolation(
+                code="ABSTRACT_RESULTS_PLACEHOLDER",
+                severity="error",
+                message="Structured abstract redirects readers elsewhere instead of stating findings.",
+                actual=str(abstract_placeholder_hits[:4]),
+            )
+        )
 
     if manuscript_tex_path and tex_text:
         bib_path = Path(manuscript_tex_path).parent / "references.bib"
@@ -1140,6 +1261,47 @@ async def run_manuscript_contracts(
                 actual="0",
             )
         )
+    grade_jargon_hits = _find_grade_table_pipeline_jargon(md_text)
+    if grade_jargon_hits:
+        violations.append(
+            ContractViolation(
+                code="GRADE_TABLE_PIPELINE_JARGON",
+                severity="error",
+                message="GRADE Summary of Findings table contains internal computation jargon.",
+                actual=str(grade_jargon_hits[:4]),
+            )
+        )
+
+    quality_corruption_hits = _find_quality_assessment_corruption(md_text)
+    if quality_corruption_hits:
+        violations.append(
+            ContractViolation(
+                code="QUALITY_ASSESSMENT_CORRUPTED_INPUT",
+                severity="error",
+                message="Quality assessment section contains corrupted-input language.",
+                actual=str(quality_corruption_hits[:4]),
+            )
+        )
+
+    extraction_records = await repository.load_extraction_records(workflow_id)
+    extraction_by_paper = {record.paper_id: record for record in extraction_records}
+    included_with_records = [extraction_by_paper[paper_id] for paper_id in synthesis_ids if paper_id in extraction_by_paper]
+    if included_with_records:
+        low_yield_count = 0
+        for record in included_with_records:
+            summary = str(record.results_summary.get("summary") or "")
+            if _summary_is_missing_or_non_substantive(summary):
+                low_yield_count += 1
+        if low_yield_count / len(included_with_records) > 0.5:
+            violations.append(
+                ContractViolation(
+                    code="EXTRACTION_YIELD_LOW",
+                    severity="error",
+                    message="Most included studies do not have substantive extractable findings.",
+                    expected="<= 50% non-substantive extraction summaries",
+                    actual=str({"total": len(included_with_records), "non_substantive": low_yield_count}),
+                )
+            )
 
     current_generation = await repository.get_writing_generation(workflow_id)
     fallback_cursor = await repository.db.execute(
