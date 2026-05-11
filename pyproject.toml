@@ -41,6 +41,7 @@ dependencies = [
   "nltk>=3.9.3",
   "genai-prices>=0.0.55",
   "pylatexenc>=2.10",
+  "pycountry>=26.2.16",
 ]
 
 [dependency-groups]
