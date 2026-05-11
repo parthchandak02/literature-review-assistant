@@ -9,6 +9,7 @@ Audit project-local `.cursor` assets against the current codebase and update sta
    - `.cursor/commands/`
    - `.cursor/skills/`
    - `.cursor/agents/`
+   - `.cursor/docs/`
    Read each and note a one-line summary of what it covers. Do not assume a fixed set.
 
 2. **Survey the actual codebase** -- Explore the current project structure to understand what is implemented:
@@ -56,5 +57,5 @@ Audit project-local `.cursor` assets against the current codebase and update sta
 
 - Only update a rule when the codebase has genuinely diverged from it -- do NOT rewrite rules for style or preference
 - Keep rule files concise; do not pad them with redundant examples
-- After all changes, re-read the always-on rules in `core/` to confirm they still accurately describe the project
+- After all changes, re-read `.cursor/rules/core/*.mdc` and confirm files with `alwaysApply: true` still accurately describe the project
 - If uncertain whether something warrants a new rule, default to NOT creating one -- rules should encode recurring hard-won knowledge, not obvious conventions

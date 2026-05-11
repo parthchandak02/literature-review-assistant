@@ -711,7 +711,7 @@ not as a crash-if-missing runtime contract.
 `/api/config/generate` and `/api/config/generate/stream` produce route-dependent
 search overrides. Do not document this as always populating all six primary
 database override keys for every topic/mode.
-If `spec.md` or setup docs still claim a guaranteed full six-database override set,
+If `.cursor/docs/*` or setup docs still claim a guaranteed full six-database override set,
 that wording is stale and should be aligned to this behavior.
 
 ## Manuscript Contracts Are the First Line of Defense (Not the Auditor)

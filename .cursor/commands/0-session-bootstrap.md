@@ -2,27 +2,50 @@
 
 Orient yourself at the start of every new chat session before making any plans or edits.
 For planning or editing tasks, execute all steps below before proceeding.
-For quick read-only questions, Steps 1-2 are required and Steps 3-5 are optional.
+For quick read-only questions, Steps 1, 1.5 (lightweight pack), and 2 are required; Steps 3-5 are optional.
 
 ---
 
-## Step 1 -- Read the authoritative project docs
+## Step 1 -- Route through canonical docs first
 
-Read these files in full. They describe architecture, phase status, and module responsibilities.
-Cross-check them against each other -- they occasionally drift as the codebase evolves faster
-than any single doc:
+If not already loaded, read `AGENTS.md` first.
+Read `.cursor/docs/INDEX.md` first, then follow its lifecycle routing.
+Use `.cursor/docs/API_ENDPOINTS.md` only when checking endpoint parity compatibility.
 
-- `spec.md` -- full technical specification (all 8 phases, acceptance criteria, implementation status)
-- `README.md` -- quick-start, production URLs, PM2 process names
-- `.cursor/rules/core/project-overview-always.mdc` -- canonical paths and ALWAYS-ON invariants. The top
-  engineering constraint is: fix process code in `src/`, never patch artifacts under `runs/`.
-  Never manually edit files under `runs/` to paper over pipeline bugs.
-- `.cursor/rules/core/gotchas-agent.mdc` -- operational gotchas (PRISMA, run directories, frontend builds,
-  runtime quirks, and known pipeline bug fix locations). Check before assuming any behavior that "should work but doesn't."
+Required baseline reads:
 
-NOTE: `spec.md` and `README.md` are maintained manually and may lag recent code changes.
-When they contradict the code, trust the code. When they contradict `.cursor/rules/core/project-overview-always.mdc`,
-that rule is closer to current truth. Document any confirmed drift in `gotchas-agent.mdc`.
+- `.cursor/docs/INDEX.md` -- canonical router (single lifecycle narrative)
+- `.cursor/rules/core/project-overview-always.mdc` -- always-on invariants and source-of-truth paths
+- `.cursor/rules/core/gotchas-agent.mdc` -- operational edge cases and known pitfalls
+- `README.md` -- user-facing setup and operations
+- `.cursor/docs/API_ENDPOINTS.md` -- endpoint parity anchor (Section 10.1), only when API contract/parity work is involved
+
+Then read only task-specific docs/skills referenced by `.cursor/docs/INDEX.md`.
+
+NOTE: `.cursor/docs/*` and `README.md` are maintained manually and may lag recent code changes.
+When they contradict the code, trust the code. When they contradict any always-on rule in `.cursor/rules/core/`,
+the rule layer is closer to current truth; then verify against code. Document any confirmed drift in `gotchas-agent.mdc`.
+
+---
+
+## Step 1.5 -- Repomix repo snapshot (structural ground truth)
+
+Purpose: align the session with what the repository **actually** contains (paths, density, and searchable text), not only the curated docs from Step 1.
+
+**When the Repomix MCP server (`user-repomix`) is available:**
+
+1. Call `pack_codebase` with `directory` set to the **absolute path of this repository root** (the folder that contains `README.md` and `pyproject.toml`).
+2. Recommended `ignorePatterns` to keep packs small and safe:
+   `**/node_modules/**,**/dist/**,**/runs/**,**/.venv/**,**/frontend/dist/**`
+3. Read the tool response carefully: `directoryStructure`, file counts / token metrics, and store **`outputId`** for follow-up searches on the same pack.
+4. Use `grep_repomix_output` with that `outputId` to locate entrypoints, symbols, and config keys before opening many files at random.
+5. **Planning or editing tasks:** add `includePatterns` scoped to the user request (examples: `src/manuscript/**/*.py`, `frontend/src/**/*.ts`, `frontend/src/**/*.tsx`) **plus** the Step 1 doc paths (`README.md`, `AGENTS.md`, `.cursor/docs/**/*.md`) so contracts and code land in one searchable surface.
+6. **Quick read-only questions:** still run Step 1.5, but keep the pack small (docs + one subtree, or docs-only) so startup stays fast.
+7. If a prior Repomix output file already exists on disk and is fresh enough, you may call `attach_packed_output` with `path` to reuse it; re-pack when `git status` shows large structural changes you have not captured yet.
+
+**When Repomix is unavailable:** approximate the same intent with `git ls-files` (optionally scoped) and workspace `rg`, then read files directly.
+
+**Token discipline:** if the reported token total is too large, narrow `includePatterns`, tighten `ignorePatterns`, or set `compress` to true only when you truly need whole-repo breadth (see Repomix tool descriptions).
 
 ---
 
@@ -106,7 +129,10 @@ cd frontend && pnpm fix && pnpm typecheck
 
 ## Orientation checklist (confirm before proceeding)
 
-- [ ] Read spec.md and README.md
+- [ ] Read `AGENTS.md` and `.cursor/docs/INDEX.md`
+- [ ] Ran Repomix `pack_codebase` (or `attach_packed_output`) and captured `outputId`; used `grep_repomix_output` when hunting symbols, or noted MCP unavailable and used `git ls-files` / `rg` instead
+- [ ] Read only the task-scoped docs and skills selected by `.cursor/docs/INDEX.md`
+- [ ] Read README.md and (if touching API contracts) `.cursor/docs/API_ENDPOINTS.md` Section 10.1 parity table
 - [ ] Read .cursor/rules/core/project-overview-always.mdc and gotchas-agent.mdc
 - [ ] Understood the src/-only fix / no `runs/` patches principle from project-overview-always.mdc
 - [ ] Reviewed last 5 commit messages and touched files

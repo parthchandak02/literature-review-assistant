@@ -62,7 +62,12 @@ alwaysApply: true
 - Before any commit, verify staged files do not contain secrets or runtime outputs.
 
 ## Where Detailed Guidance Lives
-- Full architecture and endpoint inventory: `spec.md` and `README.md`.
+- Primary onboarding entrypoint for any agent/tool: `AGENTS.md`.
+- Cursor canonical docs index: `.cursor/docs/INDEX.md`.
+- Architecture/runtime contracts: `.cursor/docs/ARCHITECTURE.md`.
+- API and persistence contracts: `.cursor/docs/API_CONTRACT.md`, `.cursor/docs/PERSISTENCE.md`.
+- Pipeline and status contracts: `.cursor/docs/PIPELINE.md`, `.cursor/docs/IMPLEMENTATION_STATUS.md`.
+- Endpoint parity anchor: `.cursor/docs/API_ENDPOINTS.md` Section 10.1.
 - Bootstrap and operational checklist: `.cursor/commands/0-session-bootstrap.md`.
 - Task-specific deep guidance: `.cursor/skills/**/SKILL.md`.
 - Debugging gotchas and historical failure patterns: `.cursor/rules/core/gotchas-agent.mdc`.

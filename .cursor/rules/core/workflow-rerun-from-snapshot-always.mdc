@@ -1,0 +1,12 @@
+---
+description: Re-test prior workflows from their run config snapshot
+alwaysApply: true
+---
+
+# Workflow Rerun From Snapshot
+
+- When re-testing an existing workflow like `wf-XXXX`, use the run's own `config_snapshot.yaml` with `uv run python -m src.main run --config <run_dir>/config_snapshot.yaml --fresh`.
+- Do not copy old YAML back into `config/review.yaml` just to rerun a past workflow.
+- Use `resume` only to continue the same workflow. Use `run --config ... --fresh` to rerun old inputs after code changes.
+- If you need live frontend logs, start or continue the rerun through the API-managed path, not a local-only CLI run.
+- After making substantial changes based on a specific workflow, rerun it this way before claiming the fix worked.

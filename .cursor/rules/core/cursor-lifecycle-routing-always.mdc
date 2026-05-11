@@ -1,0 +1,33 @@
+---
+description: Cursor-first lifecycle routing for agent requests. Apply to map user intent into think, plan, build, review, test, ship stages.
+globs:
+alwaysApply: true
+---
+
+# Cursor Lifecycle Routing
+
+## Canonical Routing Input
+
+- `.cursor/docs/INDEX.md` (single routing narrative)
+
+## Intent to Stage Mapping
+
+- Think: architecture questions, constraints, tradeoff discovery
+- Plan: phased design, sequencing, dependency analysis
+- Build: concrete code changes in `src/` or `frontend/src/`
+- Review: risk/bug/regression checks
+- Test: parity, replay, and module validation
+- Ship: commit hygiene and release readiness
+
+## Stage-to-Docs Routing
+
+Use `.cursor/docs/INDEX.md` as the single lifecycle routing narrative.
+Open other docs and skills only when routed by that index.
+Ship stage must follow `.cursor/commands/3-pre-commit-workflow.md`.
+
+## Routing Rules
+
+- Use the narrowest stage that satisfies the request.
+- If request spans multiple stages, complete them in lifecycle order.
+- Treat `.cursor/docs/*` as canonical docs before root mirror docs.
+- Keep `.cursor/docs/API_ENDPOINTS.md` usage limited to endpoint parity compatibility.

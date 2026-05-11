@@ -4,7 +4,7 @@ Check that project documentation is accurate and aligned with the current codeba
 
 ## Steps
 
-1. **Discover project docs** -- List markdown files in the project root and, if present, any `docs/` directory. Identify which files serve as the primary user-facing README and the technical specification (commonly `README.md` and `spec.md` or similar). Read them in full. Also read `.cursor/rules/core/project-overview-always.mdc`, `.cursor/rules/core/gotchas-agent.mdc`, `.cursor/commands/*.md`, and relevant `.cursor/skills/**/SKILL.md`/`.cursor/agents/*.md` when they define behavior that docs often lag behind.
+1. **Discover project docs** -- List markdown files in the project root and, if present, any `docs/` directory and `.cursor/docs/` directory. Identify which files serve as the primary user-facing README and the technical specification surface (`.cursor/docs/*` canonical, including `.cursor/docs/API_ENDPOINTS.md` for endpoint parity). Read them in full. Also read `.cursor/rules/core/project-overview-always.mdc`, `.cursor/rules/core/gotchas-agent.mdc`, `.cursor/commands/*.md`, and relevant `.cursor/skills/**/SKILL.md`/`.cursor/agents/*.md` when they define behavior that docs often lag behind.
 
 2. **Survey the codebase state** -- Understand what is actually implemented:
    - List all source directories and their subdirectories
@@ -19,7 +19,7 @@ Check that project documentation is accurate and aligned with the current codeba
    - **Configuration references**: Are config file paths and option names still correct?
    - **Missing sections**: Is there implemented functionality that has no documentation at all?
 
-4. **Validate the technical spec** -- For each phase or feature described in the spec:
+4. **Validate the technical docs contract** -- For each phase or feature described in `.cursor/docs/*`:
    - Determine its status: "Implemented", "Partial -- [what is done]", or "Not started"
    - Flag any section referencing a module, class, or file that does not exist in the codebase
    - Flag any implementation that exists in the codebase but is not mentioned in the spec
@@ -29,7 +29,7 @@ Check that project documentation is accurate and aligned with the current codeba
    **README changes needed:**
    - Section: [name] -- Issue: [what is wrong] -- Fix: [what to write]
 
-   **Spec changes needed:**
+   **Technical docs changes needed:**
    - Phase/Section: [name] -- Issue: [what is wrong] -- Fix: [what to write]
 
 6. **Apply updates** -- Make the changes directly to the doc files. Keep documentation minimal and utilitarian:
@@ -41,8 +41,8 @@ Check that project documentation is accurate and aligned with the current codeba
 
 ## Rules for This Command
 
-- Do NOT create new documentation files -- only update files that already exist
-- Do NOT remove spec content unless it has been explicitly cancelled or superseded by the user
+- Do NOT create ad-hoc new documentation files. New docs are allowed under `.cursor/docs/` when explicitly requested by architecture refactors.
+- Do NOT remove established endpoint parity content in `.cursor/docs/API_ENDPOINTS.md` unless explicitly cancelled or superseded by the user
 - Do NOT add verbose architecture explanations -- keep it focused on what a developer needs to get started and run the project
 - If a referenced config key or CLI flag does not exist in the codebase, mark it as stale rather than silently removing it -- ask the user for confirmation before deleting documented features
-- In this project, confirmed runtime behavior divergences from docs should also be added to `.cursor/rules/core/gotchas-agent.mdc` as new gotcha entries, not just corrected in README/spec
+- In this project, confirmed runtime behavior divergences from docs should also be added to `.cursor/rules/core/gotchas-agent.mdc` as new gotcha entries, not just corrected in README/.cursor/docs
