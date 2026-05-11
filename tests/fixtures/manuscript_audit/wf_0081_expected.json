@@ -1,0 +1,18 @@
+{
+  "workflow_id": "wf-0081",
+  "run_dir": "runs/2026-04-15/wf-0081-what-is-the-impact-of-qr-code-enabled-digital-vaccine-record-sys/run_02-51-28PM",
+  "required_profiles": [
+    "general_systematic_review",
+    "implementation_science"
+  ],
+  "allowed_verdicts": [
+    "major_revisions"
+  ],
+  "blocking_count_min": 1,
+  "blocking_count_max": 8,
+  "required_category_substrings": [
+    "risk of bias",
+    "search"
+  ],
+  "forbidden_category_substrings": []
+}

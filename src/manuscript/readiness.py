@@ -29,9 +29,27 @@ class ReadinessScorecard(BaseModel):
     ready: bool
     checks: list[ReadinessCheck] = Field(default_factory=list)
     contract_passed: bool = False
+    contract_ready: bool = False
+    audit_ready: bool = False
+    submission_ready: bool = False
     citation_lineage_valid: bool = False
     fallback_event_count: int = 0
     blocking_reasons: list[str] = Field(default_factory=list)
+
+
+def _audit_status_label(latest_run: dict[str, object] | None) -> str:
+    if latest_run is None:
+        return "missing"
+    gate_action = str(latest_run.get("gate_action") or "strict_block")
+    gate_blocked = bool(latest_run.get("gate_blocked"))
+    passed = bool(latest_run.get("passed"))
+    if gate_blocked and gate_action == "advisory_only":
+        return "completed_with_findings"
+    if gate_blocked:
+        return "blocked"
+    if passed:
+        return "passed"
+    return "completed_with_findings"
 
 
 async def compute_readiness_scorecard(
@@ -51,6 +69,8 @@ async def compute_readiness_scorecard(
     fin_ok = False
     prisma_ok = False
     contract_passed = False
+    contract_ready = False
+    audit_ready = False
     citation_lineage_valid = False
     fallback_event_count = 0
 
@@ -88,6 +108,41 @@ async def compute_readiness_scorecard(
         if not prisma_ok:
             blocking.append("PRISMA flow counts are not arithmetically valid")
 
+        latest_audit: dict[str, object] | None = None
+        try:
+            latest_audit = await repo.get_latest_manuscript_audit(workflow_id)
+        except Exception:
+            latest_audit = None
+        audit_status = _audit_status_label(latest_audit)
+        if latest_audit is None:
+            checks.append(
+                ReadinessCheck(
+                    name="manuscript_audit",
+                    ok=False,
+                    detail="missing",
+                )
+            )
+            blocking.append("manuscript audit has not been run")
+        else:
+            audit_ready = bool(latest_audit.get("passed")) and not bool(latest_audit.get("gate_blocked"))
+            audit_detail = (
+                f"{audit_status}; verdict={latest_audit.get('verdict')}; "
+                f"blocking={int(latest_audit.get('blocking_count') or 0)}"
+            )
+            checks.append(
+                ReadinessCheck(
+                    name="manuscript_audit",
+                    ok=audit_ready,
+                    detail=audit_detail,
+                )
+            )
+            if not audit_ready:
+                gate_failure_reasons = list(latest_audit.get("gate_failure_reasons") or [])
+                if gate_failure_reasons:
+                    blocking.append(f"manuscript audit blocked readiness: {'; '.join(gate_failure_reasons[:3])}")
+                else:
+                    blocking.append(f"manuscript audit blocked readiness: status={audit_status}")
+
         contract = await run_manuscript_contracts(
             repository=repo,
             citation_repository=cite_repo,
@@ -101,6 +156,7 @@ async def compute_readiness_scorecard(
             abstract_minimum_words=abstract_minimum_words,
         )
         contract_passed = contract.passed
+        contract_ready = contract_passed
         checks.append(
             ReadinessCheck(
                 name="manuscript_contracts",
@@ -186,19 +242,23 @@ async def compute_readiness_scorecard(
         )
     )
 
-    ready = (
+    submission_ready = (
         fin_ok
         and prisma_ok
-        and contract_passed
+        and contract_ready
+        and audit_ready
         and citation_lineage_valid
         and fallback_event_count == 0
         and prisma_check_ok
     )
     return ReadinessScorecard(
         workflow_id=workflow_id,
-        ready=ready,
+        ready=submission_ready,
         checks=checks,
         contract_passed=contract_passed,
+        contract_ready=contract_ready,
+        audit_ready=audit_ready,
+        submission_ready=submission_ready,
         citation_lineage_valid=citation_lineage_valid,
         fallback_event_count=fallback_event_count,
         blocking_reasons=blocking,
