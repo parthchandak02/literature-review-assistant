@@ -10,7 +10,14 @@ import pytest
 from src.db.database import get_db
 from src.db.repositories import WorkflowRepository
 from src.db.workflow_registry import RegistryEntry
-from src.models import CandidatePaper, ExtractionRecord, FallbackEventRecord, PrimaryStudyStatus, SectionDraft, StudyDesign
+from src.models import (
+    CandidatePaper,
+    ExtractionRecord,
+    FallbackEventRecord,
+    PrimaryStudyStatus,
+    SectionDraft,
+    StudyDesign,
+)
 from src.models.enums import ScreeningDecisionType, SourceCategory
 from src.orchestration import workflow as workflow_module
 from src.orchestration.resume import PHASE_ORDER, load_resume_state

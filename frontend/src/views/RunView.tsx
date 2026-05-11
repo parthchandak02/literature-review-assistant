@@ -120,8 +120,6 @@ interface RunViewProps {
   onResumeFromPhase?: (phase: string) => Promise<void>
   /** True when resume controls were opened from the sidebar launcher. */
   resumeModeActive?: boolean
-  /** Increments when sidebar launcher requests timeline auto-arm. */
-  autoArmFromSidebarToken?: number
   /** Navigate References CTA to Results/Submission Files hub. */
   onGoToSubmissionReferencePapers?: () => void
   /** Highlight target used by Results/Artifacts submission download hub. */
@@ -144,7 +142,6 @@ export function RunView({
   isLive,
   onResumeFromPhase,
   resumeModeActive = false,
-  autoArmFromSidebarToken = 0,
   onGoToSubmissionReferencePapers,
   submissionFocusTarget = null,
   submissionFocusToken = 0,
@@ -404,7 +401,6 @@ export function RunView({
               onCancel={onCancel}
               onResumeFromPhase={onResumeFromPhase}
               resumeModeActive={resumeModeActive}
-              autoArmFromSidebarToken={autoArmFromSidebarToken}
             />
           )}
 

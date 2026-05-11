@@ -16,12 +16,6 @@ import logging
 
 import pytest
 
-from src.manuscript.contract_matrix import (
-    ARTIFACTS_FINALIZE_WRITTEN,
-    PHASES_TEX_OPTIONAL,
-    contract_phase_label,
-    tex_optional_for_phase,
-)
 from src.manuscript.prisma_disclosure import (
     prisma_disclosure_gaps,
     should_use_db_prisma_flow_checks,
@@ -244,27 +238,6 @@ def test_non_availability_codes_always_compliance() -> None:
     assert violation_category(compliance_code, "phase_7_audit") == "methodological_compliance"
     assert violation_category(compliance_code, "finalize") == "methodological_compliance"
 
-
-# ---------------------------------------------------------------------------
-# Contract matrix helpers
-# ---------------------------------------------------------------------------
-
-
-def test_tex_optional_phases_consistent() -> None:
-    for phase in PHASES_TEX_OPTIONAL:
-        assert tex_optional_for_phase(phase) is True
-    assert tex_optional_for_phase("finalize") is False
-    assert tex_optional_for_phase("export") is False
-
-
-def test_artifacts_finalize_written_contains_expected() -> None:
-    assert "manuscript_tex" in ARTIFACTS_FINALIZE_WRITTEN
-    assert "references_bib" in ARTIFACTS_FINALIZE_WRITTEN
-
-
-def test_contract_phase_label_defaults() -> None:
-    assert contract_phase_label("") == "finalize"
-    assert contract_phase_label("phase_7_audit") == "phase_7_audit"
 
 
 # ---------------------------------------------------------------------------

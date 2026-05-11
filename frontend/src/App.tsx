@@ -135,8 +135,6 @@ export default function App() {
   const [activeRunTab, setActiveRunTab] = useState<RunTab>("activity")
   const [submissionFocusTarget, setSubmissionFocusTarget] = useState<"reference-papers" | null>(null)
   const [submissionFocusToken, setSubmissionFocusToken] = useState(0)
-  const [resumeLauncherWorkflowId, setResumeLauncherWorkflowId] = useState<string | null>(null)
-  const [resumeAutoArmToken] = useState(0)
   const [costOpsOpen, setCostOpsOpen] = useState(false)
 
   // Artifacts for historical ResultsView
@@ -503,7 +501,6 @@ export default function App() {
       // Mark as switched immediately so concurrent/delayed callbacks are no-ops.
       switched = true
       consecutiveMisses = 0
-      setResumeLauncherWorkflowId(null)
       const now = new Date()
       reset()
       liveRunNavigatedRef.current = null
@@ -569,7 +566,6 @@ export default function App() {
   // ---------------------------------------------------------------------------
 
   async function handleStart(req: RunRequest) {
-    setResumeLauncherWorkflowId(null)
     reset()
     wasStreamingRef.current = false
     liveRunNavigatedRef.current = null
@@ -595,7 +591,6 @@ export default function App() {
   }
 
   async function handleStartWithSupplementaryCsv(csvFile: File, req: RunRequest) {
-    setResumeLauncherWorkflowId(null)
     reset()
     wasStreamingRef.current = false
     liveRunNavigatedRef.current = null
@@ -632,7 +627,6 @@ export default function App() {
   }
 
   async function handleStartWithMasterlistCsv(csvFile: File, req: RunRequest) {
-    setResumeLauncherWorkflowId(null)
     reset()
     wasStreamingRef.current = false
     liveRunNavigatedRef.current = null
@@ -674,7 +668,6 @@ export default function App() {
   }
 
   function handleNewReview() {
-    setResumeLauncherWorkflowId(null)
     setSelectedRun(null)
     setHistoryOutputs({})
     navigate("/")
@@ -682,7 +675,6 @@ export default function App() {
 
   function handleSelectLiveRun() {
     if (!liveRunId || !liveTopic) return
-    setResumeLauncherWorkflowId(null)
     setSelectedRun({
       runId: liveRunId,
       workflowId: liveWorkflowId,
@@ -698,7 +690,6 @@ export default function App() {
   }
 
   async function handleSelectHistory(entry: HistoryEntry) {
-    setResumeLauncherWorkflowId(null)
     const focusSelectedWorkflow = () => {
       setActiveRunTab("activity")
       navigate(`/run/${entry.workflow_id}/activity`, { replace: true })
@@ -804,13 +795,11 @@ export default function App() {
   }
 
   function handleGoHome() {
-    setResumeLauncherWorkflowId(null)
     setSelectedRun(null)
     navigate("/")
   }
 
   function handleResumeRun(res: RunResponse, workflowId: string) {
-    setResumeLauncherWorkflowId(null)
     const now = new Date()
     reset()
     wasStreamingRef.current = false
@@ -992,9 +981,7 @@ export default function App() {
     const completedHistoricalRun =
       !isViewingLiveRun &&
       ["completed", "done"].includes((selectedRun.historicalStatus ?? "").toLowerCase())
-    const resumeModeActive =
-      !isViewingLiveRun &&
-      (selectedRun?.workflowId === resumeLauncherWorkflowId || completedHistoricalRun)
+    const resumeModeActive = completedHistoricalRun
 
     return (
       <RunView
@@ -1013,7 +1000,6 @@ export default function App() {
         isLive={isViewingLiveRun && isRunning && Boolean(dbUnlocked)}
         onResumeFromPhase={!isViewingLiveRun ? handleTimelineResumePhase : undefined}
         resumeModeActive={resumeModeActive}
-        autoArmFromSidebarToken={resumeAutoArmToken}
         submissionFocusTarget={submissionFocusTarget}
         submissionFocusToken={submissionFocusToken}
       />

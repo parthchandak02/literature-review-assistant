@@ -7,8 +7,8 @@ which runtime.db to open without scanning the filesystem.
 from __future__ import annotations
 
 import json
-import os
 import logging
+import os
 from collections.abc import AsyncIterator, Sequence
 from contextlib import asynccontextmanager
 from dataclasses import dataclass

@@ -27,7 +27,11 @@ from src.export.markdown_refs import (
     get_latex_figure_paths,
 )
 from src.export.prisma_checklist import validate_prisma
-from src.export.submission_packager import _build_number_to_citekey, _copy_included_study_pdfs, _strict_export_unresolved_tokens
+from src.export.submission_packager import (
+    _build_number_to_citekey,
+    _copy_included_study_pdfs,
+    _strict_export_unresolved_tokens,
+)
 from src.manuscript.contracts import (
     _extract_disclosed_included_counts,
     _hard_failure,

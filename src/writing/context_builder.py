@@ -13,7 +13,11 @@ from datetime import datetime
 
 from pydantic import BaseModel
 
-from src.extraction.inference_utils import derive_concise_result_summary, infer_country_from_text, result_not_extractable_text
+from src.extraction.inference_utils import (
+    derive_concise_result_summary,
+    infer_country_from_text,
+    result_not_extractable_text,
+)
 from src.models import CandidatePaper, ExtractionRecord
 from src.models.additional import PRISMACounts
 

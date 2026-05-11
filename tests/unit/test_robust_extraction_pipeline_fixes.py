@@ -9,7 +9,14 @@ from src.db.repositories import CitationRepository, WorkflowRepository
 from src.extraction.extractor import ExtractionService
 from src.extraction.inference_utils import _is_substantive_finding, infer_country_from_text
 from src.manuscript.contracts import run_manuscript_contracts
-from src.models import CandidatePaper, ExtractionRecord, GRADEOutcomeAssessment, ReviewConfig, ReviewType, SettingsConfig
+from src.models import (
+    CandidatePaper,
+    ExtractionRecord,
+    GRADEOutcomeAssessment,
+    ReviewConfig,
+    ReviewType,
+    SettingsConfig,
+)
 from src.models.enums import GRADECertainty, StudyDesign
 from src.quality.grade import build_sof_table
 from src.search.pdf_retrieval import _is_binary_garbage, _parse_pdf_bytes

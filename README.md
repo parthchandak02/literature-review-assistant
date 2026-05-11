@@ -451,22 +451,9 @@ cd frontend && pnpm fix && pnpm typecheck
 |--------|---------|
 | `scripts/validate_workflow_replay.py` | Runs quick/standard/deep replay validation directly on an existing workflow `runtime.db` and persists phase-level check results to `validation_runs` and `validation_checks`. |
 | `scripts/finalize_manuscript.py` | Thin regeneration utility for `doc_manuscript.md`: re-assembles all sections (Declarations, GRADE tables, Study Characteristics Table, Search appendix, Figures, References) from an existing run's runtime.db. Strips unresolved citekeys and injects IMRaD headings for historical runs. Usage: `uv run python scripts/finalize_manuscript.py --run-dir runs/YYYY-MM-DD/wf-NNNN-<topic-slug>/run_<time>` |
-| `scripts/migrate_to_runs.py` | One-time migration to move legacy run artifacts into the current `runs/YYYY-MM-DD/wf-NNNN-<topic-slug>/run_<time>/` directory structure. |
 | `scripts/re_extract.py` | Targeted re-extraction for studies with low-quality data (placeholder outcomes, missing authors). Usage: `uv run python scripts/re_extract.py --run-dir runs/YYYY-MM-DD/wf-NNNN-<topic-slug>/run_<time>` |
-| `scripts/benchmark.py` | Validate tool outputs against a gold-standard corpus: measures screening recall, extraction field accuracy, and RoB Cohen's kappa vs. published review. Usage: `uv run python scripts/benchmark.py --run-dir runs/YYYY-MM-DD/wf-NNNN-<topic-slug>/run_<time> --gold gold.json` |
-| `scripts/test_fulltext_retrieval.py` | Test full-text retrieval for included papers from a workflow. Reports coverage across retrieval tiers/sources (publisher-direct, citation meta PDF, Unpaywall, arXiv, Semantic Scholar, CORE, Europe PMC, ScienceDirect, PMC, Crossref, landing-page fallback). Usage: `uv run python scripts/test_fulltext_retrieval.py --workflow-id wf-xxx` or `--run-dir runs/<path>` |
-| `scripts/validate_scopus_key.py` | Validate SCOPUS_API_KEY against Elsevier API. Usage: `uv run python scripts/validate_scopus_key.py` |
 | `scripts/show_run_info.py` | Print run metadata (status, included papers, cost) for a workflow ID without opening the browser. Usage: `uv run python scripts/show_run_info.py --workflow-id wf-xxx` |
-| `scripts/build_benchmark.py` | Build or update the gold-standard benchmark from reference/ PDFs using the PDF vision LLM. Extracts structured quality dimensions and computes derived thresholds. Usage: `uv run python scripts/build_benchmark.py` or `--fetch-web` to pull additional published SRs. |
-| `scripts/test_humanizer_pipeline.py` | Stage-wise validator for humanizer integrity. Runs deterministic guardrails (and optional LLM humanizer pass) and verifies citation blocks and numeric tokens are unchanged. Usage: `uv run python scripts/test_humanizer_pipeline.py --input-file sample.txt [--citation-catalog-file catalog.txt] [--run-llm]` |
-| `scripts/test_search_connectors.py` | Live smoke-test for all configured search connectors. Loads API keys from .env and config from review.yaml, runs a real query per connector, and reports record counts and errors. Usage: `uv run python scripts/test_search_connectors.py` |
 | `scripts/inject_missing_citations.py` | Post-hoc CLI: reads a completed run's section drafts, identifies uncited citekeys, patches the Results section with a design-grouped coverage paragraph, and regenerates the manuscript. Accepts `--workflow-id`. Uses LLM batch resolver as fallback for unmatched keys. Usage: `uv run python scripts/inject_missing_citations.py --workflow-id wf-xxx` |
-| `scripts/test_openalex_quality.py` | Diagnostic: checks OpenAlex filter quality for a query (journal vs. preprint ratio, core vs. broad coverage). Usage: `uv run python scripts/test_openalex_quality.py` |
-| `scripts/backfill_primary_study_status.py` | Backfills primary-study status in runtime DBs for historical runs. |
-| `scripts/compare_primary_filter_delta.py` | Compares before/after impact of primary-study filtering changes. |
-| `scripts/analyze_past_run_logs.py` | Summarizes historical run logs to find recurrent failures or bottlenecks. |
-| `scripts/benchmark_config_generator.py` | Benchmarks AI config generation quality/consistency over prompt sets. |
-| `scripts/benchmark_model_routing_promptfoo.py` | Promptfoo-style benchmark for model-routing decisions and prompt behavior. |
 
 Additional maintenance and diagnostics helpers also live under `scripts/`; use `ls scripts` when you need a one-off workflow probe or parity check.
 

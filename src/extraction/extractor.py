@@ -181,7 +181,7 @@ def _is_filler_summary_text(text: str) -> bool:
     return not _is_substantive_finding(cleaned)
 
 
-def _synthesize_summary_from_outcomes(outcomes: list["_OutcomeItem"]) -> str:
+def _synthesize_summary_from_outcomes(outcomes: list[_OutcomeItem]) -> str:
     parts: list[str] = []
     for outcome in outcomes:
         name = str(outcome.name or "").strip()
