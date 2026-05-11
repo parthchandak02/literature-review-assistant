@@ -26,9 +26,11 @@ import aiohttp
 
 from src.llm.pydantic_client import PydanticAIClient
 from src.models.diagrams import (
+    DiagramStyleProfile,
     FlowchartDiagramInput,
     FrameworkDiagramInput,
     TaxonomyDiagramInput,
+    diagram_style_profile_from_seed,
 )
 
 logger = logging.getLogger(__name__)
@@ -125,7 +127,7 @@ async def _render_mermaid_via_kroki(mermaid_source: str, out_path: Path) -> Path
 # ---------------------------------------------------------------------------
 
 
-def _build_taxonomy_dot_prompt(spec: TaxonomyDiagramInput) -> str:
+def _build_taxonomy_dot_prompt(spec: TaxonomyDiagramInput, style: DiagramStyleProfile) -> str:
     categories_text = []
     for cat in spec.categories:
         items_str = ", ".join(f'"{it}"' for it in cat.items) if cat.items else "(none)"
@@ -135,6 +137,10 @@ def _build_taxonomy_dot_prompt(spec: TaxonomyDiagramInput) -> str:
         categories_text.append(f'  - "{cat.label}": items=[{items_str}]{sub_str}')
 
     categories_block = "\n".join(categories_text)
+    cat_shape = (
+        'shape=box, style="rounded,filled", ' if style.taxonomy_category_rounded else "shape=box, style=filled, "
+    )
+    leaf_shape = style.taxonomy_leaf_shape
 
     return textwrap.dedent(f"""
         You are a scientific figure generator. Produce ONLY a valid Graphviz DOT digraph
@@ -148,14 +154,14 @@ def _build_taxonomy_dot_prompt(spec: TaxonomyDiagramInput) -> str:
         {categories_block}
 
         Requirements:
-        - Use digraph with rankdir=TB (top to bottom)
-        - Root node shape: rectangle, fillcolor="#2c3e50", fontcolor=white, style=filled
-        - Category nodes: rounded rectangle, fillcolor="#3498db", fontcolor=white, style=filled
-        - Leaf nodes: ellipse, fillcolor="#ecf0f1", fontcolor="#2c3e50", style=filled
+        - Use digraph with rankdir={style.taxonomy_rankdir}
+        - Root node shape: rectangle, fillcolor="{style.taxonomy_root_fill}", fontcolor=white, style=filled
+        - Category nodes: {cat_shape} fillcolor="{style.taxonomy_category_fill}", fontcolor=white
+        - Leaf nodes: shape={leaf_shape}, fillcolor="{style.taxonomy_leaf_fill}", fontcolor="{style.taxonomy_leaf_fontcolor}", style=filled
         - Edges: plain arrows from root to categories, then categories to leaves
         - No node IDs with spaces -- use underscores
-        - Set graph [splines=ortho, nodesep=0.5, ranksep=0.8]
-        - Set fontname="Helvetica" on all nodes and edges
+        - Set graph [splines={style.taxonomy_splines}, nodesep={style.taxonomy_nodesep}, ranksep={style.taxonomy_ranksep}]
+        - Set fontname="Helvetica" on graph, all nodes and edges
         - Keep labels concise (max 4 words per node)
         - If a category has subcategories, chain them before leaves
 
@@ -163,16 +169,23 @@ def _build_taxonomy_dot_prompt(spec: TaxonomyDiagramInput) -> str:
     """).strip()
 
 
-async def render_taxonomy_diagram(spec: TaxonomyDiagramInput, out_path: Path, model: str = _LLM_MODEL) -> Path | None:
+async def render_taxonomy_diagram(
+    spec: TaxonomyDiagramInput,
+    out_path: Path,
+    model: str = _LLM_MODEL,
+    *,
+    style: DiagramStyleProfile | None = None,
+) -> Path | None:
     """Generate a taxonomy tree SVG via LLM -> DOT -> Graphviz."""
-    prompt = _build_taxonomy_dot_prompt(spec)
+    _style = style or diagram_style_profile_from_seed("default-taxonomy")
+    prompt = _build_taxonomy_dot_prompt(spec, _style)
     try:
         raw = await _llm_generate(prompt, model=model)
         dot_source = _extract_code_block(raw, "dot")
         if not dot_source.startswith("digraph") and not dot_source.startswith("graph"):
             logger.warning("LLM taxonomy DOT output does not look like DOT; skipping.")
             return None
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
         return await loop.run_in_executor(None, _render_dot_to_svg, dot_source, out_path)
     except Exception as exc:  # noqa: BLE001
         logger.warning("Taxonomy diagram generation failed (%s); skipping.", exc)
@@ -184,11 +197,16 @@ async def render_taxonomy_diagram(spec: TaxonomyDiagramInput, out_path: Path, mo
 # ---------------------------------------------------------------------------
 
 
-def _build_framework_dot_prompt(spec: FrameworkDiagramInput) -> str:
+def _build_framework_dot_prompt(spec: FrameworkDiagramInput, style: DiagramStyleProfile) -> str:
     interventions = "\n".join(f"  - {i}" for i in spec.interventions)
     outcomes = "\n".join(f"  - {o}" for o in spec.outcomes)
     themes = "\n".join(f"  - {t}" for t in spec.key_themes) if spec.key_themes else "  - (none identified)"
     comparator_line = f"Comparator: {spec.comparator}" if spec.comparator else ""
+    cluster_note = (
+        'Use subgraph clusters with style="rounded,filled,bold" for Interventions and Outcomes.'
+        if style.framework_cluster_style == "rounded"
+        else "Use subgraph clusters for Interventions and Outcomes groups with thin solid borders."
+    )
 
     return textwrap.dedent(f"""
         You are a scientific figure generator. Produce ONLY a valid Graphviz DOT digraph
@@ -210,32 +228,39 @@ def _build_framework_dot_prompt(spec: FrameworkDiagramInput) -> str:
         {themes}
 
         Requirements:
-        - Use digraph with rankdir=LR (left to right)
-        - Population node: leftmost, shape=box, fillcolor="#1a5276", fontcolor=white, style=filled
-        - Intervention nodes: shape=box, fillcolor="#1e8449", fontcolor=white, style=filled
-        - Outcome nodes: rightmost, shape=box, fillcolor="#7d6608", fontcolor=white, style=filled
-        - Theme nodes: shape=diamond, fillcolor="#6c3483", fontcolor=white, style=filled
+        - Use digraph with rankdir={style.framework_rankdir}
+        - Population node: leftmost, shape=box, fillcolor="{style.framework_pop_fill}", fontcolor=white, style=filled
+        - Intervention nodes: shape=box, fillcolor="{style.framework_int_fill}", fontcolor=white, style=filled
+        - Outcome nodes: rightmost, shape=box, fillcolor="{style.framework_out_fill}", fontcolor=white, style=filled
+        - Theme nodes: shape={style.framework_theme_shape}, fillcolor="{style.framework_theme_fill}", fontcolor=white, style=filled
         - Edges: Population -> Interventions -> Outcomes; Themes connect to relevant Outcomes
-        - Use subgraph clusters for Interventions and Outcomes groups with light borders
+        - {cluster_note}
         - Set fontname="Helvetica" on graph, all nodes and edges
         - No node IDs with spaces -- use underscores
-        - Set graph [splines=curved, nodesep=0.6, ranksep=1.0]
+        - Set graph [splines={style.framework_splines}, nodesep={style.framework_nodesep}, ranksep={style.framework_ranksep}]
         - Keep labels concise (max 5 words per node)
 
         Return ONLY the DOT code inside a ```dot code block. No explanation.
     """).strip()
 
 
-async def render_framework_diagram(spec: FrameworkDiagramInput, out_path: Path, model: str = _LLM_MODEL) -> Path | None:
+async def render_framework_diagram(
+    spec: FrameworkDiagramInput,
+    out_path: Path,
+    model: str = _LLM_MODEL,
+    *,
+    style: DiagramStyleProfile | None = None,
+) -> Path | None:
     """Generate a PICO conceptual framework SVG via LLM -> DOT -> Graphviz."""
-    prompt = _build_framework_dot_prompt(spec)
+    _style = style or diagram_style_profile_from_seed("default-framework")
+    prompt = _build_framework_dot_prompt(spec, _style)
     try:
         raw = await _llm_generate(prompt, model=model)
         dot_source = _extract_code_block(raw, "dot")
         if not dot_source.startswith("digraph") and not dot_source.startswith("graph"):
             logger.warning("LLM framework DOT output does not look like DOT; skipping.")
             return None
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
         return await loop.run_in_executor(None, _render_dot_to_svg, dot_source, out_path)
     except Exception as exc:  # noqa: BLE001
         logger.warning("Framework diagram generation failed (%s); skipping.", exc)
@@ -247,7 +272,7 @@ async def render_framework_diagram(spec: FrameworkDiagramInput, out_path: Path, 
 # ---------------------------------------------------------------------------
 
 
-def _build_flowchart_mermaid_prompt(spec: FlowchartDiagramInput) -> str:
+def _build_flowchart_mermaid_prompt(spec: FlowchartDiagramInput, style: DiagramStyleProfile) -> str:
     phases_text = []
     for i, phase in enumerate(spec.phases):
         # Use "n: N" not "(n=N)" - parentheses in Mermaid node labels can trigger
@@ -256,6 +281,12 @@ def _build_flowchart_mermaid_prompt(spec: FlowchartDiagramInput) -> str:
         sub_str = f" -- {phase.sublabel}" if phase.sublabel else ""
         phases_text.append(f"  Phase {i + 1}: {phase.label}{count_str}{sub_str}")
     phases_block = "\n".join(phases_text)
+
+    escaped_title = spec.title.replace('"', "'")
+    if style.mermaid_title_shape == "stadium":
+        title_rule = f'- The first node should use a stadium shape for the title: title(["{escaped_title}"])'
+    else:
+        title_rule = f'- The first node should use a rectangle for the title: title["{escaped_title}"]'
 
     return textwrap.dedent(f"""
         You are a scientific figure generator. Produce ONLY valid Mermaid flowchart syntax
@@ -268,11 +299,11 @@ def _build_flowchart_mermaid_prompt(spec: FlowchartDiagramInput) -> str:
         {phases_block}
 
         Requirements:
-        - Use "flowchart TD" (top-down)
+        - Use "flowchart {style.mermaid_direction}" (TD=top-down, LR=left-right)
         - Each phase is a rectangle node with a short label (include count as "n: N" if present)
         - Connect phases sequentially with arrows
         - Use descriptive node IDs (no spaces, e.g. A, B, step1)
-        - The first node should use a stadium shape for the title: title(["{spec.title}"])
+        {title_rule}
         - Wrap labels longer than 30 chars using <br/> inside the node label
         - Do NOT use parentheses in node labels (use "n: 2000" not "(n=2000)")
         - Do NOT include any styling, classDef, or style blocks
@@ -281,9 +312,16 @@ def _build_flowchart_mermaid_prompt(spec: FlowchartDiagramInput) -> str:
     """).strip()
 
 
-async def render_flowchart_diagram(spec: FlowchartDiagramInput, out_path: Path, model: str = _LLM_MODEL) -> Path | None:
+async def render_flowchart_diagram(
+    spec: FlowchartDiagramInput,
+    out_path: Path,
+    model: str = _LLM_MODEL,
+    *,
+    style: DiagramStyleProfile | None = None,
+) -> Path | None:
     """Generate a methodology flowchart SVG via LLM -> Mermaid -> Kroki API."""
-    prompt = _build_flowchart_mermaid_prompt(spec)
+    _style = style or diagram_style_profile_from_seed("default-flowchart")
+    prompt = _build_flowchart_mermaid_prompt(spec, _style)
     try:
         raw = await _llm_generate(prompt, model=model)
         mermaid_source = _extract_code_block(raw, "mermaid")
@@ -307,8 +345,14 @@ async def render_concept_diagrams(
     flowchart_spec: FlowchartDiagramInput | None,
     out_dir: Path,
     model: str = _LLM_MODEL,
+    *,
+    style_seed: str | None = None,
+    style_profile: DiagramStyleProfile | None = None,
 ) -> dict[str, Path | None]:
     """Render all three concept diagrams concurrently.
+
+    Visual layout and palette follow ``style_profile``, or are derived deterministically
+    from ``style_seed`` (recommended: workflow id plus review topic snippet).
 
     Each renderer fails gracefully: if generation fails, the corresponding
     entry in the returned dict is None and a warning is logged.
@@ -318,6 +362,8 @@ async def render_concept_diagrams(
       "framework"  -> Path to fig_conceptual_framework.svg or None
       "flowchart"  -> Path to fig_methodology_flow.svg or None
     """
+    resolved_style = style_profile or diagram_style_profile_from_seed(style_seed or "litreview-concept-diagrams")
+
     taxonomy_path = out_dir / "fig_concept_taxonomy.svg"
     framework_path = out_dir / "fig_conceptual_framework.svg"
     flowchart_path = out_dir / "fig_methodology_flow.svg"
@@ -326,13 +372,19 @@ async def render_concept_diagrams(
         return None
 
     taxonomy_coro = (
-        render_taxonomy_diagram(taxonomy_spec, taxonomy_path, model=model) if taxonomy_spec is not None else _noop()
+        render_taxonomy_diagram(taxonomy_spec, taxonomy_path, model=model, style=resolved_style)
+        if taxonomy_spec is not None
+        else _noop()
     )
     framework_coro = (
-        render_framework_diagram(framework_spec, framework_path, model=model) if framework_spec is not None else _noop()
+        render_framework_diagram(framework_spec, framework_path, model=model, style=resolved_style)
+        if framework_spec is not None
+        else _noop()
     )
     flowchart_coro = (
-        render_flowchart_diagram(flowchart_spec, flowchart_path, model=model) if flowchart_spec is not None else _noop()
+        render_flowchart_diagram(flowchart_spec, flowchart_path, model=model, style=resolved_style)
+        if flowchart_spec is not None
+        else _noop()
     )
 
     raw = await asyncio.gather(taxonomy_coro, framework_coro, flowchart_coro, return_exceptions=True)

@@ -30,6 +30,19 @@ _FILLER_REPLACEMENTS: tuple[tuple[re.Pattern[str], str], ...] = (
     (re.compile(r"\bOverall,\s*", re.IGNORECASE), ""),
 )
 
+# Conservative substitutions for recurring AI-assistant wording (meaning preserved).
+_AI_LEXICON_REPLACEMENTS: tuple[tuple[re.Pattern[str], str], ...] = (
+    (re.compile(r"\bdelve into\b", re.IGNORECASE), "examine"),
+    (re.compile(r"\bdelving into\b", re.IGNORECASE), "examining"),
+    (re.compile(r"\btapestry of\b", re.IGNORECASE), "range of"),
+    (re.compile(r"\bunderscores the importance of\b", re.IGNORECASE), "emphasizes"),
+)
+
+# ASCII hyphen-minus U+002D only; integer and decimal ranges (e.g. 1.12-1.63, 18-65).
+_EN_DASH_NUMERIC_RANGE_RE = re.compile(r"(\d+(?:\.\d+)?)\s*\u2013\s*(\d+(?:\.\d+)?)")
+_SPACED_EN_DASH_RE = re.compile(r"\s+\u2013\s+")
+_UNICODE_MINUS_BEFORE_DIGIT_RE = re.compile(r"\u2212(?=\d)")
+
 # Keep category labels stable for CLI and tests.
 TOP5_HEURISTIC_CATEGORIES: tuple[str, ...] = (
     "boilerplate_transition_overuse",
@@ -50,10 +63,41 @@ def extract_citation_blocks(text: str) -> list[str]:
     return [f"[{token}]" for token in extract_bracket_blocks(text)]
 
 
-def _clean_prose_chunk(chunk: str) -> str:
-    """Apply conservative cleanup to prose chunks outside bracket blocks."""
+def _normalize_typography_dashes(chunk: str) -> str:
+    """Replace Unicode dashes with ASCII-safe punctuation outside numeric edge cases.
+
+    Order: em dash and sentence-level en dash first, numeric ranges, residual en dash,
+    unicode minus adjacent to digits. Must stay ASCII-only for downstream _sanitize_prose.
+    """
     out = chunk
+    # Unicode minus before a digit (negative numbers, CI bounds).
+    out = _UNICODE_MINUS_BEFORE_DIGIT_RE.sub("-", out)
+    # Em dash (clause break): prefer comma-separated prose typical of IEEE manuscripts.
+    out = out.replace("\u2014", ", ")
+    # Numeric ranges with en dash (includes decimals such as 1.12-1.63).
+    out = _EN_DASH_NUMERIC_RANGE_RE.sub(r"\1-\2", out)
+    # Spaced en dash as aside (word - word): comma clause.
+    out = _SPACED_EN_DASH_RE.sub(", ", out)
+    # Remaining en dash (compounds): hyphen-minus.
+    out = out.replace("\u2013", "-")
+    # Any remaining unicode minus (non-numeric contexts).
+    out = out.replace("\u2212", "-")
+    # Tidy repeated commas from chained replacements.
+    out = re.sub(r",\s*,+", ", ", out)
+    out = _MULTISPACE_RE.sub(" ", out)
+    return out
+
+
+def _clean_prose_chunk(chunk: str) -> str:
+    """Apply conservative cleanup to prose chunks outside bracket blocks.
+
+    Pipeline order: typography (dashes) -> filler phrases -> AI lexicon swaps ->
+    intra-sentence repetition trim -> punctuation spacing.
+    """
+    out = _normalize_typography_dashes(chunk)
     for pattern, replacement in _FILLER_REPLACEMENTS:
+        out = pattern.sub(replacement, out)
+    for pattern, replacement in _AI_LEXICON_REPLACEMENTS:
         out = pattern.sub(replacement, out)
 
     # Remove obvious repeated bigrams/trigrams within individual sentences.
@@ -99,10 +143,17 @@ def apply_deterministic_guardrails(text: str) -> str:
     return out
 
 
+def count_unicode_dash_markers(text: str) -> int:
+    """Count em/en dash and unicode minus occurrences (diagnostic; lower is better)."""
+    return sum(text.count(ch) for ch in ("\u2014", "\u2013", "\u2212"))
+
+
 def count_guardrail_phrases(text: str) -> dict[str, int]:
     """Count recurring AI-like scaffolding phrases for diagnostics."""
     return {
         "filler_phrases": sum(len(pattern.findall(text)) for pattern, _ in _FILLER_REPLACEMENTS),
+        "ai_lexicon_hits": sum(len(pattern.findall(text)) for pattern, _ in _AI_LEXICON_REPLACEMENTS),
+        "unicode_dash_markers": count_unicode_dash_markers(text),
         "repeated_ngrams": sum(
             len(
                 re.findall(

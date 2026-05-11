@@ -7,7 +7,7 @@ from collections import defaultdict
 
 from pydantic import BaseModel, Field
 
-from src.extraction.inference_utils import result_not_extractable_text
+from src.extraction.inference_utils import _is_substantive_finding, result_not_extractable_text
 from src.models import SectionBlock, StructuredSectionDraft
 from src.writing.context_builder import StudySummary, WritingGroundingData
 
@@ -111,9 +111,19 @@ def _study_result_sentence(study: ResultsEvidenceStudy) -> str:
     key_finding = str(study.key_finding or "").strip()
     if key_finding == result_not_extractable_text():
         return f"{title}: Detailed result data were not extractable from the available text."
-    if key_finding and key_finding != "Not reported" and key_finding[-1] in _TERMINAL_PUNCTUATION:
+    if (
+        key_finding
+        and key_finding != "Not reported"
+        and _is_substantive_finding(key_finding)
+        and key_finding[-1] in _TERMINAL_PUNCTUATION
+    ):
         return f"{title} reported the following key finding: {key_finding}"
-    if key_finding and key_finding != "Not reported" and len(key_finding.split()) <= 6:
+    if (
+        key_finding
+        and key_finding != "Not reported"
+        and _is_substantive_finding(key_finding)
+        and len(key_finding.split()) <= 6
+    ):
         return f"{title} reported the following key finding: {_ensure_terminal_punctuation(key_finding)}"
     if key_finding == "Not reported":
         return f"{title}: No quantitative outcomes were reported."

@@ -23,6 +23,38 @@ logger = logging.getLogger(__name__)
 _PDF_MAX_CHARS = 32_000
 
 
+def _is_binary_garbage(text: str) -> bool:
+    """Return True when decoded text still looks like raw binary content."""
+    sample = str(text or "")[:4000]
+    if not sample:
+        return True
+    stripped = sample.lstrip()
+    if stripped.startswith("%PDF"):
+        return True
+    non_printable = 0
+    total = 0
+    for ch in sample:
+        total += 1
+        code = ord(ch)
+        if ch in "\n\r\t\f":
+            continue
+        if 32 <= code <= 126:
+            continue
+        non_printable += 1
+    if total == 0:
+        return True
+    return (non_printable / total) > 0.15
+
+
+def _validated_full_text(text: str) -> str:
+    cleaned = str(text or "")[:_PDF_MAX_CHARS]
+    if not cleaned.strip():
+        return ""
+    if _is_binary_garbage(cleaned):
+        return ""
+    return cleaned
+
+
 def _parse_pdf_bytes(body: bytes) -> str:
     """Parse raw PDF bytes into clean markdown text using PyMuPDF.
 
@@ -39,7 +71,8 @@ def _parse_pdf_bytes(body: bytes) -> str:
         return md_text[:_PDF_MAX_CHARS]
     except Exception as exc:
         logger.debug("PyMuPDF parsing failed (%s); falling back to latin-1 decode.", exc)
-        return body[:_PDF_MAX_CHARS].decode("latin-1", errors="ignore")
+        decoded = body[:_PDF_MAX_CHARS].decode("latin-1", errors="ignore")
+        return _validated_full_text(decoded)
 
 
 class PDFRetrievalResult(BaseModel):
@@ -125,11 +158,12 @@ class PDFRetriever:
                     **_tier_kwargs,
                 )
                 if ft_result and ft_result.source != "abstract":
-                    if ft_result.text and len(ft_result.text) >= 500:
+                    validated_text = _validated_full_text(ft_result.text)
+                    if validated_text and len(validated_text) >= 500:
                         return PDFRetrievalResult(
                             paper_id=paper.paper_id,
                             resolved_url=paper.url,
-                            full_text=ft_result.text[:_PDF_MAX_CHARS],
+                            full_text=validated_text,
                             pdf_bytes=ft_result.pdf_bytes
                             if ft_result.pdf_bytes and len(ft_result.pdf_bytes) > 1000
                             else None,
@@ -140,6 +174,16 @@ class PDFRetriever:
                         )
                     if ft_result.pdf_bytes and len(ft_result.pdf_bytes) > 1000:
                         parsed = await asyncio.to_thread(_parse_pdf_bytes, ft_result.pdf_bytes)
+                        if not parsed:
+                            return PDFRetrievalResult(
+                                paper_id=paper.paper_id,
+                                resolved_url=paper.url,
+                                source=ft_result.source,
+                                reason_code="pdf_parse_failed",
+                                diagnostics=_diag,
+                                success=False,
+                                error="Decoded PDF content failed validation.",
+                            )
                         return PDFRetrievalResult(
                             paper_id=paper.paper_id,
                             resolved_url=paper.url,
@@ -184,6 +228,16 @@ class PDFRetriever:
                         body = await response.read()
                 if "application/pdf" in content_type:
                     parsed_text = await asyncio.to_thread(_parse_pdf_bytes, body)
+                    if not parsed_text:
+                        return PDFRetrievalResult(
+                            paper_id=paper.paper_id,
+                            resolved_url=url,
+                            pdf_bytes=body,
+                            source="url_direct_pdf",
+                            reason_code="pdf_parse_failed",
+                            success=False,
+                            error="Decoded PDF content failed validation.",
+                        )
                     return PDFRetrievalResult(
                         paper_id=paper.paper_id,
                         resolved_url=url,
@@ -201,7 +255,7 @@ class PDFRetriever:
 
                     lp = await _resolve_landing_page(url)
                     if lp:
-                        full_text = lp.text
+                        full_text = _validated_full_text(lp.text)
                         lp_pdf = lp.pdf_bytes if lp.pdf_bytes and len(lp.pdf_bytes) > 1000 else None
                         if not full_text and lp_pdf:
                             full_text = await asyncio.to_thread(_parse_pdf_bytes, lp_pdf)

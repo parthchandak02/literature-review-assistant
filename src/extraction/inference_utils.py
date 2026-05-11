@@ -302,6 +302,65 @@ _QUANTITATIVE_SIGNALS = (
     "mean",
     "median",
 )
+_NEGATION_INABILITY_RE = re.compile(
+    r"\b(?:cannot|could not|unable to|not possible to|insufficient(?:ly)?|did not)\b"
+    r"[^.]{0,120}\b(?:extract|summari[sz]e|determine|identify|report|infer|conclude)\b",
+    flags=re.IGNORECASE,
+)
+_HYPOTHETICAL_HEDGING_RE = re.compile(
+    r"\b(?:would typically|would generally|might include|could potentially|may suggest|may indicate)\b",
+    flags=re.IGNORECASE,
+)
+_META_REFERENTIAL_RE = re.compile(
+    r"\b(?:this\s+(?:text|excerpt|abstract|article)|the provided\s+(?:text|excerpt|abstract)|in this excerpt)\b",
+    flags=re.IGNORECASE,
+)
+_QUANTITATIVE_ANCHOR_RE = re.compile(
+    r"\b\d+(?:\.\d+)?%|\bp\s*[<=>]\s*0?\.\d+|\bn\s*=\s*\d+|\b\d+(?:\.\d+)?\s*"
+    r"(?:participants?|patients?|facilities|sites|records?|studies|trials?)\b",
+    flags=re.IGNORECASE,
+)
+_COMPARISON_SIGNAL_RE = re.compile(
+    r"\b(?:increase[sd]?|decrease[sd]?|improv(?:e|ed|ement)|reduc(?:e|ed|tion)|"
+    r"higher|lower|greater|less|difference|associated|association|correlat(?:ed|ion)|"
+    r"odds ratio|risk ratio|hazard ratio|confidence interval|significant(?:ly)?)\b",
+    flags=re.IGNORECASE,
+)
+_STOP_WORDS = frozenset(
+    {
+        "a",
+        "an",
+        "and",
+        "are",
+        "as",
+        "at",
+        "be",
+        "by",
+        "for",
+        "from",
+        "had",
+        "has",
+        "have",
+        "in",
+        "into",
+        "is",
+        "it",
+        "its",
+        "of",
+        "on",
+        "or",
+        "that",
+        "the",
+        "their",
+        "these",
+        "this",
+        "those",
+        "to",
+        "was",
+        "were",
+        "with",
+    }
+)
 
 
 def result_not_extractable_text() -> str:
@@ -323,6 +382,11 @@ def infer_country_from_text(*texts: str) -> str | None:
     for country in sorted(_COUNTRY_NAMES, key=len, reverse=True):
         if re.search(rf"\b{re.escape(country.lower())}\b", lowered):
             return country
+    alpha2_tokens = re.findall(r"\b[A-Z]{2}\b", haystack)
+    for token in alpha2_tokens:
+        country = _country_name_from_alpha2(token)
+        if country:
+            return country
     return None
 
 
@@ -337,11 +401,9 @@ def has_specific_result_summary(text: str) -> bool:
             lowered = section_match.group(1).strip().lower()
         else:
             return False
-    if any(token in lowered for token in _RESULT_SENTENCE_HINTS):
+    if _is_substantive_finding(lowered):
         return True
-    if re.search(r"\b\d+(?:\.\d+)?%|\bp\s*[<=>]\s*0?\.\d+|\bn\s*=\s*\d+|\b\d+(?:\.\d+)?\s*(?:participants?|patients?|facilities|sites|records?)\b", lowered):
-        return True
-    return False
+    return bool(_QUANTITATIVE_ANCHOR_RE.search(lowered))
 
 
 def derive_concise_result_summary(text: str) -> str:
@@ -372,6 +434,61 @@ def derive_concise_result_summary(text: str) -> str:
     if result_sentences:
         return " ".join(result_sentences)
     return _RESULT_NOT_EXTRACTABLE
+
+
+def _country_name_from_alpha2(code: str) -> str | None:
+    try:
+        import pycountry
+    except Exception:
+        return None
+    country = pycountry.countries.get(alpha_2=str(code or "").upper())
+    if not country:
+        return None
+    name = str(getattr(country, "name", "") or "").strip()
+    if not name:
+        return None
+    return _COUNTRY_ALIASES.get(name.lower(), name)
+
+
+def _content_words(text: str) -> list[str]:
+    tokens = re.findall(r"[a-z][a-z'-]{2,}", text.lower())
+    return [token for token in tokens if token not in _STOP_WORDS]
+
+
+def _has_quantitative_anchor(text: str) -> bool:
+    lowered = text.lower()
+    return bool(_QUANTITATIVE_ANCHOR_RE.search(text)) or any(signal in lowered for signal in _QUANTITATIVE_SIGNALS)
+
+
+def _has_comparison_anchor(text: str) -> bool:
+    return bool(_COMPARISON_SIGNAL_RE.search(text))
+
+
+def _is_substantive_finding(text: str) -> bool:
+    cleaned = re.sub(r"\s+", " ", str(text or "")).strip()
+    if not cleaned:
+        return False
+    lowered = cleaned.lower()
+    if _NEGATION_INABILITY_RE.search(cleaned):
+        return False
+    if _HYPOTHETICAL_HEDGING_RE.search(cleaned):
+        return False
+    if _META_REFERENTIAL_RE.search(cleaned):
+        return False
+
+    content_words = _content_words(cleaned)
+    unique_ratio = (len(set(content_words)) / len(content_words)) if content_words else 0.0
+    has_quantitative_anchor = _has_quantitative_anchor(cleaned)
+    has_comparison_anchor = _has_comparison_anchor(cleaned)
+    has_qualitative_anchor = any(signal in lowered for signal in _QUALITATIVE_SIGNALS)
+
+    if len(content_words) >= 6 and unique_ratio < 0.3:
+        return False
+    if len(cleaned) < 80 and not (has_quantitative_anchor or has_comparison_anchor or has_qualitative_anchor):
+        return False
+    if len(content_words) < 3 and not (has_quantitative_anchor or has_comparison_anchor):
+        return False
+    return True
 
 
 def should_promote_to_mixed_methods(
