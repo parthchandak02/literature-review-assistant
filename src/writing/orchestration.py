@@ -1404,6 +1404,46 @@ def _apply_structured_grounding_patches(
     return draft
 
 
+def _render_and_sanitize(
+    section: str,
+    structured: StructuredSectionDraft,
+    *,
+    grounding: WritingGroundingData | None,
+    review: ReviewConfig,
+    settings: SettingsConfig,
+    valid_citekeys: set[str],
+) -> tuple[StructuredSectionDraft, str, bool]:
+    """Apply grounding patches then render/sanitize markdown once."""
+    patched = _apply_structured_grounding_patches(
+        section,
+        structured,
+        grounding=grounding,
+        review=review,
+        settings=settings,
+        valid_citekeys=valid_citekeys,
+    )
+    content = render_section_markdown(patched)
+    content = _sanitize_prose(content)
+    if section != "abstract" and _needs_legacy_heading_fix(content):
+        content = _sanitize_section_headings(section, content)
+    content = apply_deterministic_guardrails(content)
+
+    floor_forced = False
+    if section == "abstract" and grounding is not None:
+        minimum_words = int(getattr(getattr(settings, "writing", None), "abstract_trim_floor_words", 210))
+        if _abstract_body_word_count(content) < minimum_words:
+            logger.warning(
+                "Section '%s' remained below the minimum abstract floor after guardrails; forcing deterministic compliant abstract.",
+                section,
+            )
+            content = _build_minimum_compliant_abstract(review, grounding, minimum_words)
+            floor_forced = True
+
+    if content.strip() != render_section_markdown(patched).strip():
+        patched = _structured_from_markdown(section, content, valid_citekeys, template=patched)
+    return patched, content, floor_forced
+
+
 def _abstract_body_word_count(content: str) -> int:
     matches = re.findall(
         r"\*\*(Background|Objectives|Methods|Results|Conclusions):\*\*\s*(.*?)(?=(?:\n\*\*[A-Za-z][A-Za-z ]*:\*\*|$))",
@@ -2335,7 +2375,7 @@ async def write_section_with_validation(
                     )
                     structured = fallback_structured
                     used_deterministic_fallback = True
-        structured = _apply_structured_grounding_patches(
+        structured, content, floor_forced = _render_and_sanitize(
             section,
             structured,
             grounding=grounding,
@@ -2343,22 +2383,8 @@ async def write_section_with_validation(
             settings=settings,
             valid_citekeys=valid_citekeys,
         )
-        content = render_section_markdown(structured)
-        content = _sanitize_prose(content)
-        if section != "abstract" and _needs_legacy_heading_fix(content):
-            content = _sanitize_section_headings(section, content)
-        content = apply_deterministic_guardrails(content)
-        if section == "abstract" and grounding is not None:
-            minimum_words = int(getattr(getattr(settings, "writing", None), "abstract_trim_floor_words", 210))
-            if _abstract_body_word_count(content) < minimum_words:
-                logger.warning(
-                    "Section '%s' remained below the minimum abstract floor after guardrails; forcing deterministic compliant abstract.",
-                    section,
-                )
-                content = _build_minimum_compliant_abstract(review, grounding, minimum_words)
-                used_deterministic_fallback = True
-        if content.strip() != render_section_markdown(structured).strip():
-            structured = _structured_from_markdown(section, content, valid_citekeys, template=structured)
+        if floor_forced:
+            used_deterministic_fallback = True
 
         rendered_citation_issues = _rendered_citation_integrity_issues(content, valid_citekeys)
         if rendered_citation_issues:
@@ -2383,7 +2409,7 @@ async def write_section_with_validation(
                 )
                 structured = fallback_structured
                 used_deterministic_fallback = True
-                structured = _apply_structured_grounding_patches(
+                structured, content, floor_forced = _render_and_sanitize(
                     section,
                     structured,
                     grounding=grounding,
@@ -2391,13 +2417,8 @@ async def write_section_with_validation(
                     settings=settings,
                     valid_citekeys=valid_citekeys,
                 )
-                content = render_section_markdown(structured)
-                content = _sanitize_prose(content)
-                if section != "abstract" and _needs_legacy_heading_fix(content):
-                    content = _sanitize_section_headings(section, content)
-                content = apply_deterministic_guardrails(content)
-                if content.strip() != render_section_markdown(structured).strip():
-                    structured = _structured_from_markdown(section, content, valid_citekeys, template=structured)
+                if floor_forced:
+                    used_deterministic_fallback = True
         post_issues = _post_render_completeness_issues(section, content, included_study_count)
         topic_issues = _topic_anchor_issues(section, content, grounding)
         if topic_issues:
@@ -2424,7 +2445,7 @@ async def write_section_with_validation(
                 )
                 structured = fallback_structured
                 used_deterministic_fallback = True
-                structured = _apply_structured_grounding_patches(
+                structured, content, floor_forced = _render_and_sanitize(
                     section,
                     structured,
                     grounding=grounding,
@@ -2432,13 +2453,8 @@ async def write_section_with_validation(
                     settings=settings,
                     valid_citekeys=valid_citekeys,
                 )
-                content = render_section_markdown(structured)
-                content = _sanitize_prose(content)
-                if section != "abstract" and _needs_legacy_heading_fix(content):
-                    content = _sanitize_section_headings(section, content)
-                content = apply_deterministic_guardrails(content)
-                if content.strip() != render_section_markdown(structured).strip():
-                    structured = _structured_from_markdown(section, content, valid_citekeys, template=structured)
+                if floor_forced:
+                    used_deterministic_fallback = True
         if hasattr(metadata, "cost_usd"):
             metadata.cost_usd = candidate_cost_usd
         return (

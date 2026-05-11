@@ -23,6 +23,7 @@ import time
 from collections.abc import Callable
 from typing import Protocol, runtime_checkable
 
+from src.llm.provider import LLMProvider
 from src.models.config import ScreeningConfig
 from src.models.enums import ExclusionReason, ReviewerType, ScreeningDecisionType
 from src.models.papers import CandidatePaper
@@ -114,8 +115,8 @@ class BatchRankerClient(Protocol):
         *,
         model: str,
         temperature: float,
-    ) -> str:
-        """Return raw JSON string from the LLM for a batch of papers."""
+    ) -> str | tuple[str, int, int, int, int]:
+        """Return raw JSON or (json, in, out, cache_write, cache_read)."""
         ...
 
 
@@ -133,11 +134,11 @@ class PydanticAIBatchRankerClient:
         *,
         model: str,
         temperature: float,
-    ) -> str:
+    ) -> tuple[str, int, int, int, int]:
         from src.llm.pydantic_client import PydanticAIClient
 
         client = PydanticAIClient()
-        return await client.complete(prompt, model=model, temperature=temperature)
+        return await client.complete_with_usage(prompt, model=model, temperature=temperature)
 
 
 # ---------------------------------------------------------------------------
@@ -174,6 +175,9 @@ class BatchLLMRanker:
         excluded_terms: list[str] | None = None,
         client: BatchRankerClient | None = None,
         on_status: Callable[[str], None] | None = None,
+        provider: LLMProvider | None = None,
+        workflow_id: str = "",
+        reserve_agent: str = "batch_screener",
     ) -> None:
         self._screening = screening
         self._model = model
@@ -191,6 +195,9 @@ class BatchLLMRanker:
         self._excluded_terms = list(excluded_terms or [])
         self._client: BatchRankerClient = client or PydanticAIBatchRankerClient()
         self.on_status = on_status
+        self._provider = provider
+        self._workflow_id = workflow_id
+        self._reserve_agent = reserve_agent
         # Validation state: populated by rank_and_split() after cross-checking a sample
         # of excluded papers. Callers read these to surface NPV in the Methods section.
         self.validation_sampled_n: int = 0
@@ -224,7 +231,32 @@ class BatchLLMRanker:
             )
         )
         try:
-            raw = await self._client.complete_batch(prompt, model=self._model, temperature=self._temperature)
+            t0 = time.perf_counter()
+            if self._provider is not None:
+                await self._provider.reserve_call_slot(self._reserve_agent)
+            raw_response = await self._client.complete_batch(
+                prompt,
+                model=self._model,
+                temperature=self._temperature,
+            )
+            tok_in = tok_out = cw = cr = 0
+            if isinstance(raw_response, tuple):
+                raw, tok_in, tok_out, cw, cr = raw_response
+            else:
+                raw = raw_response
+            if self._provider is not None and self._workflow_id and tok_in >= 0 and tok_out >= 0:
+                latency_ms = int((time.perf_counter() - t0) * 1000)
+                cost = self._provider.estimate_cost_usd(self._model, tok_in, tok_out, cw, cr)
+                await self._provider.log_cost(
+                    self._model,
+                    tok_in,
+                    tok_out,
+                    cost,
+                    latency_ms,
+                    phase="screening_batch_ranker",
+                    cache_read_tokens=cr,
+                    cache_write_tokens=cw,
+                )
             results = self._parse_response(raw, batch)
             return results
         except Exception as exc:

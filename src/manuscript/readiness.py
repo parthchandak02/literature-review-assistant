@@ -37,12 +37,17 @@ class ReadinessScorecard(BaseModel):
     blocking_reasons: list[str] = Field(default_factory=list)
 
 
-def _audit_status_label(latest_run: dict[str, object] | None) -> str:
+def _audit_status_label(latest_run: object | None) -> str:
     if latest_run is None:
         return "missing"
-    gate_action = str(latest_run.get("gate_action") or "strict_block")
-    gate_blocked = bool(latest_run.get("gate_blocked"))
-    passed = bool(latest_run.get("passed"))
+    if isinstance(latest_run, dict):
+        gate_action = str(latest_run.get("gate_action") or "strict_block")
+        gate_blocked = bool(latest_run.get("gate_blocked"))
+        passed = bool(latest_run.get("passed"))
+    else:
+        gate_action = str(getattr(latest_run, "gate_action", "strict_block") or "strict_block")
+        gate_blocked = bool(getattr(latest_run, "gate_blocked", False))
+        passed = bool(getattr(latest_run, "passed", False))
     if gate_blocked and gate_action == "advisory_only":
         return "completed_with_findings"
     if gate_blocked:
@@ -108,7 +113,7 @@ async def compute_readiness_scorecard(
         if not prisma_ok:
             blocking.append("PRISMA flow counts are not arithmetically valid")
 
-        latest_audit: dict[str, object] | None = None
+        latest_audit = None
         try:
             latest_audit = await repo.get_latest_manuscript_audit(workflow_id)
         except Exception:
@@ -124,11 +129,8 @@ async def compute_readiness_scorecard(
             )
             blocking.append("manuscript audit has not been run")
         else:
-            audit_ready = bool(latest_audit.get("passed")) and not bool(latest_audit.get("gate_blocked"))
-            audit_detail = (
-                f"{audit_status}; verdict={latest_audit.get('verdict')}; "
-                f"blocking={int(latest_audit.get('blocking_count') or 0)}"
-            )
+            audit_ready = bool(latest_audit.passed) and not bool(latest_audit.gate_blocked)
+            audit_detail = f"{audit_status}; verdict={latest_audit.verdict}; blocking={int(latest_audit.blocking_count or 0)}"
             checks.append(
                 ReadinessCheck(
                     name="manuscript_audit",
@@ -137,7 +139,7 @@ async def compute_readiness_scorecard(
                 )
             )
             if not audit_ready:
-                gate_failure_reasons = list(latest_audit.get("gate_failure_reasons") or [])
+                gate_failure_reasons = list(latest_audit.gate_failure_reasons or [])
                 if gate_failure_reasons:
                     blocking.append(f"manuscript audit blocked readiness: {'; '.join(gate_failure_reasons[:3])}")
                 else:

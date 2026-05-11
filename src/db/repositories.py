@@ -15,6 +15,7 @@ from pydantic import ValidationError
 
 from src.models import (
     CandidatePaper,
+    CaspAssessment,
     CitationEntryRecord,
     ClaimRecord,
     CohortMembershipRecord,
@@ -30,8 +31,10 @@ from src.models import (
     ManuscriptAuditFinding,
     ManuscriptAuditResult,
     ManuscriptBlock,
+    ManuscriptContractViolation,
     ManuscriptParityResult,
     ManuscriptSection,
+    MmatAssessment,
     RagRetrievalDiagnostic,
     RecoveryPolicyRecord,
     RoB2Assessment,
@@ -67,7 +70,7 @@ def _row_to_candidate_paper(row: tuple[Any, ...]) -> CandidatePaper:
     Expected column order (matches all SELECT queries in this module):
       0 paper_id, 1 title, 2 authors, 3 year, 4 source_database, 5 doi,
       6 abstract, 7 url, 8 keywords, 9 source_category, 10 openalex_id,
-      11 country, 12 display_label
+      11 country, 12 journal, 13 display_label
     """
     authors_raw = row[2]
     authors = json.loads(authors_raw) if isinstance(authors_raw, str) else (authors_raw or [])
@@ -78,7 +81,8 @@ def _row_to_candidate_paper(row: tuple[Any, ...]) -> CandidatePaper:
     except ValueError:
         source_cat = SourceCategory.DATABASE
     country = str(row[11]) if len(row) > 11 and row[11] else None
-    display_label = str(row[12]) if len(row) > 12 and row[12] else None
+    journal = str(row[12]) if len(row) > 12 and row[12] else None
+    display_label = str(row[13]) if len(row) > 13 and row[13] else None
     return CandidatePaper(
         paper_id=str(row[0]),
         title=str(row[1]),
@@ -92,6 +96,7 @@ def _row_to_candidate_paper(row: tuple[Any, ...]) -> CandidatePaper:
         source_category=source_cat,
         openalex_id=str(row[10]) if row[10] else None,
         country=country,
+        journal=journal,
         display_label=display_label,
     )
 
@@ -296,13 +301,14 @@ class WorkflowRepository:
             paper.source_category.value,
             paper.openalex_id,
             paper.country,
+            paper.journal,
             label,
         )
         upsert_sql = """
             INSERT INTO papers (
                 paper_id, title, authors, year, source_database, doi, abstract, url,
-                keywords, source_category, openalex_id, country, display_label
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                keywords, source_category, openalex_id, country, journal, display_label
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(paper_id) DO UPDATE SET
                 title = excluded.title,
                 authors = excluded.authors,
@@ -315,6 +321,7 @@ class WorkflowRepository:
                 source_category = excluded.source_category,
                 openalex_id = excluded.openalex_id,
                 country = excluded.country,
+                journal = excluded.journal,
                 display_label = excluded.display_label
             """
         try:
@@ -566,7 +573,7 @@ class WorkflowRepository:
         cursor = await self.db.execute(
             """
             SELECT paper_id, title, authors, year, source_database, doi, abstract, url,
-                   keywords, source_category, openalex_id, country, display_label
+                   keywords, source_category, openalex_id, country, journal, display_label
             FROM papers
             """
         )
@@ -581,7 +588,7 @@ class WorkflowRepository:
         cursor = await self.db.execute(
             f"""
             SELECT paper_id, title, authors, year, source_database, doi, abstract, url,
-                   keywords, source_category, openalex_id, country, display_label
+                   keywords, source_category, openalex_id, country, journal, display_label
             FROM papers
             WHERE paper_id IN ({placeholders})
             """,
@@ -1638,7 +1645,7 @@ class WorkflowRepository:
         )
         return ", ".join(base_columns)
 
-    def _decode_manuscript_audit_row(self, row: tuple[Any, ...], include_workflow_id: bool) -> dict[str, Any]:
+    def _decode_manuscript_audit_row(self, row: tuple[Any, ...], include_workflow_id: bool) -> ManuscriptAuditResult:
         idx = 0
         payload: dict[str, Any] = {"audit_run_id": str(row[idx])}
         idx += 1
@@ -1676,7 +1683,11 @@ class WorkflowRepository:
             idx += 1
             payload["contract_violation_count"] = int(row[idx] or 0)
             idx += 1
-            payload["contract_violations"] = self._decode_json_list(row[idx])
+            payload["contract_violations"] = [
+                ManuscriptContractViolation.model_validate(item).model_dump()
+                for item in self._decode_json_list(row[idx])
+                if isinstance(item, dict)
+            ]
             idx += 1
             payload["gate_blocked"] = bool(row[idx])
             idx += 1
@@ -1699,7 +1710,7 @@ class WorkflowRepository:
             payload["gate_failure_reasons"] = []
             payload["top_recommendations"] = []
         payload["last_audited_at"] = payload["created_at"]
-        return payload
+        return ManuscriptAuditResult.model_validate(payload)
 
     async def _manuscript_audit_optional_select_columns(self) -> str:
         cols = await self._table_columns("manuscript_audit_runs")
@@ -1719,7 +1730,7 @@ class WorkflowRepository:
             return ""
         return ", " + ", ".join(available)
 
-    async def get_latest_manuscript_audit(self, workflow_id: str) -> dict[str, Any] | None:
+    async def get_latest_manuscript_audit(self, workflow_id: str) -> ManuscriptAuditResult | None:
         optional_columns = await self._manuscript_audit_optional_select_columns()
         row = await (
             await self.db.execute(
@@ -1737,7 +1748,7 @@ class WorkflowRepository:
             return None
         return self._decode_manuscript_audit_row(row, include_workflow_id=True)
 
-    async def get_manuscript_audit_run(self, workflow_id: str, audit_run_id: str) -> dict[str, Any] | None:
+    async def get_manuscript_audit_run(self, workflow_id: str, audit_run_id: str) -> ManuscriptAuditResult | None:
         optional_columns = await self._manuscript_audit_optional_select_columns()
         row = await (
             await self.db.execute(
@@ -1754,12 +1765,12 @@ class WorkflowRepository:
             return None
         return self._decode_manuscript_audit_row(row, include_workflow_id=True)
 
-    async def get_manuscript_audit_history(self, workflow_id: str, limit: int = 20) -> list[dict[str, Any]]:
+    async def get_manuscript_audit_history(self, workflow_id: str, limit: int = 20) -> list[ManuscriptAuditResult]:
         optional_columns = await self._manuscript_audit_optional_select_columns()
         rows = await (
             await self.db.execute(
                 f"""
-                SELECT {self._manuscript_audit_select_sql(include_workflow_id=False)}{optional_columns}
+                SELECT {self._manuscript_audit_select_sql(include_workflow_id=True)}{optional_columns}
                 FROM manuscript_audit_runs
                 WHERE workflow_id = ?
                 ORDER BY created_at DESC
@@ -1768,12 +1779,12 @@ class WorkflowRepository:
                 (workflow_id, limit),
             )
         ).fetchall()
-        out: list[dict[str, Any]] = []
+        out: list[ManuscriptAuditResult] = []
         for row in rows:
-            out.append(self._decode_manuscript_audit_row(row, include_workflow_id=False))
+            out.append(self._decode_manuscript_audit_row(row, include_workflow_id=True))
         return out
 
-    async def get_manuscript_audit_findings(self, audit_run_id: str) -> list[dict[str, Any]]:
+    async def get_manuscript_audit_findings(self, audit_run_id: str) -> list[ManuscriptAuditFinding]:
         rows = await (
             await self.db.execute(
                 """
@@ -1785,21 +1796,21 @@ class WorkflowRepository:
                 (audit_run_id,),
             )
         ).fetchall()
-        out: list[dict[str, Any]] = []
+        out: list[ManuscriptAuditFinding] = []
         for row in rows:
             out.append(
-                {
-                    "finding_id": str(row[0]),
-                    "profile": str(row[1]),
-                    "severity": str(row[2]),
-                    "category": str(row[3]),
-                    "section": str(row[4]) if row[4] else None,
-                    "evidence": str(row[5]),
-                    "recommendation": str(row[6]),
-                    "owner_module": str(row[7]),
-                    "blocking": bool(row[8]),
-                    "created_at": str(row[9] or ""),
-                }
+                ManuscriptAuditFinding(
+                    finding_id=str(row[0]),
+                    profile=str(row[1]),
+                    severity=str(row[2]),
+                    category=str(row[3]),
+                    section=str(row[4]) if row[4] else None,
+                    evidence=str(row[5]),
+                    recommendation=str(row[6]),
+                    owner_module=str(row[7]),
+                    blocking=bool(row[8]),
+                    created_at=str(row[9] or ""),
+                )
             )
         return out
 
@@ -2540,7 +2551,7 @@ class WorkflowRepository:
         )
         await self.db.commit()
 
-    async def get_rag_retrieval_diagnostics(self, workflow_id: str) -> list[dict[str, Any]]:
+    async def get_rag_retrieval_diagnostics(self, workflow_id: str) -> list[RagRetrievalDiagnostic]:
         """Load per-section RAG diagnostics ordered by creation time."""
         cursor = await self.db.execute(
             """
@@ -2554,22 +2565,23 @@ class WorkflowRepository:
             (workflow_id,),
         )
         rows = await cursor.fetchall()
-        out: list[dict[str, Any]] = []
+        out: list[RagRetrievalDiagnostic] = []
         for row in rows:
             out.append(
-                {
-                    "section": str(row[0]),
-                    "query_type": str(row[1]),
-                    "rerank_enabled": bool(row[2]),
-                    "candidate_k": int(row[3]),
-                    "final_k": int(row[4]),
-                    "retrieved_count": int(row[5]),
-                    "status": str(row[6]),
-                    "selected_chunks_json": str(row[7] or "[]"),
-                    "error_message": str(row[8]) if row[8] else None,
-                    "latency_ms": int(row[9]) if row[9] is not None else None,
-                    "created_at": str(row[10]),
-                }
+                RagRetrievalDiagnostic(
+                    workflow_id=workflow_id,
+                    section=str(row[0]),
+                    query_type=str(row[1]),
+                    rerank_enabled=bool(row[2]),
+                    candidate_k=int(row[3]),
+                    final_k=int(row[4]),
+                    retrieved_count=int(row[5]),
+                    status=str(row[6]),
+                    selected_chunks_json=str(row[7] or "[]"),
+                    error_message=str(row[8]) if row[8] else None,
+                    latency_ms=int(row[9]) if row[9] is not None else None,
+                    created_at=str(row[10]),
+                )
             )
         return out
 
@@ -2757,7 +2769,9 @@ class WorkflowRepository:
                 continue
         return assessments
 
-    async def save_casp_assessment(self, workflow_id: str, paper_id: str, assessment: Any) -> None:
+    async def save_casp_assessment(
+        self, workflow_id: str, paper_id: str, assessment: CaspAssessment
+    ) -> None:
         """Persist full structured CASP assessment for a paper (upsert on paper_id)."""
         await self.db.execute(
             """
@@ -2771,7 +2785,9 @@ class WorkflowRepository:
         )
         await self.db.commit()
 
-    async def save_mmat_assessment(self, workflow_id: str, paper_id: str, assessment: Any) -> None:
+    async def save_mmat_assessment(
+        self, workflow_id: str, paper_id: str, assessment: MmatAssessment
+    ) -> None:
         """Persist full structured MMAT assessment for a paper (upsert on paper_id)."""
         await self.db.execute(
             """
@@ -2823,11 +2839,9 @@ class WorkflowRepository:
             pass
         return result
 
-    async def load_casp_assessments(self, workflow_id: str) -> list[Any]:
+    async def load_casp_assessments(self, workflow_id: str) -> list[CaspAssessment]:
         """Load all CASP assessments for a workflow from casp_assessments table."""
-        from src.quality.casp import CaspAssessment
-
-        assessments: list[Any] = []
+        assessments: list[CaspAssessment] = []
         cursor = await self.db.execute(
             "SELECT assessment_data FROM casp_assessments WHERE workflow_id = ?",
             (workflow_id,),
@@ -2842,11 +2856,9 @@ class WorkflowRepository:
                 continue
         return assessments
 
-    async def load_mmat_assessments(self, workflow_id: str) -> list[Any]:
+    async def load_mmat_assessments(self, workflow_id: str) -> list[MmatAssessment]:
         """Load all MMAT assessments for a workflow from mmat_assessments table."""
-        from src.quality.mmat import MmatAssessment
-
-        assessments: list[Any] = []
+        assessments: list[MmatAssessment] = []
         cursor = await self.db.execute(
             "SELECT assessment_data FROM mmat_assessments WHERE workflow_id = ?",
             (workflow_id,),

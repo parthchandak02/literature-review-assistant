@@ -38,6 +38,17 @@ class ManuscriptAuditFinding(BaseModel):
     recommendation: str
     owner_module: str
     blocking: bool = False
+    created_at: datetime | None = None
+
+
+class ManuscriptContractViolation(BaseModel):
+    """Contract violation attached to a manuscript audit run."""
+
+    code: str
+    severity: str
+    message: str
+    expected: str | None = None
+    actual: str | None = None
 
 
 class ManuscriptAuditResult(BaseModel):
@@ -56,5 +67,15 @@ class ManuscriptAuditResult(BaseModel):
     note_count: int = 0
     blocking_count: int = 0
     total_cost_usd: float = 0.0
+    contract_mode: str = "observe"
+    contract_passed: bool = True
+    contract_violation_count: int = 0
+    contract_violations: list[ManuscriptContractViolation] = Field(default_factory=list)
+    gate_blocked: bool = False
+    gate_mode: str = "strict"
+    gate_action: str = "strict_block"
+    gate_failure_reasons: list[str] = Field(default_factory=list)
+    top_recommendations: list[str] = Field(default_factory=list)
     created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    last_audited_at: datetime | None = None
 

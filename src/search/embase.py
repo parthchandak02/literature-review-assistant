@@ -34,6 +34,7 @@ from typing import Any
 import aiohttp
 
 from src.models import CandidatePaper, SearchResult, SourceCategory
+from src.search.common import ElsevierConnectorMixin, primary_filter_mode_from_query
 from src.utils.ssl_context import tcp_connector_with_certifi
 
 logger = logging.getLogger(__name__)
@@ -47,7 +48,7 @@ _MAX_RETRIES = 3
 _RETRY_BASE_SLEEP = 5.0
 
 
-class EmbaseConnector:
+class EmbaseConnector(ElsevierConnectorMixin):
     """Search Elsevier Embase using the official Search API.
 
     Authentication: EMBASE_API_KEY env var (required).
@@ -70,13 +71,11 @@ class EmbaseConnector:
         self._insttoken = (os.getenv("ELSEVIER_INSTTOKEN") or "").strip() or None
 
     def _build_headers(self) -> dict[str, str]:
-        headers = {
-            "X-ELS-APIKey": self._api_key,
-            "Accept": "application/json",
-        }
-        if self._insttoken:
-            headers["X-ELS-Insttoken"] = self._insttoken
-        return headers
+        return self.build_elsevier_headers(self._api_key, self._insttoken)
+
+    @staticmethod
+    def _primary_filter_mode(query: str) -> str:
+        return primary_filter_mode_from_query(query)
 
     @staticmethod
     def _parse_authors(entry: dict[str, Any]) -> list[str]:
@@ -153,12 +152,6 @@ class EmbaseConnector:
                 return {}
         logger.error("EmbaseConnector: max retries exceeded at start=%d; returning empty page", start)
         return {}
-
-    @staticmethod
-    def _primary_filter_mode(query: str) -> str:
-        if "DOCTYPE(re)" in query or "DOCTYPE(RE)" in query:
-            return "query_exclusion"
-        return "screening_only"
 
     async def search(
         self,
@@ -275,7 +268,7 @@ class EmbaseConnector:
             search_query=query,
             limits_applied=(
                 f"date_start={date_start},max_results={max_results},"
-                f"primary_study_filter={self._primary_filter_mode(query)}"
+                f"primary_study_filter={primary_filter_mode_from_query(query)}"
             ),
             records_retrieved=len(papers),
             papers=papers,

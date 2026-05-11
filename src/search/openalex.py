@@ -9,6 +9,7 @@ from typing import Any
 import aiohttp
 
 from src.models import CandidatePaper, SearchResult, SourceCategory
+from src.search.common import HttpSearchConnectorBase
 from src.utils.ssl_context import tcp_connector_with_certifi
 
 _BASE_URL = "https://api.openalex.org/works"
@@ -33,7 +34,7 @@ def _inverted_index_to_text(idx: dict[str, list[int]] | None) -> str | None:
     return " ".join(p[1] for p in pairs)
 
 
-class OpenAlexConnector:
+class OpenAlexConnector(HttpSearchConnectorBase):
     name = "openalex"
     source_category = SourceCategory.DATABASE
     base_url = _BASE_URL
@@ -129,22 +130,27 @@ class OpenAlexConnector:
                     "cursor": cursor,
                     "api_key": self._api_key,
                 }
-                async with session.get(
-                    self.base_url, params=params, timeout=aiohttp.ClientTimeout(total=30)
-                ) as response:
-                    if response.status != 200:
-                        body = await response.text()
-                        raise RuntimeError(f"OpenAlex API error {response.status}: {body[:500]}")
-                    payload = await response.json()
-                    page_works = payload.get("results", [])
-                    if not page_works:
-                        break
-                    for work in page_works:
-                        papers.append(self._to_candidate(work))
-                    next_cursor = (payload.get("meta") or {}).get("next_cursor")
-                    if not next_cursor:
-                        break
-                    cursor = next_cursor
+                payload = await self.request_json(
+                    session,
+                    method="GET",
+                    url=self.base_url,
+                    source_name="OpenAlex",
+                    params=params,
+                    timeout_seconds=30,
+                    max_retries=2,
+                    raise_on_error=True,
+                )
+                if payload is None:
+                    break
+                page_works = payload.get("results", [])
+                if not page_works:
+                    break
+                for work in page_works:
+                    papers.append(self._to_candidate(work))
+                next_cursor = (payload.get("meta") or {}).get("next_cursor")
+                if not next_cursor:
+                    break
+                cursor = next_cursor
 
         return SearchResult(
             workflow_id=self.workflow_id,

@@ -16,9 +16,10 @@ import {
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { formatCollapsedWorkflowBadge, formatRunDate, formatWorkflowId } from "@/lib/format"
-import { fetchHistory, saveNote } from "@/lib/api"
+import { fetchHistory } from "@/lib/api"
 import type { HistoryEntry } from "@/lib/api"
 import type { FunnelStage } from "@/lib/funnelStages"
+import { useNoteAutosave } from "@/hooks/useNoteAutosave"
 import {
   Tooltip,
   TooltipContent,
@@ -1469,38 +1470,15 @@ function NoteField({
   flashKey: number
   onChange: (val: string) => void
 }) {
-  const [localValue, setLocalValue] = useState(value)
-  const [saveState, setSaveState] = useState<"idle" | "saving" | "saved">("idle")
-  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const savedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const textareaRef = useRef<HTMLTextAreaElement>(null)
+  const {
+    localValue,
+    saveState,
+    textareaRef,
+    handleChange,
+    handleBlur,
+    handleKeyDown,
+  } = useNoteAutosave({ workflowId, value, onChange })
   const wrapperRef = useRef<HTMLDivElement>(null)
-
-  // Auto-grow helper: called both on user input and on programmatic value changes.
-  function recalcHeight() {
-    const el = textareaRef.current
-    if (!el) return
-    el.style.height = "auto"
-    // Allow up to 6 lines (~144px at 1.4 line-height with 11px font).
-    el.style.height = `${Math.min(el.scrollHeight, 144)}px`
-  }
-
-  // Sync incoming value from server (SSE or history load) only when the
-  // textarea is NOT focused -- never overwrite an in-progress local edit.
-  // setState inside this effect is intentional: this IS the external system
-  // (server-pushed value) driving local React state, which is the documented
-  // use-case for useEffect + setState in React controlled-input patterns.
-  useEffect(() => {
-    if (document.activeElement !== textareaRef.current) {
-      // eslint-disable-next-line react-hooks/set-state-in-effect
-      setLocalValue(value)
-    }
-  }, [value])
-
-  // Recalculate height whenever localValue changes (covers programmatic updates).
-  useEffect(() => {
-    recalcHeight()
-  }, [localValue])
 
   // Retrigger the amber flash animation imperatively on the wrapper div.
   // This avoids remounting the component (which would lose focus) while still
@@ -1516,65 +1494,6 @@ function NoteField({
     const t = setTimeout(() => el.classList.remove("animate-note-flash"), 750)
     return () => clearTimeout(t)
   }, [flashKey])
-
-  function scheduleSave(val: string) {
-    if (debounceRef.current) clearTimeout(debounceRef.current)
-    setSaveState("saving")
-    debounceRef.current = setTimeout(() => {
-      void persistNote(val)
-    }, 500)
-  }
-
-  async function persistNote(val: string) {
-    try {
-      await saveNote(workflowId, val)
-      setSaveState("saved")
-      if (savedTimerRef.current) clearTimeout(savedTimerRef.current)
-      savedTimerRef.current = setTimeout(() => setSaveState("idle"), 1500)
-    } catch {
-      setSaveState("idle")
-    }
-  }
-
-  function handleChange(e: React.ChangeEvent<HTMLTextAreaElement>) {
-    const val = e.target.value
-    setLocalValue(val)
-    onChange(val)
-    scheduleSave(val)
-  }
-
-  function handleKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
-    // Stop card click/select from bubbling up.
-    e.stopPropagation()
-    // Enter alone = save + blur (Slack-style). Shift+Enter = newline (default).
-    if (e.key === "Enter" && !e.shiftKey) {
-      e.preventDefault()
-      if (debounceRef.current) {
-        clearTimeout(debounceRef.current)
-        debounceRef.current = null
-      }
-      void persistNote(localValue)
-      textareaRef.current?.blur()
-    }
-    // Escape = discard pending and blur.
-    if (e.key === "Escape") {
-      e.preventDefault()
-      if (debounceRef.current) {
-        clearTimeout(debounceRef.current)
-        debounceRef.current = null
-      }
-      textareaRef.current?.blur()
-    }
-  }
-
-  function handleBlur() {
-    // Flush any pending debounce immediately on blur so edits are never lost.
-    if (debounceRef.current) {
-      clearTimeout(debounceRef.current)
-      debounceRef.current = null
-      void persistNote(localValue)
-    }
-  }
 
   return (
     <div

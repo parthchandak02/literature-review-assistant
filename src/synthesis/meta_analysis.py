@@ -9,6 +9,7 @@ from scipy import stats
 from statsmodels.stats.meta_analysis import combine_effects
 
 from src.models import MetaAnalysisResult
+from src.synthesis.constants import DEFAULT_HETEROGENEITY_THRESHOLD
 
 
 def _i_squared_percent(cochrans_q: float, df: int) -> float:
@@ -37,7 +38,7 @@ def pool_effects(
     effect_measure: str,
     effects: Sequence[float],
     variances: Sequence[float],
-    heterogeneity_threshold: float = 40.0,
+    heterogeneity_threshold: float = DEFAULT_HETEROGENEITY_THRESHOLD,
 ) -> MetaAnalysisResult:
     if len(effects) != len(variances):
         raise ValueError("effects and variances must be the same length")

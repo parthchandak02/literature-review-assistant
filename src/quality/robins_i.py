@@ -3,15 +3,14 @@
 from __future__ import annotations
 
 import logging
-import time
 from typing import Literal
 
 from pydantic import BaseModel
 
 from src.llm.base_client import LLMBackend
-from src.llm.pydantic_client import PydanticAIClient
 from src.models import ExtractionRecord, RobinsIAssessment, RobinsIJudgment
 from src.models.config import SettingsConfig
+from src.quality.runner import QualityLLMRunner
 
 logger = logging.getLogger(__name__)
 
@@ -181,40 +180,14 @@ class RobinsIAssessor:
     async def assess(self, record: ExtractionRecord, full_text: str = "") -> RobinsIAssessment:
         if self.llm_client is not None and self.settings is not None:
             try:
-                agent = self.settings.agents.get("quality_assessment")
-                if agent is None:
-                    raise ValueError("quality_assessment agent not configured in settings.yaml")
-                model = agent.model
-                temperature = agent.temperature
                 prompt = _build_robins_prompt(record, full_text)
-                if self.provider is not None:
-                    await self.provider.reserve_call_slot("quality_assessment")
-                t0 = time.monotonic()
-                if self.provider is not None and isinstance(self.llm_client, PydanticAIClient):
-                    parsed, tok_in, tok_out, cw, cr, _retries = await self.llm_client.complete_validated(
-                        prompt,
-                        model=model,
-                        temperature=temperature,
-                        response_model=_RobinsILLMResponse,
-                    )
-                    latency_ms = int((time.monotonic() - t0) * 1000)
-                    cost = self.provider.estimate_cost_usd(model, tok_in, tok_out, cw, cr)
-                    await self.provider.log_cost(
-                        model,
-                        tok_in,
-                        tok_out,
-                        cost,
-                        latency_ms,
-                        phase="quality_robins_i",
-                        cache_read_tokens=cr,
-                        cache_write_tokens=cw,
-                    )
-                else:
-                    schema = _RobinsILLMResponse.model_json_schema()
-                    raw = await self.llm_client.complete(
-                        prompt, model=model, temperature=temperature, json_schema=schema
-                    )
-                    parsed = _RobinsILLMResponse.model_validate_json(raw)
+                runner = QualityLLMRunner(self.llm_client, self.settings, self.provider)
+                parsed, _metrics = await runner.run_validated(
+                    agent_key="quality_assessment",
+                    phase_name="quality_robins_i",
+                    prompt=prompt,
+                    response_model=_RobinsILLMResponse,
+                )
                 d1 = _to_robins_judgment(parsed.domain_1_confounding)
                 d2 = _to_robins_judgment(parsed.domain_2_selection)
                 d3 = _to_robins_judgment(parsed.domain_3_classification)

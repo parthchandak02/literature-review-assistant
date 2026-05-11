@@ -9,6 +9,8 @@ import numpy as np
 from matplotlib import pyplot as plt
 from statsmodels.stats.meta_analysis import combine_effects
 
+from src.synthesis.constants import DEFAULT_HETEROGENEITY_THRESHOLD
+
 
 def render_forest_plot(
     effects: Sequence[float],
@@ -26,7 +28,7 @@ def render_forest_plot(
     q = float(result.q)
     df = max(1, len(effects) - 1)
     i2 = 0.0 if q <= 0.0 else max(0.0, min(100.0, ((q - df) / q) * 100.0))
-    model = "fixed" if i2 < 40.0 else "random"
+    model = "fixed" if i2 < DEFAULT_HETEROGENEITY_THRESHOLD else "random"
     fig = result.plot_forest(alpha=0.05, use_t=False)
     ax = fig.axes[0]
     ax.set_title(f"{title}\nmodel={model}, Q={q:.3f}, I2={i2:.1f}%")

@@ -16,14 +16,14 @@ import json
 import logging
 import os
 import re
-import time
-from dataclasses import dataclass
+from contextlib import contextmanager
 
 import aiosqlite
+from pydantic import BaseModel
 
 from src.db.repositories import WorkflowRepository
 from src.llm.provider import LLMProvider
-from src.models import CostRecord
+from src.llm.pydantic_client import PydanticAIClient
 
 logger = logging.getLogger(__name__)
 
@@ -63,8 +63,7 @@ _REFINEMENT_PROMPT_TEMPLATE = (
 )
 
 
-@dataclass
-class ScreeningCorrection:
+class ScreeningCorrection(BaseModel):
     """A single human override of an AI screening decision."""
 
     paper_id: str
@@ -73,8 +72,7 @@ class ScreeningCorrection:
     human_reason: str | None = None
 
 
-@dataclass
-class LearnedCriterion:
+class LearnedCriterion(BaseModel):
     """A refined criterion generated from human corrections."""
 
     criterion_type: str  # 'refined_inclusion' | 'refined_exclusion'
@@ -83,12 +81,28 @@ class LearnedCriterion:
     version: int = 1
 
 
-@dataclass
-class _RefinementCallResult:
-    criteria: list[LearnedCriterion]
-    tokens_in: int
-    tokens_out: int
-    latency_ms: int
+class _RefinementLLMItem(BaseModel):
+    criterion_type: str = "refined_inclusion"
+    criterion_text: str
+
+
+class _RefinementLLMResponse(BaseModel):
+    criteria: list[_RefinementLLMItem] = []
+
+
+@contextmanager
+def _with_api_key(api_key: str | None):
+    previous = os.environ.get("GEMINI_API_KEY")
+    if api_key:
+        os.environ["GEMINI_API_KEY"] = api_key
+    try:
+        yield
+    finally:
+        if api_key:
+            if previous is None:
+                os.environ.pop("GEMINI_API_KEY", None)
+            else:
+                os.environ["GEMINI_API_KEY"] = previous
 
 
 def _sanitize_criterion(text: str) -> str:
@@ -111,69 +125,6 @@ def _format_corrections_for_prompt(
             line += f"\n  Reason: {c.human_reason[:200]}"
         lines.append(line)
     return "\n".join(lines)
-
-
-def _call_refinement_llm_sync(
-    corrections: list[ScreeningCorrection],
-    papers: dict[str, str],
-    model_name: str,
-    api_key: str,
-) -> _RefinementCallResult:
-    """Synchronous LLM call for criteria refinement."""
-    try:
-        import google.generativeai as genai  # type: ignore[import-untyped]
-    except ImportError:
-        return _RefinementCallResult(criteria=[], tokens_in=0, tokens_out=0, latency_ms=0)
-
-    if not api_key:
-        return _RefinementCallResult(criteria=[], tokens_in=0, tokens_out=0, latency_ms=0)
-
-    genai.configure(api_key=api_key)
-    prompt = _REFINEMENT_PROMPT_TEMPLATE.format(corrections=_format_corrections_for_prompt(corrections, papers))
-
-    try:
-        started = time.perf_counter()
-        model = genai.GenerativeModel(model_name)
-        response = model.generate_content(prompt)
-        latency_ms = int((time.perf_counter() - started) * 1000)
-        usage = getattr(response, "usage_metadata", None)
-        tokens_in = int(getattr(usage, "prompt_token_count", 0) or 0)
-        tokens_out = int(getattr(usage, "candidates_token_count", 0) or 0)
-        raw = response.text.strip()
-        if raw.startswith("```"):
-            raw = raw.split("```")[1]
-            if raw.startswith("json"):
-                raw = raw[4:]
-        data = json.loads(raw)
-        if not isinstance(data, list):
-            return _RefinementCallResult(criteria=[], tokens_in=tokens_in, tokens_out=tokens_out, latency_ms=latency_ms)
-
-        source_ids = [c.paper_id for c in corrections]
-        results: list[LearnedCriterion] = []
-        for item in data:
-            if not isinstance(item, dict):
-                continue
-            ct = item.get("criterion_type", "refined_inclusion")
-            text = item.get("criterion_text", "")
-            if not text:
-                continue
-            results.append(
-                LearnedCriterion(
-                    criterion_type=ct,
-                    criterion_text=_sanitize_criterion(text),
-                    source_paper_ids=source_ids,
-                )
-            )
-        return _RefinementCallResult(
-            criteria=results,
-            tokens_in=tokens_in,
-            tokens_out=tokens_out,
-            latency_ms=latency_ms,
-        )
-
-    except (json.JSONDecodeError, Exception) as exc:
-        logger.warning("Criteria refinement LLM failed: %s", exc)
-        return _RefinementCallResult(criteria=[], tokens_in=0, tokens_out=0, latency_ms=0)
 
 
 async def refine_criteria_from_corrections(
@@ -201,30 +152,55 @@ async def refine_criteria_from_corrections(
     if model_name is None:
         model_name = _get_model_from_settings()
     key = api_key or os.environ.get("GEMINI_API_KEY", "")
-    raw_model = model_name.replace("google-gla:", "").replace("google-vertex:", "")
+    if not key:
+        return []
 
-    import asyncio
-
-    loop = asyncio.get_running_loop()
-    result = await loop.run_in_executor(None, _call_refinement_llm_sync, corrections, papers, raw_model, key)
-
-    if repository is not None and workflow_id:
-        await repository.save_cost_record(
-            CostRecord(
-                workflow_id=workflow_id,
+    prompt = _REFINEMENT_PROMPT_TEMPLATE.format(
+        corrections=_format_corrections_for_prompt(corrections, papers)
+    )
+    try:
+        from src.config.loader import load_configs
+        _, settings = load_configs(settings_path="config/settings.yaml")
+        provider = LLMProvider(settings=settings, repository=repository)
+        reserve_agent = "criteria_refinement" if "criteria_refinement" in settings.agents else "screening_adjudicator"
+        await provider.reserve_call_slot(reserve_agent)
+        with _with_api_key(key):
+            client = PydanticAIClient()
+            parsed, tok_in, tok_out, cw, cr, _retries = await client.complete_validated(
+                prompt,
                 model=model_name,
-                phase="criteria_refinement",
-                tokens_in=result.tokens_in,
-                tokens_out=result.tokens_out,
-                cost_usd=LLMProvider.estimate_cost_usd(
-                    model=model_name,
-                    tokens_in=result.tokens_in,
-                    tokens_out=result.tokens_out,
-                ),
-                latency_ms=result.latency_ms,
+                temperature=0.1,
+                response_model=_RefinementLLMResponse,
             )
-        )
-    return result.criteria
+        source_ids = [c.paper_id for c in corrections]
+        learned: list[LearnedCriterion] = []
+        for item in parsed.criteria:
+            text = _sanitize_criterion(item.criterion_text)
+            if not text:
+                continue
+            learned.append(
+                LearnedCriterion(
+                    criterion_type=item.criterion_type,
+                    criterion_text=text,
+                    source_paper_ids=source_ids,
+                )
+            )
+        if repository is not None and workflow_id:
+            cost = provider.estimate_cost_usd(model_name, tok_in, tok_out, cw, cr)
+            await provider.log_cost(
+                model_name,
+                tok_in,
+                tok_out,
+                cost,
+                latency_ms=0,
+                phase="criteria_refinement",
+                cache_read_tokens=cr,
+                cache_write_tokens=cw,
+            )
+        return learned
+    except Exception as exc:
+        logger.warning("Criteria refinement LLM failed: %s", exc)
+        return []
 
 
 async def save_corrections(

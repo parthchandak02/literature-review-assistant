@@ -3,31 +3,15 @@
 from __future__ import annotations
 
 import logging
-import time
 
 from pydantic import BaseModel
 
 from src.llm.base_client import LLMBackend
-from src.llm.pydantic_client import PydanticAIClient
-from src.models import ExtractionRecord
+from src.models import CaspAssessment, ExtractionRecord
 from src.models.config import SettingsConfig
+from src.quality.runner import QualityLLMRunner
 
 logger = logging.getLogger(__name__)
-
-
-class CaspAssessment(BaseModel):
-    paper_id: str
-    design_appropriate: bool
-    recruitment_strategy: bool
-    data_collection_rigorous: bool
-    reflexivity_considered: bool
-    ethics_considered: bool
-    analysis_rigorous: bool
-    findings_clear: bool
-    value_of_research: bool
-    overall_summary: str
-    assessment_source: str = "llm"
-    fallback_used: bool = False
 
 
 class _CaspLLMResponse(BaseModel):
@@ -116,40 +100,14 @@ class CaspAssessor:
     async def assess(self, record: ExtractionRecord, full_text: str = "") -> CaspAssessment:
         if self.llm_client is not None and self.settings is not None:
             try:
-                agent = self.settings.agents.get("quality_assessment")
-                if agent is None:
-                    raise ValueError("quality_assessment agent not configured in settings.yaml")
-                model = agent.model
-                temperature = agent.temperature
                 prompt = _build_casp_prompt(record, full_text)
-                if self.provider is not None:
-                    await self.provider.reserve_call_slot("quality_assessment")
-                t0 = time.monotonic()
-                if self.provider is not None and isinstance(self.llm_client, PydanticAIClient):
-                    parsed, tok_in, tok_out, cw, cr, _retries = await self.llm_client.complete_validated(
-                        prompt,
-                        model=model,
-                        temperature=temperature,
-                        response_model=_CaspLLMResponse,
-                    )
-                    latency_ms = int((time.monotonic() - t0) * 1000)
-                    cost = self.provider.estimate_cost_usd(model, tok_in, tok_out, cw, cr)
-                    await self.provider.log_cost(
-                        model,
-                        tok_in,
-                        tok_out,
-                        cost,
-                        latency_ms,
-                        phase="quality_casp",
-                        cache_read_tokens=cr,
-                        cache_write_tokens=cw,
-                    )
-                else:
-                    schema = _CaspLLMResponse.model_json_schema()
-                    raw = await self.llm_client.complete(
-                        prompt, model=model, temperature=temperature, json_schema=schema
-                    )
-                    parsed = _CaspLLMResponse.model_validate_json(raw)
+                runner = QualityLLMRunner(self.llm_client, self.settings, self.provider)
+                parsed, _metrics = await runner.run_validated(
+                    agent_key="quality_assessment",
+                    phase_name="quality_casp",
+                    prompt=prompt,
+                    response_model=_CaspLLMResponse,
+                )
                 summary = parsed.overall_summary or "LLM-based CASP assessment."
                 return CaspAssessment(
                     paper_id=record.paper_id,

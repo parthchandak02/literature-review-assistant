@@ -32,6 +32,8 @@ _SENTENCE_START_RE = re.compile(
 _TITLE_TOKEN_RE = re.compile(r"^[A-Z][A-Za-z0-9()/:,\-']*$")
 _CONNECTOR_TAIL = {"and", "or", "of", "for", "to", "with"}
 _TERMINAL_CITATION_RE = re.compile(r"(?:\s*\[[^\]]+\])+\s*$")
+_SECTION_BLOCK_RE = re.compile(r"\s*<!--\s*SECTION_BLOCK:[^>]+-->\s*")
+_SECTION_BLOCK_LINE_RE = re.compile(r"(?m)^\s*<!--\s*SECTION_BLOCK:[^>]+-->\s*\n?")
 
 
 def strip_terminal_citations(text: str) -> str:
@@ -39,6 +41,12 @@ def strip_terminal_citations(text: str) -> str:
     if not value:
         return value
     return _TERMINAL_CITATION_RE.sub("", value).rstrip()
+
+
+def strip_section_block_markers(text: str) -> str:
+    """Remove SECTION_BLOCK markers from markdown text."""
+    value = _SECTION_BLOCK_LINE_RE.sub("", str(text or ""))
+    return _SECTION_BLOCK_RE.sub("\n\n", value)
 
 
 def normalize_heading_text(text: str) -> str:

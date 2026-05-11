@@ -11,12 +11,12 @@ from __future__ import annotations
 
 import logging
 import os
-import time
-from dataclasses import dataclass
+from contextlib import contextmanager
+from time import monotonic
 
 from src.db.repositories import WorkflowRepository
 from src.llm.provider import LLMProvider
-from src.models import CostRecord
+from src.llm.pydantic_client import PydanticAIClient
 from src.synthesis.contradiction_detector import ContradictionFlag
 
 logger = logging.getLogger(__name__)
@@ -61,70 +61,19 @@ def _format_contradiction_list(flags: list[ContradictionFlag]) -> str:
     return "\n".join(lines)
 
 
-@dataclass
-class _ResolverCallResult:
-    paragraph: str
-    tokens_in: int
-    tokens_out: int
-    latency_ms: int
-
-
-def _generate_paragraph_sync(
-    flags: list[ContradictionFlag],
-    model_name: str,
-    api_key: str,
-) -> _ResolverCallResult:
+@contextmanager
+def _with_api_key(api_key: str | None):
+    previous = os.environ.get("GEMINI_API_KEY")
+    if api_key:
+        os.environ["GEMINI_API_KEY"] = api_key
     try:
-        import google.generativeai as genai  # type: ignore[import-untyped]
-    except ImportError:
-        return _ResolverCallResult(
-            paragraph=_fallback_paragraph(flags),
-            tokens_in=0,
-            tokens_out=0,
-            latency_ms=0,
-        )
-
-    if not api_key:
-        return _ResolverCallResult(
-            paragraph=_fallback_paragraph(flags),
-            tokens_in=0,
-            tokens_out=0,
-            latency_ms=0,
-        )
-
-    genai.configure(api_key=api_key)
-    prompt = _RESOLVER_PROMPT_TEMPLATE.format(contradiction_list=_format_contradiction_list(flags))
-
-    try:
-        started = time.perf_counter()
-        model = genai.GenerativeModel(model_name)
-        response = model.generate_content(prompt)
-        latency_ms = int((time.perf_counter() - started) * 1000)
-        usage = getattr(response, "usage_metadata", None)
-        tokens_in = int(getattr(usage, "prompt_token_count", 0) or 0)
-        tokens_out = int(getattr(usage, "candidates_token_count", 0) or 0)
-        text = response.text.strip()
-        if len(text) < 50:
-            return _ResolverCallResult(
-                paragraph=_fallback_paragraph(flags),
-                tokens_in=tokens_in,
-                tokens_out=tokens_out,
-                latency_ms=latency_ms,
-            )
-        return _ResolverCallResult(
-            paragraph=text,
-            tokens_in=tokens_in,
-            tokens_out=tokens_out,
-            latency_ms=latency_ms,
-        )
-    except Exception as exc:
-        logger.warning("Contradiction resolver LLM call failed: %s", exc)
-        return _ResolverCallResult(
-            paragraph=_fallback_paragraph(flags),
-            tokens_in=0,
-            tokens_out=0,
-            latency_ms=0,
-        )
+        yield
+    finally:
+        if api_key:
+            if previous is None:
+                os.environ.pop("GEMINI_API_KEY", None)
+            else:
+                os.environ["GEMINI_API_KEY"] = previous
 
 
 def _fallback_paragraph(flags: list[ContradictionFlag]) -> str:
@@ -156,31 +105,43 @@ async def generate_contradiction_paragraph(
 
     if model_name is None:
         model_name = _get_model_from_settings()
-    key = api_key or os.environ.get("GEMINI_API_KEY", "")
-    raw_model = model_name.replace("google-gla:", "").replace("google-vertex:", "")
+    if not (api_key or os.environ.get("GEMINI_API_KEY")):
+        return _fallback_paragraph(flags)
 
-    import asyncio
+    prompt = _RESOLVER_PROMPT_TEMPLATE.format(contradiction_list=_format_contradiction_list(flags))
+    try:
+        from src.config.loader import load_configs
 
-    loop = asyncio.get_running_loop()
-    result = await loop.run_in_executor(None, _generate_paragraph_sync, flags, raw_model, key)
-
-    if repository is not None and workflow_id:
-        await repository.save_cost_record(
-            CostRecord(
-                workflow_id=workflow_id,
-                model=model_name,
-                phase="writing_contradiction_resolver",
-                tokens_in=result.tokens_in,
-                tokens_out=result.tokens_out,
-                cost_usd=LLMProvider.estimate_cost_usd(
-                    model=model_name,
-                    tokens_in=result.tokens_in,
-                    tokens_out=result.tokens_out,
-                ),
-                latency_ms=result.latency_ms,
+        _, settings = load_configs(settings_path="config/settings.yaml")
+        provider = LLMProvider(settings=settings, repository=repository)
+        reserve_agent = "contradiction_resolver" if "contradiction_resolver" in settings.agents else "writing"
+        await provider.reserve_call_slot(reserve_agent)
+        with _with_api_key(api_key):
+            client = PydanticAIClient()
+            started = monotonic()
+            raw, tok_in, tok_out, cw, cr = await client.complete_with_usage(
+                prompt, model=model_name, temperature=0.1
             )
-        )
-    return result.paragraph
+            latency_ms = int((monotonic() - started) * 1000)
+        text = str(raw or "").strip()
+        if len(text) < 50:
+            text = _fallback_paragraph(flags)
+        if repository is not None and workflow_id:
+            cost = provider.estimate_cost_usd(model_name, tok_in, tok_out, cw, cr)
+            await provider.log_cost(
+                model_name,
+                tok_in,
+                tok_out,
+                cost,
+                latency_ms,
+                phase="writing_contradiction_resolver",
+                cache_read_tokens=cr,
+                cache_write_tokens=cw,
+            )
+        return text
+    except Exception as exc:
+        logger.warning("Contradiction resolver LLM call failed: %s", exc)
+        return _fallback_paragraph(flags)
 
 
 def build_conflicting_evidence_section(
