@@ -6,3 +6,8 @@ alwaysApply: true
 # Use Multiple Agents
 
 When multi-agent execution is available for a task, use multiple agents whenever possible for efficiency.
+
+Exceptions:
+- If a skill or agent contract requires single-pass execution, follow that contract.
+- If a domain skill sets a strict parallelism cap, respect that cap.
+- Prefer non-overlapping scopes when launching agents in parallel.

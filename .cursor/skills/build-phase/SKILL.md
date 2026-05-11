@@ -11,14 +11,45 @@ Procedural guide for implementing each build phase of the systematic review tool
 
 When the user asks to implement a build phase, follow these steps:
 
-1. **Identify the phase** from `spec.md` and current `src/` modules
+1. **Identify the phase** from `.cursor/docs/PIPELINE.md` and current `src/` modules
 2. **Check prerequisites** -- verify all dependency phases are complete
-3. **Read the spec** for that phase's implementation and acceptance details
+3. **Read the contract docs** for that phase's implementation and acceptance details
 4. **Create files** in the current project directory structure
 5. **Implement using typed data contracts** from `src/models/` (never invent untyped boundaries)
 6. **Write tests** that match the current test suite naming
 7. **Run acceptance criteria** -- every checkbox must pass
 8. **Report results** to user before proceeding
+
+## Trigger and Scope
+
+- Trigger: user asks for phase implementation, phase status, or acceptance checks.
+- Scope: build-phase planning and implementation alignment only; do not rewrite unrelated modules.
+
+## Required Inputs
+
+- `.cursor/docs/PIPELINE.md`
+- `.cursor/docs/IMPLEMENTATION_STATUS.md`
+- `.cursor/docs/ARCHITECTURE.md`
+- Relevant domain skill docs in `.cursor/skills/**/SKILL.md`
+
+## Expected Outputs
+
+- Clear phase mapping to runtime checkpoint keys
+- File-level implementation summary
+- Test command results and acceptance verdict
+
+## Stop Conditions and Escalation
+
+- Stop and ask user when a required dependency phase is missing.
+- Stop and ask user when acceptance criteria conflict with current runtime contracts.
+- Escalate when endpoint or persistence parity constraints fail.
+
+## Verification Checklist
+
+- Runtime checkpoint alignment verified (`src/orchestration/resume.py`)
+- Frontend resume order alignment verified (`frontend/src/lib/constants.ts`)
+- Relevant tests run for changed modules
+- Contract docs updated when behavior changed
 
 ## Phase Quick Reference
 
@@ -55,4 +86,5 @@ When validating runtime phase coverage after synthesis/writing changes, include
   - contract ceiling: `ieee_export.max_abstract_words` (default 250)
 
 ## References
-@file:spec.md
+@file:.cursor/docs/PIPELINE.md
+@file:.cursor/docs/IMPLEMENTATION_STATUS.md
