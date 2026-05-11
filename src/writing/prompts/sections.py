@@ -9,6 +9,7 @@ if TYPE_CHECKING:
 
 
 from src.models.config import IEEEExportConfig
+from src.writing.instruction_constants import NARRATIVE_ONLY_META_ANALYSIS_RULE
 
 ABSTRACT_WORD_LIMIT = int(IEEEExportConfig().max_abstract_words)
 
@@ -258,12 +259,13 @@ def get_methods_prompt_context(
         "(6) Risk of bias and critical appraisal tools: use ONLY the tools explicitly listed "
         "in the FACTUAL DATA BLOCK risk-of-bias summary (for example RoB 2, ROBINS-I, CASP, MMAT). "
         "Do NOT omit any listed tool family and do NOT introduce tools that are not listed, "
-        "(7) Synthesis methods: check the 'Meta-analysis:' line in the FACTUAL DATA BLOCK. "
-        "If it says 'NARRATIVE SYNTHESIS ONLY' or 'NOT feasible', write ONLY narrative synthesis -- "
-        "do NOT write 'we conducted a meta-analysis', 'pooled effect sizes', 'SMD', or 'confidence intervals'. "
-        "If it says 'PERFORMED on outcome(s):', report meta-analysis ONLY for those specific outcomes and "
-        "use narrative synthesis for all other outcomes. "
-        "Never generalize or expand the pooled outcomes beyond what the block explicitly lists. "
+        + "(7) Synthesis methods: check the 'Meta-analysis:' line in the FACTUAL DATA BLOCK. "
+        + "If it says 'NARRATIVE SYNTHESIS ONLY' or 'NOT feasible', write ONLY narrative synthesis -- "
+        + NARRATIVE_ONLY_META_ANALYSIS_RULE
+        + " Also do NOT write 'SMD' or 'confidence intervals'. "
+        + "If it says 'PERFORMED on outcome(s):', report meta-analysis ONLY for those specific outcomes and "
+        + "use narrative synthesis for all other outcomes. "
+        + "Never generalize or expand the pooled outcomes beyond what the block explicitly lists. "
         "If the FACTUAL DATA BLOCK contains a 'SWIM NARRATIVE SYNTHESIS REQUIREMENT' instruction, "
         "follow it EXACTLY: name the outcome domains used to group studies, state the "
         "direction-of-effect (vote-counting) approach, and organise the Results synthesis "

@@ -15,6 +15,9 @@ from src.writing.headings import (
 from src.writing.headings import (
     sanitize_heading_title,
 )
+from src.writing.headings import (
+    strip_section_block_markers as _strip_section_block_markers,
+)
 
 if TYPE_CHECKING:
     from src.models.quality import GradeSoFTable
@@ -455,12 +458,6 @@ def _convert_md_table_to_latex(
         result.append(" & ".join(convert_cell(c) for c in row) + " \\\\")
     result.extend(["\\bottomrule", "\\end{tabularx}", "\\end{table*}"])
     return result
-
-
-def _strip_section_block_markers(text: str) -> str:
-    """Remove deterministic writing boundary markers from export body."""
-    text = re.sub(r"(?m)^\s*<!--\s*SECTION_BLOCK:[^>]+-->\s*\n?", "", text)
-    return re.sub(r"\s*<!--\s*SECTION_BLOCK:[^>]+-->\s*", "\n\n", text)
 
 
 def _normalize_subsection_heading_layout(text: str) -> str:

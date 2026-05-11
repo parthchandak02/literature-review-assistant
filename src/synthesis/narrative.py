@@ -14,6 +14,7 @@ from typing import Literal
 from pydantic import BaseModel
 
 from src.models import ExtractionRecord
+from src.synthesis.constants import GENERIC_OUTCOME_NAMES, normalize_outcome_name
 
 logger = logging.getLogger(__name__)
 
@@ -72,12 +73,21 @@ _GENERIC_THEME_TERMS = {
 }
 
 
+class NarrativeSynthesisRow(BaseModel):
+    """Structured row for one study in narrative synthesis."""
+
+    paper_id: str
+    study_design: str
+    direction: str
+    summary_excerpt: str
+
+
 class NarrativeSynthesis(BaseModel):
     outcome_name: str
     n_studies: int
     effect_direction_summary: str
     key_themes: list[str]
-    synthesis_table: list[dict[str, str]]
+    synthesis_table: list[NarrativeSynthesisRow]
     narrative_text: str
 
 
@@ -184,7 +194,7 @@ async def build_narrative_synthesis(
     is assessed by the LLM to handle negation, conditionality, and mixed findings.
     Falls back to keyword heuristic when the LLM is unavailable.
     """
-    rows: list[dict[str, str]] = []
+    rows: list[NarrativeSynthesisRow] = []
     direction_counts: dict[str, int] = {"positive": 0, "negative": 0, "mixed": 0, "null": 0}
     themes: list[str] = []
     use_llm = llm_client is not None and settings is not None
@@ -207,16 +217,16 @@ async def build_narrative_synthesis(
 
         direction_counts[direction] = direction_counts.get(direction, 0) + 1
         rows.append(
-            {
-                "paper_id": record.paper_id,
-                "study_design": record.study_design.value,
-                "direction": direction,
-                "summary_excerpt": summary[:160],
-            }
+            NarrativeSynthesisRow(
+                paper_id=record.paper_id,
+                study_design=record.study_design.value,
+                direction=direction,
+                summary_excerpt=summary[:160],
+            )
         )
         for outcome in record.outcomes:
-            name = outcome.name.strip().lower().replace(" ", "_")
-            if name and name not in {"not_reported", "primary_outcome", "secondary_outcome"}:
+            name = normalize_outcome_name(outcome.name)
+            if name and name not in GENERIC_OUTCOME_NAMES:
                 if _theme_is_topic_aligned(name, topic_tokens):
                     themes.append(name)
                 else:

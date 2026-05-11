@@ -455,6 +455,19 @@ async function _apiError(res: Response, label: string): Promise<Error> {
   return new APIResponseError(`${label}: ${message}`, res.status, detail)
 }
 
+async function _fetchWithWorkflowFallback(
+  runId: string,
+  workflowIdFallback: string | null | undefined,
+  makeUrl: (id: string) => string,
+  init?: RequestInit,
+): Promise<Response> {
+  let res = await fetch(makeUrl(runId), init)
+  if (res.status === 404 && workflowIdFallback && workflowIdFallback !== runId) {
+    res = await fetch(makeUrl(workflowIdFallback), init)
+  }
+  return res
+}
+
 
 export async function fetchPapersAll(
   runId: string,
@@ -648,10 +661,11 @@ export async function fetchRunReadiness(
   workflowIdFallback?: string | null,
 ): Promise<ReadinessScorecard> {
   const q = new URLSearchParams({ run_root: runRoot })
-  let res = await fetch(`${BASE}/run/${encodeURIComponent(runId)}/readiness?${q.toString()}`)
-  if (res.status === 404 && workflowIdFallback && workflowIdFallback !== runId) {
-    res = await fetch(`${BASE}/run/${encodeURIComponent(workflowIdFallback)}/readiness?${q.toString()}`)
-  }
+  const res = await _fetchWithWorkflowFallback(
+    runId,
+    workflowIdFallback,
+    (id) => `${BASE}/run/${encodeURIComponent(id)}/readiness?${q.toString()}`,
+  )
   if (!res.ok) throw await _apiError(res, "Readiness fetch failed")
   return (await res.json()) as ReadinessScorecard
 }
@@ -697,10 +711,11 @@ export async function fetchRunDiagnostics(
   workflowIdFallback?: string | null,
 ): Promise<RunDiagnosticsPayload> {
   const q = new URLSearchParams({ run_root: runRoot })
-  let res = await fetch(`${BASE}/run/${encodeURIComponent(runId)}/diagnostics?${q.toString()}`)
-  if (res.status === 404 && workflowIdFallback && workflowIdFallback !== runId) {
-    res = await fetch(`${BASE}/run/${encodeURIComponent(workflowIdFallback)}/diagnostics?${q.toString()}`)
-  }
+  const res = await _fetchWithWorkflowFallback(
+    runId,
+    workflowIdFallback,
+    (id) => `${BASE}/run/${encodeURIComponent(id)}/diagnostics?${q.toString()}`,
+  )
   if (!res.ok) throw await _apiError(res, "Run diagnostics fetch failed")
   return (await res.json()) as RunDiagnosticsPayload
 }
@@ -738,10 +753,11 @@ export async function fetchDbRagDiagnostics(
   runRoot = "runs",
 ): Promise<RagDiagnosticsPayload> {
   const q = new URLSearchParams({ run_root: runRoot })
-  let res = await fetch(`${BASE}/db/${encodeURIComponent(runId)}/rag-diagnostics?${q.toString()}`)
-  if (res.status === 404 && workflowIdFallback && workflowIdFallback !== runId) {
-    res = await fetch(`${BASE}/db/${encodeURIComponent(workflowIdFallback)}/rag-diagnostics?${q.toString()}`)
-  }
+  const res = await _fetchWithWorkflowFallback(
+    runId,
+    workflowIdFallback,
+    (id) => `${BASE}/db/${encodeURIComponent(id)}/rag-diagnostics?${q.toString()}`,
+  )
   if (!res.ok) throw await _apiError(res, "RAG diagnostics fetch failed")
   return (await res.json()) as RagDiagnosticsPayload
 }
@@ -831,10 +847,11 @@ export async function fetchPapersReference(
   runId: string,
   workflowIdFallback?: string | null,
 ): Promise<PaperReference[]> {
-  let res = await fetch(`${BASE}/run/${runId}/papers-reference`)
-  if (res.status === 404 && workflowIdFallback && workflowIdFallback !== runId) {
-    res = await fetch(`${BASE}/run/${encodeURIComponent(workflowIdFallback)}/papers-reference`)
-  }
+  const res = await _fetchWithWorkflowFallback(
+    runId,
+    workflowIdFallback,
+    (id) => `${BASE}/run/${encodeURIComponent(id)}/papers-reference`,
+  )
   if (!res.ok) throw await _apiError(res, "Papers reference fetch failed")
   const data = await res.json() as { papers?: PaperReference[] }
   return data.papers ?? []
@@ -880,12 +897,12 @@ export async function fetchPdfsForRun(
   onProgress?: (evt: FetchPdfsProgressEvent) => void,
   workflowIdFallback?: string | null,
 ): Promise<FetchPdfsResult> {
-  let res = await fetch(`${BASE}/run/${runId}/fetch-pdfs`, { method: "POST" })
-  if (res.status === 404 && workflowIdFallback && workflowIdFallback !== runId) {
-    res = await fetch(`${BASE}/run/${encodeURIComponent(workflowIdFallback)}/fetch-pdfs`, {
-      method: "POST",
-    })
-  }
+  const res = await _fetchWithWorkflowFallback(
+    runId,
+    workflowIdFallback,
+    (id) => `${BASE}/run/${encodeURIComponent(id)}/fetch-pdfs`,
+    { method: "POST" },
+  )
   if (!res.ok) throw await _apiError(res, "PDF fetch failed")
 
   const reader = res.body?.getReader()

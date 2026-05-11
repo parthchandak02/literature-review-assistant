@@ -28,6 +28,18 @@ from src.models import (
     ScreeningDecisionType,
     SettingsConfig,
 )
+from src.screening.heuristics import (
+    DEFAULT_TITLE_ONLY_ABSTRACT_WORD_THRESHOLD,
+    enforce_fulltext_exclusion_reason,
+    has_intervention_anchor_match,
+    is_insufficient_content,
+    is_protocol_only,
+)
+from src.screening.persistence import (
+    persist_insufficient_content_exclusion,
+    persist_no_fulltext_exclusion,
+    persist_protocol_exclusion,
+)
 from src.screening.prompts import (
     adjudicator_prompt,
     reviewer_a_prompt,
@@ -157,20 +169,7 @@ class DualReviewerScreener:
         self.contract_violation_count: int = 0
 
     def _has_intervention_anchor_match(self, paper: CandidatePaper, full_text: str | None = None) -> bool:
-        text_parts = [
-            paper.title or "",
-            paper.abstract or "",
-            full_text or "",
-        ]
-        haystack = " ".join(part for part in text_parts if part).lower()
-        if not haystack.strip():
-            return False
-        anchor_terms = self.review.intervention_anchor_terms(limit=10)
-        for raw in anchor_terms:
-            phrase = raw.strip().lower()
-            if phrase and phrase in haystack:
-                return True
-        return False
+        return has_intervention_anchor_match(self.review, paper, full_text)
 
     async def screen_title_abstract(self, workflow_id: str, paper: CandidatePaper) -> ScreeningDecision:
         result = await self._screen_one(
@@ -206,109 +205,11 @@ class DualReviewerScreener:
             return False
         return bool(self.should_proceed_with_partial and self.should_proceed_with_partial())
 
-    _PROTOCOL_TITLE_PATTERNS: tuple[str, ...] = (
-        "protocol for",
-        "protocol of",
-        "study protocol",
-        "trial protocol",
-        "research protocol",
-        "protocol paper",
-        "protocol article",
-        ": a protocol",
-        "- a protocol",
-        "design and methods",
-        "study design and",
-        "rationale and design",
-        "prospero registration",
-        "trial registration",
-    )
-
-    # Abstract phrases that strongly signal the record is title-only with no retrievable data
-    _TITLE_ONLY_ABSTRACT_PHRASES: tuple[str, ...] = (
-        "title only",
-        "title-only",
-        "[no abstract]",
-        "no abstract available",
-        "abstract not available",
-        "abstract unavailable",
-        "[abstract not available]",
-    )
-
-    # Retained as a fallback default; the live value is read from settings.screening.insufficient_content_min_words
-    _TITLE_ONLY_ABSTRACT_WORD_THRESHOLD: int = 5
-
     def _is_insufficient_content(self, paper: CandidatePaper) -> bool:
-        """Return True when the paper has no usable abstract content.
-
-        Fires when:
-        - The abstract is absent AND settings.screening.insufficient_content_min_words > 0.
-          When min_words is 0, empty-abstract papers are forwarded to the LLM for title-only
-          evaluation (PRISMA 2020 guidance: advance to full-text when abstract is absent).
-        - The abstract has fewer than insufficient_content_min_words words (stub/title-only).
-        - The abstract text explicitly signals it is a title-only record.
-
-        Setting insufficient_content_min_words: 0 disables all stub-abstract auto-exclusions
-        and delegates every record to the LLM dual-screener, which can exclude on title alone.
-        """
-        abstract = (paper.abstract or "").strip()
-        title = (paper.title or "").strip()
-
-        # Read threshold first so the empty-abstract guard can respect it.
-        min_words = getattr(
-            getattr(getattr(self, "settings", None), "screening", None),
-            "insufficient_content_min_words",
-            self._TITLE_ONLY_ABSTRACT_WORD_THRESHOLD,
-        )
-
-        # No abstract at all: only auto-exclude when the threshold requires content.
-        # When min_words=0, forward to LLM for title-only evaluation.
-        if not abstract:
-            return min_words > 0
-
-        # Abstract is just the title repeated (some databases duplicate title as abstract)
-        if abstract.lower() == title.lower():
-            return True
-
-        # Explicit "title only" signals
-        abstract_lower = abstract.lower()
-        if any(phrase in abstract_lower for phrase in self._TITLE_ONLY_ABSTRACT_PHRASES):
-            return True
-
-        # Stub abstract: fewer than configured threshold words
-        word_count = len(abstract.split())
-        if word_count < min_words:
-            return True
-
-        return False
+        return is_insufficient_content(self.settings, paper)
 
     def _is_protocol_only(self, paper: CandidatePaper) -> bool:
-        """Return True when title/abstract strongly indicate a protocol with no results.
-
-        This heuristic acts as a post-LLM safety net. It is conservative: it
-        only fires when the title unambiguously marks the paper as a protocol,
-        or when the abstract explicitly states no results are yet available.
-        """
-        title_lower = (paper.title or "").lower()
-        abstract_lower = (paper.abstract or "").lower()
-
-        # Title-based signal: explicit protocol markers
-        if any(pat in title_lower for pat in self._PROTOCOL_TITLE_PATTERNS):
-            return True
-
-        # Abstract-based signal: phrases that confirm no results exist
-        no_results_phrases = (
-            "no results are available",
-            "results will be reported",
-            "results are not yet available",
-            "trial is ongoing",
-            "study is ongoing",
-            "data collection is underway",
-            "data collection has not",
-        )
-        if any(ph in abstract_lower for ph in no_results_phrases):
-            return True
-
-        return False
+        return is_protocol_only(paper)
 
     async def screen_batch_for_calibration(
         self,
@@ -472,40 +373,13 @@ class DualReviewerScreener:
                         # Ensure FK integrity: papers table must have a row before
                         # screening_decisions (which has a FK on papers.paper_id).
                         await self.repository.save_paper(paper)
-                        no_ft_decision = ScreeningDecision(
-                            paper_id=paper.paper_id,
-                            decision=ScreeningDecisionType.EXCLUDE,
-                            confidence=1.0,
-                            reason="Full text not retrievable.",
-                            reviewer_type=ReviewerType.ADJUDICATOR,
-                            exclusion_reason=ExclusionReason.NO_FULL_TEXT,
-                        )
-                        await self.repository.save_screening_decision(
-                            workflow_id=workflow_id, stage=stage, decision=no_ft_decision
-                        )
-                        await self.repository.save_dual_screening_result(
+                        result = await persist_no_fulltext_exclusion(
+                            self.repository,
                             workflow_id=workflow_id,
-                            paper_id=paper.paper_id,
                             stage=stage,
-                            agreement=True,
-                            final_decision=ScreeningDecisionType.EXCLUDE,
-                            adjudication_needed=False,
+                            paper_id=paper.paper_id,
+                            on_screening_decision=self.on_screening_decision,
                         )
-                        await self.repository.append_decision_log(
-                            DecisionLogEntry(
-                                decision_type="screening_no_fulltext",
-                                paper_id=paper.paper_id,
-                                decision=ScreeningDecisionType.EXCLUDE.value,
-                                rationale="Full text not retrievable; excluded per skip_fulltext_if_no_pdf.",
-                                actor=ReviewerType.ADJUDICATOR.value,
-                                phase="phase_3_screening",
-                            )
-                        )
-                        if self.on_screening_decision:
-                            self.on_screening_decision(
-                                paper.paper_id, stage, "exclude", "fulltext_no_pdf_heuristic", 1.0
-                            )
-                        result = no_ft_decision
                     else:
                         result = await self.screen_full_text(workflow_id, paper, text)
                 else:
@@ -609,27 +483,13 @@ class DualReviewerScreener:
         # cannot contribute outcome data and must not be counted as included studies.
         if self._is_protocol_only(paper):
             _log.info("Protocol-only heuristic: auto-excluding %s (%s)", paper.paper_id, paper.title)
-            proto_decision = ScreeningDecision(
+            proto_decision = await persist_protocol_exclusion(
+                self.repository,
+                workflow_id=workflow_id,
+                stage=stage,
                 paper_id=paper.paper_id,
-                decision=ScreeningDecisionType.EXCLUDE,
-                confidence=0.95,
-                reason="Protocol-only heuristic: title or abstract indicates a study protocol with no reported results.",
-                reviewer_type=ReviewerType.KEYWORD_FILTER,
-                exclusion_reason=ExclusionReason.PROTOCOL_ONLY,
+                on_screening_decision=self.on_screening_decision,
             )
-            await self.repository.save_screening_decision(workflow_id=workflow_id, stage=stage, decision=proto_decision)
-            await self.repository.append_decision_log(
-                DecisionLogEntry(
-                    decision_type="screening_protocol_heuristic",
-                    paper_id=paper.paper_id,
-                    decision=ScreeningDecisionType.EXCLUDE.value,
-                    rationale="Protocol-only auto-exclusion (no results available).",
-                    actor=ReviewerType.KEYWORD_FILTER.value,
-                    phase="phase_3_screening",
-                )
-            )
-            if self.on_screening_decision:
-                self.on_screening_decision(paper.paper_id, stage, "exclude", "protocol_only_heuristic", 0.95)
             return proto_decision
 
         # Title-only / insufficient-content heuristic: papers with no extractable abstract
@@ -642,40 +502,20 @@ class DualReviewerScreener:
                 paper.title,
                 _abstract_word_count,
             )
-            insuf_decision = ScreeningDecision(
+            _threshold = getattr(
+                self.settings.screening,
+                "insufficient_content_min_words",
+                DEFAULT_TITLE_ONLY_ABSTRACT_WORD_THRESHOLD,
+            )
+            insuf_decision = await persist_insufficient_content_exclusion(
+                self.repository,
+                workflow_id=workflow_id,
+                stage=stage,
                 paper_id=paper.paper_id,
-                decision=ScreeningDecisionType.EXCLUDE,
-                confidence=0.90,
-                reason="Insufficient content: abstract absent, too short, or title-only stub -- no data extractable.",
-                reviewer_type=ReviewerType.KEYWORD_FILTER,
-                exclusion_reason=ExclusionReason.INSUFFICIENT_DATA,
+                abstract_word_count=_abstract_word_count,
+                min_words_threshold=_threshold,
+                on_screening_decision=self.on_screening_decision,
             )
-            await self.repository.save_screening_decision(workflow_id=workflow_id, stage=stage, decision=insuf_decision)
-            await self.repository.append_decision_log(
-                DecisionLogEntry(
-                    decision_type="screening_insufficient_content_heuristic",
-                    paper_id=paper.paper_id,
-                    decision=ScreeningDecisionType.EXCLUDE.value,
-                    rationale=(
-                        f"Abstract absent or stub ({_abstract_word_count} words). "
-                        f"Threshold: fewer than "
-                        f"{getattr(getattr(getattr(self, 'settings', None), 'screening', None), 'insufficient_content_min_words', self._TITLE_ONLY_ABSTRACT_WORD_THRESHOLD)} "
-                        f"words or explicit no-abstract marker."
-                    ),
-                    actor=ReviewerType.KEYWORD_FILTER.value,
-                    phase="phase_3_screening",
-                )
-            )
-            if self.on_screening_decision:
-                # Encode word count in reason with pipe delimiter so the SSE consumer
-                # can display it: "insufficient_content_heuristic|3w" -> "(3w)" in UI.
-                self.on_screening_decision(
-                    paper.paper_id,
-                    stage,
-                    "exclude",
-                    f"insufficient_content_heuristic|{_abstract_word_count}w",
-                    0.90,
-                )
             return insuf_decision
 
         include_thresh = self.settings.screening.stage1_include_threshold
@@ -1269,90 +1109,41 @@ class DualReviewerScreener:
             # Must mirror the _process_one path so skip_fulltext_if_no_pdf is enforced
             # regardless of whether batch mode or per-paper mode is active.
             if stage == "fulltext" and skip_no_pdf and not ft.get(paper.paper_id, "").strip():
-                d = ScreeningDecision(
-                    paper_id=paper.paper_id,
-                    decision=ScreeningDecisionType.EXCLUDE,
-                    confidence=1.0,
-                    reason="Full text not retrievable.",
-                    reviewer_type=ReviewerType.ADJUDICATOR,
-                    exclusion_reason=ExclusionReason.NO_FULL_TEXT,
-                )
-                await self.repository.save_screening_decision(workflow_id=workflow_id, stage=stage, decision=d)
-                await self.repository.save_dual_screening_result(
+                d = await persist_no_fulltext_exclusion(
+                    self.repository,
                     workflow_id=workflow_id,
-                    paper_id=paper.paper_id,
                     stage=stage,
-                    agreement=True,
-                    final_decision=ScreeningDecisionType.EXCLUDE,
-                    adjudication_needed=False,
+                    paper_id=paper.paper_id,
+                    on_screening_decision=self.on_screening_decision,
                 )
-                await self.repository.append_decision_log(
-                    DecisionLogEntry(
-                        decision_type="screening_no_fulltext",
-                        paper_id=paper.paper_id,
-                        decision=ScreeningDecisionType.EXCLUDE.value,
-                        rationale="Full text not retrievable; excluded per skip_fulltext_if_no_pdf.",
-                        actor=ReviewerType.ADJUDICATOR.value,
-                        phase="phase_3_screening",
-                    )
-                )
-                if self.on_screening_decision:
-                    self.on_screening_decision(paper.paper_id, stage, "exclude", "fulltext_no_pdf_heuristic", 1.0)
                 heuristic_decisions[paper.paper_id] = d
                 continue
             if self._is_protocol_only(paper):
-                d = ScreeningDecision(
+                d = await persist_protocol_exclusion(
+                    self.repository,
+                    workflow_id=workflow_id,
+                    stage=stage,
                     paper_id=paper.paper_id,
-                    decision=ScreeningDecisionType.EXCLUDE,
-                    confidence=0.95,
-                    reason="Protocol-only heuristic: title or abstract indicates a study protocol with no reported results.",
-                    reviewer_type=ReviewerType.KEYWORD_FILTER,
-                    exclusion_reason=ExclusionReason.PROTOCOL_ONLY,
+                    on_screening_decision=self.on_screening_decision,
                 )
-                await self.repository.save_screening_decision(workflow_id=workflow_id, stage=stage, decision=d)
-                await self.repository.append_decision_log(
-                    DecisionLogEntry(
-                        decision_type="screening_protocol_heuristic",
-                        paper_id=paper.paper_id,
-                        decision=ScreeningDecisionType.EXCLUDE.value,
-                        rationale="Protocol-only auto-exclusion.",
-                        actor=ReviewerType.KEYWORD_FILTER.value,
-                        phase="phase_3_screening",
-                    )
-                )
-                if self.on_screening_decision:
-                    self.on_screening_decision(paper.paper_id, stage, "exclude", "protocol_only_heuristic", 0.95)
                 heuristic_decisions[paper.paper_id] = d
                 continue
             if stage == "title_abstract" and self._is_insufficient_content(paper):
                 wc = len((paper.abstract or "").split())
-                d = ScreeningDecision(
+                _threshold = getattr(
+                    self.settings.screening,
+                    "insufficient_content_min_words",
+                    DEFAULT_TITLE_ONLY_ABSTRACT_WORD_THRESHOLD,
+                )
+                d = await persist_insufficient_content_exclusion(
+                    self.repository,
+                    workflow_id=workflow_id,
+                    stage=stage,
                     paper_id=paper.paper_id,
-                    decision=ScreeningDecisionType.EXCLUDE,
-                    confidence=0.90,
-                    reason="Insufficient content: abstract absent, too short, or title-only stub.",
-                    reviewer_type=ReviewerType.KEYWORD_FILTER,
-                    exclusion_reason=ExclusionReason.INSUFFICIENT_DATA,
+                    abstract_word_count=wc,
+                    min_words_threshold=_threshold,
+                    on_screening_decision=self.on_screening_decision,
                 )
-                await self.repository.save_screening_decision(workflow_id=workflow_id, stage=stage, decision=d)
-                await self.repository.append_decision_log(
-                    DecisionLogEntry(
-                        decision_type="screening_insufficient_content_heuristic",
-                        paper_id=paper.paper_id,
-                        decision=ScreeningDecisionType.EXCLUDE.value,
-                        rationale=f"Abstract absent or stub ({wc} words).",
-                        actor=ReviewerType.KEYWORD_FILTER.value,
-                        phase="phase_3_screening",
-                    )
-                )
-                if self.on_screening_decision:
-                    self.on_screening_decision(
-                        paper.paper_id,
-                        stage,
-                        "exclude",
-                        f"insufficient_content_heuristic|{wc}w",
-                        0.90,
-                    )
                 heuristic_decisions[paper.paper_id] = d
                 continue
             llm_candidates.append(paper)
@@ -1774,6 +1565,4 @@ class DualReviewerScreener:
 
     @staticmethod
     def _enforce_fulltext_exclusion_reason(decision: ScreeningDecision) -> ScreeningDecision:
-        if decision.exclusion_reason is not None:
-            return decision
-        return decision.model_copy(update={"exclusion_reason": ExclusionReason.OTHER})
+        return enforce_fulltext_exclusion_reason(decision)

@@ -17,5 +17,5 @@ class SearchConnector(Protocol):
         max_results: int = 100,
         date_start: int | None = None,
         date_end: int | None = None,
-    ) -> SearchResult:
-        """Run a database search and return typed results."""
+    ) -> SearchResult | list[SearchResult]:
+        """Run a search and return one or more typed result groups."""

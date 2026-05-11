@@ -90,3 +90,47 @@ class GradeSoFTable(BaseModel):
 
     topic: str
     rows: list[GradeSoFRow] = Field(default_factory=list)
+
+
+class CaspAssessment(BaseModel):
+    """CASP appraisal result for qualitative studies."""
+
+    paper_id: str
+    design_appropriate: bool
+    recruitment_strategy: bool
+    data_collection_rigorous: bool
+    reflexivity_considered: bool
+    ethics_considered: bool
+    analysis_rigorous: bool
+    findings_clear: bool
+    value_of_research: bool
+    overall_summary: str
+    assessment_source: Literal["llm", "heuristic"] = "llm"
+    fallback_used: bool = False
+
+
+MmatStudyType = Literal[
+    "qualitative",
+    "rct",
+    "non_randomized",
+    "quantitative_descriptive",
+    "mixed_methods",
+]
+
+
+class MmatAssessment(BaseModel):
+    """MMAT 2018 appraisal result for a single study."""
+
+    paper_id: str
+    study_type: MmatStudyType
+    screening_1_clear_question: bool
+    screening_2_appropriate_data: bool
+    criterion_1: bool
+    criterion_2: bool
+    criterion_3: bool
+    criterion_4: bool
+    criterion_5: bool
+    overall_score: int
+    overall_summary: str
+    assessment_source: Literal["llm", "heuristic"] = "llm"
+    fallback_used: bool = False

@@ -19,16 +19,7 @@ from collections.abc import Sequence
 from pydantic import BaseModel
 
 from src.models import ExtractionRecord
-
-_GENERIC_OUTCOME_NAMES = frozenset(
-    {
-        "",
-        "primary_outcome",
-        "secondary_outcome",
-        "not_reported",
-        "not reported",
-    }
-)
+from src.synthesis.constants import GENERIC_OUTCOME_NAMES, normalize_outcome_name
 
 
 def _is_numeric(val: str) -> bool:
@@ -112,8 +103,8 @@ def assess_meta_analysis_feasibility(
     outcome_data: dict[str, list[tuple[bool, bool]]] = defaultdict(list)
     for record in records:
         for outcome in record.outcomes:
-            name = outcome.name.strip().lower().replace(" ", "_")
-            if not name or name in _GENERIC_OUTCOME_NAMES:
+            name = normalize_outcome_name(outcome.name)
+            if not name or name in GENERIC_OUTCOME_NAMES:
                 continue
             has_es = _is_numeric(outcome.effect_size or "")
             has_se = _is_numeric(outcome.se or "")

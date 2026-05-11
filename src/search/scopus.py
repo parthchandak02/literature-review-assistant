@@ -26,6 +26,7 @@ from typing import Any
 import aiohttp
 
 from src.models import CandidatePaper, SearchResult, SourceCategory
+from src.search.common import ElsevierConnectorMixin, primary_filter_mode_from_query
 from src.utils.ssl_context import tcp_connector_with_certifi
 
 logger = logging.getLogger(__name__)
@@ -35,7 +36,7 @@ _PAGE_SIZE = 25  # safe page size without institutional TDM token
 _RATE_SLEEP = 0.2  # 5 req/sec -- safely under the 6 req/sec official limit
 
 
-class ScopusConnector:
+class ScopusConnector(ElsevierConnectorMixin):
     """Search Elsevier Scopus using the official Search API.
 
     Authentication: API key only (no insttoken required for search).
@@ -52,6 +53,10 @@ class ScopusConnector:
         if not api_key:
             raise ValueError("SCOPUS_API_KEY is required for the Scopus connector")
         self._api_key = api_key.strip()
+
+    @staticmethod
+    def _primary_filter_mode(query: str) -> str:
+        return primary_filter_mode_from_query(query)
 
     @staticmethod
     def _parse_authors(entry: dict[str, Any]) -> list[str]:
@@ -114,12 +119,6 @@ class ScopusConnector:
             source_category=SourceCategory.DATABASE,
         )
 
-    @staticmethod
-    def _primary_filter_mode(query: str) -> str:
-        if "DOCTYPE(re)" in query or "DOCTYPE(RE)" in query:
-            return "query_exclusion"
-        return "screening_only"
-
     async def search(
         self,
         query: str,
@@ -129,10 +128,7 @@ class ScopusConnector:
     ) -> SearchResult:
         """Run a Scopus search and return all results up to max_results."""
         papers: list[CandidatePaper] = []
-        headers = {
-            "X-ELS-APIKey": self._api_key,
-            "Accept": "application/json",
-        }
+        headers = self.build_elsevier_headers(self._api_key)
 
         # Build full query with date filters if not already embedded
         full_query = query
@@ -230,7 +226,7 @@ class ScopusConnector:
             search_query=full_query,
             limits_applied=(
                 f"max_results={max_results},"
-                f"primary_study_filter={self._primary_filter_mode(full_query)}"
+                f"primary_study_filter={primary_filter_mode_from_query(full_query)}"
             ),
             records_retrieved=len(papers),
             papers=papers,

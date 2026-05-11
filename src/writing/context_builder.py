@@ -20,6 +20,7 @@ from src.extraction.inference_utils import (
 )
 from src.models import CandidatePaper, ExtractionRecord
 from src.models.additional import PRISMACounts
+from src.writing.instruction_constants import NARRATIVE_ONLY_META_ANALYSIS_RULE
 
 _SOURCE_DISPLAY_NAMES: dict[str, str] = {
     "openalex": "OpenAlex",
@@ -1450,16 +1451,12 @@ def format_grounding_block(data: WritingGroundingData) -> str:
             "numeric -- NARRATIVE SYNTHESIS ONLY."
         )
         lines.append(
-            "CRITICAL: Do NOT write 'we conducted a meta-analysis', 'pooled effect sizes', "
-            "'meta-analysis showed', or any phrase implying quantitative pooling was performed. "
-            "Write ONLY that narrative synthesis was conducted."
+            f"CRITICAL: {NARRATIVE_ONLY_META_ANALYSIS_RULE}"
         )
     else:
         lines.append("Meta-analysis: NOT feasible - narrative synthesis only.")
         lines.append(
-            "CRITICAL: Do NOT write 'we conducted a meta-analysis', 'pooled effect sizes', "
-            "'meta-analysis showed', or any phrase implying quantitative pooling was performed. "
-            "Write ONLY that narrative synthesis was conducted."
+            f"CRITICAL: {NARRATIVE_ONLY_META_ANALYSIS_RULE}"
         )
     if data.protocol_registered and data.protocol_registration_number:
         reg_status = f"YES (ID: {data.protocol_registration_number})"

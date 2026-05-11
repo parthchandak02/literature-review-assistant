@@ -67,9 +67,17 @@ from src.models.manuscript_review import (
     ManuscriptAuditFinding,
     ManuscriptAuditProfileSelection,
     ManuscriptAuditResult,
+    ManuscriptContractViolation,
 )
 from src.models.papers import CandidatePaper, SearchResult
-from src.models.quality import GRADEOutcomeAssessment, RoB2Assessment, RobinsIAssessment
+from src.models.quality import (
+    CaspAssessment,
+    GRADEOutcomeAssessment,
+    MmatAssessment,
+    MmatStudyType,
+    RoB2Assessment,
+    RobinsIAssessment,
+)
 from src.models.screening import DualScreeningResult, ScreeningDecision
 from src.models.workflow import (
     DecisionLogEntry,
@@ -134,6 +142,7 @@ __all__ = [
     "ManuscriptAuditFinding",
     "ManuscriptAuditProfileSelection",
     "ManuscriptAuditResult",
+    "ManuscriptContractViolation",
     "ManuscriptCanonicalDisclosures",
     "OutcomeRecord",
     "FundingInfo",
@@ -142,6 +151,9 @@ __all__ = [
     "GateStatus",
     "GRADECertainty",
     "GRADEOutcomeAssessment",
+    "CaspAssessment",
+    "MmatAssessment",
+    "MmatStudyType",
     "IEEEExportConfig",
     "InterRaterReliability",
     "MetaAnalysisConfig",

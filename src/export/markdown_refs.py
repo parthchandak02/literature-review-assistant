@@ -12,7 +12,10 @@ from typing import Any
 from src.export.bibtex_builder import build_citekey_alias_map
 from src.extraction.inference_utils import infer_country_from_text
 from src.quality.grade import build_sof_table, cluster_grade_assessments_by_theme, sof_table_to_markdown
-from src.writing.headings import normalize_subsection_heading_layout as _normalize_subsection_heading_layout_shared
+from src.writing.headings import (
+    normalize_subsection_heading_layout as _normalize_subsection_heading_layout_shared,
+)
+from src.writing.headings import strip_section_block_markers as _strip_section_block_markers
 
 logger = logging.getLogger(__name__)
 
@@ -342,12 +345,6 @@ def _strip_compact_study_tables(text: str) -> str:
         re.DOTALL,
     )
     return _compact_block_re.sub("", text)
-
-
-def _strip_section_block_markers(text: str) -> str:
-    """Remove deterministic writing boundary markers from export-facing markdown."""
-    text = re.sub(r"(?m)^\s*<!--\s*SECTION_BLOCK:[^>]+-->\s*\n?", "", text)
-    return re.sub(r"\s*<!--\s*SECTION_BLOCK:[^>]+-->\s*", "\n\n", text)
 
 
 def _normalize_subsection_heading_layout(text: str) -> str:

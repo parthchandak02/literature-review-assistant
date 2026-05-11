@@ -42,6 +42,7 @@ from pydantic import BaseModel
 from sse_starlette.sse import EventSourceResponse
 
 from src.config.loader import load_configs as _load_configs
+from src.db.domain_repositories import AuditRepository
 from src.db.source_of_truth import RUN_STATS_PRECEDENCE
 from src.db.workflow_registry import _open_registry as _open_registry_db
 from src.db.workflow_registry import archive_workflow as _archive_registry_workflow
@@ -53,6 +54,7 @@ from src.db.workflow_registry import update_notes as _update_registry_notes
 from src.db.workflow_registry import update_status as _update_registry_status
 from src.export.submission_packager import package_submission
 from src.manuscript.readiness import compute_readiness_scorecard
+from src.models import ManuscriptAuditFinding, ManuscriptAuditResult
 from src.orchestration.context import WebRunContext
 from src.orchestration.workflow import run_workflow, run_workflow_resume
 from src.search.csv_import import validate_csv_file
@@ -274,13 +276,6 @@ class RunRequest(BaseModel):
 class RunResponse(BaseModel):
     run_id: str
     topic: str
-
-
-class RunInfo(BaseModel):
-    run_id: str
-    topic: str
-    done: bool
-    error: str | None
 
 
 class HistoryEntry(BaseModel):
@@ -1025,21 +1020,6 @@ async def cancel_run(run_id: str) -> dict[str, str]:
     return {"status": "cancelled"}
 
 
-@app.get("/api/runs")
-async def list_runs() -> list[RunInfo]:
-    return [RunInfo(run_id=r.run_id, topic=r.topic, done=r.done, error=r.error) for r in _active_runs.values()]
-
-
-@app.get("/api/results/{run_id}")
-async def get_results(run_id: str) -> dict[str, Any]:
-    record = _active_runs.get(run_id)
-    if record is None:
-        raise HTTPException(status_code=404, detail="Run not found")
-    if not record.done:
-        raise HTTPException(status_code=409, detail="Run not complete")
-    return {"run_id": run_id, "outputs": record.outputs}
-
-
 @app.get("/api/download")
 async def download_file(path: str) -> FileResponse:
     resolved = pathlib.Path(path).resolve()
@@ -1090,33 +1070,6 @@ async def get_env_keys() -> dict[str, str]:
 class _GenerateConfigRequest(BaseModel):
     research_question: str
     gemini_api_key: str = ""
-
-
-@app.post("/api/config/generate")
-async def generate_config(req: _GenerateConfigRequest) -> dict[str, str]:
-    """Generate a complete review config YAML from a plain-English research question.
-
-    Uses Gemini flash with native structured output to produce PICO, keywords,
-    inclusion/exclusion criteria, domain, and scope. Structural fields
-    (date range, databases, sections) are set to safe defaults.
-    """
-    from src.web.config_generator import generate_config_yaml
-
-    if not req.research_question.strip():
-        raise HTTPException(status_code=422, detail="research_question must not be empty")
-    # Set the API key in the environment so PydanticAI can find it.
-    # Falls back to whatever is already in the environment (e.g. set via .env).
-    if req.gemini_api_key.strip():
-        os.environ["GEMINI_API_KEY"] = req.gemini_api_key.strip()
-    if not os.environ.get("GEMINI_API_KEY"):
-        raise HTTPException(
-            status_code=422, detail="Gemini API key is required to generate a config. Add it in the API Keys section."
-        )
-    try:
-        yaml_content = await generate_config_yaml(req.research_question)
-    except RuntimeError as exc:
-        raise HTTPException(status_code=500, detail=str(exc)) from exc
-    return {"yaml": yaml_content}
 
 
 @app.post("/api/config/generate/stream")
@@ -1656,6 +1609,22 @@ async def list_history(response: Response, run_root: str = "runs") -> list[Histo
             )
         )
     return enriched
+
+
+@app.get("/api/runs", include_in_schema=False)
+async def list_runs_legacy() -> list[dict[str, Any]]:
+    """Legacy compatibility endpoint for older clients and integration tests."""
+    rows: list[dict[str, Any]] = []
+    for run_id, record in _active_runs.items():
+        rows.append(
+            {
+                "run_id": run_id,
+                "topic": record.topic,
+                "done": bool(record.done),
+                "workflow_id": record.workflow_id,
+            }
+        )
+    return rows
 
 
 # ---------------------------------------------------------------------------
@@ -2432,111 +2401,6 @@ async def _get_topic_for_db(db_path: str) -> str:
                 return str(row[0]) if row and row[0] else ""
     except Exception:
         return ""
-
-
-@app.get("/api/db/{run_id}/papers")
-async def get_papers(
-    run_id: str,
-    offset: int = 0,
-    limit: int = 50,
-    search: str = "",
-) -> dict[str, Any]:
-    """Paginated papers table from the run's SQLite database."""
-    db_path = _get_db_path(run_id)
-    try:
-        async with aiosqlite.connect(db_path) as db:
-            db.row_factory = aiosqlite.Row
-            if search:
-                like = f"%{search}%"
-                async with db.execute(
-                    """SELECT paper_id, title, authors, year, source_database, doi, abstract, country
-                       FROM papers WHERE title LIKE ? OR abstract LIKE ?
-                       ORDER BY year DESC LIMIT ? OFFSET ?""",
-                    (like, like, limit, offset),
-                ) as cur:
-                    rows = await cur.fetchall()
-                async with db.execute(
-                    "SELECT COUNT(*) FROM papers WHERE title LIKE ? OR abstract LIKE ?",
-                    (like, like),
-                ) as cur:
-                    total = (await cur.fetchone())[0]  # type: ignore[index]
-            else:
-                async with db.execute(
-                    """SELECT paper_id, title, authors, year, source_database, doi, abstract, country
-                       FROM papers ORDER BY year DESC LIMIT ? OFFSET ?""",
-                    (limit, offset),
-                ) as cur:
-                    rows = await cur.fetchall()
-                async with db.execute("SELECT COUNT(*) FROM papers") as cur:
-                    total = (await cur.fetchone())[0]  # type: ignore[index]
-
-            papers = []
-            for row in rows:
-                authors_raw = row["authors"]
-                try:
-                    authors = _json.loads(authors_raw) if authors_raw else []
-                    if isinstance(authors, list):
-                        authors = ", ".join(str(a) for a in authors[:3])
-                        if len(_json.loads(row["authors"])) > 3:
-                            authors += " et al."
-                except Exception:
-                    authors = str(authors_raw or "")
-                papers.append(
-                    {
-                        "paper_id": row["paper_id"],
-                        "title": row["title"],
-                        "authors": authors,
-                        "year": row["year"],
-                        "source_database": row["source_database"],
-                        "doi": row["doi"],
-                        "country": row["country"],
-                    }
-                )
-            return {"total": total, "offset": offset, "limit": limit, "papers": papers}
-    except HTTPException:
-        raise
-    except Exception as exc:
-        raise HTTPException(status_code=500, detail=str(exc)) from exc
-
-
-@app.get("/api/db/{run_id}/screening")
-async def get_screening(
-    run_id: str,
-    stage: str = "",
-    decision: str = "",
-    offset: int = 0,
-    limit: int = 100,
-) -> dict[str, Any]:
-    """Screening decisions table."""
-    db_path = _get_db_path(run_id)
-    try:
-        async with aiosqlite.connect(db_path) as db:
-            db.row_factory = aiosqlite.Row
-            conditions = []
-            params: list[Any] = []
-            if stage:
-                conditions.append("stage = ?")
-                params.append(stage)
-            if decision:
-                conditions.append("decision = ?")
-                params.append(decision)
-            where = f"WHERE {' AND '.join(conditions)}" if conditions else ""
-            async with db.execute(
-                f"""SELECT paper_id, stage, decision, reason AS rationale, created_at
-                    FROM screening_decisions {where}
-                    ORDER BY created_at DESC LIMIT ? OFFSET ?""",
-                (*params, limit, offset),
-            ) as cur:
-                rows = await cur.fetchall()
-            async with db.execute(f"SELECT COUNT(*) FROM screening_decisions {where}", params) as cur:
-                total = (await cur.fetchone())[0]  # type: ignore[index]
-
-            decisions = [dict(row) for row in rows]
-            return {"total": total, "offset": offset, "limit": limit, "decisions": decisions}
-    except HTTPException:
-        raise
-    except Exception as exc:
-        raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 
 @app.get("/api/db/{run_id}/papers-facets")
@@ -3380,12 +3244,12 @@ async def get_workflow_validation_checks(workflow_id: str, validation_run_id: st
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 
-def _format_manuscript_audit_summary(latest_run: dict[str, Any] | None) -> dict[str, Any] | None:
+def _format_manuscript_audit_summary(latest_run: ManuscriptAuditResult | None) -> dict[str, Any] | None:
     if latest_run is None:
         return None
-    gate_action = str(latest_run.get("gate_action") or "strict_block")
-    gate_blocked = bool(latest_run.get("gate_blocked"))
-    passed = bool(latest_run.get("passed"))
+    gate_action = str(latest_run.gate_action or "strict_block")
+    gate_blocked = bool(latest_run.gate_blocked)
+    passed = bool(latest_run.passed)
     if gate_blocked and gate_action == "advisory_only":
         status_label = "completed_with_findings"
     elif gate_blocked:
@@ -3395,19 +3259,19 @@ def _format_manuscript_audit_summary(latest_run: dict[str, Any] | None) -> dict[
     else:
         status_label = "completed_with_findings"
     return {
-        "audit_run_id": latest_run.get("audit_run_id"),
-        "verdict": latest_run.get("verdict"),
+        "audit_run_id": latest_run.audit_run_id,
+        "verdict": latest_run.verdict,
         "passed": passed,
         "gate_blocked": gate_blocked,
-        "gate_mode": latest_run.get("gate_mode", "strict"),
+        "gate_mode": latest_run.gate_mode,
         "gate_action": gate_action,
         "status_label": status_label,
-        "blocking_count": int(latest_run.get("blocking_count") or 0),
-        "total_findings": int(latest_run.get("total_findings") or 0),
-        "summary": str(latest_run.get("summary") or ""),
-        "top_recommendations": list(latest_run.get("top_recommendations") or []),
-        "gate_failure_reasons": list(latest_run.get("gate_failure_reasons") or []),
-        "last_audited_at": latest_run.get("last_audited_at") or latest_run.get("created_at"),
+        "blocking_count": int(latest_run.blocking_count or 0),
+        "total_findings": int(latest_run.total_findings or 0),
+        "summary": str(latest_run.summary or ""),
+        "top_recommendations": list(latest_run.top_recommendations or []),
+        "gate_failure_reasons": list(latest_run.gate_failure_reasons or []),
+        "last_audited_at": latest_run.last_audited_at or latest_run.created_at,
     }
 
 
@@ -3419,9 +3283,9 @@ async def get_workflow_manuscript_audit_summary(workflow_id: str, limit: int = 2
         from src.db.repositories import WorkflowRepository as _WorkflowRepository
 
         async with aiosqlite.connect(db_path) as db:
-            repo = _WorkflowRepository(db)
-            latest = await repo.get_latest_manuscript_audit(workflow_id)
-            history = await repo.get_manuscript_audit_history(workflow_id, limit=max(1, min(limit, 100)))
+            audit_repo = AuditRepository(_WorkflowRepository(db))
+            latest = await audit_repo.get_latest_run(workflow_id)
+            history = await audit_repo.get_history(workflow_id, limit=max(1, min(limit, 100)))
             return {
                 "workflow_id": workflow_id,
                 "latest_run": latest,
@@ -3447,18 +3311,18 @@ async def get_workflow_manuscript_audit_findings(
         from src.db.repositories import WorkflowRepository as _WorkflowRepository
 
         async with aiosqlite.connect(db_path) as db:
-            repo = _WorkflowRepository(db)
+            audit_repo = AuditRepository(_WorkflowRepository(db))
             run_id = audit_run_id
             if not run_id:
-                latest = await repo.get_latest_manuscript_audit(workflow_id)
+                latest = await audit_repo.get_latest_run(workflow_id)
                 if latest is None:
                     return {"workflow_id": workflow_id, "audit_run_id": None, "findings": []}
-                run_id = str(latest["audit_run_id"])
+                run_id = str(latest.audit_run_id)
             else:
-                scoped_run = await repo.get_manuscript_audit_run(workflow_id, str(run_id))
+                scoped_run = await audit_repo.get_run(workflow_id, str(run_id))
                 if scoped_run is None:
                     return {"workflow_id": workflow_id, "audit_run_id": None, "findings": []}
-            findings = await repo.get_manuscript_audit_findings(str(run_id))
+            findings = await audit_repo.get_findings(str(run_id))
             return {"workflow_id": workflow_id, "audit_run_id": run_id, "findings": findings}
     except HTTPException:
         raise
@@ -3485,18 +3349,18 @@ async def get_run_manuscript_audit(run_id: str, history_limit: int = 20) -> dict
 
         async with aiosqlite.connect(db_path) as db:
             db.row_factory = aiosqlite.Row
-            repo = _WorkflowRepository(db)
+            audit_repo = AuditRepository(_WorkflowRepository(db))
             wf_row = await (
                 await db.execute(
                     "SELECT workflow_id FROM workflows ORDER BY updated_at DESC, rowid DESC LIMIT 1"
                 )
             ).fetchone()
             workflow_id = str(wf_row["workflow_id"]) if wf_row and wf_row["workflow_id"] else run_id
-            latest = await repo.get_latest_manuscript_audit(workflow_id)
-            history = await repo.get_manuscript_audit_history(workflow_id, limit=max(1, min(history_limit, 100)))
-            findings: list[dict[str, Any]] = []
+            latest = await audit_repo.get_latest_run(workflow_id)
+            history = await audit_repo.get_history(workflow_id, limit=max(1, min(history_limit, 100)))
+            findings: list[ManuscriptAuditFinding] = []
             if latest is not None:
-                findings = await repo.get_manuscript_audit_findings(str(latest["audit_run_id"]))
+                findings = await audit_repo.get_findings(str(latest.audit_run_id))
             return {
                 "run_id": run_id,
                 "workflow_id": workflow_id,
@@ -3658,6 +3522,12 @@ async def get_run_artifacts(run_id: str) -> dict[str, Any]:
     if not summary.exists():
         raise HTTPException(status_code=404, detail="run_summary.json not found")
     return _json.loads(summary.read_text(encoding="utf-8"))
+
+
+@app.get("/api/results/{run_id}", include_in_schema=False)
+async def get_results_legacy(run_id: str) -> dict[str, Any]:
+    """Legacy compatibility endpoint mapped to artifacts payload."""
+    return await get_run_artifacts(run_id)
 
 
 @app.get("/api/run/{run_id}/manuscript")

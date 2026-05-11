@@ -10,8 +10,16 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 
-from src.models import GRADECertainty, GRADEOutcomeAssessment, StudyDesign
+from src.models import (
+    ExtractionRecord,
+    GRADECertainty,
+    GRADEOutcomeAssessment,
+    RoB2Assessment,
+    RobinsIAssessment,
+    StudyDesign,
+)
 from src.models.quality import GradeSoFRow, GradeSoFTable
+from src.synthesis.constants import GENERIC_OUTCOME_NAMES
 
 
 def _certainty_to_score(certainty: GRADECertainty) -> int:
@@ -127,8 +135,8 @@ class GradeAssessor:
         self,
         outcome_name: str,
         study_design: StudyDesign,
-        rob_assessments: Sequence[object],
-        extraction_records: Sequence[object],
+        rob_assessments: Sequence[RoB2Assessment | RobinsIAssessment],
+        extraction_records: Sequence[ExtractionRecord],
     ) -> GRADEOutcomeAssessment:
         """Derive GRADE downgrade factors from actual pipeline data.
 
@@ -225,15 +233,7 @@ _UPGRADE_LABEL: dict[int, str] = {
 }
 
 
-_PLACEHOLDER_OUTCOME_NAMES = frozenset(
-    {
-        "",
-        "primary_outcome",
-        "secondary_outcome",
-        "not reported",
-        "not_reported",
-    }
-)
+_PLACEHOLDER_OUTCOME_NAMES = GENERIC_OUTCOME_NAMES
 
 # Canonical outcome theme clustering rules.
 # Each theme maps to a list of keyword fragments; if an outcome name (lowercased)

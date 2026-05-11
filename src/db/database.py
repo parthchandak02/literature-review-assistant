@@ -507,6 +507,13 @@ async def run_migrations(db: aiosqlite.Connection) -> None:
             ON writing_manifests(workflow_id, section_key);
         """,
     )
+    # 21. Persist CandidatePaper.journal in papers table.
+    await _apply(
+        21,
+        """
+        ALTER TABLE papers ADD COLUMN journal TEXT;
+        """,
+    )
     await _validate_schema_contract(db)
     await db.commit()
 

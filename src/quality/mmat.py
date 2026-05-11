@@ -19,49 +19,15 @@ Information, 34(4), 285-291. DOI: 10.3233/EFI-180221
 from __future__ import annotations
 
 import logging
-import time
-from typing import Literal
 
 from pydantic import BaseModel
 
 from src.llm.base_client import LLMBackend
-from src.llm.pydantic_client import PydanticAIClient
-from src.models import ExtractionRecord, StudyDesign
+from src.models import ExtractionRecord, MmatAssessment, MmatStudyType, StudyDesign
 from src.models.config import SettingsConfig
+from src.quality.runner import QualityLLMRunner
 
 logger = logging.getLogger(__name__)
-
-MmatStudyType = Literal[
-    "qualitative",
-    "rct",
-    "non_randomized",
-    "quantitative_descriptive",
-    "mixed_methods",
-]
-
-
-class MmatAssessment(BaseModel):
-    """MMAT 2018 appraisal result for a single study."""
-
-    paper_id: str
-    study_type: MmatStudyType
-
-    # Screening criteria (applicable to all types)
-    screening_1_clear_question: bool
-    screening_2_appropriate_data: bool
-
-    # Type-specific criteria (5 per type)
-    criterion_1: bool
-    criterion_2: bool
-    criterion_3: bool
-    criterion_4: bool
-    criterion_5: bool
-
-    overall_score: int  # count of True criteria (0-5 type-specific)
-    overall_summary: str
-    assessment_source: Literal["llm", "heuristic"] = "llm"
-    fallback_used: bool = False
-
 
 class _MmatLLMResponse(BaseModel):
     screening_1_clear_question: bool = False
@@ -216,37 +182,16 @@ class MmatAssessor:
         if not agent:
             return _heuristic_mmat(record, study_type)
 
-        model = agent.model
-        temperature = agent.temperature
         prompt = _build_mmat_prompt(record, study_type, full_text)
 
         try:
-            if self.provider is not None:
-                await self.provider.reserve_call_slot("quality_assessment")
-            t0 = time.monotonic()
-            if self.provider is not None and isinstance(self.llm_client, PydanticAIClient):
-                parsed, tok_in, tok_out, cw, cr, _retries = await self.llm_client.complete_validated(
-                    prompt,
-                    model=model,
-                    temperature=temperature,
-                    response_model=_MmatLLMResponse,
-                )
-                latency_ms = int((time.monotonic() - t0) * 1000)
-                cost = self.provider.estimate_cost_usd(model, tok_in, tok_out, cw, cr)
-                await self.provider.log_cost(
-                    model,
-                    tok_in,
-                    tok_out,
-                    cost,
-                    latency_ms,
-                    phase="quality_mmat",
-                    cache_read_tokens=cr,
-                    cache_write_tokens=cw,
-                )
-            else:
-                schema = _MmatLLMResponse.model_json_schema()
-                raw = await self.llm_client.complete(prompt, model=model, temperature=temperature, json_schema=schema)
-                parsed = _MmatLLMResponse.model_validate_json(raw)
+            runner = QualityLLMRunner(self.llm_client, self.settings, self.provider)
+            parsed, _metrics = await runner.run_validated(
+                agent_key="quality_assessment",
+                phase_name="quality_mmat",
+                prompt=prompt,
+                response_model=_MmatLLMResponse,
+            )
             score = sum(
                 [
                     parsed.criterion_1,

@@ -9,9 +9,9 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
-from typing import Any
 
 from src.models import ExtractionRecord
+from src.synthesis.constants import DEFAULT_HETEROGENEITY_THRESHOLD, normalize_outcome_name
 from src.synthesis.meta_analysis import pool_effects
 
 _log = logging.getLogger(__name__)
@@ -40,6 +40,15 @@ class SubgroupResult:
     ci_upper: float
     n_studies: int
     i_squared: float
+
+
+@dataclass
+class SensitivityPaperMetadata:
+    """Typed subgroup metadata used by sensitivity analysis."""
+
+    study_design: str = "other"
+    setting: str = "NR"
+    country: str = "NR"
 
 
 @dataclass
@@ -94,7 +103,7 @@ def _collect_outcome_data(
 
     for rec in records:
         for outcome in rec.outcomes:
-            if outcome.name != outcome_name:
+            if normalize_outcome_name(outcome.name) != normalize_outcome_name(outcome_name):
                 continue
             try:
                 es_raw = outcome.effect_size
@@ -119,7 +128,7 @@ def leave_one_out(
     records: list[ExtractionRecord],
     outcome_name: str,
     effect_measure: str = "smd",
-    heterogeneity_threshold: float = 40.0,
+    heterogeneity_threshold: float = DEFAULT_HETEROGENEITY_THRESHOLD,
 ) -> list[LeaveOneOutResult]:
     """Run leave-one-out sensitivity analysis for a single outcome.
 
@@ -165,9 +174,9 @@ def subgroup_analysis(
     records: list[ExtractionRecord],
     outcome_name: str,
     subgroup_cols: list[str],
-    paper_metadata: dict[str, dict[str, Any]] | None = None,
+    paper_metadata: dict[str, SensitivityPaperMetadata] | None = None,
     effect_measure: str = "smd",
-    heterogeneity_threshold: float = 40.0,
+    heterogeneity_threshold: float = DEFAULT_HETEROGENEITY_THRESHOLD,
 ) -> dict[str, list[SubgroupResult]]:
     """Run subgroup analysis by one or more categorical columns.
 
@@ -188,15 +197,14 @@ def subgroup_analysis(
         return {}
 
     # Build a lookup for attribute values
-    meta: dict[str, dict[str, Any]] = paper_metadata or {}
+    meta: dict[str, SensitivityPaperMetadata] = dict(paper_metadata or {})
     # Fall back to ExtractionRecord fields for known columns
     for rec in records:
         if rec.paper_id not in meta:
-            meta[rec.paper_id] = {}
-        if "study_design" not in meta[rec.paper_id]:
-            meta[rec.paper_id]["study_design"] = rec.study_design.value if rec.study_design else "other"
-        if "setting" not in meta[rec.paper_id]:
-            meta[rec.paper_id]["setting"] = rec.setting or "NR"
+            meta[rec.paper_id] = SensitivityPaperMetadata(
+                study_design=rec.study_design.value if rec.study_design else "other",
+                setting=rec.setting or "NR",
+            )
 
     all_subgroup_results: dict[str, list[SubgroupResult]] = {}
 
@@ -204,7 +212,11 @@ def subgroup_analysis(
         # Group paper indices by their value for this column
         groups: dict[str, list[int]] = {}
         for idx, pid in enumerate(paper_ids):
-            val = str(meta.get(pid, {}).get(col, "NR"))
+            meta_row = meta.get(pid, SensitivityPaperMetadata())
+            if isinstance(meta_row, dict):
+                val = str(meta_row.get(col, "NR"))
+            else:
+                val = str(getattr(meta_row, col, "NR"))
             groups.setdefault(val, []).append(idx)
 
         col_results: list[SubgroupResult] = []
@@ -245,8 +257,8 @@ def run_sensitivity_analysis(
     outcome_name: str,
     effect_measure: str = "smd",
     subgroup_cols: list[str] | None = None,
-    paper_metadata: dict[str, dict[str, Any]] | None = None,
-    heterogeneity_threshold: float = 40.0,
+    paper_metadata: dict[str, SensitivityPaperMetadata] | None = None,
+    heterogeneity_threshold: float = DEFAULT_HETEROGENEITY_THRESHOLD,
 ) -> SensitivityAnalysisResult | None:
     """Orchestrate leave-one-out and subgroup analyses for one outcome.
 

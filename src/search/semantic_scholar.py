@@ -8,10 +8,11 @@ from datetime import date
 import aiohttp
 
 from src.models import CandidatePaper, SearchResult, SourceCategory
+from src.search.common import HttpSearchConnectorBase
 from src.utils.ssl_context import tcp_connector_with_certifi
 
 
-class SemanticScholarConnector:
+class SemanticScholarConnector(HttpSearchConnectorBase):
     name = "semantic_scholar"
     source_category = SourceCategory.DATABASE
     base_url = "https://api.semanticscholar.org/graph/v1/paper/search"
@@ -63,28 +64,35 @@ class SemanticScholarConnector:
                     "offset": str(offset),
                     "fields": "title,authors,year,abstract,url,externalIds,openAccessPdf",
                 }
-                async with session.get(
-                    self.base_url, params=params, headers=headers, timeout=aiohttp.ClientTimeout(total=30)
-                ) as response:
-                    if response.status != 200:
-                        break
-                    payload = await response.json()
-                    page_data = payload.get("data", [])
-                    if not page_data:
-                        break
-                    for item in page_data:
-                        year = item.get("year")
-                        if isinstance(year, int):
-                            if date_start and year < date_start:
-                                continue
-                            if date_end and year > date_end:
-                                continue
-                        papers.append(self._to_candidate(item))
-                    # Stop if the API signals no more results or we got a short page
-                    total_available = payload.get("total", 0)
-                    offset += len(page_data)
-                    if offset >= total_available or len(page_data) < page_limit:
-                        break
+                payload = await self.request_json(
+                    session,
+                    method="GET",
+                    url=self.base_url,
+                    source_name="SemanticScholar",
+                    params=params,
+                    headers=headers,
+                    timeout_seconds=30,
+                    max_retries=2,
+                    raise_on_error=False,
+                )
+                if payload is None:
+                    break
+                page_data = payload.get("data", [])
+                if not page_data:
+                    break
+                for item in page_data:
+                    year = item.get("year")
+                    if isinstance(year, int):
+                        if date_start and year < date_start:
+                            continue
+                        if date_end and year > date_end:
+                            continue
+                    papers.append(self._to_candidate(item))
+                # Stop if the API signals no more results or we got a short page
+                total_available = payload.get("total", 0)
+                offset += len(page_data)
+                if offset >= total_available or len(page_data) < page_limit:
+                    break
 
         return SearchResult(
             workflow_id=self.workflow_id,

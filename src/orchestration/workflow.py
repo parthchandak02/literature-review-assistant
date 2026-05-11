@@ -21,7 +21,6 @@ from src.config.loader import get_required_env_keys, load_configs
 from src.db.database import get_db
 from src.db.repositories import CitationRepository, WorkflowRepository
 from src.db.workflow_registry import (
-    allocate_workflow_id,
     find_by_topic,
     find_by_workflow_id,
     find_by_workflow_id_fallback,
@@ -82,6 +81,8 @@ from src.orchestration.embedding_node import EmbeddingNode
 from src.orchestration.gates import GateRunner
 from src.orchestration.knowledge_graph_node import KnowledgeGraphNode
 from src.orchestration.resume import load_resume_state
+from src.orchestration.runners.hitl_runner import run_human_review_checkpoint
+from src.orchestration.runners.start_runner import resolve_resume_next_phase, run_start_node
 from src.orchestration.state import ReviewState
 from src.prisma import build_prisma_counts, render_prisma_diagram
 from src.protocol.generator import ProtocolGenerator
@@ -124,7 +125,6 @@ from src.synthesis.contradiction_detector import detect_contradictions
 from src.synthesis.meta_analysis import pool_effects
 from src.synthesis.sensitivity import run_sensitivity_analysis
 from src.utils import structured_log
-from src.utils.logging_paths import create_run_paths
 from src.visualization import (
     render_geographic,
     render_rob_traffic_light,
@@ -470,22 +470,9 @@ class ResumeStartNode(BaseNode[ReviewState]):
         | FinalizeNode
     ):
         state = ctx.state
-        rc = _rc(state)
-        if rc:
-            rc.emit_phase_start("resume", f"Resuming from {state.next_phase}...")
-        structured_log.configure_run_logging(state.log_dir)
-        structured_log.bind_run(state.workflow_id, state.run_id or "resume", log_dir=state.log_dir)
-
-        # If the registry shows this run is still awaiting human review, re-enter
-        # the HITL checkpoint rather than jumping straight to extraction.
-        try:
-            _reg_entry = await find_by_workflow_id(state.run_root, state.workflow_id)
-            if _reg_entry and str(getattr(_reg_entry, "status", "")) == "awaiting_review":
-                return HumanReviewCheckpointNode()
-        except Exception as _reg_err:
-            logger.warning("ResumeStartNode: could not check registry status: %s", _reg_err)
-
-        phase = state.next_phase
+        phase = await resolve_resume_next_phase(state)
+        if phase == "human_review_checkpoint":
+            return HumanReviewCheckpointNode()
         if phase == "phase_2_search":
             return SearchNode()
         if phase == "phase_3_screening":
@@ -512,73 +499,7 @@ class ResumeStartNode(BaseNode[ReviewState]):
 class StartNode(BaseNode[ReviewState]):
     async def run(self, ctx: GraphRunContext[ReviewState]) -> SearchNode:
         state = ctx.state
-        rc = _rc(state)
-        if rc:
-            rc.emit_phase_start("start", "Loading configs...")
-        review, settings = load_configs(state.review_path, state.settings_path)
-        state.review = review
-        state.settings = settings
-        state.run_id = _now_utc()
-        state.workflow_id = await allocate_workflow_id(state.run_root)
-
-        run_paths = create_run_paths(
-            run_root=state.run_root,
-            workflow_description=review.research_question,
-            workflow_id=state.workflow_id,
-        )
-        state.log_dir = str(run_paths.run_dir)
-        state.output_dir = str(run_paths.run_dir)
-        state.db_path = str(run_paths.runtime_db)
-        structured_log.configure_run_logging(state.log_dir)
-        structured_log.bind_run(state.workflow_id, state.run_id, log_dir=state.log_dir)
-        state.artifacts["run_summary"] = str(run_paths.run_summary)
-        state.artifacts["search_appendix"] = str(run_paths.search_appendix)
-        state.artifacts["protocol"] = str(run_paths.protocol_markdown)
-        state.artifacts["coverage_report"] = str(run_paths.run_dir / "doc_fulltext_retrieval_coverage.md")
-        state.artifacts["disagreements_report"] = str(run_paths.run_dir / "doc_disagreements_report.md")
-        state.artifacts["rob_traffic_light"] = str(run_paths.run_dir / "fig_rob_traffic_light.png")
-        state.artifacts["rob2_traffic_light"] = str(run_paths.run_dir / "fig_rob2_traffic_light.png")
-        state.artifacts["narrative_synthesis"] = str(run_paths.run_dir / "data_narrative_synthesis.json")
-        state.artifacts["manuscript_md"] = str(run_paths.run_dir / "doc_manuscript.md")
-        state.artifacts["manuscript_tex"] = str(run_paths.run_dir / "doc_manuscript.tex")
-        state.artifacts["references_bib"] = str(run_paths.run_dir / "references.bib")
-        state.artifacts["prisma_diagram"] = str(run_paths.run_dir / "fig_prisma_flow.png")
-        state.artifacts["timeline"] = str(run_paths.run_dir / "fig_publication_timeline.png")
-        state.artifacts["geographic"] = str(run_paths.run_dir / "fig_geographic_distribution.png")
-        state.artifacts["fig_forest_plot"] = str(run_paths.run_dir / "fig_forest_plot.png")
-        state.artifacts["fig_funnel_plot"] = str(run_paths.run_dir / "fig_funnel_plot.png")
-        state.artifacts["concept_taxonomy"] = str(run_paths.run_dir / "fig_concept_taxonomy.svg")
-        state.artifacts["conceptual_framework"] = str(run_paths.run_dir / "fig_conceptual_framework.svg")
-        state.artifacts["methodology_flow"] = str(run_paths.run_dir / "fig_methodology_flow.svg")
-        state.artifacts["evidence_network"] = str(run_paths.run_dir / "fig_evidence_network.png")
-        state.artifacts["papers_dir"] = str(run_paths.run_dir / "papers")
-        state.artifacts["papers_manifest"] = str(run_paths.run_dir / "data_papers_manifest.json")
-        state.artifacts["prospero_form_md"] = str(run_paths.run_dir / "doc_prospero_registration.md")
-        state.artifacts["prospero_form"] = str(run_paths.run_dir / "doc_prospero_registration.docx")
-
-        # Snapshot the review config at run start, prepending workflow identity
-        # so config_snapshot.yaml is the single source of truth linking a run
-        # directory to its workflow ID without querying SQLite.
-        # Use state.review_path (the file the workflow actually loaded) so the
-        # snapshot correctly reflects what was ACTUALLY used, not whatever happens
-        # to be in the global config/review.yaml at snapshot time.
-        _config_src = Path(state.review_path) if Path(state.review_path).exists() else Path("config/review.yaml")
-        _snapshot_dest = run_paths.run_dir / "config_snapshot.yaml"
-        _header = (
-            f"# workflow_id: {state.workflow_id}\n# run_dir: {run_paths.run_dir}\n# created_at: {state.run_id}\n#\n"
-        )
-        if _config_src.exists():
-            _snapshot_dest.write_text(
-                _header + _config_src.read_text(encoding="utf-8"),
-                encoding="utf-8",
-            )
-        else:
-            _snapshot_dest.write_text(_header, encoding="utf-8")
-
-        if rc:
-            rc.emit_phase_done("start", {"workflow_id": state.workflow_id})
-            if hasattr(rc, "set_db_path"):
-                rc.set_db_path(state.db_path)
+        await run_start_node(state)
         return SearchNode()
 
 
@@ -1484,6 +1405,9 @@ class ScreeningNode(BaseNode[ReviewState]):
                             excluded_terms=state.review.discouraged_terminology(),
                             client=PydanticAIBatchRankerClient(),
                             on_status=_on_status,
+                            provider=provider,
+                            workflow_id=state.workflow_id,
+                            reserve_agent=_batch_agent_key if _batch_agent_key in state.settings.agents else "screening_reviewer_a",
                         )
                         _batch_forwarded, _batch_excluded_decisions = await _br.rank_and_split(_papers_for_batch)
                         state.batch_screener_model = _batch_agent.model
@@ -2183,52 +2107,7 @@ class HumanReviewCheckpointNode(BaseNode[ReviewState]):
 
     async def run(self, ctx: GraphRunContext[ReviewState]) -> ExtractionQualityNode:
         state = ctx.state
-        rc = _rc(state)
-        assert state.settings is not None
-
-        hitl = state.settings.human_in_the_loop
-        if not hitl.enabled:
-            return ExtractionQualityNode()
-
-        if rc:
-            rc.emit_phase_start(
-                "human_review_checkpoint",
-                f"Awaiting human review of {len(state.included_papers)} screened papers. "
-                "Approve via POST /api/run/{{run_id}}/approve-screening to continue.",
-                total=0,
-            )
-
-        await update_registry_status(state.run_root, state.workflow_id, "awaiting_review")
-
-        import asyncio as _asyncio
-
-        poll_interval = max(1, int(getattr(hitl, "poll_interval_seconds", 5)))
-        max_wait = max(poll_interval, int(getattr(hitl, "max_wait_seconds", 7200)))
-        waited = 0
-        while waited < max_wait:
-            await _asyncio.sleep(poll_interval)
-            waited += poll_interval
-            entry = await find_by_workflow_id(state.run_root, state.workflow_id)
-            if entry and str(getattr(entry, "status", "awaiting_review")) == "running":
-                break
-
-        await update_registry_status(state.run_root, state.workflow_id, "running")
-
-        # Reload included_papers so any human overrides written to dual_screening_results
-        # by approve_screening() are reflected before ExtractionQualityNode runs.
-        try:
-            async with get_db(state.db_path) as _hitl_db:
-                _repo = WorkflowRepository(_hitl_db)
-                _included_ids = await _repo.get_included_paper_ids(state.workflow_id)
-                if not _included_ids:
-                    _included_ids = await _repo.get_title_abstract_include_ids(state.workflow_id)
-                state.included_papers = [p for p in state.deduped_papers if p.paper_id in _included_ids]
-        except Exception as _reload_err:
-            logger.warning("HumanReviewCheckpointNode: could not reload included_papers: %s", _reload_err)
-
-        if rc:
-            rc.emit_phase_done("human_review_checkpoint", {"approved": True})
-
+        await run_human_review_checkpoint(state)
         return ExtractionQualityNode()
 
 
@@ -6633,7 +6512,7 @@ class FinalizeNode(BaseNode[ReviewState]):
                 _audit_repo = WorkflowRepository(_audit_db)
                 _latest_audit = await _audit_repo.get_latest_manuscript_audit(state.workflow_id)
                 if _latest_audit is not None:
-                    summary["manuscript_audit"] = _latest_audit
+                    summary["manuscript_audit"] = _latest_audit.model_dump(mode="json")
         except Exception as _audit_err:
             logger.warning("FinalizeNode: could not load manuscript audit summary: %s", _audit_err)
 
