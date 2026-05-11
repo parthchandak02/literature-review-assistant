@@ -4,12 +4,12 @@ from scripts.check_spec_endpoint_parity import (
     Endpoint,
     compare_endpoint_sets,
     extract_fastapi_endpoints,
-    parse_spec_endpoints,
+    parse_documented_endpoints,
 )
 
 
-def test_parse_spec_endpoints_reads_only_10_1_table() -> None:
-    spec_text = """
+def test_parse_documented_endpoints_reads_only_10_1_table() -> None:
+    document_text = """
 ## 10. API Contract
 
 ### 10.1 REST Endpoints
@@ -23,7 +23,7 @@ def test_parse_spec_endpoints_reads_only_10_1_table() -> None:
 
 Not part of the table.
 """.strip()
-    endpoints = parse_spec_endpoints(spec_text)
+    endpoints = parse_documented_endpoints(document_text)
     assert endpoints == {
         Endpoint(method="POST", path="/api/run"),
         Endpoint(method="GET", path="/api/health"),
