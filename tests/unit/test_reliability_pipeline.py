@@ -1,8 +1,7 @@
-"""Reliability-focused tests: PRISMA disclosure grounding, gate policy, and phase matrix."""
+"""Reliability-focused tests: PRISMA disclosure grounding and gate policy."""
 
 from __future__ import annotations
 
-from src.manuscript.contract_matrix import tex_optional_for_phase
 from src.manuscript.prisma_disclosure import prisma_disclosure_gaps, should_use_db_prisma_flow_checks
 from src.manuscript.violation_policy import (
     PHASE_7_AVAILABILITY_ONLY_CODES,
@@ -63,6 +62,3 @@ def test_violation_category_availability_in_phase_7() -> None:
     assert violation_category("FIGURE_ASSET_MISSING", "finalize") == "methodological_compliance"
 
 
-def test_tex_optional_for_phase_7_audit() -> None:
-    assert tex_optional_for_phase("phase_7_audit") is True
-    assert tex_optional_for_phase("finalize") is False

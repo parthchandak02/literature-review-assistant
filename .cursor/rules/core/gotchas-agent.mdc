@@ -845,13 +845,11 @@ raw text into dicts.
 `ready: true` requires items 1-6 (finalize + PRISMA + contracts + citation lineage + PRISMA checklist + zero fallback events).
 API endpoint: `GET /api/run/{run_id}/readiness` (note: `run_id`, not `workflow_id`).
 
-## Contract Matrix Makes TeX Checks Phase-Aware
-`src/manuscript/contract_matrix.py` defines `PHASES_TEX_OPTIONAL` (phases where
-`doc_manuscript.tex` may not exist yet). During `phase_7_audit`, TeX-related contract
-checks are skipped via `tex_optional_for_phase("phase_7_audit")`. This prevents the
-audit from failing with "No such file: doc_manuscript.tex" -- that file is generated
-later in FinalizeNode. Do NOT add TeX-dependent assertions to contracts without
-checking `tex_optional_for_phase()` first.
+## TeX Checks Are Phase-Aware in Violation Policy
+During `phase_7_audit`, TeX-related contract checks are skipped because
+`doc_manuscript.tex` may not exist yet (generated later in FinalizeNode).
+This logic lives in `src/manuscript/violation_policy.py`. Do NOT add
+TeX-dependent assertions to contracts without checking the phase context first.
 
 ## Violation Policy Separates Soft-Block From Hard-Fail
 `src/manuscript/violation_policy.py` categorizes contract violation codes into

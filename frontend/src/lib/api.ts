@@ -20,17 +20,6 @@ export interface RunResponse {
   topic: string
 }
 
-export interface RunInfo {
-  run_id: string
-  topic: string
-  done: boolean
-  error: string | null
-}
-
-export interface RunResults {
-  run_id: string
-  outputs: Record<string, unknown>
-}
 
 // SSE event types emitted by WebRunContext
 type ReviewEventIdentity = { id?: string }
@@ -65,23 +54,6 @@ export type ReviewEvent = (
 ) & { durability?: EventDurability }
 
 // Database explorer types
-export interface PaperRow {
-  paper_id: string
-  title: string
-  authors: string
-  year: number | null
-  source_database: string
-  doi: string | null
-  country: string | null
-}
-
-export interface ScreeningRow {
-  paper_id: string
-  stage: string
-  decision: string | null
-  rationale: string | null
-  created_at: string | null
-}
 
 export interface PaperAllRow {
   paper_id: string
@@ -355,20 +327,6 @@ export async function cancelRun(runId: string): Promise<void> {
   if (!res.ok) throw await _apiError(res, "Cancel failed")
 }
 
-export async function listRuns(): Promise<RunInfo[]> {
-  const res = await fetch(`${BASE}/runs`)
-  if (!res.ok) {
-    console.warn("listRuns failed:", res.status, res.statusText)
-    return []
-  }
-  return res.json() as Promise<RunInfo[]>
-}
-
-export async function getResults(runId: string): Promise<RunResults> {
-  const res = await fetch(`${BASE}/results/${runId}`)
-  if (!res.ok) throw new Error("Results not ready")
-  return res.json() as Promise<RunResults>
-}
 
 export async function getDefaultReviewConfig(): Promise<string> {
   const res = await fetch(`${BASE}/config/review`)
@@ -377,28 +335,6 @@ export async function getDefaultReviewConfig(): Promise<string> {
   return data.content
 }
 
-/**
- * Generate a complete review config YAML from a plain-English research question.
- * Calls the backend LLM endpoint and returns the generated YAML string.
- * Throws an Error with a descriptive message on failure.
- */
-export async function generateConfig(researchQuestion: string, geminiApiKey = ""): Promise<string> {
-  const res = await fetch(`${BASE}/config/generate`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ research_question: researchQuestion, gemini_api_key: geminiApiKey }),
-  })
-  if (!res.ok) {
-    let detail = `HTTP ${res.status}`
-    try {
-      const body = await res.json() as { detail?: string }
-      if (body.detail) detail = body.detail
-    } catch { /* ignore */ }
-    throw new Error(detail)
-  }
-  const data = await res.json() as { yaml: string }
-  return data.yaml
-}
 
 /**
  * Streaming version of generateConfig. Calls the SSE endpoint, invoking
@@ -519,43 +455,6 @@ async function _apiError(res: Response, label: string): Promise<Error> {
   return new APIResponseError(`${label}: ${message}`, res.status, detail)
 }
 
-export async function fetchPapers(
-  runId: string,
-  offset = 0,
-  limit = 50,
-  search = "",
-): Promise<{ total: number; offset: number; limit: number; papers: PaperRow[] }> {
-  const safeOffset = _sanitizePageNumber(offset, 0)
-  const safeLimit = _sanitizePageNumber(limit, 50, 1)
-  const params = new URLSearchParams({
-    offset: String(safeOffset),
-    limit: String(safeLimit),
-    search,
-  })
-  const res = await fetch(`${BASE}/db/${runId}/papers?${params}`)
-  if (!res.ok) throw await _apiError(res, "Papers fetch failed")
-  return res.json() as Promise<{ total: number; offset: number; limit: number; papers: PaperRow[] }>
-}
-
-export async function fetchScreening(
-  runId: string,
-  stage = "",
-  decision = "",
-  offset = 0,
-  limit = 100,
-): Promise<{ total: number; offset: number; limit: number; decisions: ScreeningRow[] }> {
-  const safeOffset = _sanitizePageNumber(offset, 0)
-  const safeLimit = _sanitizePageNumber(limit, 100, 1)
-  const params = new URLSearchParams({
-    stage,
-    decision,
-    offset: String(safeOffset),
-    limit: String(safeLimit),
-  })
-  const res = await fetch(`${BASE}/db/${runId}/screening?${params}`)
-  if (!res.ok) throw await _apiError(res, "Screening fetch failed")
-  return res.json() as Promise<{ total: number; offset: number; limit: number; decisions: ScreeningRow[] }>
-}
 
 export async function fetchPapersAll(
   runId: string,

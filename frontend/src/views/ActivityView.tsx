@@ -97,16 +97,6 @@ function isPhaseEligibleForResume(
   return Boolean(state && (state.status === "done" || state.status === "running" || state.status === "error"))
 }
 
-function getLastEligiblePhase(
-  phaseStates: Record<string, PhaseState>,
-  completedWorkflow: boolean,
-): string | null {
-  for (let i = RESUME_PHASE_ORDER.length - 1; i >= 0; i--) {
-    const phase = RESUME_PHASE_ORDER[i]
-    if (isPhaseEligibleForResume(phase, phaseStates, completedWorkflow)) return phase
-  }
-  return null
-}
 
 function fmtDuration(ms: number): string {
   const secs = Math.floor(ms / 1000)
@@ -315,7 +305,6 @@ export interface ActivityViewProps {
   onCancel: () => void
   onResumeFromPhase?: (phase: string) => Promise<void>
   resumeModeActive?: boolean
-  autoArmFromSidebarToken?: number
 }
 
 export function ActivityView({
@@ -331,7 +320,6 @@ export function ActivityView({
   onCancel,
   onResumeFromPhase,
   resumeModeActive = false,
-  autoArmFromSidebarToken = 0,
 }: ActivityViewProps) {
   const [historicalEvents, setHistoricalEvents] = useState<ReviewEvent[]>([])
   const [loadingHistory, setLoadingHistory] = useState(false)
@@ -459,15 +447,6 @@ export function ActivityView({
     setArmedResumePhase(null)
     setResumeHint(null)
   }, [resumeModeActive])
-
-  useEffect(() => {
-    if (!canResumeFromTimeline) return
-    if (autoArmFromSidebarToken <= 0) return
-    const phase = getLastEligiblePhase(phaseStates, completedWorkflow)
-    if (!phase) return
-    setArmedResumePhase(phase)
-    setResumeHint(`Tap ${PHASE_LABELS[phase] ?? phase} again to confirm resume`)
-  }, [autoArmFromSidebarToken, canResumeFromTimeline, phaseStates, completedWorkflow])
 
   async function handlePhaseResumeTap(phase: string) {
     if (!canResumeFromTimeline || isSubmittingResume) return

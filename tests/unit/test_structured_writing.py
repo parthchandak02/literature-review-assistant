@@ -2,8 +2,8 @@ from __future__ import annotations
 
 from src.models.writing import SectionBlock, StructuredSectionDraft
 from src.writing.orchestration import (
-    _apply_structured_grounding_patches,
     _abstract_body_word_count,
+    _apply_structured_grounding_patches,
     _build_deterministic_section_fallback,
     _extract_valid_citekeys,
     _needs_legacy_heading_fix,
