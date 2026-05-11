@@ -10,8 +10,10 @@ from pydantic import BaseModel, Field
 
 from src.db.repositories import WorkflowRepository
 from src.extraction.inference_utils import (
+    _is_substantive_finding,
     derive_concise_result_summary,
     infer_country_from_text,
+    result_not_extractable_text,
     should_promote_to_mixed_methods,
 )
 from src.extraction.primary_status import primary_status_from_study_design
@@ -157,7 +159,7 @@ def _clean_results_summary_text(text: str) -> str:
 
 def _finalize_results_summary_text(text: str) -> str:
     cleaned = _clean_results_summary_text(text)
-    if _is_placeholder_summary_text(cleaned):
+    if _is_placeholder_summary_text(cleaned) or _is_filler_summary_text(cleaned):
         return ""
     concise = derive_concise_result_summary(cleaned)
     if concise.startswith("Result details were not extractable"):
@@ -170,6 +172,39 @@ def _is_placeholder_summary_text(text: str) -> bool:
     if not cleaned:
         return True
     return any(pattern.match(cleaned) for pattern in _PLACEHOLDER_SUMMARY_PATTERNS)
+
+
+def _is_filler_summary_text(text: str) -> bool:
+    cleaned = _clean_results_summary_text(text)
+    if not cleaned:
+        return True
+    return not _is_substantive_finding(cleaned)
+
+
+def _synthesize_summary_from_outcomes(outcomes: list["_OutcomeItem"]) -> str:
+    parts: list[str] = []
+    for outcome in outcomes:
+        name = str(outcome.name or "").strip()
+        if not name or name.lower() in {"not reported", "primary_outcome", "secondary_outcome"}:
+            continue
+        detail_bits: list[str] = []
+        effect_size = str(outcome.effect_size or "").strip()
+        sample_size = str(outcome.n or "").strip()
+        if effect_size:
+            detail_bits.append(f"effect size {effect_size}")
+        if sample_size:
+            detail_bits.append(f"n={sample_size}")
+        if not detail_bits:
+            continue
+        if detail_bits:
+            parts.append(f"{name} ({'; '.join(detail_bits)})")
+        else:
+            parts.append(name)
+        if len(parts) >= 3:
+            break
+    if not parts:
+        return ""
+    return "Reported outcomes: " + "; ".join(parts) + "."
 
 
 def _scope_anchor_terms(review: ReviewConfig | None) -> tuple[list[str], list[str]]:
@@ -506,6 +541,8 @@ class ExtractionService:
     ) -> ExtractionRecord:
         text = _select_extraction_text(full_text)
         summary = _finalize_results_summary_text(self._heuristic_summary(paper, text))
+        if not summary:
+            summary = _clean_results_summary_text(self._heuristic_summary(paper, text))
         country = (
             str(getattr(paper, "country", None) or "").strip()
             or infer_country_from_text(paper.title, paper.abstract or "", text)
@@ -607,13 +644,16 @@ class ExtractionService:
         if not outcomes:
             outcomes = self._heuristic_outcomes()
 
-        # Guard against OCR artifact text in key fields. If the extracted
-        # results_summary looks like garbled OCR or a raw PDF header, fall back
-        # to the heuristic summary derived from the abstract.
+        # Guard against OCR artifacts and non-substantive LLM filler before
+        # allowing free-text summaries to pass downstream.
         results_summary_text = _clean_results_summary_text(parsed.results_summary or "")
-        if _is_low_quality_extraction(results_summary_text) or _is_placeholder_summary_text(results_summary_text):
-            results_summary_text = self._heuristic_summary(paper, text)
         results_summary_text = _finalize_results_summary_text(results_summary_text)
+        if _is_low_quality_extraction(results_summary_text):
+            results_summary_text = ""
+        if not results_summary_text or results_summary_text == result_not_extractable_text():
+            results_summary_text = _synthesize_summary_from_outcomes(parsed.outcomes or [])
+        if not results_summary_text or results_summary_text == result_not_extractable_text():
+            results_summary_text = _finalize_results_summary_text(self._heuristic_summary(paper, text))
 
         participant_count = _infer_participant_count(
             raw_count=(parsed.participant_count or "").strip(),

@@ -42,6 +42,11 @@ Improvements to make:
 - Replace mechanical or repetitive academic boilerplate with precise, direct prose
 - Eliminate AI-sounding filler phrases (e.g. "It is worth noting that", "Furthermore,
   it is important to mention")
+- Do NOT use em dashes or en dashes for asides. Prefer commas, parentheses, a colon,
+  or a separate sentence. Use a plain hyphen only for true compound modifiers and
+  numeric ranges (e.g. 10-15 mmHg).
+- Avoid stock AI vocabulary such as "delve", "tapestry", "underscores the importance";
+  use direct academic wording instead.
 - Maintain formal academic register throughout
 - Keep all numerical values and statistical results unchanged
 - Keep edits bounded and local; avoid full rewrites when not necessary.
@@ -92,6 +97,7 @@ async def humanize_async(
     if timeout_seconds is None:
         try:
             from src.config.loader import load_configs
+
             _, s = load_configs(settings_path="config/settings.yaml")
             timeout_seconds = float(s.llm.request_timeout_seconds)
         except Exception:

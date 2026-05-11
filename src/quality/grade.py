@@ -45,6 +45,38 @@ def _truncate_at_word_boundary(text: str, limit: int) -> str:
     return value[:cutoff].rstrip() + "..."
 
 
+def _level_phrase(level: int) -> str:
+    return {0: "no levels", 1: "one level", 2: "two levels"}.get(level, f"{level} levels")
+
+
+def _sanitize_effect_summary(text: str) -> str:
+    value = str(text or "").strip()
+    if not value:
+        return ""
+    value = value.replace("Computed from configured downgrade/upgrade factors.", "")
+    value = value.replace(
+        "Inconsistency/indirectness: not auto-computed from pipeline data -- manual review required.",
+        "Inconsistency and indirectness were not assessed automatically and should be reviewed manually.",
+    )
+    value = value.replace(
+        "ROBINS-I no_information judgments are treated as serious risk due to insufficient methodological detail.",
+        "Assessments with insufficient methodological detail were treated as serious risk of bias.",
+    )
+    value = value.replace("RoB downgrade=2", "Downgraded two levels for very serious risk of bias")
+    value = value.replace("RoB downgrade=1", "Downgraded one level for serious risk of bias")
+    value = value.replace("RoB downgrade=0", "No downgrade for risk of bias")
+    value = value.replace("Imprecision downgrade=1", "Downgraded one level for imprecision")
+    value = value.replace("Imprecision downgrade=0", "No downgrade for imprecision")
+    value = value.replace("worst-case across", "based on the highest concern across")
+    value = value.replace("assessments).", "assessments.")
+    value = " ".join(part.strip() for part in value.split())
+    return value.strip(" .") + "."
+
+
+def _generic_assessment_justification() -> str:
+    return "Certainty rating was derived from the recorded GRADE domain judgments for this outcome."
+
+
 class GradeAssessor:
     """Build a GRADE assessment row from quality factor scores."""
 
@@ -88,7 +120,7 @@ class GradeAssessor:
             dose_response_upgrade=dose_response_upgrade,
             residual_confounding_upgrade=residual_confounding_upgrade,
             final_certainty=final_certainty,
-            justification="Computed from configured downgrade/upgrade factors.",
+            justification=_generic_assessment_justification(),
         )
 
     def assess_from_rob(
@@ -152,15 +184,28 @@ class GradeAssessor:
             imprecision_downgrade=imprecision_downgrade,
             publication_bias_downgrade=0,
         )
-        justification = (
-            f"RoB downgrade={rob_downgrade} (worst-case across {len(rob_assessments)} assessments). "
-            f"Imprecision downgrade={imprecision_downgrade} (total N={total_n}). "
-            "ROBINS-I no_information judgments are treated as serious risk due to insufficient methodological detail. "
-            "Inconsistency/indirectness: not auto-computed from pipeline data -- manual review required."
-        )
+        parts: list[str] = []
+        if rob_downgrade > 0:
+            parts.append(
+                f"Downgraded {_level_phrase(rob_downgrade)} for risk of bias based on the highest concern across "
+                f"{len(rob_assessments)} assessments."
+            )
+        else:
+            parts.append(f"No downgrade for risk of bias across {len(rob_assessments)} assessments.")
+        if imprecision_downgrade > 0:
+            parts.append(f"Downgraded {_level_phrase(imprecision_downgrade)} for imprecision because total N was {total_n}.")
+        elif total_n > 0:
+            parts.append(f"No downgrade for imprecision because total N was {total_n}.")
+        parts.append("Assessments with insufficient methodological detail were treated as serious risk of bias.")
+        if n_studies == 1:
+            parts.append("Inconsistency was not assessed because only one study informed this outcome.")
+        else:
+            parts.append("Inconsistency should be reviewed manually because automated heterogeneity estimates were unavailable.")
+        parts.append("Indirectness should be reviewed manually because directness was not assessed automatically.")
+        justification = " ".join(parts)
         return assessment.model_copy(
             update={
-                "justification": justification,
+                "justification": _sanitize_effect_summary(justification),
                 "inconsistency_assessed": n_studies != 1,
                 "indirectness_assessed": False,
             }
@@ -362,7 +407,8 @@ def cluster_grade_assessments_by_theme(
             from src.models import StudyDesign as _StudyDesign
 
             design_enum = _StudyDesign(primary_design)
-        except Exception:
+        except (ValueError, KeyError) as exc:
+            _log.warning("Could not coerce study design %r to enum: %s", primary_design, exc)
             design_enum = None  # type: ignore[assignment]
         if design_enum is not None:
             agg = assessor.assess_outcome(
@@ -461,7 +507,9 @@ def build_sof_table(
                 imprecision=_DOWNGRADE_LABEL.get(a.imprecision_downgrade, "not serious"),
                 other_considerations="; ".join(other) if other else "none",
                 certainty=a.final_certainty,
-                effect_summary=_truncate_at_word_boundary(a.justification, 120) if a.justification else "",
+                effect_summary=_truncate_at_word_boundary(_sanitize_effect_summary(a.justification), 120)
+                if a.justification
+                else "",
             )
         )
     return GradeSoFTable(topic=topic, rows=rows)
@@ -506,6 +554,6 @@ def sof_table_to_markdown(table: GradeSoFTable) -> str:
         "not serious, serious, very serious. "
         "Other considerations include upgrades for large effect, dose-response, or "
         "residual confounding, and downgrades for suspected publication bias. "
-        "* = not auto-computed from pipeline data; manual reviewer assessment required._\n"
+        "* = this domain was not assessed automatically and requires reviewer judgment._\n"
     )
     return header + "\n".join(rows) + note

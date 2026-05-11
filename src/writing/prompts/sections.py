@@ -61,6 +61,11 @@ _PROSE_QUALITY_RULE = (
     "the FACTUAL DATA BLOCK.\n"
     "4. Use ONLY the citation keys listed in VALID CITATION KEYS. "
     "Do not invent citekeys.\n"
+    "5. Do not use em dashes or en dashes as clause separators; use commas, "
+    "parentheses, colons, or separate sentences. Use ASCII hyphen-minus only for "
+    "compound words and numeric ranges.\n"
+    "6. Avoid filler openers and AI-styled wording (e.g. 'It is worth noting', "
+    "'delve into', 'tapestry of'); prefer precise reporting verbs.\n"
 )
 
 _BOUNDARY_MARKER_RULE = (
@@ -361,8 +366,7 @@ def get_discussion_prompt_context(
         _terms = ", ".join(getattr(grounding, "topic_anchor_terms", [])[:6])
         if _rq:
             topic_anchor += (
-                "TOPIC ANCHOR RULE (strict): This Discussion must answer this exact research question: "
-                f"{_rq}. "
+                f"TOPIC ANCHOR RULE (strict): This Discussion must answer this exact research question: {_rq}. "
             )
         if _terms:
             topic_anchor += (
@@ -375,9 +379,13 @@ def get_discussion_prompt_context(
     if topic_anchor:
         topic_anchor += "\n\n"
     return (
-        prefix + _NO_HEADING_RULE + "\n\n" + _BOUNDARY_MARKER_RULE + "\n\n" + topic_anchor
-        +
-        "PRIOR SECTIONS RULE: If a 'PRIOR SECTIONS CONTEXT' block appears above, you MUST "
+        prefix
+        + _NO_HEADING_RULE
+        + "\n\n"
+        + _BOUNDARY_MARKER_RULE
+        + "\n\n"
+        + topic_anchor
+        + "PRIOR SECTIONS RULE: If a 'PRIOR SECTIONS CONTEXT' block appears above, you MUST "
         "use it to inform this Discussion -- but do NOT copy or re-state sentences from it. "
         "Instead, interpret the findings: what do they mean? How do they compare to prior "
         "literature? What implications do they have for practice and future research? "
