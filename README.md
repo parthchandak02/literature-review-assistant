@@ -314,7 +314,7 @@ Every factual claim in the manuscript is traced back to a citation via the citat
 
 Grouped endpoints most users use:
 
-- Setup (browser): `GET /api/config/review`, `GET /api/config/env-keys`, `POST /api/config/generate`, `POST /api/config/generate/stream`
+- Setup (browser): `GET /api/config/review`, `GET /api/config/env-keys`, `POST /api/config/generate/stream`
 - Health: `GET /api/health`
 - Run lifecycle: `GET /api/runs`, `POST /api/run`, `POST /api/run-with-masterlist`, `POST /api/run-with-supplementary-csv`, `GET /api/stream/{run_id}`, `POST /api/cancel/{run_id}`
 - History/resume: `GET /api/history`, `GET /api/history/active-run?workflow_id=<wf-xxxx>`, `GET /api/history/{workflow_id}/config`, `GET /api/history/costs/aggregates`, `GET /api/history/costs/export`, `POST /api/history/attach`, `POST /api/history/resume`, `POST /api/history/{workflow_id}/archive`, `POST /api/history/{workflow_id}/restore`, `POST /api/history/{workflow_id}/complete-hide`, `POST /api/history/{workflow_id}/complete-restore`, `DELETE /api/history/{workflow_id}`
@@ -323,7 +323,7 @@ Grouped endpoints most users use:
 - References/full text: `GET /api/run/{run_id}/papers-reference`, `GET /api/run/{run_id}/papers/{paper_id}/file`, `POST /api/run/{run_id}/fetch-pdfs`
 - Human review/living review: `GET /api/run/{run_id}/screening-summary`, `POST /api/run/{run_id}/approve-screening`, `POST /api/run/{run_id}/living-refresh`
 - Extra run views (Results when done): `GET /api/run/{run_id}/knowledge-graph`, `GET /api/run/{run_id}/prisma-checklist`, `GET /api/run/{run_id}/grade-sof`
-- Data explorer: `GET /api/db/{run_id}/papers`, `/papers-all`, `/papers-facets`, `/papers-suggest`, `/screening`, `/costs`, `/costs/aggregates`, `/costs/export`, `/tables`, `/rag-diagnostics`
+- Data explorer: `GET /api/db/{run_id}/papers-all`, `GET /api/db/{run_id}/papers-facets`, `GET /api/db/{run_id}/papers-suggest`, `GET /api/db/{run_id}/costs`, `GET /api/db/{run_id}/costs/aggregates`, `GET /api/db/{run_id}/costs/export`, `GET /api/db/{run_id}/tables`, `GET /api/db/{run_id}/rag-diagnostics`
 - Manuscript audit: `GET /api/workflow/{workflow_id}/manuscript-audit/summary`, `GET /api/workflow/{workflow_id}/manuscript-audit/findings`, `GET /api/run/{run_id}/manuscript-audit`
 - Run diagnostics: `GET /api/run/{run_id}/diagnostics` (includes top-level `audit_summary` helper data for the Quality UI)
 - Readiness: `GET /api/run/{run_id}/readiness` (returns the readiness scorecard plus `audit_summary`; degrades to a structured payload instead of raw HTTP 500 when readiness computation fails)
