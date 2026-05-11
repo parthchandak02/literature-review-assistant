@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""Check endpoint parity between spec.md and src/web/app.py.
+"""Check endpoint parity between API endpoint docs and src/web/app.py.
 
 This script enforces a bidirectional contract lock:
-- Every documented endpoint in spec section 10.1 must exist in FastAPI code.
-- Every FastAPI endpoint in code must be documented in spec section 10.1.
+- Every documented endpoint in the endpoint table must exist in FastAPI code.
+- Every FastAPI endpoint in code must be documented in the endpoint table.
 """
 
 from __future__ import annotations
@@ -60,7 +60,7 @@ def _find_10_1_section_bounds(lines: list[str]) -> tuple[int, int]:
     matches = [idx for idx, line in enumerate(lines) if HEADING_PATTERN.match(line.strip())]
     if len(matches) != 1:
         raise ValueError(
-            f"spec.md: expected exactly one heading '### 10.1 REST Endpoints', found {len(matches)}"
+            f"API endpoints doc: expected exactly one heading '### 10.1 REST Endpoints', found {len(matches)}"
         )
     start = matches[0] + 1
     end = len(lines)
@@ -71,8 +71,8 @@ def _find_10_1_section_bounds(lines: list[str]) -> tuple[int, int]:
     return start, end
 
 
-def parse_spec_endpoints(spec_text: str) -> set[Endpoint]:
-    lines = spec_text.splitlines()
+def parse_documented_endpoints(document_text: str) -> set[Endpoint]:
+    lines = document_text.splitlines()
     section_start, section_end = _find_10_1_section_bounds(lines)
     section_lines = lines[section_start:section_end]
 
@@ -82,9 +82,9 @@ def parse_spec_endpoints(spec_text: str) -> set[Endpoint]:
             table_start = idx
             break
     if table_start < 0:
-        raise ValueError("spec.md: section 10.1 found, but endpoint table header was not found")
+        raise ValueError("API endpoints doc: section 10.1 found, but endpoint table header was not found")
     if table_start + 1 >= len(section_lines) or not SEPARATOR_PATTERN.match(section_lines[table_start + 1].strip()):
-        raise ValueError("spec.md: section 10.1 endpoint table separator row is missing or malformed")
+        raise ValueError("API endpoints doc: section 10.1 endpoint table separator row is missing or malformed")
 
     endpoints: set[Endpoint] = set()
     row_number = 0
@@ -97,17 +97,19 @@ def parse_spec_endpoints(spec_text: str) -> set[Endpoint]:
         row_number += 1
         parts = raw.strip("|").split("|", 2)
         if len(parts) != 3:
-            raise ValueError(f"spec.md: malformed endpoint row #{row_number}: {raw}")
+            raise ValueError(f"API endpoints doc: malformed endpoint row #{row_number}: {raw}")
         method = parts[0].strip()
         path = parts[1].strip()
         if not method or not path:
-            raise ValueError(f"spec.md: endpoint row missing method/path at row #{row_number}: {raw}")
+            raise ValueError(f"API endpoints doc: endpoint row missing method/path at row #{row_number}: {raw}")
         endpoint = normalize_endpoint(method, path)
         if endpoint in endpoints:
-            raise ValueError(f"spec.md: duplicate endpoint in section 10.1: {endpoint.method} {endpoint.path}")
+            raise ValueError(
+                f"API endpoints doc: duplicate endpoint in section 10.1: {endpoint.method} {endpoint.path}"
+            )
         endpoints.add(endpoint)
     if not endpoints:
-        raise ValueError("spec.md: section 10.1 endpoint table contains no endpoint rows")
+        raise ValueError("API endpoints doc: section 10.1 endpoint table contains no endpoint rows")
     return endpoints
 
 
@@ -187,10 +189,10 @@ def extract_fastapi_endpoints(app_source: str) -> set[Endpoint]:
     return endpoints
 
 
-def compare_endpoint_sets(spec_endpoints: set[Endpoint], app_endpoints: set[Endpoint]) -> EndpointDiff:
+def compare_endpoint_sets(documented_endpoints: set[Endpoint], app_endpoints: set[Endpoint]) -> EndpointDiff:
     return EndpointDiff(
-        missing_in_docs=app_endpoints - spec_endpoints,
-        stale_in_docs=spec_endpoints - app_endpoints,
+        missing_in_docs=app_endpoints - documented_endpoints,
+        stale_in_docs=documented_endpoints - app_endpoints,
     )
 
 
@@ -200,13 +202,13 @@ def _render_endpoint_set(title: str, values: set[Endpoint]) -> None:
         console.print(f"  - {endpoint.method} {endpoint.path}")
 
 
-def run_parity_check(spec_path: Path, app_path: Path) -> int:
+def run_parity_check(endpoints_doc_path: Path, app_path: Path) -> int:
     try:
-        spec_text = spec_path.read_text(encoding="utf-8")
+        document_text = endpoints_doc_path.read_text(encoding="utf-8")
         app_source = app_path.read_text(encoding="utf-8")
-        spec_endpoints = parse_spec_endpoints(spec_text)
+        documented_endpoints = parse_documented_endpoints(document_text)
         app_endpoints = extract_fastapi_endpoints(app_source)
-        diff = compare_endpoint_sets(spec_endpoints, app_endpoints)
+        diff = compare_endpoint_sets(documented_endpoints, app_endpoints)
     except ValueError as exc:
         console.print(f"ERROR: {exc}")
         return 2
@@ -223,23 +225,27 @@ def run_parity_check(spec_path: Path, app_path: Path) -> int:
         return 1
 
     console.print(
-        f"Endpoint parity check passed: {len(spec_endpoints)} documented endpoint(s) match FastAPI decorators."
+        f"Endpoint parity check passed: {len(documented_endpoints)} documented endpoint(s) match FastAPI decorators."
     )
     return 0
 
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Check endpoint parity between spec.md section 10.1 and src/web/app.py decorators."
+        description="Check endpoint parity between .cursor/docs/API_ENDPOINTS.md and src/web/app.py decorators."
     )
-    parser.add_argument("--spec-path", default="spec.md", help="Path to spec markdown file")
+    parser.add_argument(
+        "--endpoints-doc-path",
+        default=".cursor/docs/API_ENDPOINTS.md",
+        help="Path to API endpoints markdown file",
+    )
     parser.add_argument("--app-path", default="src/web/app.py", help="Path to FastAPI app source file")
     return parser.parse_args()
 
 
 def main() -> None:
     args = parse_args()
-    exit_code = run_parity_check(Path(args.spec_path), Path(args.app_path))
+    exit_code = run_parity_check(Path(args.endpoints_doc_path), Path(args.app_path))
     raise SystemExit(exit_code)
 
 
