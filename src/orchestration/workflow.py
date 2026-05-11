@@ -43,7 +43,7 @@ from src.llm.provider import LLMProvider
 from src.llm.pydantic_client import PydanticAIClient
 from src.manuscript.cohort import IncludedSetResolver
 from src.manuscript.contracts import ManuscriptContractResult, run_manuscript_contracts
-from src.manuscript.reviewer import run_manuscript_audit, serialize_contract_summary
+from src.manuscript.reviewer import run_manuscript_audit, serialize_audit_context, serialize_contract_summary
 from src.models import (
     CandidatePaper,
     CohortMembershipRecord,
@@ -144,7 +144,11 @@ from src.writing.contradiction_resolver import (
     generate_contradiction_paragraph,
 )
 from src.writing.humanizer import humanize_async
-from src.writing.humanizer_guardrails import extract_citation_blocks, extract_numeric_tokens
+from src.writing.humanizer_guardrails import (
+    apply_deterministic_guardrails,
+    extract_citation_blocks,
+    extract_numeric_tokens,
+)
 from src.writing.orchestration import (
     _citation_entries_from_papers,
     _ensure_structured_abstract,
@@ -319,19 +323,14 @@ async def _journal_step_complete(
     message instead of silently corrupting control-plane state.
     """
     if not isinstance(status, StepStatus):
-        raise ValueError(
-            f"Invalid StepStatus '{status}'. "
-            f"Valid values: {[m.value for m in StepStatus]}"
-        )
+        raise ValueError(f"Invalid StepStatus '{status}'. Valid values: {[m.value for m in StepStatus]}")
     if failure_category is not None and not isinstance(failure_category, FailureCategory):
         raise ValueError(
-            f"Invalid FailureCategory '{failure_category}'. "
-            f"Valid values: {[m.value for m in FailureCategory]}"
+            f"Invalid FailureCategory '{failure_category}'. Valid values: {[m.value for m in FailureCategory]}"
         )
     if recovery_action is not None and not isinstance(recovery_action, RecoveryAction):
         raise ValueError(
-            f"Invalid RecoveryAction '{recovery_action}'. "
-            f"Valid values: {[m.value for m in RecoveryAction]}"
+            f"Invalid RecoveryAction '{recovery_action}'. Valid values: {[m.value for m in RecoveryAction]}"
         )
     now = datetime.now(UTC)
     record.status = status
@@ -440,7 +439,11 @@ def _load_fulltext_artifact_paper_ids(run_artifacts: dict[str, str], db_path: st
     if fulltext_paper_ids:
         return fulltext_paper_ids
 
-    papers_dir = Path(run_artifacts.get("papers_dir", "")) if run_artifacts.get("papers_dir") else Path(db_path).parent / "papers"
+    papers_dir = (
+        Path(run_artifacts.get("papers_dir", ""))
+        if run_artifacts.get("papers_dir")
+        else Path(db_path).parent / "papers"
+    )
     if papers_dir.exists():
         for paper_file in papers_dir.iterdir():
             if paper_file.is_file() and paper_file.suffix.lower() in {".pdf", ".txt"}:
@@ -592,7 +595,10 @@ class SearchNode(BaseNode[ReviewState]):
                 async with get_db(state.db_path) as _jdb:
                     _jrepo = WorkflowRepository(_jdb)
                     _phase_step = await _journal_step_start(
-                        _jrepo, state.workflow_id, "phase_2_search", "search_phase",
+                        _jrepo,
+                        state.workflow_id,
+                        "phase_2_search",
+                        "search_phase",
                     )
             except Exception:
                 pass
@@ -955,7 +961,10 @@ class ScreeningNode(BaseNode[ReviewState]):
         async with get_db(state.db_path) as db:
             repository = WorkflowRepository(db)
             _screening_step = await _journal_step_start(
-                repository, state.workflow_id, "phase_3_screening", "screening_phase",
+                repository,
+                state.workflow_id,
+                "phase_3_screening",
+                "screening_phase",
             )
             gate_runner = GateRunner(repository, state.settings)
             on_waiting = None
@@ -2036,9 +2045,7 @@ class ScreeningNode(BaseNode[ReviewState]):
                         rc.emit_phase_done("citation_chasing", {"new_papers": 0, "error": str(_cc_exc)})
 
             if rc and hasattr(rc, "log_status"):
-                rc.log_status(
-                    f"Running screening safeguard gate on {len(state.included_papers)} included papers..."
-                )
+                rc.log_status(f"Running screening safeguard gate on {len(state.included_papers)} included papers...")
             # Use a fresh SQLite connection for the post-screening gate write. The
             # screening phase performs a very large number of writes on the main
             # connection, and an isolated connection avoids phase-end stalls if that
@@ -2242,8 +2249,18 @@ class ExtractionQualityNode(BaseNode[ReviewState]):
         rob2_rows: list = []
         async with get_db(state.db_path) as db:
             repository = WorkflowRepository(db)
+            canonical_included_ids = await repository.get_included_paper_ids(state.workflow_id)
+            if not canonical_included_ids:
+                canonical_included_ids = await repository.get_title_abstract_include_ids(state.workflow_id)
+            if canonical_included_ids:
+                state.included_papers = [
+                    paper for paper in state.deduped_papers if paper.paper_id in canonical_included_ids
+                ]
             _extraction_step = await _journal_step_start(
-                repository, state.workflow_id, "phase_4_extraction_quality", "extraction_quality_phase",
+                repository,
+                state.workflow_id,
+                "phase_4_extraction_quality",
+                "extraction_quality_phase",
             )
             records: list[ExtractionRecord] = await repository.load_extraction_records(state.workflow_id)
             already_extracted = {r.paper_id for r in records}
@@ -2681,7 +2698,9 @@ class ExtractionQualityNode(BaseNode[ReviewState]):
                     try:
                         try:
                             design = await classifier.classify(
-                                state.workflow_id, paper, abstract_only=_is_abstract_only,
+                                state.workflow_id,
+                                paper,
+                                abstract_only=_is_abstract_only,
                             )
                         except Exception as exc:
                             design = StudyDesign.NON_RANDOMIZED
@@ -3051,8 +3070,7 @@ class ExtractionQualityNode(BaseNode[ReviewState]):
             # -- Fulltext retrieval warning gate --
             _abstract_only_sources = frozenset({"text", "heuristic", "", None})
             _abstract_only_count = sum(
-                1 for r in records
-                if getattr(r, "extraction_source", "text") in _abstract_only_sources
+                1 for r in records if getattr(r, "extraction_source", "text") in _abstract_only_sources
             )
             _abstract_only_warning_threshold = float(
                 getattr(getattr(state.settings, "writing", None), "abstract_only_caution_threshold", 0.80)
@@ -3391,11 +3409,7 @@ class SynthesisNode(BaseNode[ReviewState]):
             rc.log_status(
                 "Sparse-evidence mode: skipping quantitative meta-analysis and using narrative-only synthesis."
             )
-        if (
-            feasibility.feasible
-            and state.settings.meta_analysis.enabled
-            and not state.sparse_evidence_mode
-        ):
+        if feasibility.feasible and state.settings.meta_analysis.enabled and not state.sparse_evidence_mode:
             if rc:
                 rc.log_status(
                     f"Running quantitative meta-analysis and sensitivity analysis "
@@ -3997,8 +4011,10 @@ class PreWritingGateNode(BaseNode[ReviewState]):
             )
 
             gate_step = await _journal_step_start(
-                repository, state.workflow_id,
-                "phase_5c_pre_writing_gate", "pre_writing_validation",
+                repository,
+                state.workflow_id,
+                "phase_5c_pre_writing_gate",
+                "pre_writing_validation",
                 max_attempts=policy.max_rewinds + 1,
             )
             gate_step.attempt_number = policy.current_rewinds + 1
@@ -4036,10 +4052,13 @@ class PreWritingGateNode(BaseNode[ReviewState]):
 
             if report.rewind_phase and not policy.rewinds_exhausted:
                 await repository.increment_rewind_count(
-                    state.workflow_id, "phase_5c_pre_writing_gate", "pre_writing_validation",
+                    state.workflow_id,
+                    "phase_5c_pre_writing_gate",
+                    "pre_writing_validation",
                 )
                 await _journal_step_complete(
-                    repository, gate_step,
+                    repository,
+                    gate_step,
                     status=StepStatus.FAILED,
                     error_message="; ".join(report.blocking_reasons),
                     failure_category=FailureCategory.REWINDABLE,
@@ -4074,7 +4093,8 @@ class PreWritingGateNode(BaseNode[ReviewState]):
                 return KnowledgeGraphNode()
 
             await _journal_step_complete(
-                repository, gate_step,
+                repository,
+                gate_step,
                 status=StepStatus.FAILED,
                 error_message="; ".join(report.blocking_reasons),
                 failure_category=FailureCategory.TERMINAL,
@@ -4114,7 +4134,10 @@ class WritingNode(BaseNode[ReviewState]):
             async with get_db(state.db_path) as _jdb:
                 _jrepo = WorkflowRepository(_jdb)
                 _writing_step = await _journal_step_start(
-                    _jrepo, state.workflow_id, "phase_6_writing", "writing_phase",
+                    _jrepo,
+                    state.workflow_id,
+                    "phase_6_writing",
+                    "writing_phase",
                     max_attempts=2,
                 )
         except Exception:
@@ -4573,9 +4596,7 @@ class WritingNode(BaseNode[ReviewState]):
                                 asyncio.gather(*[_outline_one(s) for s in SECTIONS]),
                                 timeout=_outline_timeout,
                             )
-                            section_outlines = {
-                                outline.section_key: outline for outline in _outline_results
-                            }
+                            section_outlines = {outline.section_key: outline for outline in _outline_results}
                         except TimeoutError:
                             logger.warning(
                                 "Section outline generation timed out after %.0fs; using deterministic fallback outlines.",
@@ -4844,7 +4865,9 @@ class WritingNode(BaseNode[ReviewState]):
                                         phase="phase_6_writing",
                                         module="rag.retrieval",
                                         fallback_type=(
-                                            "empty_retrieval_context" if rag_status == "empty" else "rag_retrieval_error"
+                                            "empty_retrieval_context"
+                                            if rag_status == "empty"
+                                            else "rag_retrieval_error"
                                         ),
                                         reason=rag_error or f"section={section}; retrieved={rag_retrieved_count}",
                                     )
@@ -4855,7 +4878,9 @@ class WritingNode(BaseNode[ReviewState]):
                                     f"minimum={min_chunks_per_section}"
                                 )
                         if rag_status == "empty" and rag_empty_policy == "block":
-                            raise RuntimeError(f"RAG returned zero chunks for section '{section}' and rag_empty_policy=block")
+                            raise RuntimeError(
+                                f"RAG returned zero chunks for section '{section}' and rag_empty_policy=block"
+                            )
 
                         _llm_timeout_writing = float(
                             getattr(getattr(state.settings, "writing", None), "llm_timeout", 120)
@@ -4932,8 +4957,7 @@ class WritingNode(BaseNode[ReviewState]):
                                     )
                                 except TimeoutError:
                                     logger.warning(
-                                        "Humanizer timed out for section '%s' after %.0fs; "
-                                        "using pre-humanizer text.",
+                                        "Humanizer timed out for section '%s' after %.0fs; using pre-humanizer text.",
                                         section,
                                         _humanizer_timeout,
                                     )
@@ -4963,6 +4987,8 @@ class WritingNode(BaseNode[ReviewState]):
                                         )
                                         _content = _before_h
                                         continue
+                            # Deterministic typography and filler cleanup after LLM humanization.
+                            _content = apply_deterministic_guardrails(_content)
 
                         word_count = len(_content.split())
                         draft = SectionDraft(
@@ -5821,6 +5847,7 @@ class WritingNode(BaseNode[ReviewState]):
             _concept_model = state.settings.agents.get(
                 "concept_diagrams", state.settings.agents.get("abstract_generation", state.settings.agents["writing"])
             ).model
+            _concept_style_seed = f"{state.workflow_id}|{_topic[:280]}"
             _concept_results = await asyncio.wait_for(
                 render_concept_diagrams(
                     taxonomy_spec=_taxonomy_spec,
@@ -5828,6 +5855,7 @@ class WritingNode(BaseNode[ReviewState]):
                     flowchart_spec=_flowchart_spec,
                     out_dir=_out_dir,
                     model=_concept_model,
+                    style_seed=_concept_style_seed,
                 ),
                 timeout=180.0,
             )
@@ -5883,8 +5911,11 @@ class WritingNode(BaseNode[ReviewState]):
                     _w_err = f"failed sections: {', '.join(_failed_sections)}" if _failed_sections else None
                     _w_fc = FailureCategory.REPAIRABLE if _failed_sections else None
                     await _journal_step_complete(
-                        _jrepo, _writing_step,
-                        status=_w_status, error_message=_w_err, failure_category=_w_fc,
+                        _jrepo,
+                        _writing_step,
+                        status=_w_status,
+                        error_message=_w_err,
+                        failure_category=_w_fc,
                     )
             except Exception:
                 _log.warning("WritingNode: step journal write failed", exc_info=True)
@@ -5893,12 +5924,12 @@ class WritingNode(BaseNode[ReviewState]):
         try:
             async with get_db(state.db_path) as _mdb:
                 _mrepo = WorkflowRepository(_mdb)
-                _grounding_hash = hashlib.sha256(
-                    citation_catalog.encode("utf-8")
-                ).hexdigest()[:16] if citation_catalog else None
-                _citation_catalog_hash = hashlib.sha256(
-                    citation_catalog.encode("utf-8")
-                ).hexdigest()[:16] if citation_catalog else None
+                _grounding_hash = (
+                    hashlib.sha256(citation_catalog.encode("utf-8")).hexdigest()[:16] if citation_catalog else None
+                )
+                _citation_catalog_hash = (
+                    hashlib.sha256(citation_catalog.encode("utf-8")).hexdigest()[:16] if citation_catalog else None
+                )
                 for _mi, _msec in enumerate(SECTIONS):
                     _mcontent = sections_written[_mi] if _mi < len(sections_written) else ""
                     _mresult = _section_results_by_key.get(_msec)
@@ -5945,8 +5976,7 @@ def _collect_manuscript_gate_failure_reasons(
     reasons: list[str] = []
     if not contract_result.passed:
         reasons.append(
-            f"contract gate failed in mode={contract_result.mode} "
-            f"with {len(contract_result.violations)} violation(s)"
+            f"contract gate failed in mode={contract_result.mode} with {len(contract_result.violations)} violation(s)"
         )
     if not audit_result.passed:
         reasons.append(
@@ -5980,8 +6010,8 @@ async def _refresh_manuscript_export_artifacts(
         return None
 
     from src.export.bibtex_builder import _sanitize_citekey as _sanitize_bib_citekey
-    from src.export.bibtex_builder import build_citekey_alias_map as _build_citekey_alias_map
     from src.export.bibtex_builder import build_bibtex as _build_bibtex
+    from src.export.bibtex_builder import build_citekey_alias_map as _build_citekey_alias_map
     from src.export.ieee_latex import markdown_to_latex as _md_to_latex
     from src.export.markdown_refs import get_latex_figure_paths
     from src.export.submission_packager import (
@@ -6129,7 +6159,9 @@ class ManuscriptAuditNode(BaseNode[ReviewState]):
                     strict_export=contract_mode == "strict",
                 )
             except Exception as tex_err:
-                logger.warning("ManuscriptAuditNode: fresh LaTeX export unavailable; continuing without tex: %s", tex_err)
+                logger.warning(
+                    "ManuscriptAuditNode: fresh LaTeX export unavailable; continuing without tex: %s", tex_err
+                )
             async with get_db(state.db_path) as db:
                 repository = WorkflowRepository(db)
                 citation_repo = CitationRepository(db)
@@ -6139,7 +6171,9 @@ class ManuscriptAuditNode(BaseNode[ReviewState]):
                     citation_repository=citation_repo,
                     workflow_id=state.workflow_id,
                     manuscript_md_path=manuscript_path,
-                    manuscript_tex_path=phase7_tex_path if phase7_tex_path and os.path.isfile(phase7_tex_path) else None,
+                    manuscript_tex_path=phase7_tex_path
+                    if phase7_tex_path and os.path.isfile(phase7_tex_path)
+                    else None,
                     extra_artifact_paths=[
                         state.artifacts.get("protocol", ""),
                         state.artifacts.get("prospero_form_md", ""),
@@ -6155,12 +6189,75 @@ class ManuscriptAuditNode(BaseNode[ReviewState]):
                     "passed": contract_result.passed,
                     "violations": [v.model_dump() for v in contract_result.violations],
                 }
+                dedup_count = int(await repository.get_dedup_count(state.workflow_id) or 0)
+                synthesis_ids = await repository.get_synthesis_included_paper_ids(state.workflow_id)
+                if not synthesis_ids:
+                    synthesis_ids = await repository.get_included_paper_ids(state.workflow_id)
+                prisma_counts = await build_prisma_counts(
+                    repository,
+                    state.workflow_id,
+                    dedup_count,
+                    included_qualitative=0,
+                    included_quantitative=len(synthesis_ids),
+                )
+                rob2_rows, robins_i_rows = await repository.load_rob_assessments(state.workflow_id)
+                casp_rows = await repository.load_casp_assessments(state.workflow_id)
+                mmat_rows = await repository.load_mmat_assessments(state.workflow_id)
+                extraction_cursor = await db.execute(
+                    "SELECT COUNT(*) FROM extraction_records WHERE workflow_id = ?",
+                    (state.workflow_id,),
+                )
+                extraction_row = await extraction_cursor.fetchone()
+                extraction_count = int(extraction_row[0] or 0) if extraction_row else 0
+                grade_cursor = await db.execute(
+                    "SELECT COUNT(*) FROM grade_assessments WHERE workflow_id = ?",
+                    (state.workflow_id,),
+                )
+                grade_row = await grade_cursor.fetchone()
+                grade_count = int(grade_row[0] or 0) if grade_row else 0
+                audit_context = {
+                    "review": {
+                        "research_question": state.review.research_question,
+                        "review_type": state.review.review_type.value,
+                        "domain": state.review.domain,
+                        "scope": state.review.scope,
+                        "expert_topic": state.review.expert_topic(),
+                        "target_databases": list(state.review.target_databases),
+                        "date_range": {
+                            "start": state.review.date_range_start,
+                            "end": state.review.date_range_end,
+                        },
+                        "protocol_registered": bool(state.review.protocol.registered),
+                        "search_limitation": state.review.search_limitation or "",
+                        "domain_brief_lines": state.review.domain_brief_lines(),
+                        "methodology_expectations": state.review.methodology_expectations(limit=10),
+                    },
+                    "db_backed_counts": {
+                        "deduplicated_records": dedup_count,
+                        "included_primary_studies": len(synthesis_ids),
+                        "extraction_records": extraction_count,
+                        "grade_assessments": grade_count,
+                        "fallback_events_current_generation": await repository.count_fallback_events(state.workflow_id),
+                    },
+                    "quality_assessment_counts": {
+                        "rob2": len(rob2_rows),
+                        "robins_i": len(robins_i_rows),
+                        "casp": len(casp_rows),
+                        "mmat": len(mmat_rows),
+                    },
+                    "prisma_counts": prisma_counts.model_dump(mode="json"),
+                    "manuscript_stats": {
+                        "word_count": len(manuscript_text.split()),
+                        "char_count": len(manuscript_text),
+                    },
+                }
                 audit_result, findings = await run_manuscript_audit(
                     workflow_id=state.workflow_id,
                     review=state.review,
                     settings=state.settings,
                     manuscript_text=manuscript_text,
                     contract_summary_json=serialize_contract_summary(contract_summary),
+                    audit_context_json=serialize_audit_context(audit_context),
                     provider=provider,
                 )
                 gate_failure_reasons = _collect_manuscript_gate_failure_reasons(contract_result, audit_result)
@@ -6278,7 +6375,10 @@ class FinalizeNode(BaseNode[ReviewState]):
         try:
             async with get_db(state.db_path) as _jdb:
                 _finalize_step = await _journal_step_start(
-                    WorkflowRepository(_jdb), state.workflow_id, "finalize", "finalize_phase",
+                    WorkflowRepository(_jdb),
+                    state.workflow_id,
+                    "finalize",
+                    "finalize_phase",
                 )
         except Exception:
             pass
@@ -6338,7 +6438,9 @@ class FinalizeNode(BaseNode[ReviewState]):
                 except Exception:
                     _included_ids = set()
                 if not _included_ids:
-                    _included_ids = {str(p.paper_id) for p in (state.included_papers or []) if getattr(p, "paper_id", "")}
+                    _included_ids = {
+                        str(p.paper_id) for p in (state.included_papers or []) if getattr(p, "paper_id", "")
+                    }
                 _fulltext_ids: set[str] = set()
                 _manifest_path = Path(state.artifacts.get("papers_manifest", ""))
                 if _manifest_path.exists():
@@ -6460,8 +6562,10 @@ class FinalizeNode(BaseNode[ReviewState]):
                     _ledger = CitationLedger(CitationRepository(_cit_db))
                     _validation = await _ledger.validate_manuscript(_manuscript_text)
                     _lineage_invalid = bool(_validation.unresolved_claims or _validation.unresolved_citations)
-                    _block_on_unresolved = True if _strict_finalize else (
-                        state.settings.citation_lineage.block_export_on_unresolved if state.settings else True
+                    _block_on_unresolved = (
+                        True
+                        if _strict_finalize
+                        else (state.settings.citation_lineage.block_export_on_unresolved if state.settings else True)
                     )
                     summary["citation_lineage"] = {
                         "valid": not _lineage_invalid,
@@ -6470,8 +6574,7 @@ class FinalizeNode(BaseNode[ReviewState]):
                     }
                     if _lineage_invalid and _block_on_unresolved:
                         _log.warning(
-                            "Citation lineage gate: unresolved citations or claims detected "
-                            "in final manuscript."
+                            "Citation lineage gate: unresolved citations or claims detected in final manuscript."
                         )
                         summary["citation_lineage_valid"] = False
                         _finalize_errors.append("citation_lineage_invalid")
@@ -6517,7 +6620,8 @@ class FinalizeNode(BaseNode[ReviewState]):
                         )
                         if _strict_finalize:
                             _finalize_errors.append(
-                                "manuscript_contract_failed:" + ",".join(v.code for v in _contract_result.violations[:10])
+                                "manuscript_contract_failed:"
+                                + ",".join(v.code for v in _contract_result.violations[:10])
                             )
             except Exception as _contract_err:
                 logger.warning("Manuscript contract gate skipped due to error: %s", _contract_err)
@@ -6573,8 +6677,10 @@ class FinalizeNode(BaseNode[ReviewState]):
                     _f_status = StepStatus.FAILED if _finalize_errors else StepStatus.SUCCEEDED
                     _f_err = "; ".join(_finalize_errors) if _finalize_errors else None
                     await _journal_step_complete(
-                        WorkflowRepository(_jdb), _finalize_step,
-                        status=_f_status, error_message=_f_err,
+                        WorkflowRepository(_jdb),
+                        _finalize_step,
+                        status=_f_status,
+                        error_message=_f_err,
                     )
             except Exception:
                 _log.warning("FinalizeNode: step journal write failed", exc_info=True)

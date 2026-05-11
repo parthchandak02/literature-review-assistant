@@ -2728,6 +2728,9 @@ async def test_run_readiness_returns_degraded_payload_with_audit_summary_on_comp
         assert response.status_code == 200
         payload = response.json()
         assert payload["ready"] is False
+        assert payload["contract_ready"] is False
+        assert payload["audit_ready"] is False
+        assert payload["submission_ready"] is False
         assert payload["checks"][0]["name"] == "readiness_runtime"
         assert payload["audit_summary"]["status_label"] == "completed_with_findings"
         assert payload["audit_summary"]["top_recommendations"] == [
@@ -2823,3 +2826,52 @@ async def test_run_manuscript_audit_endpoint_graceful_when_audit_tables_missing(
         assert payload["findings"] == []
     finally:
         _active_runs.pop(run_id, None)
+
+
+# ---------------------------------------------------------------------------
+# Test: POST /api/run/{run_id}/approve-screening returns 404 for unknown run
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_approve_screening_validates_run_exists(client: httpx.AsyncClient) -> None:
+    response = await client.post("/api/run/nonexistent-run-id/approve-screening")
+    assert response.status_code == 404
+
+
+# ---------------------------------------------------------------------------
+# Test: GET /api/config/env-keys returns valid JSON with expected keys
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_get_settings_returns_valid_json(client: httpx.AsyncClient) -> None:
+    response = await client.get("/api/config/env-keys")
+    assert response.status_code == 200
+    data = response.json()
+    assert isinstance(data, dict)
+    assert "gemini" in data
+
+
+# ---------------------------------------------------------------------------
+# Test: GET /api/run/{run_id}/artifacts returns 404 for unknown run
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_artifacts_for_unknown_run_returns_404(client: httpx.AsyncClient) -> None:
+    response = await client.get("/api/run/nonexistent-run-id/artifacts")
+    assert response.status_code == 404
+
+
+# ---------------------------------------------------------------------------
+# Test: GET /api/history/costs/aggregates returns valid response
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_history_costs_aggregates_returns_valid_response(client: httpx.AsyncClient) -> None:
+    response = await client.get("/api/history/costs/aggregates")
+    assert response.status_code == 200
+    data = response.json()
+    assert isinstance(data, dict)

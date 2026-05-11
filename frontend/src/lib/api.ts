@@ -357,7 +357,10 @@ export async function cancelRun(runId: string): Promise<void> {
 
 export async function listRuns(): Promise<RunInfo[]> {
   const res = await fetch(`${BASE}/runs`)
-  if (!res.ok) return []
+  if (!res.ok) {
+    console.warn("listRuns failed:", res.status, res.statusText)
+    return []
+  }
   return res.json() as Promise<RunInfo[]>
 }
 
@@ -731,6 +734,9 @@ export interface ReadinessScorecard {
   ready: boolean
   checks: ReadinessCheckRow[]
   contract_passed: boolean
+  contract_ready?: boolean
+  audit_ready?: boolean
+  submission_ready?: boolean
   citation_lineage_valid?: boolean
   fallback_event_count: number
   blocking_reasons: string[]
