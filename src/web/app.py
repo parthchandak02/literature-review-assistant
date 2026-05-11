@@ -130,6 +130,28 @@ def _is_missing_table_error(exc: Exception, table_names: set[str]) -> bool:
         return False
     return any(name.lower() in text for name in table_names)
 
+
+def _validate_db_path(path: str, run_root: str | None = None) -> pathlib.Path:
+    """Resolve and validate a user-supplied database path.
+
+    When *run_root* is provided, the resolved path must be under that directory.
+    Always requires the path to end with ``.db`` and exist on disk.
+    Raises HTTPException(400) on validation failure.
+    """
+    resolved = pathlib.Path(path).resolve()
+    if run_root is not None:
+        root = pathlib.Path(run_root).resolve()
+        try:
+            resolved.relative_to(root)
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Invalid database path")
+    if not resolved.suffix == ".db":
+        raise HTTPException(status_code=400, detail="Invalid database path")
+    if not resolved.is_file():
+        raise HTTPException(status_code=400, detail="Invalid database path")
+    return resolved
+
+
 _lifecycle_metrics: dict[str, int] = {
     "stale_detections": 0,
     "stale_reversals": 0,
@@ -589,8 +611,8 @@ async def _ensure_runtime_db_migrated(db_path: str) -> None:
                             parity = await _repo.validate_manuscript_md_parity(
                                 _wid, _legacy_md.read_text(encoding="utf-8")
                             )
-                            if parity.get("has_assembly") and not (
-                                parity.get("citation_set_match") and parity.get("section_count_match")
+                            if parity.has_assembly and not (
+                                parity.citation_set_match and parity.section_count_match
                             ):
                                 _logger.warning(
                                     "runtime.db manuscript parity warning for %s: %s",
@@ -646,8 +668,8 @@ async def _run_wrapper(record: _RunRecord, review_path: str, req: RunRequest) ->
             try:
                 yaml_dest = pathlib.Path(path).parent / "review.yaml"
                 yaml_dest.write_text(record.review_yaml, encoding="utf-8")
-            except Exception:
-                pass
+            except Exception as exc:
+                _logger.error("Failed to copy YAML config snapshot to run directory: %s", exc)
 
     def _on_workflow_id_ready(workflow_id: str, run_root: str) -> None:
         record.workflow_id = workflow_id
@@ -693,8 +715,8 @@ async def _run_wrapper(record: _RunRecord, review_path: str, req: RunRequest) ->
                 try:
                     yaml_dest = pathlib.Path(record.db_path).parent / "review.yaml"
                     yaml_dest.write_text(record.review_yaml, encoding="utf-8")
-                except Exception:
-                    pass
+                except Exception as exc:
+                    _logger.error("Failed to copy YAML config snapshot to run directory: %s", exc)
 
         # Ensure registry terminal status is durable even if orchestration status
         # updates were skipped by an earlier exception path.
@@ -704,13 +726,13 @@ async def _run_wrapper(record: _RunRecord, review_path: str, req: RunRequest) ->
                 record.error = str(record.outputs.get("error", "Workflow failed"))
                 try:
                     await _update_registry_status(record.run_root, record.workflow_id, "failed")
-                except Exception:
-                    pass
+                except Exception as exc:
+                    _logger.error("Failed to update registry status to failed: %s", exc)
             else:
                 try:
                     await _update_registry_status(record.run_root, record.workflow_id, "completed")
-                except Exception:
-                    pass
+                except Exception as exc:
+                    _logger.error("Failed to update registry status to completed: %s", exc)
 
         # Append "done" to event_log so final flush persists it (avoids Search stuck
         # as "running" when event_log is replayed for historical view).
@@ -724,8 +746,8 @@ async def _run_wrapper(record: _RunRecord, review_path: str, req: RunRequest) ->
         if record.workflow_id and record.run_root:
             try:
                 await _update_registry_status(record.run_root, record.workflow_id, "interrupted")
-            except Exception:
-                pass
+            except Exception as exc:
+                _logger.error("Failed to update registry status to interrupted: %s", exc)
     except Exception as exc:
         import traceback
 
@@ -742,8 +764,8 @@ async def _run_wrapper(record: _RunRecord, review_path: str, req: RunRequest) ->
         if record.workflow_id and record.run_root:
             try:
                 await _update_registry_status(record.run_root, record.workflow_id, "failed")
-            except Exception:
-                pass
+            except Exception as exc:
+                _logger.error("Failed to update registry status to failed: %s", exc)
     finally:
         if heartbeat_task is not None:
             heartbeat_task.cancel()
@@ -765,6 +787,8 @@ async def _run_wrapper(record: _RunRecord, review_path: str, req: RunRequest) ->
 @app.post("/api/run", response_model=RunResponse)
 async def start_run(req: RunRequest) -> RunResponse:
     _inject_env(req)
+    if req.parent_db_path is not None:
+        _validate_db_path(req.parent_db_path, req.run_root)
     topic = _extract_topic(req.review_yaml)
     run_id = str(uuid.uuid4())[:8]
 
@@ -1887,13 +1911,13 @@ async def _resume_wrapper(
             _append_event(record, _gate_err_evt)
             try:
                 await _update_registry_status(run_root, workflow_id, "failed")
-            except Exception:
-                pass
+            except Exception as exc:
+                _logger.error("Failed to update registry status to failed: %s", exc)
         else:
             try:
                 await _update_registry_status(run_root, workflow_id, "completed")
-            except Exception:
-                pass
+            except Exception as exc:
+                _logger.error("Failed to update registry status to completed: %s", exc)
         _done_resume_evt: dict[str, Any] = {"type": "done", "outputs": record.outputs}
         _append_event(record, _done_resume_evt)
     except asyncio.CancelledError:
@@ -1903,8 +1927,8 @@ async def _resume_wrapper(
         _append_event(record, _cancelled_resume_evt)
         try:
             await _update_registry_status(run_root, workflow_id, "interrupted")
-        except Exception:
-            pass
+        except Exception as exc:
+            _logger.error("Failed to update registry status to interrupted: %s", exc)
     except Exception as exc:
         import traceback
 
@@ -1938,8 +1962,8 @@ async def _resume_wrapper(
             _append_event(record, _done_resume_evt)
             try:
                 await _update_registry_status(run_root, workflow_id, "completed")
-            except Exception:
-                pass
+            except Exception as exc_reg:
+                _logger.error("Failed to update registry status to completed: %s", exc_reg)
         else:
             record.done = True
             record.error = str(exc)
@@ -1951,8 +1975,8 @@ async def _resume_wrapper(
             _append_event(record, _error_resume_evt)
             try:
                 await _update_registry_status(run_root, workflow_id, "failed")
-            except Exception:
-                pass
+            except Exception as exc_reg:
+                _logger.error("Failed to update registry status to failed: %s", exc_reg)
     finally:
         heartbeat_task.cancel()
         flusher_task.cancel()
@@ -2162,6 +2186,7 @@ async def restore_completed_history_run(workflow_id: str, run_root: str = "runs"
 async def attach_history(req: AttachRequest) -> RunResponse:
     """Create a read-only completed _RunRecord from a historical workflow so
     all /api/db/{run_id}/... endpoints work for that past run."""
+    _validate_db_path(req.db_path)
     run_id = str(uuid.uuid4())[:8]
     record = _RunRecord(run_id=run_id, topic=req.topic)
     record.done = True
@@ -4162,7 +4187,7 @@ async def trigger_export(run_id: str, run_root: str = "runs", force: bool = Fals
             abstract_word_limit=cfg.ieee_export.max_abstract_words,
             abstract_minimum_words=cfg.writing.abstract_trim_floor_words,
         )
-        if not scorecard.ready:
+        if not scorecard.submission_ready:
             raise HTTPException(
                 status_code=422,
                 detail={
@@ -4245,6 +4270,9 @@ async def get_run_readiness(run_id: str, run_root: str = "runs") -> dict[str, An
         payload = {
             "workflow_id": str(workflow_id),
             "ready": False,
+            "contract_ready": False,
+            "audit_ready": False,
+            "submission_ready": False,
             "checks": [
                 {
                     "name": "readiness_runtime",

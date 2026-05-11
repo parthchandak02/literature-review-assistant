@@ -793,8 +793,8 @@ async def test_validate_manuscript_md_parity(tmp_path) -> None:
             )
         )
         parity = await repo.validate_manuscript_md_parity("wf-parity", md)
-        assert parity["has_assembly"] is True
-        assert parity["citation_set_match"] is True
+        assert parity.has_assembly is True
+        assert parity.citation_set_match is True
 
 
 @pytest.mark.asyncio

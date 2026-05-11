@@ -224,6 +224,7 @@ export function ScreeningReviewView({ runId }: { runId: string }) {
   }, [runId])
 
   useEffect(() => {
+    setOverrides(new Map())
     void load()
   }, [load])
 

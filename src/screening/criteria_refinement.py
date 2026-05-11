@@ -205,7 +205,7 @@ async def refine_criteria_from_corrections(
 
     import asyncio
 
-    loop = asyncio.get_event_loop()
+    loop = asyncio.get_running_loop()
     result = await loop.run_in_executor(None, _call_refinement_llm_sync, corrections, papers, raw_model, key)
 
     if repository is not None and workflow_id:

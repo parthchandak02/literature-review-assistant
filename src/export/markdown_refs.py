@@ -9,8 +9,8 @@ import unicodedata
 from pathlib import Path
 from typing import Any
 
-from src.extraction.inference_utils import derive_concise_result_summary, infer_country_from_text, result_not_extractable_text
 from src.export.bibtex_builder import build_citekey_alias_map
+from src.extraction.inference_utils import infer_country_from_text
 from src.quality.grade import build_sof_table, cluster_grade_assessments_by_theme, sof_table_to_markdown
 from src.writing.headings import normalize_subsection_heading_layout as _normalize_subsection_heading_layout_shared
 
@@ -833,10 +833,6 @@ def build_compact_study_table(
             or ""
         ).strip()
         finding = _sanitize_summary_text(finding)
-        if finding != "NR":
-            finding = derive_concise_result_summary(finding)
-        if finding == result_not_extractable_text():
-            finding = _missing_result_display(rec)
         finding = finding if finding else "NR"
         if finding != "NR":
             finding = _clip_table_text(finding, max_chars=180)

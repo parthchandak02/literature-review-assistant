@@ -230,7 +230,12 @@ export function DatabaseView({ runId, isDone, dbAvailable, isLive }: DatabaseVie
     return () => { cancelled = true }
   }, [page, dbAvailable])
 
-  // Auto-refresh every LIVE_REFRESH_MS while run is in progress
+  const activeRef = useRef(true)
+  useEffect(() => {
+    activeRef.current = true
+    return () => { activeRef.current = false }
+  }, [])
+
   useEffect(() => {
     if (!isLive || !dbAvailable) return
     const id = setInterval(() => {
@@ -247,7 +252,11 @@ export function DatabaseView({ runId, isDone, dbAvailable, isLive }: DatabaseVie
       } =
         filtersRef.current
       fetchPapersAll(rid, "", ta, ft, ps, yr, src, ct, 0, PAGE_SIZE, tl, au)
-        .then((data) => { setPapers(data.papers); setTotal(data.total) })
+        .then((data) => {
+          if (!activeRef.current) return
+          setPapers(data.papers)
+          setTotal(data.total)
+        })
         .catch(() => {})
     }, LIVE_REFRESH_MS)
     return () => clearInterval(id)

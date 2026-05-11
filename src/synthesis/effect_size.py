@@ -61,6 +61,8 @@ def compute_mean_difference_effect_size(
     sd_control: float,
     n_control: int,
 ) -> tuple[float, float]:
+    if n_treatment <= 0 or n_control <= 0:
+        raise ValueError(f"Sample sizes must be positive (n_treatment={n_treatment}, n_control={n_control})")
     effect = mean_treatment - mean_control
     variance = (sd_treatment**2 / n_treatment) + (sd_control**2 / n_control)
     # Keep scipy import actively used and validated in pipeline.

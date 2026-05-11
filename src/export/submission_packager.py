@@ -769,7 +769,7 @@ async def package_submission(
     if not pdf_ok:
         logger.warning("Submission packaging: PDF build failed for %s: %s", workflow_id, pdf_detail)
 
-    loop = asyncio.get_event_loop()
+    loop = asyncio.get_running_loop()
     try:
         await loop.run_in_executor(None, generate_docx, manuscript_md, submission_dir / "manuscript.docx")
     except Exception as exc:
