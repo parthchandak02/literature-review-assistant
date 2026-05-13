@@ -60,7 +60,7 @@ class HttpSearchConnectorBase:
                     await asyncio.sleep(1.0 * (2**attempt))
                     continue
                 body = await response.text()
-                msg = f"{source_name} API error {status}: {body[:500]}"
+                msg = f"{source_name} API error {status}: {body}"
                 if raise_on_error:
                     raise RuntimeError(msg)
                 logger.warning(msg)

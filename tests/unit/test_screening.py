@@ -8,6 +8,8 @@ from src.db.database import get_db
 from src.db.repositories import WorkflowRepository
 from src.llm.provider import LLMProvider
 from src.models import (
+    BatchScreeningItemPayload,
+    BatchScreeningResponsePayload,
     CandidatePaper,
     DomainExpertConfig,
     ExclusionReason,
@@ -15,6 +17,7 @@ from src.models import (
     ReviewerType,
     ReviewType,
     ScreeningDecisionType,
+    ScreeningResponsePayload,
     SettingsConfig,
 )
 from src.models.config import ScreeningConfig
@@ -85,6 +88,63 @@ class _SchemaAwareBatchClient:
         _ = (prompt, agent_name, model, temperature)
         payload = self._responses.pop(0)
         return json.dumps(payload)
+
+
+class _TypedStructuredClient:
+    """Client exposing typed screening methods used by the migration path."""
+
+    def __init__(self, batch_payload: BatchScreeningResponsePayload, single_payload: ScreeningResponsePayload):
+        self.batch_payload = batch_payload
+        self.single_payload = single_payload
+        self.batch_calls = 0
+        self.single_calls = 0
+
+    async def complete_batch_screening_with_usage(
+        self,
+        prompt: str,
+        *,
+        agent_name: str,
+        model: str,
+        temperature: float,
+        item_schema: dict[str, object],
+    ) -> tuple[BatchScreeningResponsePayload, int, int, int, int]:
+        _ = (prompt, agent_name, model, temperature, item_schema)
+        self.batch_calls += 1
+        return self.batch_payload, 10, 10, 0, 0
+
+    async def complete_screening_response_with_usage(
+        self,
+        prompt: str,
+        *,
+        agent_name: str,
+        model: str,
+        temperature: float,
+    ) -> tuple[ScreeningResponsePayload, int, int, int, int]:
+        _ = (prompt, agent_name, model, temperature)
+        self.single_calls += 1
+        return self.single_payload, 10, 10, 0, 0
+
+    async def complete_json_with_usage(
+        self,
+        prompt: str,
+        *,
+        agent_name: str,
+        model: str,
+        temperature: float,
+    ) -> tuple[str, int, int, int, int]:
+        _ = (prompt, agent_name, model, temperature)
+        return self.single_payload.model_dump_json(), 10, 10, 0, 0
+
+    async def complete_json(
+        self,
+        prompt: str,
+        *,
+        agent_name: str,
+        model: str,
+        temperature: float,
+    ) -> str:
+        _ = (prompt, agent_name, model, temperature)
+        return self.single_payload.model_dump_json()
 
 
 def _review() -> ReviewConfig:
@@ -886,3 +946,81 @@ async def test_batch_reviewer_maps_index_style_ids_to_chunk_members(tmp_path) ->
         )
         row = await cur.fetchone()
         assert int(row[0]) == 0
+
+
+@pytest.mark.asyncio
+async def test_batch_reviewer_prefers_typed_batch_response_when_available(tmp_path) -> None:
+    papers = [_paper("p1"), _paper("p2")]
+    typed_client = _TypedStructuredClient(
+        batch_payload=BatchScreeningResponsePayload(
+            decisions=[
+                BatchScreeningItemPayload(
+                    paper_id="p1",
+                    decision="include",
+                    confidence=0.95,
+                    short_reason="in scope",
+                    reasoning="in scope",
+                ),
+                BatchScreeningItemPayload(
+                    paper_id="p2",
+                    decision="exclude",
+                    confidence=0.9,
+                    short_reason="out",
+                    reasoning="out",
+                    exclusion_reason="wrong_population",
+                ),
+            ]
+        ),
+        single_payload=ScreeningResponsePayload(
+            decision="include",
+            confidence=0.9,
+            short_reason="ok",
+            reasoning="ok",
+        ),
+    )
+    async with get_db(str(tmp_path / "batch_typed_structured.db")) as db:
+        repo = WorkflowRepository(db)
+        await repo.create_workflow("wf-batch-typed", "topic", "hash")
+        provider = LLMProvider(_batch_settings(batch_size=10), repo)
+        screener = DualReviewerScreener(
+            repository=repo,
+            provider=provider,
+            review=_review(),
+            settings=_batch_settings(batch_size=10),
+            llm_client=typed_client,
+        )
+        results = await screener.screen_batch(
+            workflow_id="wf-batch-typed",
+            stage="title_abstract",
+            papers=papers,
+        )
+    assert len(results) == 2
+    assert typed_client.batch_calls == 1
+
+
+@pytest.mark.asyncio
+async def test_run_reviewer_prefers_typed_single_response_when_available(tmp_path) -> None:
+    paper = _paper("p1")
+    typed_client = _TypedStructuredClient(
+        batch_payload=BatchScreeningResponsePayload(decisions=[]),
+        single_payload=ScreeningResponsePayload(
+            decision="include",
+            confidence=0.93,
+            short_reason="typed",
+            reasoning="typed",
+        ),
+    )
+    async with get_db(str(tmp_path / "single_typed_structured.db")) as db:
+        repo = WorkflowRepository(db)
+        await repo.create_workflow("wf-single-typed", "topic", "hash")
+        provider = LLMProvider(_settings(), repo)
+        screener = DualReviewerScreener(
+            repository=repo,
+            provider=provider,
+            review=_review(),
+            settings=_settings(),
+            llm_client=typed_client,
+        )
+        decision = await screener.screen_title_abstract("wf-single-typed", paper)
+    assert decision.decision == ScreeningDecisionType.INCLUDE
+    assert typed_client.single_calls >= 1
