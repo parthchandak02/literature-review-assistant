@@ -1,6 +1,6 @@
 ---
 description: Keep search lightweight with rg
-alwaysApply: true
+alwaysApply: false
 ---
 
 # Prefer rg for search

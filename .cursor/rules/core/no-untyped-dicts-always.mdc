@@ -1,33 +1,11 @@
 ---
 description:
 globs:
-alwaysApply: true
+alwaysApply: false
 ---
 
 # No Untyped Dictionaries at Phase Boundaries
 
-Every function crossing a phase boundary MUST accept and return Pydantic models from `src/models/`.
-
-- Use `CandidatePaper`, not `dict` for paper data
-- Use `ScreeningDecision`, not `dict` for decisions
-- Use `ExtractionRecord`, not `dict` for extracted data
-- Use `RoB2Assessment` / `RobinsIAssessment`, not `dict` for quality assessments
-- Use `GRADEOutcomeAssessment`, not `dict` for GRADE
-- Use `StructuredSectionDraft` / `StructuredManuscriptDraft`, not `dict` for manuscript section boundaries
-- Use `GateResult`, not `dict` for quality gate outputs
-- Use `WorkflowStepRecord` / `RecoveryPolicyRecord` / `WritingManifestRecord`, not `dict` for control-plane persistence
-
-Internal helper functions within a single module may use dicts, but any function called from outside the module must use typed models.
-
-<example>
-# Correct: typed boundary
-from src.models.screening import ScreeningDecision
-async def adjudicate(paper_id: str, a: ScreeningDecision, b: ScreeningDecision) -> ScreeningDecision:
-    ...
-</example>
-
-<example type="invalid">
-# Wrong: untyped boundary
-async def adjudicate(paper_id: str, a: dict, b: dict) -> dict:
-    ...
-</example>
+This rule is now requestable for focused refactors. Core invariant remains in
+`project-overview-always.mdc`: phase boundaries must use typed `src/models/`
+contracts, not untyped dicts.

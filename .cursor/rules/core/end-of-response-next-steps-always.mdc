@@ -1,12 +1,12 @@
 ---
 description:
 globs:
-alwaysApply: true
+alwaysApply: false
 ---
 
 # End Every Response With "What Next?"
 
-At the end of EVERY response -- no matter how short or long -- add a final section titled:
+Use a short \"What next?\" section when it helps users choose follow-up actions.
 
 `---`
 `What next?`
@@ -43,4 +43,4 @@ What next?
 3. Test things out
 ```
 
-Never skip this section. Even for one-line answers.
+Skip it for very short confirmations where it adds noise.
