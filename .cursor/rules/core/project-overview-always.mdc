@@ -20,6 +20,7 @@ alwaysApply: true
 - All LLM calls must log model/tokens/cost/latency into `cost_records`.
 - Never hardcode model id strings in source code; use `config/settings.yaml`.
 - Use `rich` for CLI output.
+- When uncertain about external tooling, package setup, or current best-practice behavior, verify with MCP documentation sources before taking action.
 
 ## Canonical Source-of-Truth Paths
 - Runtime and workflow graph: `src/orchestration/workflow.py`

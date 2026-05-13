@@ -26,6 +26,43 @@ Keep documentation minimal and focused on getting started. Prioritize "How to us
 - Keep documentation short, utilitarian, no fluff
 - For multi-step work, prefer the built-in todo/task tracking tools instead of creating tracking markdown files
 
+## Engineering Patterns (Adapted)
+
+Use these patterns for non-trivial implementation and debugging work.
+
+### Diagnose Loop (Root-Cause First)
+
+Follow a disciplined sequence:
+
+1. Reproduce the failure with a deterministic command
+2. Minimize scope to the smallest failing unit (module, prompt, API, or test)
+3. Form 1-2 explicit hypotheses and rank by likelihood
+4. Instrument with focused logs/assertions or DB/query checks
+5. Fix at source in `src/` or `frontend/src/` (never patch `runs/` artifacts)
+6. Add regression coverage and rerun the failing path
+
+Stop and escalate when the failure cannot be reproduced deterministically or when two hypotheses fail without new evidence.
+
+### TDD Vertical Slice
+
+For feature work and bug fixes:
+
+- Start with one failing test that proves user-visible behavior
+- Implement the minimum code to pass
+- Refactor only after green
+- Repeat in thin slices across boundaries (API -> orchestration -> UI) instead of large rewrites
+- Prefer replay/integration tests for pipeline behavior and unit tests for pure logic
+
+### Zoom-Out Before Deep Edits
+
+Before editing unfamiliar modules:
+
+- Identify entrypoints, typed boundaries, and canonical source-of-truth tables/files
+- Confirm lifecycle stage via `.cursor/docs/INDEX.md`
+- Note likely blast radius (orchestration, API contract, persistence, UI)
+
+If architecture uncertainty remains after this scan, pause and clarify design before implementation.
+
 ## Script Organization and Management
 
 Use the `scripts` folder to automate important tasks. Identify and organize scripts into two types:

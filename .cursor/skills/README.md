@@ -12,6 +12,7 @@ Canonical lifecycle and contract docs are under `.cursor/docs/`.
 
 - `build-phase`
 - `search-connector`
+- `prototype`
 
 ## Build
 
@@ -42,6 +43,12 @@ When editing a skill, include:
 3. Expected outputs
 4. Stop and escalation rules
 5. Verification checklist
+
+## Imported Pattern Notes
+
+- `general-rules` now includes adapted engineering patterns: diagnose loop, TDD vertical slices, and zoom-out mapping.
+- `prototype` is intentionally constrained for throwaway validation only; promote winners into tested production slices.
+- Use `.cursor/commands/plan-to-slices.md` when converting approved plans into execution-ready slice lists.
 
 ## Build-Phase Skill Contract (Key Guidance)
 

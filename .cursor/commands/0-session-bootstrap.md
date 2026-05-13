@@ -68,6 +68,19 @@ Pay special attention to any uncommitted modifications (M) and untracked files (
 
 ---
 
+## Step 2.2 -- Zoom-out map before deep edits
+
+Before touching unfamiliar modules, create a fast architecture map:
+
+- Identify the request's lifecycle stage from `.cursor/docs/INDEX.md`
+- List entrypoints and typed boundaries you expect to touch
+- Name the likely blast radius (API, orchestration, persistence, frontend)
+- Decide the smallest vertical slice to implement first
+
+If this quick map is unclear, pause and clarify design assumptions before making edits.
+
+---
+
 ## Step 2.5 -- Select a real workflow for replay validation
 
 For any pipeline change (screening, extraction, quality, writing, export), select an existing
