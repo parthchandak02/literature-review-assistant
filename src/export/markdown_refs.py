@@ -12,6 +12,7 @@ from typing import Any
 from src.export.bibtex_builder import build_citekey_alias_map
 from src.extraction.inference_utils import infer_country_from_text
 from src.quality.grade import build_sof_table, cluster_grade_assessments_by_theme, sof_table_to_markdown
+from src.writing.date_windows import format_search_eligibility_window, normalize_criteria_date_windows
 from src.writing.headings import (
     normalize_subsection_heading_layout as _normalize_subsection_heading_layout_shared,
 )
@@ -59,6 +60,10 @@ _SUMMARY_LLM_EXPLANATION_PHRASES = (
     "available excerpt",
 )
 _ABSTRACT_ONLY_SOURCES = frozenset({"text", "heuristic", None, ""})
+_TITLE_COUNTRY_HINTS = {
+    "nigeria": "NG",
+    "liberia": "LR",
+}
 
 
 def _sanitize_summary_text(raw_text: str) -> str:
@@ -718,12 +723,21 @@ def _country_for_display(rec: Any, paper: Any) -> str:
     """Prefer extraction-derived country over sparse search-metadata country."""
     extracted = str(getattr(rec, "country", None) or "").strip()
     metadata = str(getattr(paper, "country", None) or "").strip()
+    title = str(getattr(paper, "title", "") or "")
+    title_lower = title.lower()
+    title_hint = ""
+    for token, code in _TITLE_COUNTRY_HINTS.items():
+        if token in title_lower:
+            title_hint = code
+            break
     inferred = infer_country_from_text(
-        getattr(paper, "title", "") or "",
+        title,
         getattr(paper, "abstract", "") or "",
         ((getattr(rec, "results_summary", {}) or {}).get("summary", "") if isinstance(getattr(rec, "results_summary", {}), dict) else ""),
     )
-    country = extracted or metadata or inferred
+    country = extracted or metadata or title_hint or inferred
+    if title_hint and country != title_hint:
+        country = title_hint
     return country or "NR"
 
 
@@ -1100,11 +1114,17 @@ def build_quality_assessment_coverage_table(
         judgment = _robins_judgment_display(getattr(a, "overall_judgment", None))
         tool_map[str(getattr(a, "paper_id", ""))] = ("ROBINS-I", judgment)
     for a in casp_assessments or []:
-        summary = (str(getattr(a, "overall_summary", "") or "").strip() or "NR").replace("|", "-")
+        summary_raw = str(getattr(a, "overall_summary", "") or "")
+        summary = _sanitize_summary_text(summary_raw).replace("|", "-")
+        if summary == "NR":
+            summary = "Insufficient methodological detail for full CASP appraisal"
         tool_map[str(getattr(a, "paper_id", ""))] = ("CASP", summary[:80])
     for a in mmat_assessments or []:
         score = getattr(a, "overall_score", None)
-        score_str = f"score {score}/5" if score is not None else "NR"
+        if score is not None:
+            score_str = f"score {score}/5"
+        else:
+            score_str = "score NR (insufficient methodological detail)"
         tool_map[str(getattr(a, "paper_id", ""))] = ("MMAT", score_str)
 
     header = "| Study | Tool Used | Overall Assessment |"
@@ -1156,38 +1176,15 @@ def build_picos_table(review_config: Any) -> str:
     if not pico:
         return ""
 
-    inclusion = getattr(review_config, "inclusion_criteria", []) or []
-    exclusion = getattr(review_config, "exclusion_criteria", []) or []
-    inc_str = "; ".join(str(c) for c in inclusion) if inclusion else "NR"
-    exc_str = "; ".join(str(c) for c in exclusion) if exclusion else "NR"
-
-    # Strip date-range phrases from inclusion/exclusion criteria text entirely.
-    # The PICOS table already has a dedicated "Date range" row that shows the
-    # authoritative protocol window (date_range_start - date_range_end).
-    # Criteria text should describe WHAT is eligible, not WHEN -- having a date
-    # phrase there creates duplication and risks inconsistency with the Date range row.
-    # Pattern: "Research published between January 2010 and December 2025 is included..."
-    #          "Studies published from 2000 to 2026..."
-    # We strip the date-range sub-clause (and any trailing filler like "is included
-    # to ensure technological relevance") from each criterion that contains one.
-    _ds = getattr(review_config, "date_range_start", None)
-    _de = getattr(review_config, "date_range_end", None)
-    if _ds and _de:
-        _month = (
-            r"(?:January|February|March|April|May|June|"
-            r"July|August|September|October|November|December)\s+"
-        )
-        _date_phrase_re = re.compile(
-            r"(?:Research\s+published\s+|Studies\s+published\s+)?"
-            r"(?:from\s+|between\s+)?"
-            r"(?:" + _month + r")?\d{4}"
-            r"\s+(?:and|to)\s+"
-            r"(?:" + _month + r")?\d{4}"
-            r"(?:\s+is\s+included[^.;]*)?",
-            re.IGNORECASE,
-        )
-        inc_str = _date_phrase_re.sub("", inc_str).strip("; ").strip()
-        exc_str = _date_phrase_re.sub("", exc_str).strip("; ").strip()
+    _date_start = getattr(review_config, "date_range_start", None)
+    _date_end = getattr(review_config, "date_range_end", None)
+    canonical_window = format_search_eligibility_window(_date_start, _date_end)
+    inclusion = [str(c).strip() for c in (getattr(review_config, "inclusion_criteria", []) or []) if str(c).strip()]
+    exclusion = [str(c).strip() for c in (getattr(review_config, "exclusion_criteria", []) or []) if str(c).strip()]
+    inclusion = normalize_criteria_date_windows(inclusion, canonical_window)
+    exclusion = normalize_criteria_date_windows(exclusion, canonical_window)
+    inc_str = "; ".join(inclusion) if inclusion else "NR"
+    exc_str = "; ".join(exclusion) if exclusion else "NR"
     inc_str = _normalize_criteria_text(inc_str)
     exc_str = _normalize_criteria_text(exc_str)
 
@@ -1208,14 +1205,7 @@ def build_picos_table(review_config: Any) -> str:
     # Date range row: use the protocol eligibility window, not the publication years of
     # included papers. This prevents the PICOS table from showing a narrower window
     # than the protocol actually specified.
-    date_start = getattr(review_config, "date_range_start", None)
-    date_end = getattr(review_config, "date_range_end", None)
-    if date_start and date_end:
-        date_range_val = f"{date_start} to {date_end}"
-    elif date_start:
-        date_range_val = f"{date_start} to present"
-    else:
-        date_range_val = "NR"
+    date_range_val = canonical_window or "NR"
 
     rows = [
         ("Population", getattr(pico, "population", "") or "NR"),
@@ -1354,7 +1344,11 @@ def generate_casp_table(
         pid = getattr(a, "paper_id", "")
         label = _label_map.get(pid, pid[:12])
         vals = ["YES" if getattr(a, attr, False) else "NO" for attr, _ in _CRITERIA]
-        summary = (getattr(a, "overall_summary", "") or "")[:100].replace("|", "-").replace("\n", " ")
+        summary_raw = str(getattr(a, "overall_summary", "") or "")
+        summary_clean = _sanitize_summary_text(summary_raw).replace("|", "-").replace("\n", " ")
+        summary = summary_clean[:100]
+        if summary == "NR":
+            summary = "Insufficient methodological detail for full CASP appraisal"
         rows.append("| " + " | ".join([label] + vals + [summary]) + " |")
 
     footnote = (
@@ -1409,8 +1403,10 @@ def generate_mmat_table(
         c5 = "YES" if getattr(a, "criterion_5", False) else "NO"
         score = str(getattr(a, "overall_score", "NR"))
         summary_raw = str(getattr(a, "overall_summary", "") or "")
-        summary_clean = summary_raw.replace("|", "-").replace("\n", " ")
+        summary_clean = _sanitize_summary_text(summary_raw).replace("|", "-").replace("\n", " ")
         summary = summary_clean.strip()
+        if summary == "NR":
+            summary = "Insufficient methodological detail for full MMAT appraisal"
         rows.append("| " + " | ".join([label, stype, s1, s2, c1, c2, c3, c4, c5, score, summary]) + " |")
 
     footnote = (
@@ -1495,7 +1491,7 @@ def build_markdown_references_section(
     return section
 
 
-def _normalize_date_range(text: str, date_start: str, date_end: str) -> str:
+def _normalize_date_range(text: str, date_start: str, date_end: str | None) -> str:
     """Replace inconsistent date range mentions with the authoritative protocol values.
 
     The LLM writing step sometimes outputs a different year than the config (e.g.
@@ -1507,40 +1503,55 @@ def _normalize_date_range(text: str, date_start: str, date_end: str) -> str:
     "from YYYY to YYYY", "YYYY-YYYY", "between YYYY and YYYY") and where at
     least one of the years is close to the expected values.
     """
-    # Patterns that represent a date range in the manuscript Methods section.
-    # We only normalize where the start year matches date_start exactly.
-    # The end year may be off by 1-2 years (LLM drift); we correct it to date_end.
+    normalized_end = str(date_end or "").strip()
+    if normalized_end:
+        canonical_to = f"{date_start} to {normalized_end}"
+        canonical_between = f"between {date_start} and {normalized_end}"
+        canonical_hyphen = f"{date_start}-{normalized_end}"
+    else:
+        canonical_to = f"{date_start} to present"
+        canonical_between = f"between {date_start} and present"
+        canonical_hyphen = f"{date_start}-present"
+    month = (
+        r"(?:January|February|March|April|May|June|"
+        r"July|August|September|October|November|December)\s+"
+    )
     patterns = [
-        # "from 2000 to 2025" / "from 2000 to 2026"
         (
             re.compile(
-                r"\bfrom\s+" + re.escape(date_start) + r"\s+to\s+(\d{4})\b",
+                r"\bfrom\s+" + re.escape(date_start) + r"\s+to\s+(?:\d{4}|present|the present)\b",
                 re.IGNORECASE,
             ),
-            f"from {date_start} to {date_end}",
+            f"from {canonical_to}",
         ),
-        # "2000 and 2025" (common LLM phrasing for date range in eligibility)
         (
             re.compile(
-                re.escape(date_start) + r"\s+and\s+(\d{4})\b",
+                r"\bfrom\s+(?:" + month + r")?(?:\d{1,2},?\s+)?"
+                + re.escape(date_start)
+                + r"\s*,?\s*to\s+(?:" + month + r")?(?:\d{1,2},?\s+)?(?:\d{4}|present|the present)\b",
                 re.IGNORECASE,
             ),
-            f"{date_start} and {date_end}",
+            f"from {canonical_to}",
         ),
-        # "2000-2025" or "2000 - 2025"
         (
             re.compile(
-                re.escape(date_start) + r"\s*[-\u2013]\s*(\d{4})\b",
-            ),
-            f"{date_start}-{date_end}",
-        ),
-        # "between 2000 and 2025"
-        (
-            re.compile(
-                r"\bbetween\s+" + re.escape(date_start) + r"\s+and\s+(\d{4})\b",
+                r"\bbetween\s+(?:" + month + r")?" + re.escape(date_start) + r"\s+and\s+(?:" + month + r")?(?:\d{4}|present|the present)\b",
                 re.IGNORECASE,
             ),
-            f"between {date_start} and {date_end}",
+            canonical_between,
+        ),
+        (
+            re.compile(
+                re.escape(date_start) + r"\s+and\s+(?:\d{4}|present|the present)\b",
+                re.IGNORECASE,
+            ),
+            f"{date_start} and {normalized_end or 'present'}",
+        ),
+        (
+            re.compile(
+                re.escape(date_start) + r"\s*[-\u2013\u2014]\s*(?:\d{4}|present|the present)\b",
+            ),
+            canonical_hyphen,
         ),
     ]
     for pattern, replacement in patterns:
@@ -1617,8 +1628,8 @@ def assemble_submission_manuscript(
     if review_config is not None:
         _date_start = getattr(review_config, "date_range_start", None)
         _date_end = getattr(review_config, "date_range_end", None)
-        if _date_start and _date_end:
-            clean_body = _normalize_date_range(clean_body, str(_date_start), str(_date_end))
+        if _date_start:
+            clean_body = _normalize_date_range(clean_body, str(_date_start), str(_date_end) if _date_end else None)
 
     # Collapse duplicate DOIs before numbering so the same paper is never
     # assigned two sequential [N] numbers (e.g., included-study citekey and

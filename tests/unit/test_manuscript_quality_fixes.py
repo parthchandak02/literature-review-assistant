@@ -151,6 +151,14 @@ def test_normalize_already_correct_unchanged():
     assert result == text
 
 
+def test_normalize_month_day_range_pattern():
+    """Month/day phrasing should normalize to authoritative years."""
+    text = "The search was limited to publications from January 1, 2000, to December 31, 2025."
+    result = _normalize_date_range(text, "2000", "2026")
+    assert "from 2000 to 2026" in result
+    assert "2025" not in result
+
+
 # ---------------------------------------------------------------------------
 # Fix 4b: build_picos_table date normalization in inclusion criteria
 # ---------------------------------------------------------------------------

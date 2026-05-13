@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import pytest
+
 from src.models.writing import SectionBlock, StructuredSectionDraft
 from src.writing.orchestration import (
     _abstract_body_word_count,
@@ -109,6 +111,45 @@ def test_section_writer_fallback_parses_markdown_like_text_into_blocks() -> None
     assert kinds.count("subheading") == 2
     assert "Study Selection" in texts
     assert "The search identified records." in texts
+
+
+@pytest.mark.asyncio
+async def test_section_writer_write_section_structured_async_fails_fast_after_validation_exhausted(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from src.llm.pydantic_client import PydanticAIClient
+
+    async def _raise_validation(*args, **kwargs):
+        _ = (args, kwargs)
+        raise ValueError("schema mismatch")
+
+    monkeypatch.setattr(PydanticAIClient, "complete_validated", _raise_validation)
+
+    review = type(
+        "Review",
+        (),
+        {
+            "domain_brief_lines": lambda self=None: [],
+            "domain_signal_terms": lambda self=None, limit=12: [],
+            "preferred_terminology": lambda self=None: [],
+            "discouraged_terminology": lambda self=None: [],
+            "expert_topic": lambda self=None: "digital vaccination records",
+            "domain": "public health",
+            "research_question": "What is the impact?",
+            "keywords": ["qr code"],
+        },
+    )()
+    settings = type(
+        "Settings",
+        (),
+        {
+            "llm": type("LLM", (), {"request_timeout_seconds": 60})(),
+            "agents": {"writing": type("Agent", (), {"model": "google-gla:gemini-2.5-flash", "temperature": 0.1})()},
+        },
+    )()
+    writer = SectionWriter(review=review, settings=settings)
+    with pytest.raises(RuntimeError, match="failed structured output validation"):
+        await writer.write_section_structured_async("results", "context text")
 
 
 def test_section_completeness_detects_trailing_fragment() -> None:
@@ -330,6 +371,76 @@ def test_patch_methods_grounding_reuses_combined_search_heading_alias() -> None:
     assert patched.count("### Selection Process") == 1
 
 
+def test_patch_methods_grounding_adds_batch_validation_sentence() -> None:
+    class _Grounding:
+        fulltext_total_count = 4
+        fulltext_retrieved_count = 2
+        databases_searched = ["OpenAlex", "PubMed"]
+        search_date = "2026-04-08"
+        search_eligibility_window = "2015-2026"
+        screening_method_description = "An AI-assisted dual-reviewer pipeline screened records."
+        fulltext_sought = 5
+        fulltext_not_retrieved = 1
+        fulltext_assessed = 4
+        total_included = 4
+        excluded_non_primary_count = 0
+        rob_summary = "ROBINS-I for 2 studies; CASP for 2 studies."
+        batch_screen_validation_n = 24
+        batch_screen_validation_npv = 0.875
+
+    class _Review:
+        pico = type(
+            "Pico",
+            (),
+            {
+                "population": "rural populations",
+                "intervention": "digital vaccine records",
+                "comparison": "paper records",
+                "outcome": "coverage and usability",
+            },
+        )()
+
+    content = "### Selection Process\n\nLegacy selection text."
+    patched = _patch_methods_grounding(content, _Grounding(), _Review())
+    assert "To verify automated exclusions, 24 low-relevance records were cross-checked by dual review; 88% were confirmed as true exclusions." in patched
+
+
+def test_patch_methods_grounding_adds_rob_coverage_gap_sentence() -> None:
+    class _Grounding:
+        fulltext_total_count = 4
+        fulltext_retrieved_count = 2
+        databases_searched = ["OpenAlex", "PubMed"]
+        search_date = "2026-04-08"
+        search_eligibility_window = "2015-2026"
+        screening_method_description = "An AI-assisted dual-reviewer pipeline screened records."
+        fulltext_sought = 5
+        fulltext_not_retrieved = 1
+        fulltext_assessed = 4
+        total_included = 4
+        excluded_non_primary_count = 0
+        rob_summary = "ROBINS-I for 2 studies; CASP for 2 studies."
+        included_studies_without_rob_mapping = 2
+        risk_tool_counts = {"casp": 2, "mmat": 5}
+        study_design_counts = {"mixed_methods": 3, "pre_post": 2}
+
+    class _Review:
+        pico = type(
+            "Pico",
+            (),
+            {
+                "population": "rural populations",
+                "intervention": "digital vaccine records",
+                "comparison": "paper records",
+                "outcome": "coverage and usability",
+            },
+        )()
+
+    content = "### Data Collection\n\nLegacy extraction statement."
+    patched = _patch_methods_grounding(content, _Grounding(), _Review())
+    assert "Risk-of-bias coverage was incomplete for 2 of 4 included studies" in patched
+    assert "Risk-of-bias routing was design-aligned" in patched
+
+
 def test_apply_structured_grounding_patches_syncs_methods_ir() -> None:
     class _Grounding:
         fulltext_total_count = 4
@@ -388,6 +499,45 @@ def test_apply_structured_grounding_patches_syncs_methods_ir() -> None:
     assert "### Data Collection" in rendered
 
 
+def test_apply_structured_grounding_patches_conclusion_adds_cautionary_constraints() -> None:
+    class _Grounding:
+        fulltext_sought = 41
+        fulltext_not_retrieved = 20
+        grade_summary = "coverage: low; usability: very low"
+        missing_participant_count = 6
+        n_total_studies = 11
+
+    class _Review:
+        research_question = "What is the effect?"
+        keywords = ["digital vaccine records", "qr codes"]
+
+    settings = type(
+        "Settings",
+        (),
+        {
+            "writing": type("Writing", (), {"abstract_trim_floor_words": 210})(),
+        },
+    )()
+    draft = StructuredSectionDraft(
+        section_key="conclusion",
+        blocks=[
+            SectionBlock(block_type="paragraph", text="Legacy conclusion paragraph."),
+        ],
+    )
+    patched = _apply_structured_grounding_patches(
+        "conclusion",
+        draft,
+        grounding=_Grounding(),
+        review=_Review(),
+        settings=settings,
+        valid_citekeys={"Page2021"},
+    )
+    rendered = render_section_markdown(patched)
+    assert "were not retrieved" in rendered
+    assert "hypothesis-generating rather than confirmatory" in rendered
+    assert "participant counts were unavailable" in rendered
+
+
 def test_needs_legacy_heading_fix_only_flags_malformed_layout() -> None:
     assert not _needs_legacy_heading_fix("### Study Selection\n\nThe review screened 10 records.")
     assert _needs_legacy_heading_fix("### Study Selection The review screened 10 records.")
@@ -404,14 +554,17 @@ def test_patch_results_grounding_preserves_following_subheading_boundary() -> No
         excluded_non_primary_count = 0
         fulltext_total_count = 7
         fulltext_retrieved_count = 7
+        risk_tool_counts = {"casp": 2, "mmat": 5}
+        study_design_counts = {"mixed_methods": 3, "pre_post": 2}
 
     content = (
         "### Study Selection\n\nLegacy counts.\n\n"
         "### Study Characteristics\n\nStudy details follow."
     )
     patched = _patch_results_grounding(content, _Grounding())
-    assert "primary reason category.\n\n### Study Characteristics" in patched
-    assert "primary reason category.### Study Characteristics" not in patched
+    assert "\n\n### Study Characteristics" in patched
+    assert ".### Study Characteristics" not in patched
+    assert "Quality appraisal coverage included CASP" in patched
 
 
 def test_section_completeness_detects_missing_discussion_required_subheadings() -> None:
