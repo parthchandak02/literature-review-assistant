@@ -70,4 +70,4 @@ alwaysApply: true
 - Endpoint parity anchor: `.cursor/docs/API_ENDPOINTS.md` Section 10.1.
 - Bootstrap and operational checklist: `.cursor/commands/0-session-bootstrap.md`.
 - Task-specific deep guidance: `.cursor/skills/**/SKILL.md`.
-- Debugging gotchas and historical failure patterns: `.cursor/rules/core/gotchas-agent.mdc`.
+- Live gotchas: `.cursor/rules/core/gotchas-agent.mdc`; historical archive: `.cursor/rules/core/gotchas-archive.mdc`.

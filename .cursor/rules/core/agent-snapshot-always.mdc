@@ -1,6 +1,6 @@
 ---
 description: Require a quick snapshot of active and recent agent work before starting tasks
-alwaysApply: true
+alwaysApply: false
 ---
 
 # Agent Context Snapshot

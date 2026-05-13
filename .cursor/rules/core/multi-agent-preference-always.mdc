@@ -1,6 +1,6 @@
 ---
 description: Prefer multi-agent execution whenever available
-alwaysApply: true
+alwaysApply: false
 ---
 
 # Use Multiple Agents

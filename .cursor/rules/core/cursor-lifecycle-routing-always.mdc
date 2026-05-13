@@ -29,5 +29,5 @@ Ship stage must follow `.cursor/commands/3-pre-commit-workflow.md`.
 
 - Use the narrowest stage that satisfies the request.
 - If request spans multiple stages, complete them in lifecycle order.
-- Treat `.cursor/docs/*` as canonical docs before root mirror docs.
+- Treat `.cursor/docs/*` as canonical docs before root entry docs.
 - Keep `.cursor/docs/API_ENDPOINTS.md` usage limited to endpoint parity compatibility.

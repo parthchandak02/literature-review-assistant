@@ -1,0 +1,22 @@
+---
+description: Archived historical gotchas retained for deep-debug context.
+globs:
+alwaysApply: false
+---
+
+# Gotchas Archive
+
+This archive holds historical or niche gotchas that are not needed for default onboarding.
+Use this file when investigating regressions in legacy workflows, old run artifacts, or
+rare operational edge cases.
+
+## Scope
+
+- Historical "(fixed)" failure patterns
+- Rare environment-specific issues
+- Deep pipeline edge-case notes not required for day-to-day implementation
+
+## Source of Truth
+
+- Live, high-signal gotchas remain in `gotchas-agent.mdc`.
+- Canonical behavior still comes from `src/` and `.cursor/docs/*`.
