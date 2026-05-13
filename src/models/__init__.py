@@ -78,7 +78,13 @@ from src.models.quality import (
     RoB2Assessment,
     RobinsIAssessment,
 )
-from src.models.screening import DualScreeningResult, ScreeningDecision
+from src.models.screening import (
+    BatchScreeningItemPayload,
+    BatchScreeningResponsePayload,
+    DualScreeningResult,
+    ScreeningDecision,
+    ScreeningResponsePayload,
+)
 from src.models.workflow import (
     DecisionLogEntry,
     FallbackEventRecord,
@@ -179,6 +185,9 @@ __all__ = [
     "RobinsIJudgment",
     "ScreeningConfig",
     "ScreeningDecision",
+    "ScreeningResponsePayload",
+    "BatchScreeningItemPayload",
+    "BatchScreeningResponsePayload",
     "ScreeningDecisionType",
     "SearchResult",
     "ManuscriptAssembly",

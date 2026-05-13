@@ -5,7 +5,6 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-import re
 import time
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
@@ -14,11 +13,13 @@ from typing import Protocol
 
 _log = logging.getLogger(__name__)
 
-from pydantic import AliasChoices, BaseModel, Field, ValidationError
+from pydantic import ValidationError
 
 from src.db.repositories import WorkflowRepository
 from src.llm.provider import LLMProvider
 from src.models import (
+    BatchScreeningItemPayload,
+    BatchScreeningResponsePayload,
     CandidatePaper,
     DecisionLogEntry,
     ExclusionReason,
@@ -26,6 +27,7 @@ from src.models import (
     ReviewerType,
     ScreeningDecision,
     ScreeningDecisionType,
+    ScreeningResponsePayload,
     SettingsConfig,
 )
 from src.screening.heuristics import (
@@ -47,24 +49,9 @@ from src.screening.prompts import (
 )
 from src.search.pdf_retrieval import FullTextCoverageSummary, PDFRetriever
 
-
-class ScreeningResponse(BaseModel):
-    decision: ScreeningDecisionType
-    confidence: float = Field(ge=0.0, le=1.0)
-    short_reason: str | None = Field(default=None, description="One-line summary, max 80 chars")
-    reasoning: str
-    exclusion_reason: ExclusionReason | None = None
-
-
-class _BatchScreeningItem(BaseModel):
-    """One paper's decision within a batch LLM response array."""
-
-    paper_id: str = Field(validation_alias=AliasChoices("paper_id", "paperId", "id"))
-    decision: ScreeningDecisionType
-    confidence: float = Field(default=0.5, ge=0.0, le=1.0)
-    short_reason: str | None = None
-    reasoning: str = "Batch response omitted reasoning."
-    exclusion_reason: ExclusionReason | None = None
+ScreeningResponse = ScreeningResponsePayload
+_BatchScreeningItem = BatchScreeningItemPayload
+_BatchScreeningEnvelope = BatchScreeningResponsePayload
 
 
 class ScreeningLLMClient(Protocol):
@@ -77,6 +64,27 @@ class ScreeningLLMClient(Protocol):
         temperature: float,
     ) -> str:
         """Return a JSON string matching ScreeningResponse."""
+
+    async def complete_screening_response_with_usage(
+        self,
+        prompt: str,
+        *,
+        agent_name: str,
+        model: str,
+        temperature: float,
+    ) -> tuple[ScreeningResponse, int, int, int, int]:
+        """Return a typed screening payload plus usage."""
+
+    async def complete_batch_screening_with_usage(
+        self,
+        prompt: str,
+        *,
+        agent_name: str,
+        model: str,
+        temperature: float,
+        item_schema: dict[str, object],
+    ) -> tuple[_BatchScreeningEnvelope, int, int, int, int]:
+        """Return a typed batch payload plus usage."""
 
 
 class HeuristicScreeningClient:
@@ -122,6 +130,54 @@ class HeuristicScreeningClient:
                 reasoning="Inclusion criteria are plausibly met.",
             )
         return payload.model_dump_json()
+
+    async def complete_screening_response_with_usage(
+        self,
+        prompt: str,
+        *,
+        agent_name: str,
+        model: str,
+        temperature: float,
+    ) -> tuple[ScreeningResponse, int, int, int, int]:
+        raw = await self.complete_json(
+            prompt,
+            agent_name=agent_name,
+            model=model,
+            temperature=temperature,
+        )
+        parsed = ScreeningResponse.model_validate_json(raw)
+        return parsed, max(1, len(prompt.split())), max(1, len(raw.split())), 0, 0
+
+    async def complete_batch_screening_with_usage(
+        self,
+        prompt: str,
+        *,
+        agent_name: str,
+        model: str,
+        temperature: float,
+        item_schema: dict[str, object],
+    ) -> tuple[_BatchScreeningEnvelope, int, int, int, int]:
+        _ = item_schema
+        raw = await self.complete_json(
+            prompt,
+            agent_name=agent_name,
+            model=model,
+            temperature=temperature,
+        )
+        single = ScreeningResponse.model_validate_json(raw)
+        payload = _BatchScreeningEnvelope(
+            decisions=[
+                _BatchScreeningItem(
+                    paper_id="paper-1",
+                    decision=single.decision,
+                    confidence=single.confidence,
+                    short_reason=single.short_reason,
+                    reasoning=single.reasoning,
+                    exclusion_reason=single.exclusion_reason,
+                )
+            ]
+        )
+        return payload, max(1, len(prompt.split())), max(1, len(raw.split())), 0, 0
 
 
 @dataclass(frozen=True)
@@ -720,10 +776,6 @@ class DualReviewerScreener:
             "json_parse_failed": 0,
         }
         s = raw.strip()
-        s = re.sub(r"^```(?:json)?\s*", "", s)
-        s = re.sub(r"\s*```\s*$", "", s)
-        s = s.strip()
-
         parsed_payload: object | None = None
         try:
             parsed_payload = json.loads(s)
@@ -731,30 +783,15 @@ class DualReviewerScreener:
             parsed_payload = None
 
         if parsed_payload is None:
-            object_first = s.find("{")
-            object_last = s.rfind("}")
-            if object_first >= 0 and object_last > object_first:
-                try:
-                    parsed_payload = json.loads(s[object_first : object_last + 1])
-                except json.JSONDecodeError:
-                    parsed_payload = None
-
-        if parsed_payload is None:
-            array_first = s.find("[")
-            array_last = s.rfind("]")
-            if array_first >= 0 and array_last > array_first:
-                try:
-                    parsed_payload = json.loads(s[array_first : array_last + 1])
-                except json.JSONDecodeError:
-                    parsed_payload = None
-
-        if parsed_payload is None:
             stats["json_parse_failed"] = 1
             return {}, stats
 
         items: object = parsed_payload
         if isinstance(parsed_payload, dict):
-            items = parsed_payload.get("decisions")
+            try:
+                items = _BatchScreeningEnvelope.model_validate(parsed_payload).decisions
+            except Exception:
+                items = parsed_payload.get("decisions")
         if not isinstance(items, list):
             stats["schema_mismatch"] = 1
             return {}, stats
@@ -762,6 +799,8 @@ class DualReviewerScreener:
         result: dict[str, ScreeningDecision] = {}
         index_to_paper_id = {str(i): paper.paper_id for i, paper in enumerate(papers, start=1)}
         for item in items:
+            if hasattr(item, "model_dump"):
+                item = item.model_dump()
             if not isinstance(item, dict):
                 continue
             stats["returned_items"] += 1
@@ -823,14 +862,22 @@ class DualReviewerScreener:
             if index_to_paper_id:
                 if token in index_to_paper_id:
                     return index_to_paper_id[token]
-                bracketed_match = re.fullmatch(r"\[\s*(\d{1,3})\s*\]", token)
-                if bracketed_match:
-                    mapped = index_to_paper_id.get(bracketed_match.group(1))
-                    if mapped:
-                        return mapped
-                alias_match = re.fullmatch(r"(?:paper|item|idx|index)[\s_:\-]*(\d{1,3})", token, re.IGNORECASE)
-                if alias_match:
-                    mapped = index_to_paper_id.get(alias_match.group(1))
+                if token.startswith("[") and token.endswith("]"):
+                    inner = token[1:-1].strip()
+                    if inner.isdigit() and 1 <= len(inner) <= 3:
+                        mapped = index_to_paper_id.get(inner)
+                        if mapped:
+                            return mapped
+                normalized = token.lower().replace("_", "").replace("-", "").replace(":", "").replace(" ", "")
+                for prefix in ("paper", "item", "idx", "index"):
+                    if normalized.startswith(prefix):
+                        suffix = normalized[len(prefix) :]
+                        if suffix.isdigit() and 1 <= len(suffix) <= 3:
+                            mapped = index_to_paper_id.get(suffix)
+                            if mapped:
+                                return mapped
+                if token.isdigit() and token in index_to_paper_id:
+                    mapped = index_to_paper_id.get(token)
                     if mapped:
                         return mapped
             return token
@@ -915,8 +962,24 @@ class DualReviewerScreener:
         runtime = await self.provider.reserve_call_slot(spec.agent_name)
         started = time.perf_counter()
         try:
+            parsed_batch: _BatchScreeningEnvelope | None = None
             if hasattr(self.llm_client, "complete_json_with_usage"):
-                if hasattr(self.llm_client, "complete_json_array_with_usage"):
+                if hasattr(self.llm_client, "complete_batch_screening_with_usage"):
+                    (
+                        parsed_batch,
+                        tokens_in,
+                        tokens_out,
+                        cache_write,
+                        cache_read,
+                    ) = await self.llm_client.complete_batch_screening_with_usage(
+                        prompt,
+                        agent_name=spec.agent_name,
+                        model=runtime.model,
+                        temperature=runtime.temperature,
+                        item_schema=item_schema,
+                    )
+                    raw = parsed_batch.model_dump_json()
+                elif hasattr(self.llm_client, "complete_json_array_with_usage"):
                     (
                         raw,
                         tokens_in,
@@ -1467,12 +1530,24 @@ class DualReviewerScreener:
         runtime = await self.provider.reserve_call_slot(spec.agent_name)
         started = time.perf_counter()
         if hasattr(self.llm_client, "complete_json_with_usage"):
-            raw, tokens_in, tokens_out, cache_write, cache_read = await self.llm_client.complete_json_with_usage(
-                prompt,
-                agent_name=spec.agent_name,
-                model=runtime.model,
-                temperature=runtime.temperature,
-            )
+            if hasattr(self.llm_client, "complete_screening_response_with_usage"):
+                parsed, tokens_in, tokens_out, cache_write, cache_read = (
+                    await self.llm_client.complete_screening_response_with_usage(
+                        prompt,
+                        agent_name=spec.agent_name,
+                        model=runtime.model,
+                        temperature=runtime.temperature,
+                    )
+                )
+                raw = parsed.model_dump_json()
+            else:
+                raw, tokens_in, tokens_out, cache_write, cache_read = await self.llm_client.complete_json_with_usage(
+                    prompt,
+                    agent_name=spec.agent_name,
+                    model=runtime.model,
+                    temperature=runtime.temperature,
+                )
+                parsed = self._parse_response(raw)
         else:
             raw = await self.llm_client.complete_json(
                 prompt,
@@ -1483,9 +1558,9 @@ class DualReviewerScreener:
             tokens_in = max(1, len(prompt.split()))
             tokens_out = max(1, len(raw.split()))
             cache_write = cache_read = 0
+            parsed = self._parse_response(raw)
         elapsed_ms = int((time.perf_counter() - started) * 1000)
         cost_usd = self.provider.estimate_cost(runtime.model, tokens_in, tokens_out, cache_write, cache_read)
-        parsed = self._parse_response(raw)
         if parsed.short_reason in {"Invalid JSON", "Invalid schema"}:
             self.contract_violation_count += 1
             await self.repository.append_decision_log(
@@ -1537,13 +1612,6 @@ class DualReviewerScreener:
     @staticmethod
     def _parse_response(raw: str) -> ScreeningResponse:
         s = raw.strip()
-        s = re.sub(r"^```(?:json)?\s*", "", s)
-        s = re.sub(r"\s*```\s*$", "", s)
-        s = s.strip()
-        first = s.find("{")
-        last = s.rfind("}")
-        if first >= 0 and last > first:
-            s = s[first : last + 1]
         try:
             payload = json.loads(s)
         except json.JSONDecodeError:
