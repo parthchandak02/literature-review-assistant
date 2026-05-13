@@ -1,9 +1,12 @@
 #!/usr/bin/env python3
 """Check endpoint parity between API endpoint docs and src/web/app.py.
 
-This script enforces a bidirectional contract lock:
-- Every documented endpoint in the endpoint table must exist in FastAPI code.
-- Every FastAPI endpoint in code must be documented in the endpoint table.
+This script enforces a bidirectional contract lock for the parity scope:
+- Every documented endpoint in the Section 10.1 table must exist in FastAPI code.
+- Every in-scope FastAPI endpoint must be documented in the Section 10.1 table.
+
+In-scope FastAPI endpoints are `/api/*` routes with `include_in_schema` enabled.
+Routes with `include_in_schema=False` and `{...:path}` catch-all handlers are ignored.
 """
 
 from __future__ import annotations

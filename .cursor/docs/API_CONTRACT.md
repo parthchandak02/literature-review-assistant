@@ -20,6 +20,7 @@ Do not change this contract without updating tests and CI usage.
 - Run lifecycle: `/api/run*`, `/api/stream/{run_id}`, `/api/cancel/{run_id}`
 - History and registry: `/api/history*`, `/api/notes*`
 - DB explorer and costs: `/api/db/{run_id}/*`, `/api/history/costs/*`
+- Log and note streams: `/api/logs/stream`, `/api/notes/stream`
 - Run artifacts and exports: `/api/run/{run_id}/*`
 - Validation and audit: `/api/workflow/{workflow_id}/validation/*`, `/api/workflow/{workflow_id}/manuscript-audit/*`
 
