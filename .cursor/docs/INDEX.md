@@ -30,7 +30,6 @@ If any statement here conflicts with `.cursor/rules/core/`, trust the rule and t
 
 ## Compatibility Notes
 
-- Root `AGENTS.md` and `ARCHITECTURE.md` are discoverability entrypoints that mirror this folder.
+- `AGENTS.md` is the onboarding entrypoint.
 - `.cursor/docs/API_ENDPOINTS.md` is the endpoint parity anchor.
-- Root `SKILL.md` mirrors lifecycle routing for quick discovery.
-- Root `README.md` remains a user-facing entrypoint and should point back to this index for canonical contracts.
+- `README.md` remains a user-facing entrypoint and should point back to this index for canonical contracts.
