@@ -16,8 +16,8 @@ Prepare and commit all pending changes safely. Scan for secrets, stage clean fil
 
 4. **Verify docs parity and update docs before commit/push** -- For any code-impacting change, ensure all relevant docs are updated in the same commit window (API docs, architecture/behavior docs, operator commands, and any affected skill/rule docs). If touched files include `.cursor/docs/*`, `src/web/app.py`, or `frontend/src/lib/api.ts`, run:
    - `uv run python scripts/check_spec_endpoint_parity.py`
-   - Any relevant docs parity/replay command from `.cursor/commands/2-validate-docs.md`
-  Fail fast on mismatch and fix docs/code drift before staging.
+   - Any relevant docs parity/replay command from `.cursor/commands/1-update-cursor-rules.md`
+   - Fail fast on mismatch and fix docs/code drift before staging.
 
 5. **Stage safe files** -- Add all files that passed the security scan. List exactly which files are being staged and which are being deliberately excluded.
 
@@ -40,15 +40,16 @@ Prepare and commit all pending changes safely. Scan for secrets, stage clean fil
    - Prefer 2-5 concise body bullets over vague one-liners
    - Avoid generic subjects like "update files" or "misc fixes"
 
-8. **Run pre-push docs audit agent (mandatory)** -- Before any commit/push:
+8. **Run docs audit agent (mandatory before commit or push)** -- Before any commit/push:
    - Launch a read-only subagent to review ALL docs for drift and untouched stale areas:
-     - Root docs: `README.md`, `AGENTS.md`, `ARCHITECTURE.md`, `SKILL.md`
+     - Root docs: `README.md`, `AGENTS.md`
      - Cursor docs/rules/commands/skills/agents: `.cursor/docs/**`, `.cursor/rules/**`, `.cursor/commands/**`, `.cursor/skills/**`, `.cursor/agents/**`
    - The subagent must return:
      - blocking stale docs
      - medium-risk drift
      - exact file edits required
    - Apply required doc fixes before commit when findings are valid.
+   - If a subagent is unavailable in the current environment, run an explicit manual checklist audit across the same paths before proceeding.
 
 9. **Remind user before commit/push (mandatory)** -- Before creating commits:
    - Explicitly notify the user that commit/push is about to happen.
@@ -74,5 +75,5 @@ Prepare and commit all pending changes safely. Scan for secrets, stage clean fil
 - If a local hook rejects the commit, fix the underlying issue and create a NEW commit -- never amend a rejected commit
 - If major deletions or structural changes are detected, pause and confirm with the user before proceeding
 - If a commit message is weak, rewrite it before committing -- message quality is part of the workflow
-- NEVER skip the pre-push docs audit agent step
+- NEVER skip the docs audit step before commit or push
 - NEVER commit/push without a user reminder and explicit confirmation in the current session

@@ -27,8 +27,7 @@ If your tool does not auto-load `.cursor/rules/`, use explicit file reads:
 1. Code in `src/` and `frontend/src/`
 2. Always-on rules in `.cursor/rules/core/`
 3. Canonical docs in `.cursor/docs/`
-4. Root mirror docs (`README.md`, `ARCHITECTURE.md`, `SKILL.md`)
-5. Endpoint parity anchor (`.cursor/docs/API_ENDPOINTS.md` Section 10.1 only)
+4. Endpoint parity anchor (`.cursor/docs/API_ENDPOINTS.md` Section 10.1 only)
 
 If sources conflict, follow this order and verify in code.
 
@@ -55,5 +54,4 @@ Before `git commit` or `git push`, follow `.cursor/commands/3-pre-commit-workflo
 
 ## Compatibility Notes
 
-- `ARCHITECTURE.md` and `SKILL.md` are thin mirrors for cross-tool discoverability.
 - `.cursor/docs/API_ENDPOINTS.md` is parity-only, not primary architecture guidance.

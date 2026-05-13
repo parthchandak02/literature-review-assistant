@@ -28,4 +28,4 @@ When behavior changes:
 
 - Update `.cursor/docs/*` first (canonical)
 - Then update `.cursor/rules/*`, `.cursor/commands/*`, `.cursor/skills/*`
-- Finally refresh root mirror docs (`AGENTS.md`, `ARCHITECTURE.md`, `README.md`, `SKILL.md`)
+- Finally refresh root entry docs (`AGENTS.md`, `README.md`) and canonical `.cursor/docs/*` files
