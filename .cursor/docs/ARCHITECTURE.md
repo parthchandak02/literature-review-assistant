@@ -8,7 +8,7 @@ The system automates systematic reviews from research question to submission art
 
 - API and orchestration: `src/web/app.py`, `src/orchestration/workflow.py`, `src/orchestration/resume.py`
 - Data plane: per-run `runtime.db` (`src/db/schema.sql`)
-- Control plane: global `workflows_registry.db` (`src/db/workflow_registry.py`)
+- Control plane: global `runs/workflows_registry.db` (resolved by `src/db/workflow_registry.py`)
 - Frontend plane: `frontend/src/` with typed API contract in `frontend/src/lib/api.ts`
 - Artifact plane: run directory outputs under `runs/YYYY-MM-DD/...`
 

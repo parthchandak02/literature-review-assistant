@@ -73,3 +73,4 @@ When API routes change in `src/web/app.py`, update this table in the same change
 ### 10.1.1 Endpoint Parity Checklist
 
 Endpoint parity is enforced by `scripts/check_spec_endpoint_parity.py` against `src/web/app.py`.
+The checker compares `/api/*` routes with `include_in_schema=True` and ignores catch-all `{...:path}` handlers.
