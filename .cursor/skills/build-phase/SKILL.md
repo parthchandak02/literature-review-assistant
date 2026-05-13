@@ -75,6 +75,9 @@ When validating runtime phase coverage after synthesis/writing changes, include
 `tests/unit/test_pre_writing_gate.py` and confirm
 `frontend/src/lib/constants.ts` `RESUME_PHASE_ORDER` still matches backend
 `PHASE_ORDER`.
+Only `RESUME_PHASE_ORDER` is the backend resume-order contract. Frontend `PHASE_ORDER`
+may include additional UI/sub-flow entries and should not be forced to mirror backend
+`PHASE_ORDER` one-to-one.
 
 ## Phase 6 Acceptance Criteria (updated)
 - Per-section persistence: interrupted runs can resume writing without losing completed sections

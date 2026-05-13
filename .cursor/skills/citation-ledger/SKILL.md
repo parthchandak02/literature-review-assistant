@@ -5,30 +5,16 @@ description: Implements citation lineage (claim -> evidence -> citation chain). 
 
 # Citation Ledger Implementation
 
-Guide for implementing the citation ledger (Phase 1 Foundation).
+Lean reference for citation lineage boundaries. Primary writing-lineage workflow now lives in `section-writer/SKILL.md`.
 
-## Core API
+## Canonical Sources
 
-- `register_claim(ClaimRecord(...))` -> claim_id
-- `register_citation(CitationEntryRecord(...))` -> citation_id
-- `link_evidence(EvidenceLinkRecord(...))`
-- `validate_manuscript(text)` -> `ManuscriptValidationResult`
-- `block_export_if_invalid()` -> bool (blocks export if any unresolved)
+- Runtime implementation: `src/citation/ledger.py`
+- Persistence: `src/db/schema.sql`, `src/db/repositories.py`
+- Writing integration and section-level lineage checks: `.cursor/skills/section-writer/SKILL.md`
 
-## Data Model
+## Non-Negotiables
 
-- `ClaimRecord`: claim_id, claim_text, section, confidence
-- `EvidenceLinkRecord`: claim_id, citation_id, evidence_span, evidence_score
-- `CitationEntryRecord`: citation_id, citekey, title, authors, resolved
-
-## Rules
-
-1. Every factual claim in generated text must be registered and linked to evidence
-2. No export if `validate_manuscript()` reports any unresolved claims or citations
-3. Citation lineage gate runs before export -- zero unresolved required
-4. Numeric citations like `[1]`, `[2]`, ... are valid after numbered-citation conversion when they map to the known reference count
-
-## SQLite Tables
-
-`claims`, `evidence_links`, `citations` -- see `src/db/schema.sql` and implementations in
-`src/citation/ledger.py` + repository persistence in `src/db/repositories.py`.
+1. Every factual claim must map to evidence and citation lineage.
+2. Export must fail when unresolved lineage remains.
+3. Numeric `[N]` citations are valid only when they map to known references post-conversion.

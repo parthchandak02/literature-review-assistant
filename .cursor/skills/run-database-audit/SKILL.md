@@ -120,6 +120,7 @@ WHERE workflow_id = 'wf-XXXX';
 ```sql
 SELECT event_type, COUNT(*)
 FROM event_log
+WHERE workflow_id = 'wf-XXXX'
 GROUP BY event_type
 ORDER BY COUNT(*) DESC;
 ```
@@ -128,6 +129,7 @@ ORDER BY COUNT(*) DESC;
 ```sql
 SELECT reviewer_type, decision, COUNT(*)
 FROM screening_decisions
+WHERE workflow_id = 'wf-XXXX'
 GROUP BY reviewer_type, decision
 ORDER BY reviewer_type, decision;
 ```
