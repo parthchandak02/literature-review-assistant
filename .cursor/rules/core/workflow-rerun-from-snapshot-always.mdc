@@ -8,5 +8,8 @@ alwaysApply: true
 - When re-testing an existing workflow like `wf-XXXX`, use the run's own `config_snapshot.yaml` with `uv run python -m src.main run --config <run_dir>/config_snapshot.yaml --fresh`.
 - Do not copy old YAML back into `config/review.yaml` just to rerun a past workflow.
 - Use `resume` only to continue the same workflow. Use `run --config ... --fresh` to rerun old inputs after code changes.
+- If a replay fails, record the exact failing phase from logs/run summary, implement the fix, then validate via `uv run python -m src.main resume --workflow-id <wf_id>` from that same workflow.
+- For safety-sensitive fixes, prefer resuming from one phase earlier than the failure point when feasible, then verify the previously failing phase passes.
+- Do not mark a replay fix as complete until the previously failing phase has been re-executed successfully (resume-first verification).
 - If you need live frontend logs, start or continue the rerun through the API-managed path, not a local-only CLI run.
 - After making substantial changes based on a specific workflow, rerun it this way before claiming the fix worked.

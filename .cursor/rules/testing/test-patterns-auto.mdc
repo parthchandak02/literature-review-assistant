@@ -28,6 +28,13 @@ uv run pytest tests/integration -q   # slower, may use LLM
 # tests/e2e/ does not exist yet
 ```
 
+## TDD Vertical-Slice Guidance
+- For non-trivial fixes/features, start with one failing test that captures user-visible behavior.
+- Prefer thin slices: fail -> minimal implementation -> pass -> small refactor.
+- Use unit tests for deterministic business logic and replay/integration tests for workflow behavior.
+- When pipeline behavior changes, validate the affected replay suite before broad test runs.
+- If a test cannot fail for the expected reason, stop and fix the test setup before changing production code.
+
 ## Real-Workflow Replay Tests
 - Integration replay coverage lives in:
   - `tests/integration/test_workflow_replay_screening.py`
