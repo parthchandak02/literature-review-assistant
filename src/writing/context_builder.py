@@ -11,7 +11,7 @@ import math
 import re
 from datetime import datetime
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from src.extraction.inference_utils import (
     derive_concise_result_summary,
@@ -20,6 +20,10 @@ from src.extraction.inference_utils import (
 )
 from src.models import CandidatePaper, ExtractionRecord
 from src.models.additional import PRISMACounts
+from src.writing.date_windows import (
+    format_search_eligibility_window,
+    normalize_criteria_date_windows,
+)
 from src.writing.instruction_constants import NARRATIVE_ONLY_META_ANALYSIS_RULE
 
 _SOURCE_DISPLAY_NAMES: dict[str, str] = {
@@ -199,22 +203,7 @@ def _sanitize_study_title_for_writing(title: str | None, fallback_paper_id: str)
 
 def _normalize_criterion_date_windows(criteria: list[str], canonical_window: str) -> list[str]:
     """Normalize date-range phrases in criteria to one canonical window."""
-    if not canonical_window:
-        return criteria
-    date_range_re = re.compile(r"\b\d{4}\s*(?:to|-)\s*(?:\d{4}|present|the present)\b", flags=re.IGNORECASE)
-    standalone_year_re = re.compile(
-        r"\b(?P<prefix>published\s+(?:after|from|since)|from|since)\s+(?P<year>\d{4})\b",
-        flags=re.IGNORECASE,
-    )
-    normalized: list[str] = []
-    for item in criteria:
-        txt = str(item or "").strip()
-        if not txt:
-            continue
-        txt = date_range_re.sub(canonical_window, txt)
-        txt = standalone_year_re.sub(lambda m: f"{m.group('prefix')} {canonical_window}", txt)
-        normalized.append(txt)
-    return normalized
+    return normalize_criteria_date_windows(criteria, canonical_window)
 
 
 class StudySummary(BaseModel):
@@ -372,6 +361,8 @@ class WritingGroundingData(BaseModel):
     # Number of quality assessments derived from heuristic fallback (LLM timed out).
     # When > 0, the Methods section notes that some assessments used a conservative heuristic.
     heuristic_assessment_count: int = 0
+    # Included studies lacking a mapped RoB assessment row across tool families.
+    included_studies_without_rob_mapping: int = 0
 
     # Background systematic reviews discovered by the related-literature search.
     # These citekeys are registered in the citation catalog and should be cited
@@ -431,6 +422,7 @@ class WritingGroundingData(BaseModel):
     # Risk-of-bias summary (counts by judgment level from rob_assessments table).
     # Empty string when no assessments were performed.
     rob_summary: str = ""
+    risk_tool_counts: dict[str, int] = Field(default_factory=dict)
 
     # GRADE certainty summary (per-outcome certainty levels from grade_assessments table).
     # Empty string when GRADE was not run.
@@ -856,11 +848,7 @@ def build_writing_grounding(
     # Search eligibility window from review config
     _date_start = getattr(review_config, "date_range_start", None) if review_config else None
     _date_end = getattr(review_config, "date_range_end", None) if review_config else None
-    search_eligibility_window = ""
-    if _date_start and _date_end:
-        search_eligibility_window = f"{_date_start}-{_date_end}"
-    elif _date_start:
-        search_eligibility_window = f"{_date_start}-present"
+    search_eligibility_window = format_search_eligibility_window(_date_start, _date_end)
 
     _inclusion_criteria = []
     _exclusion_criteria = []
@@ -897,17 +885,15 @@ def build_writing_grounding(
         c for c in _inclusion_criteria if any(k in c.lower() for k in _design_keywords)
     ]
 
-    # Full-text retrieval counts: "text" = abstract-only baseline; anything else = full text retrieved.
-    # See src/models/extraction.py for all extraction_source values.
+    # Full-text retrieval counts: prefer explicit resolver-tracked ids when available.
+    # Fall back to extraction_source heuristics only when no explicit id set exists.
     _fulltext_id_set = {str(pid) for pid in (fulltext_paper_ids or set())}
-    fulltext_retrieved = sum(
-        1
-        for rec in extraction_records
-        if (
-            getattr(rec, "extraction_source", "text") not in _ABSTRACT_ONLY_SOURCES
-            or str(getattr(rec, "paper_id", "")) in _fulltext_id_set
+    if _fulltext_id_set:
+        fulltext_retrieved = sum(1 for rec in extraction_records if str(getattr(rec, "paper_id", "")) in _fulltext_id_set)
+    else:
+        fulltext_retrieved = sum(
+            1 for rec in extraction_records if getattr(rec, "extraction_source", "text") not in _ABSTRACT_ONLY_SOURCES
         )
-    )
     fulltext_total = max(0, int(total_included_count))
     fulltext_retrieved = min(fulltext_total, fulltext_retrieved)
 
@@ -948,6 +934,24 @@ def build_writing_grounding(
         casp_assessments or [],
         mmat_assessments or [],
     )
+    _risk_tool_counts = {
+        "rob2": len(rob2_assessments or []),
+        "robins_i": len(robins_i_assessments or []),
+        "casp": len(casp_assessments or []),
+        "mmat": len(mmat_assessments or []),
+    }
+    _assessed_paper_ids: set[str] = set()
+    for assessment_group in (
+        rob2_assessments or [],
+        robins_i_assessments or [],
+        casp_assessments or [],
+        mmat_assessments or [],
+    ):
+        for assessment in assessment_group:
+            paper_id = str(getattr(assessment, "paper_id", "") or "").strip()
+            if paper_id:
+                _assessed_paper_ids.add(paper_id)
+    _included_studies_without_rob_mapping = max(0, len(included_paper_ids - _assessed_paper_ids))
     _grade_summary = _build_grade_summary(grade_assessments or [])
     _low_certainty_present = bool(re.search(r"\b(low|very low)\b", _grade_summary.lower()))
 
@@ -1038,6 +1042,7 @@ def build_writing_grounding(
         poolable_outcomes=poolable_outcomes,
         search_limitation=search_limitation,
         heuristic_assessment_count=heuristic_assessment_count,
+        included_studies_without_rob_mapping=_included_studies_without_rob_mapping,
         heterogeneity_warning=heterogeneity_warning,
         screening_method_description=_build_screening_method_description(
             screening_decisions,
@@ -1070,6 +1075,7 @@ def build_writing_grounding(
         batch_screen_validation_min_n=batch_screen_validation_min_n,
         author_name=_author_name or "Corresponding Author",
         rob_summary=_rob_summary,
+        risk_tool_counts=_risk_tool_counts,
         grade_summary=_grade_summary,
         figure_map=figure_map or {},
         conclusion_hedging_required=bool(_hedge_reasons),
@@ -1588,6 +1594,12 @@ def format_grounding_block(data: WritingGroundingData) -> str:
             "timed out. Include this caveat in the Methods section: "
             f"'{data.heuristic_assessment_count} risk-of-bias assessment(s) used a "
             "conservative heuristic fallback due to LLM timeout and should be reviewed manually.'"
+        )
+    if data.included_studies_without_rob_mapping > 0:
+        lines.append(
+            f"Risk-of-bias coverage gap: {data.included_studies_without_rob_mapping} of "
+            f"{data.total_included} included studies have no mapped RoB assessment row. "
+            "Methods and Limitations must state this explicitly and interpret these studies conservatively."
         )
 
     if data.rob_summary:

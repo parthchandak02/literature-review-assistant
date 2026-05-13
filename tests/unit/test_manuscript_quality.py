@@ -569,6 +569,24 @@ def test_ensure_structured_abstract_adds_missing_fields() -> None:
     out = _ensure_structured_abstract(abstract, "RQ")
     for field in ["Background", "Objectives", "Methods", "Results", "Conclusions", "Keywords"]:
         assert f"**{field}:**" in out
+    assert "Key findings are reported in the manuscript body and synthesis sections." not in out
+
+
+def test_ensure_structured_abstract_rewrites_redirect_placeholder_results() -> None:
+    from src.writing.orchestration import _ensure_structured_abstract
+
+    abstract = (
+        "**Background:** Context.\n"
+        "**Objectives:** Objective.\n"
+        "**Methods:** Methods.\n"
+        "**Results:** Key findings are reported in the manuscript body and synthesis sections.\n"
+        "**Conclusions:** See the results section.\n"
+        "**Keywords:** one, two."
+    )
+    out = _ensure_structured_abstract(abstract, "RQ")
+    assert "Key findings are reported in the manuscript body and synthesis sections." not in out
+    assert "**Results:** Across the included studies" in out
+    assert "**Conclusions:** Available evidence indicates potential benefits" in out
 
 
 def test_replace_template_tokens_uses_review_pico_values() -> None:

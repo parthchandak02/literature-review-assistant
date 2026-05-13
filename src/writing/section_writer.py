@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import logging
-import re
 import time
 from dataclasses import dataclass
 
@@ -207,11 +206,11 @@ class SectionWriter:
             if not stripped:
                 _flush_paragraph()
                 continue
-            m = re.match(r"^(#{3,4})\s+(.+)$", stripped)
-            if m:
+            if stripped.startswith("### ") or stripped.startswith("#### "):
                 _flush_paragraph()
-                level = 3 if len(m.group(1)) == 3 else 4
-                blocks.append(SectionBlock(block_type="subheading", text=m.group(2).strip(), level=level))
+                level = 4 if stripped.startswith("#### ") else 3
+                heading_text = stripped[5:].strip() if level == 4 else stripped[4:].strip()
+                blocks.append(SectionBlock(block_type="subheading", text=heading_text, level=level))
                 continue
             paragraph_acc.append(stripped)
         _flush_paragraph()
@@ -256,15 +255,10 @@ class SectionWriter:
                     section,
                     retries,
                 )
-        except Exception:
-            # Last-resort fallback if validation retries are exhausted.
-            content, tokens_in, tokens_out, cache_write, cache_read = await client.complete_with_usage(
-                prompt,
-                model=full_model,
-                temperature=agent_cfg.temperature,
-                json_schema=self._structured_schema(),
-            )
-            structured = self._fallback_structured_from_text(section, content)
+        except Exception as exc:
+            raise RuntimeError(
+                f"Section '{section}' failed structured output validation after bounded retries."
+            ) from exc
 
         elapsed_ms = int((time.perf_counter() - start) * 1000)
         cost_usd = LLMProvider.estimate_cost_usd(full_model, tokens_in, tokens_out, cache_write, cache_read)

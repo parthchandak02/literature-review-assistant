@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import json
 import logging
-import re
 import time
 import uuid
 from dataclasses import dataclass
@@ -178,24 +177,46 @@ def _profile_catalog_text() -> str:
 
 
 def _markdown_sections(manuscript_text: str) -> list[tuple[str, str]]:
-    heading_pattern = re.compile(r"(?m)^##\s+(.+?)\s*$")
-    matches = list(heading_pattern.finditer(manuscript_text))
-    if not matches:
+    lines = manuscript_text.splitlines()
+    heading_rows: list[tuple[int, str]] = []
+    for idx, line in enumerate(lines):
+        stripped = line.strip()
+        if not stripped.startswith("## "):
+            continue
+        heading = stripped[3:].strip()
+        if heading:
+            heading_rows.append((idx, heading))
+    if not heading_rows:
         return [("full_manuscript", manuscript_text)]
     sections: list[tuple[str, str]] = []
-    if matches[0].start() > 0:
-        front_matter = manuscript_text[: matches[0].start()].strip()
+    if heading_rows[0][0] > 0:
+        front_matter = "\n".join(lines[: heading_rows[0][0]]).strip()
         if front_matter:
             sections.append(("front_matter", front_matter))
-    for idx, match in enumerate(matches):
-        start = match.start()
-        end = matches[idx + 1].start() if idx + 1 < len(matches) else len(manuscript_text)
-        sections.append((match.group(1).strip(), manuscript_text[start:end].strip()))
+    for idx, (start_row, heading) in enumerate(heading_rows):
+        end_row = heading_rows[idx + 1][0] if idx + 1 < len(heading_rows) else len(lines)
+        body = "\n".join(lines[start_row:end_row]).strip()
+        sections.append((heading, body))
     return sections
 
 
+def _collapse_non_alnum(value: str, *, separator: str) -> str:
+    out_chars: list[str] = []
+    prev_sep = False
+    for ch in value.lower():
+        is_alnum = ("a" <= ch <= "z") or ("0" <= ch <= "9")
+        if is_alnum:
+            out_chars.append(ch)
+            prev_sep = False
+            continue
+        if not prev_sep:
+            out_chars.append(separator)
+            prev_sep = True
+    return "".join(out_chars).strip(separator)
+
+
 def _heading_key(heading: str) -> str:
-    return re.sub(r"[^a-z0-9]+", " ", str(heading or "").lower()).strip()
+    return _collapse_non_alnum(str(heading or ""), separator=" ")
 
 
 def _build_manuscript_excerpt(manuscript_text: str, *, char_budget: int = 32000) -> str:
@@ -308,7 +329,7 @@ def _build_audit_pass_plan(manuscript_text: str, *, char_budget: int = 32000) ->
 
 
 def _finding_scope_token(scope: str) -> str:
-    return re.sub(r"[^a-z0-9]+", "_", scope.lower()).strip("_") or "scope"
+    return _collapse_non_alnum(scope, separator="_") or "scope"
 
 
 def _dedupe_findings(findings: list[ManuscriptAuditFinding]) -> list[ManuscriptAuditFinding]:
