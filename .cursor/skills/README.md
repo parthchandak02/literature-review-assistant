@@ -3,36 +3,28 @@
 This file maps existing skills to lifecycle stages without changing runtime behavior.
 Canonical lifecycle and contract docs are under `.cursor/docs/`.
 
-## Think
+## Default Skills (Use First)
 
-- `research`
-- `protocol-generator`
+- `build-phase` - phase router and implementation contract
+- `general-rules` - cross-cutting engineering and safety defaults
+- `research` - MCP-backed research workflow (Ref/Exa/Perplexity)
+- `run-database-audit` - evidence-first runtime DB verification
 
-## Plan
-
-- `build-phase`
-- `search-connector`
-- `prototype`
-
-## Build
+## Domain Skills (Open On Demand)
 
 - `dual-reviewer`
 - `quality-assessment`
 - `meta-analysis`
-- `citation-ledger`
 - `section-writer`
 - `prisma-diagram`
 - `ieee-export`
 
-## Review and Test
+## Specialist / Optional Skills
 
-- `run-database-audit`
-- `general-rules`
-
-## Ship
-
-- `ieee-export`
-- `.cursor/commands/3-pre-commit-workflow.md`
+- `protocol-generator`
+- `search-connector`
+- `prototype`
+- `citation-ledger` (lineage reference; primary writing flow lives in `section-writer`)
 
 ## Skill Authoring Contract
 
@@ -46,9 +38,8 @@ When editing a skill, include:
 
 ## Imported Pattern Notes
 
-- `general-rules` now includes adapted engineering patterns: diagnose loop, TDD vertical slices, and zoom-out mapping.
-- `prototype` is intentionally constrained for throwaway validation only; promote winners into tested production slices.
-- Use `.cursor/commands/plan-to-slices.md` when converting approved plans into execution-ready slice lists.
+- `general-rules` includes adapted diagnose/TDD/zoom-out patterns.
+- `prototype` is constrained for throwaway validation; promote winners into tested slices.
 
 ## Build-Phase Skill Contract (Key Guidance)
 
@@ -57,4 +48,5 @@ Use `.cursor/skills/build-phase/SKILL.md` when implementing or validating build 
 - Always distinguish build phase labels (1-8) from backend runtime checkpoint keys.
 - For build-phase and orchestration edits, always read `.cursor/docs/PIPELINE.md`, `.cursor/docs/ARCHITECTURE.md`, and `.cursor/docs/IMPLEMENTATION_STATUS.md` before coding.
 - Always verify `src/orchestration/resume.py` checkpoint order and frontend `RESUME_PHASE_ORDER` alignment when phase behavior changes.
+- `frontend/src/lib/constants.ts` `PHASE_ORDER` may include extra UI/sub-flow phases; `RESUME_PHASE_ORDER` is the backend parity anchor.
 - If endpoint or persistence parity appears to drift, stop build work and resolve contract parity first.

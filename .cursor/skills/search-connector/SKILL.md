@@ -5,36 +5,26 @@ description: Implements database connectors conforming to SearchConnector protoc
 
 # Search Connector Implementation
 
-Guide for implementing database connectors that conform to the SearchConnector protocol.
+Lean reference for implementing or modifying search connectors.
 
-## Instructions
+## Connector Contract (Required)
 
-Every connector must:
-1. Implement the connector interface from `src/search/base.py`
-2. Return results containing `List[CandidatePaper]` (or equivalent paper model)
-3. Set `source_category` (DATABASE or OTHER_SOURCE) for PRISMA diagram
-4. Respect config-driven per-database limits from search settings, while enforcing connector/API-specific constraints internally when needed
-5. Use async HTTP (aiohttp), never synchronous requests
-6. Log search query, date, database name, and result count for PRISMA-S appendix
-
-## Protocol Interface
-```python
-class SearchConnector(Protocol):
-    name: str
-    source_category: SourceCategory
-    async def search(self, query: str, max_results: int = 100,
-                     date_start: int = None, date_end: int = None) -> SearchResult:
-        ...
-```
+1. Implement `SearchConnector` from `src/search/base.py`.
+2. Return typed paper/search models used by orchestration.
+3. Set correct `source_category` for PRISMA counting.
+4. Respect per-database limits from config plus connector/API constraints.
+5. Use async I/O only.
+6. Persist query/date/database/count metadata for appendices and audits.
 
 ## Reference Implementations
-- Core databases: `src/search/openalex.py`, `pubmed.py`, `arxiv.py`, `ieee_xplore.py`, `scopus.py`, `web_of_science.py`, `embase.py`
+- Core databases: `src/search/openalex.py`, `src/search/pubmed.py`, `src/search/arxiv.py`, `src/search/ieee_xplore.py`, `src/search/scopus.py`, `src/search/web_of_science.py`, `src/search/embase.py`
 - Shared connector helpers: `src/search/common.py` (`HttpSearchConnectorBase`, `ElsevierConnectorMixin`)
-- Auxiliary / other-source discovery: `src/search/semantic_scholar.py`, `crossref.py`, `perplexity_search.py`, `clinicaltrials.py`
-- Import and expansion helpers: `src/search/csv_import.py`, `citation_chasing.py`
+- Auxiliary / other-source discovery: `src/search/semantic_scholar.py`, `src/search/crossref.py`, `src/search/perplexity_search.py`, `src/search/clinicaltrials.py`
+- Import and expansion helpers: `src/search/csv_import.py`, `src/search/citation_chasing.py`
 - Workflow wiring: `src/orchestration/workflow.py`
 
 ## Testing
-- Mock API responses for unit tests
-- Verify CandidatePaper field mapping
-- Test rate limiter behavior
+
+- Mock API responses.
+- Verify field mapping to candidate/search models.
+- Verify retry/rate-limit behavior and failure surfaces.

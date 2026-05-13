@@ -54,7 +54,7 @@ For each claim in generated text:
 2. `CitationLedger.link_evidence(EvidenceLinkRecord(...))`
 3. Register citations with `CitationLedger.register_citation(CitationEntryRecord(...))`
 4. After section complete: `CitationLedger.validate_section()` -- zero unresolved claims
-4. Export blocks if any claim lacks evidence chain
+5. Export blocks if any claim lacks evidence chain
 
 ## Humanization and Guardrails
 - `src/writing/humanizer_guardrails.py` performs deterministic cleanup before/after humanization
