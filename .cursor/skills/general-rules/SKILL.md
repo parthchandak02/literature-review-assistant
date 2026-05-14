@@ -37,6 +37,12 @@ Use this sequence for commit/push work:
 7. Remind user before commit/push and get explicit confirmation.
 8. Push only when explicitly requested.
 
+Atomic commit rule:
+
+- Group files into the smallest coherent change units where each commit can be understood and reverted independently.
+- Do not mix docs/rules churn with behavioral code changes in the same commit.
+- If a file contains changes from multiple concerns, split by concern before staging.
+
 Hard exclusions from staging/commit unless user explicitly requests otherwise:
 
 - `.env` / secrets
