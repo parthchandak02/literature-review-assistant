@@ -298,6 +298,19 @@ class DiagramGenerationRound(BaseModel):
     critique: DiagramCritiqueResult | None = None
 
 
+class DiagramPlacementDecision(BaseModel):
+    """Agent-selected inline placement decision for one diagram."""
+
+    diagram_id: str = Field(..., min_length=3)
+    target_section: Literal["introduction", "methods", "results", "discussion", "conclusion"]
+    anchor_text: str = Field(..., min_length=8)
+    fallback_policy: Literal["append_to_figures_section", "append_to_end_of_target_section"] = (
+        "append_to_figures_section"
+    )
+    confidence: float = Field(default=0.0, ge=0.0, le=1.0)
+    rationale: str = Field(default="", min_length=0)
+
+
 class DiagramGenerationResult(BaseModel):
     """Final structured output record for one custom diagram."""
 
@@ -307,10 +320,20 @@ class DiagramGenerationResult(BaseModel):
     chosen_round: int = Field(..., ge=1, le=12)
     rounds: list[DiagramGenerationRound] = Field(default_factory=list)
     evidence_paper_ids: list[str] = Field(default_factory=list)
+    placement: DiagramPlacementDecision | None = None
     required_labels_passed: bool = False
     grayscale_check_passed: bool = False
     legibility_check_passed: bool = False
     warnings: list[str] = Field(default_factory=list)
+
+
+class DiagramPlacementPlan(BaseModel):
+    """Workflow-level placement plan produced by the placement agent."""
+
+    workflow_id: str = Field(..., min_length=3)
+    decisions: list[DiagramPlacementDecision] = Field(default_factory=list)
+    warnings: list[str] = Field(default_factory=list)
+    created_at_utc: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 
 class DiagramGenerationReport(BaseModel):
