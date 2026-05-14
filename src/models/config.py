@@ -1104,6 +1104,41 @@ class WebConfig(BaseModel):
     )
 
 
+class DiagramGenerationConfig(BaseModel):
+    enabled: bool = Field(
+        default=True,
+        description="Enable custom research diagram generation pipeline.",
+    )
+    pilot_workflow_ids: list[str] = Field(
+        default_factory=lambda: ["wf-0083"],
+        description="Workflow IDs allowed to run the pilot diagram pipeline.",
+    )
+    max_rounds: int = Field(
+        default=3,
+        ge=1,
+        le=6,
+        description="Maximum draw->critic refinement rounds per custom diagram.",
+    )
+    image_size: Literal["512", "1K", "2K", "4K"] = Field(
+        default="2K",
+        description="Requested Gemini image output size.",
+    )
+    aspect_ratio: Literal["1:1", "3:2", "2:3", "3:4", "4:3", "4:5", "5:4", "9:16", "16:9", "21:9"] = Field(
+        default="16:9",
+        description="Requested Gemini image aspect ratio.",
+    )
+    max_papers_for_brief: int = Field(
+        default=24,
+        ge=6,
+        le=80,
+        description="Maximum included-paper summaries sent to the diagram preparer agent.",
+    )
+    include_reference_style_images: bool = Field(
+        default=True,
+        description="Whether to include style reference images when rendering custom diagrams.",
+    )
+
+
 class SettingsConfig(BaseModel):
     agents: dict[str, AgentConfig]
     screening: ScreeningConfig = Field(default_factory=ScreeningConfig)
@@ -1120,4 +1155,5 @@ class SettingsConfig(BaseModel):
     extraction: ExtractionConfig = Field(default_factory=ExtractionConfig)
     llm: LLMRateLimitConfig = Field(default_factory=LLMRateLimitConfig)
     human_in_the_loop: HumanInTheLoopConfig = Field(default_factory=HumanInTheLoopConfig)
+    diagram_generation: DiagramGenerationConfig = Field(default_factory=DiagramGenerationConfig)
     web: WebConfig = Field(default_factory=WebConfig)

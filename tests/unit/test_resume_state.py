@@ -72,6 +72,9 @@ async def test_load_resume_state_phase3(tmp_path) -> None:
     assert len(state.deduped_papers) >= 1
     assert len(state.included_papers) == 1
     assert state.included_papers[0].paper_id == "p1"
+    assert "custom_diagram_01" in state.artifacts
+    assert "custom_diagram_02" in state.artifacts
+    assert "diagram_brief_pack" in state.artifacts
 
 
 @pytest.mark.asyncio
@@ -196,6 +199,8 @@ async def test_load_resume_state_from_writing_clears_outline_subphase_checkpoint
         await repo.save_checkpoint("wf-outline-resume", "phase_6a_hyde", papers_processed=6)
         await repo.save_checkpoint("wf-outline-resume", "phase_6a2_outline", papers_processed=6)
         await repo.save_checkpoint("wf-outline-resume", "phase_6b_phase_a", papers_processed=4)
+        await repo.save_checkpoint("wf-outline-resume", "phase_6e_concepts", papers_processed=6)
+        await repo.save_checkpoint("wf-outline-resume", "phase_6f_custom_diagrams", papers_processed=2)
 
     _, next_phase = await load_resume_state(
         db_path=str(db_path),
@@ -214,6 +219,8 @@ async def test_load_resume_state_from_writing_clears_outline_subphase_checkpoint
     assert "phase_6a_hyde" not in checkpoints
     assert "phase_6a2_outline" not in checkpoints
     assert "phase_6b_phase_a" not in checkpoints
+    assert "phase_6e_concepts" not in checkpoints
+    assert "phase_6f_custom_diagrams" not in checkpoints
 
 
 @pytest.mark.asyncio

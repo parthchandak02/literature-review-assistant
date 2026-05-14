@@ -67,12 +67,31 @@ agents:
   concept_diagrams:
     model: "google-gla:gemini-2.5-flash-lite"
     temperature: 0.3
+  research_diagram_preparer:
+    model: "google-gla:gemini-2.5-flash-lite"
+    temperature: 0.2
+  research_diagram_drawing:
+    model: "google-gla:gemini-3.1-flash-image-preview"
+    temperature: 0.2
+  research_diagram_critic:
+    model: "google-gla:gemini-2.5-flash"
+    temperature: 0.1
   narrative:
     model: "google-gla:gemini-2.5-flash-lite"
     temperature: 0.2
   citation_matching:
     model: "google-gla:gemini-2.5-flash-lite"
     temperature: 0.0
+
+diagram_generation:
+  enabled: true
+  pilot_workflow_ids:
+    - "wf-0083"
+  max_rounds: 3
+  image_size: "2K"
+  aspect_ratio: "16:9"
+  max_papers_for_brief: 24
+  include_reference_style_images: true
 
 screening:
   stage1_include_threshold: 0.85

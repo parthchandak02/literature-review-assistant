@@ -1706,6 +1706,9 @@ def format_grounding_block(data: WritingGroundingData) -> str:
             "conceptual_framework": "Conceptual framework",
             "methodology_flow": "Methodology flow diagram",
             "evidence_network": "Evidence network",
+            "custom_diagram_01": "Custom architecture diagram",
+            "custom_diagram_02": "Custom methodological flow diagram",
+            "custom_diagram_03": "Custom evidence relationship diagram",
         }
         for artifact_key, fig_num in sorted(data.figure_map.items(), key=lambda x: x[1]):
             fallback = artifact_key.replace("fig_", "", 1).replace("_", " ").strip().title()
