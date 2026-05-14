@@ -1,44 +1,38 @@
 # Maintain Cursor Surface
 
-Run a single maintenance pass for `.cursor` assets and docs parity against the current codebase.
+Use this command as a thin launcher for `.cursor` maintenance and drift cleanup.
 
-## Steps
+## Canonical sources
 
-1. **Inventory the control surface**
-   - Read `.cursor/docs/INDEX.md` first.
-   - List and skim: `.cursor/docs/*`, `.cursor/rules/**`, `.cursor/commands/*`, `.cursor/skills/**/SKILL.md`, `.cursor/agents/*`, plus root `README.md` and `AGENTS.md`.
+- Workflow owner: `.cursor/skills/general-rules/SKILL.md`
+- Skill authoring/refactor owner: `.cursor/skills/write-a-skill/SKILL.md`
+- Lifecycle router: `.cursor/docs/INDEX.md`
 
-2. **Survey real implementation**
-   - Check `src/`, `frontend/`, `config/`, `tests/`.
-   - Verify `pyproject.toml`, `frontend/package.json`, and `ecosystem.config.js`.
-   - Run recent history checks (`git log`, `git status`) before changing docs/rules.
+## Quick maintenance sequence
 
-3. **Find drift**
-   - Broken paths or renamed modules.
-   - Rules/skills/commands contradicting code behavior.
-   - Docs missing implemented behavior that is now required for safe operation.
+1. Route scope via `.cursor/docs/INDEX.md`.
+2. Run `general-rules` bootstrap workflow before edits.
+3. Identify drift across docs/rules/commands/skills and implementation.
+4. Consolidate duplicated process guidance into canonical skills.
+5. Keep commands lean and pointer-based.
 
-4. **Update minimally**
-   - Edit only stale content.
-   - Keep one canonical location per concept where possible.
-   - Do not add new rule files unless recurring behavior lacks coverage.
+## Parity checks (when touched scope requires)
 
-5. **Run required parity checks**
-   - `uv run python scripts/check_spec_endpoint_parity.py`
-   - `uv run pytest tests/unit/test_spec_endpoint_parity.py -q`
-   - If pipeline behavior changed, run replay validation from `.cursor/commands/0-session-bootstrap.md`.
+- `uv run python scripts/check_spec_endpoint_parity.py`
+- `uv run pytest tests/unit/test_spec_endpoint_parity.py -q`
+- If pipeline behavior changed, run replay validation via `general-rules` guidance.
 
-6. **Re-verify and report**
-   - Re-read changed files for consistency.
-   - Report touched assets in a concise table:
+## Output requirement
 
-   | Asset File | Category | Action | What Changed |
-   |------------|----------|--------|--------------|
-   | (path relative to `.cursor/`) | Rule / Command / Skill / Agent / Doc | Updated / Created / Removed | Brief description |
+Report touched `.cursor` assets in a concise table:
 
-## Rules for This Command
+| Asset File | Category | Action | What Changed |
+|------------|----------|--------|--------------|
+| (path relative to `.cursor/`) | Rule / Command / Skill / Agent / Doc | Updated / Created / Removed | Brief description |
+
+## Rules for this command
 
 - Keep `.cursor/docs/*` as canonical contract docs.
 - Keep `.cursor/docs/API_ENDPOINTS.md` as the endpoint parity anchor.
-- Keep changes lean: prefer merges and pointer updates over adding new markdown.
+- Keep changes lean: prefer merges and pointer updates over new markdown.
 - Never patch `runs/` artifacts to solve process or docs drift.

@@ -23,7 +23,8 @@ alwaysApply: true
 
 Use `.cursor/docs/INDEX.md` as the single lifecycle routing narrative.
 Open other docs and skills only when routed by that index.
-Ship stage must follow `.cursor/commands/3-pre-commit-workflow.md`.
+Ship stage should use `.cursor/skills/general-rules/SKILL.md` as canonical commit/push workflow.
+Treat `.cursor/commands/3-pre-commit-workflow.md` as a thin entrypoint and safety reminder only.
 
 ## Routing Rules
 

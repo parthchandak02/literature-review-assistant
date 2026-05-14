@@ -26,7 +26,7 @@ If any statement here conflicts with `.cursor/rules/core/`, trust the rule and t
 - Build: read domain skill in `.cursor/skills/**/SKILL.md` plus relevant contract doc
 - Review: read `API_CONTRACT.md`, `PERSISTENCE.md`, `UI_ARCHITECTURE.md`
 - Test: run parity and replay checks documented in `IMPLEMENTATION_STATUS.md`
-- Ship: follow `.cursor/commands/3-pre-commit-workflow.md`
+- Ship: follow `.cursor/skills/general-rules/SKILL.md` for canonical commit/push workflow; use `.cursor/commands/3-pre-commit-workflow.md` as a thin launcher.
 
 ## Compatibility Notes
 

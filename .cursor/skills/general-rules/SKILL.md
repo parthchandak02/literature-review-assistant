@@ -1,22 +1,48 @@
 ---
 name: general-rules
-description: General project rules and conventions for git operations, documentation, scripting, and Python environment management. Apply when working on git commits, documentation, scripts, or Python dependencies.
+description: Canonical cross-cutting workflow for session bootstrap, commit/push safety, documentation discipline, scripting, and Python environment standards. Use for most implementation tasks unless a domain-specific skill owns the workflow.
 ---
 
 # General Project Rules
 
-This skill consolidates essential project conventions and best practices. Apply these rules consistently across all development tasks.
+This is the canonical process skill for general execution in this repository.
+
+## Workflow ownership
+
+- Owns: session orientation, commit/push hygiene, broad engineering defaults.
+- Does not own: hook installation (`setup-pre-commit`), skill-authoring internals (`write-a-skill`), source-backed external research (`research`).
+
+## Session bootstrap workflow (canonical)
+
+At the start of planning/editing work:
+
+1. Read `AGENTS.md` and `.cursor/docs/INDEX.md`.
+2. Read task-routed docs from `.cursor/docs/INDEX.md` only.
+3. Review recent git context (`git log`, `git status`) before edits.
+4. Build a quick zoom-out map: lifecycle stage, entrypoints, typed boundaries, blast radius.
+5. For code-changing sessions, run task-appropriate checks before claiming completion.
+
+When docs conflict with code, trust code and active rules, then note drift for follow-up.
 
 ## Git Security and Commit Practices
 
-Before any git push or commit, check that no secrets, API keys, or env vars are exposed in staged files.
+Use this sequence for commit/push work:
 
-- Use tools like `git diff --staged` to review changes
-- Scan for patterns like `API_KEY=`, `SECRET=`, `PASSWORD=`
-- Generate conventional commit messages based on all file changes (e.g., `feat:`, `fix:`, `refactor:`). Prefer `feat:` for new features, `fix:` for bug fixes.
-- If major deletions or risky changes detected, pause and confirm with user before committing
-- If everything looks safe (no secrets, no major deletions), proceed with commit; push only when the user explicitly asks
-- Always use `.gitignore` to exclude `.env`, `runs/**`, `*.db` (runtime and registry dbs), and sensitive config files
+1. Audit working tree and summarize change areas.
+2. Security-scan staged/unstaged content for secrets and forbidden artifacts.
+3. Verify project invariants/rules still hold for touched areas.
+4. Stage only safe files; explicitly list exclusions.
+5. Plan commit boundaries by intent (split unrelated concerns).
+6. Write strong conventional commit messages with clear "why".
+7. Remind user before commit/push and get explicit confirmation.
+8. Push only when explicitly requested.
+
+Hard exclusions from staging/commit unless user explicitly requests otherwise:
+
+- `.env` / secrets
+- `runs/**` or generated runtime artifacts
+- runtime DB files (`*.db`, `*.sqlite`)
+- ignored files that slipped into staging
 
 ## Documentation Standards
 
@@ -85,6 +111,12 @@ Use `uv` for dependency management and execution.
 - Always use `uv` for package installation instead of pip (unless specified otherwise)
 - Prefer `uv run ...` to execute Python commands
 - Activate `.venv` only when direct interpreter workflows are explicitly needed
+
+## Related skills
+
+- `setup-pre-commit`: use only for hook installation/repair.
+- `write-a-skill`: use only for creating or refactoring skills.
+- `research`: use when external source-backed guidance is required.
 
 ## Code Quality and Linting
 

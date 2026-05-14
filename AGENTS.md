@@ -9,9 +9,9 @@ If you read only one file, read this one first.
 1. Read `.cursor/docs/INDEX.md`
 2. Read one task-specific contract doc from `.cursor/docs/`
 3. Read one relevant skill in `.cursor/skills/**/SKILL.md`
+4. For broad execution defaults, load `.cursor/skills/general-rules/SKILL.md`
 
-Required for planning/editing sessions: `.cursor/commands/0-session-bootstrap.md`
-Optional for quick read-only questions.
+Use `.cursor/commands/0-session-bootstrap.md` only as a quick launcher/pointer.
 
 ## Non-Cursor Tools
 
@@ -50,7 +50,8 @@ If sources conflict, follow this order and verify in code.
 
 ## Commit and Push
 
-Before `git commit` or `git push`, follow `.cursor/commands/3-pre-commit-workflow.md` (mandatory docs audit agent and user reminder before commit).
+Before `git commit` or `git push`, follow `.cursor/skills/general-rules/SKILL.md` (canonical).
+Use `.cursor/commands/3-pre-commit-workflow.md` as a compact entrypoint/safety checklist.
 
 ## Compatibility Notes
 
