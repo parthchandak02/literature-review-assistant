@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import hashlib
 import re
+from datetime import datetime, timezone
 from typing import Literal
 
 from pydantic import BaseModel, Field
@@ -216,3 +217,107 @@ class FlowchartDiagramInput(BaseModel):
 
 
 ConceptDiagramInput = TaxonomyDiagramInput | FrameworkDiagramInput | FlowchartDiagramInput
+
+
+class DiagramEvidenceClaim(BaseModel):
+    """A grounded claim extracted from included studies for one diagram."""
+
+    claim: str = Field(..., min_length=8)
+    supporting_paper_ids: list[str] = Field(default_factory=list)
+
+
+class ResearchDiagramBrief(BaseModel):
+    """Structured specification for one custom research diagram."""
+
+    diagram_id: str = Field(..., min_length=3)
+    diagram_type: Literal["layered_architecture", "method_flow", "evidence_map", "theme_relationship"]
+    title: str = Field(..., min_length=3)
+    objective: str = Field(..., min_length=12)
+    required_labels: list[str] = Field(default_factory=list)
+    key_entities: list[str] = Field(default_factory=list)
+    relationships: list[str] = Field(default_factory=list)
+    evidence_claims: list[DiagramEvidenceClaim] = Field(default_factory=list)
+    target_paper_ids: list[str] = Field(default_factory=list)
+    composition_notes: str | None = None
+
+
+class DiagramBriefPack(BaseModel):
+    """Batch of 2-3 grounded briefs used by the drawing pipeline."""
+
+    workflow_id: str = Field(..., min_length=3)
+    source_included_count: int = Field(..., ge=1)
+    source_file_count: int = Field(default=0, ge=0)
+    diagrams: list[ResearchDiagramBrief] = Field(..., min_length=2, max_length=3)
+    created_at_utc: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+
+class DiagramStyleGuide(BaseModel):
+    """Visual style guardrails to keep generated figures consistent."""
+
+    profile_name: str = Field(default="academic_bw_v1", min_length=3)
+    black_hex: str = Field(default="#111111")
+    white_hex: str = Field(default="#FFFFFF")
+    accent_hex: str = Field(default="#2F6F73")
+    allow_accent: bool = True
+    layered_framing: bool = True
+    sparse_iconography: bool = True
+    max_icons_per_diagram: int = Field(default=6, ge=0, le=20)
+    max_words_per_label: int = Field(default=5, ge=1, le=12)
+    min_whitespace_ratio: float = Field(default=0.22, ge=0.05, le=0.6)
+    line_weight_px: float = Field(default=2.0, ge=0.5, le=6.0)
+    arrow_weight_px: float = Field(default=2.2, ge=0.5, le=8.0)
+    style_reference_paths: list[str] = Field(default_factory=list)
+
+    def model_post_init(self, __context: object) -> None:
+        for name, val in (
+            ("black_hex", self.black_hex),
+            ("white_hex", self.white_hex),
+            ("accent_hex", self.accent_hex),
+        ):
+            if not _HEX6.match(val):
+                raise ValueError(f"{name} must be a #RRGGBB hex color, got {val!r}")
+
+
+class DiagramCritiqueResult(BaseModel):
+    """Critic evaluation for one generated round."""
+
+    style_score: float = Field(..., ge=0.0, le=1.0)
+    legibility_score: float = Field(..., ge=0.0, le=1.0)
+    faithfulness_score: float = Field(..., ge=0.0, le=1.0)
+    issues: list[str] = Field(default_factory=list)
+    revision_prompt: str | None = None
+    approve: bool = False
+
+
+class DiagramGenerationRound(BaseModel):
+    """One draw->critic iteration."""
+
+    round_index: int = Field(..., ge=1, le=12)
+    generation_prompt: str = Field(..., min_length=16)
+    output_path: str | None = None
+    critique: DiagramCritiqueResult | None = None
+
+
+class DiagramGenerationResult(BaseModel):
+    """Final structured output record for one custom diagram."""
+
+    diagram_id: str = Field(..., min_length=3)
+    artifact_key: str = Field(..., min_length=3)
+    output_path: str = Field(..., min_length=3)
+    chosen_round: int = Field(..., ge=1, le=12)
+    rounds: list[DiagramGenerationRound] = Field(default_factory=list)
+    evidence_paper_ids: list[str] = Field(default_factory=list)
+    required_labels_passed: bool = False
+    grayscale_check_passed: bool = False
+    legibility_check_passed: bool = False
+    warnings: list[str] = Field(default_factory=list)
+
+
+class DiagramGenerationReport(BaseModel):
+    """Run-level report for all custom diagrams in a workflow."""
+
+    workflow_id: str = Field(..., min_length=3)
+    style_profile: str = Field(default="academic_bw_v1", min_length=3)
+    results: list[DiagramGenerationResult] = Field(default_factory=list)
+    warnings: list[str] = Field(default_factory=list)
+    created_at_utc: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))

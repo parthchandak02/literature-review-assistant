@@ -183,6 +183,7 @@ async def load_resume_state(
                 "phase_6c_phase_b",
                 "phase_6d_assembly",
                 "phase_6e_concepts",
+                "phase_6f_custom_diagrams",
             ],
         }
 
@@ -290,6 +291,11 @@ async def load_resume_state(
         "concept_taxonomy": str(run_dir / "fig_concept_taxonomy.svg"),
         "conceptual_framework": str(run_dir / "fig_conceptual_framework.svg"),
         "methodology_flow": str(run_dir / "fig_methodology_flow.svg"),
+        "custom_diagram_01": str(run_dir / "fig_custom_01.png"),
+        "custom_diagram_02": str(run_dir / "fig_custom_02.png"),
+        "custom_diagram_03": str(run_dir / "fig_custom_03.png"),
+        "diagram_brief_pack": str(run_dir / "data_diagram_brief_pack.json"),
+        "diagram_generation_report": str(run_dir / "data_diagram_generation_report.json"),
         "prospero_form_md": str(run_dir / "doc_prospero_registration.md"),
         "prospero_form": str(run_dir / "doc_prospero_registration.docx"),
     }

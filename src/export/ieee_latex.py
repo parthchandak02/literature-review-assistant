@@ -785,6 +785,9 @@ def markdown_to_latex(
         "fig_concept_taxonomy": "concept_taxonomy",
         "fig_conceptual_framework": "conceptual_framework",
         "fig_methodology_flow": "methodology_flow",
+        "fig_custom_01": "custom_diagram_01",
+        "fig_custom_02": "custom_diagram_02",
+        "fig_custom_03": "custom_diagram_03",
     }
 
     def _resolve_figure_caption(artifact_key: str, default_caption: str) -> str:

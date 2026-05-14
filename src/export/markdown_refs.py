@@ -526,6 +526,18 @@ FIGURE_DEFS: list[tuple[str, str]] = [
         "evidence_network",
         "Evidence network of co-citation relationships among included studies.",
     ),
+    (
+        "custom_diagram_01",
+        "Custom research architecture diagram synthesized from included full-text studies.",
+    ),
+    (
+        "custom_diagram_02",
+        "Custom methodological flow diagram grounded in the final included-study set.",
+    ),
+    (
+        "custom_diagram_03",
+        "Custom evidence relationship map derived from themes across included studies.",
+    ),
 ]
 
 
