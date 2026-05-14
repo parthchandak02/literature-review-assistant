@@ -1110,7 +1110,13 @@ async def run_manuscript_contracts(
 
     if review_config is not None:
         present_terms, missing_terms = _domain_term_coverage(review_config, md_text)
-        expected_term_floor = min(3, len(review_config.preferred_terminology(limit=8) or review_config.domain_signal_terms(limit=8)))
+        required_terms = review_config.preferred_terminology(limit=8) or review_config.domain_signal_terms(limit=8)
+        expected_term_floor = min(3, len(required_terms))
+        # Small included cohorts tend to have shorter Results/Discussion narratives.
+        # Requiring 3+ preferred terms in those cases over-penalizes otherwise grounded
+        # manuscripts and can fail finalize on advisory terminology drift alone.
+        if len(synthesis_ids) < 20:
+            expected_term_floor = min(expected_term_floor, 2)
         if expected_term_floor > 0 and len(present_terms) < expected_term_floor:
             violations.append(
                 ContractViolation(

@@ -37,6 +37,7 @@ from src.manuscript.contracts import (
     _hard_failure,
     run_manuscript_contracts,
 )
+from src.models import DomainExpertConfig, ReviewConfig, ReviewType
 
 
 def test_build_bibtex_empty():
@@ -2881,3 +2882,82 @@ async def test_manuscript_contract_detects_latex_markdown_figure_mismatch(tmp_pa
             mode="soft",
         )
     assert any(v.code == "FIGURE_LATEX_MISMATCH" for v in result.violations)
+
+
+@pytest.mark.asyncio
+async def test_domain_term_floor_relaxes_for_small_included_cohort(tmp_path: Path) -> None:
+    db_path = tmp_path / "runtime_contract_domain_floor.db"
+    manuscript_md = tmp_path / "doc_manuscript.md"
+    manuscript_tex = tmp_path / "doc_manuscript.tex"
+    manuscript_md.write_text(
+        "\n".join(
+            [
+                "## Abstract",
+                "**Background:** text",
+                "**Objectives:** obj",
+                "**Methods:** meth",
+                "**Results:** results mention digital vaccine record and SMART Health Cards.",
+                "**Conclusions:** conc",
+                "## Introduction",
+                "This review focuses on digital vaccine record systems in rural care.",
+                "## Methods",
+                "Methods text.",
+                "## Results",
+                "Results text with SMART Health Cards evidence.",
+                "## Discussion",
+                "Discussion text.",
+                "## Conclusion",
+                "Conclusion text.",
+                "## Acknowledgments",
+                "Thanks.",
+                "## References",
+                "[1] Ref",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    manuscript_tex.write_text(
+        "\\section{Abstract}\n\\section{Introduction}\n\\section{Methods}\n\\section{Results}\n"
+        "\\section{Discussion}\n\\section{Conclusion}\n\\section{References}\n",
+        encoding="utf-8",
+    )
+    review = ReviewConfig(
+        research_question="What is the impact of QR-code-enabled vaccine records?",
+        review_type=ReviewType.SYSTEMATIC,
+        pico={
+            "population": "rural communities",
+            "intervention": "digital vaccine record systems",
+            "comparison": "paper records",
+            "outcome": "coverage and tracking efficiency",
+        },
+        keywords=["digital vaccine record", "SMART Health Cards"],
+        domain="public health",
+        scope="Digital immunization records in underserved settings.",
+        domain_expert=DomainExpertConfig(
+            canonical_terms=[
+                "QR code vaccine record",
+                "digital vaccine record",
+                "SMART Health Cards",
+                "vaccination certificate",
+            ]
+        ),
+        inclusion_criteria=["Empirical studies."],
+        exclusion_criteria=["Opinion pieces."],
+        date_range_start=2015,
+        date_range_end=2026,
+        target_databases=["openalex"],
+    )
+    async with get_db(str(db_path)) as db:
+        repo = WorkflowRepository(db)
+        cite_repo = CitationRepository(db)
+        await repo.create_workflow("wf-domain-floor", "topic", "hash")
+        result = await run_manuscript_contracts(
+            repository=repo,
+            citation_repository=cite_repo,
+            workflow_id="wf-domain-floor",
+            manuscript_md_path=str(manuscript_md),
+            manuscript_tex_path=str(manuscript_tex),
+            mode="observe",
+            review_config=review,
+        )
+    assert all(v.code != "DOMAIN_TERM_FIDELITY_WEAK" for v in result.violations)
