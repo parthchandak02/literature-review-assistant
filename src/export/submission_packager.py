@@ -17,7 +17,7 @@ from src.db.workflow_registry import find_by_workflow_id, find_by_workflow_id_fa
 from src.export.bibtex_builder import build_bibtex, build_citekey_alias_map
 from src.export.docx_exporter import generate_docx
 from src.export.ieee_latex import markdown_to_latex
-from src.export.markdown_refs import get_existing_figure_entries, get_latex_figure_paths
+from src.export.markdown_refs import extract_inline_figure_artifact_keys, get_existing_figure_entries, get_latex_figure_paths
 from src.export.prisma_checklist import (
     render_prisma_csv,
     render_prisma_html,
@@ -668,7 +668,6 @@ async def package_submission(
     for _caption, src, rel in get_existing_figure_entries(_manifest_path, _artifacts):
         dst = figures_dir / Path(rel).name
         shutil.copy2(src, dst)
-    figure_paths = [Path(p).name for p in get_latex_figure_paths(_manifest_path, _artifacts)]
 
     # Read author_name from the run's own config_snapshot.yaml (written by StartNode)
     # so the packaged LaTeX reflects the review that was actually run, not whatever
@@ -694,18 +693,29 @@ async def package_submission(
             pass
 
     md_content = ""
-    try:
-        async with get_db(db_path) as db:
-            repo = WorkflowRepository(db)
-            assembly = await repo.load_latest_manuscript_assembly(workflow_id, "md")
-            if assembly and assembly.content.strip():
-                md_content = assembly.content
-    except Exception:
-        md_content = ""
-    if not md_content:
-        if not manuscript_md.exists():
-            return None
+    # Prefer on-disk markdown artifact to keep parity with doc_manuscript.tex generation.
+    if manuscript_md.exists():
         md_content = manuscript_md.read_text(encoding="utf-8")
+    if not md_content:
+        try:
+            async with get_db(db_path) as db:
+                repo = WorkflowRepository(db)
+                assembly = await repo.load_latest_manuscript_assembly(workflow_id, "md")
+                if assembly and assembly.content.strip():
+                    md_content = assembly.content
+        except Exception:
+            md_content = ""
+    if not md_content:
+        return None
+    inline_artifact_keys = extract_inline_figure_artifact_keys(md_content, _artifacts)
+    figure_paths = [
+        Path(p).name
+        for p in get_latex_figure_paths(
+            _manifest_path,
+            _artifacts,
+            exclude_artifact_keys=inline_artifact_keys,
+        )
+    ]
     # Three-layer mechanical matching (DOI -> URL -> title).
     # In strict mode, keep export deterministic and fail if unresolved references remain.
     # In non-strict modes, allow the existing best-effort LLM fallback for legacy runs.

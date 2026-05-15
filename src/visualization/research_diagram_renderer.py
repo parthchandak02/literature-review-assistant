@@ -142,11 +142,21 @@ def _build_generation_prompt(
 
 def _read_reference_parts(reference_paths: list[str]) -> list[dict[str, Any]]:
     parts: list[dict[str, Any]] = []
+    supported_mime_types = {
+        ".png": "image/png",
+        ".jpg": "image/jpeg",
+        ".jpeg": "image/jpeg",
+        ".webp": "image/webp",
+        ".gif": "image/gif",
+    }
     for path in reference_paths:
         p = Path(path)
         if not p.exists():
             continue
-        mime = "image/png" if p.suffix.lower() == ".png" else "image/jpeg"
+        mime = supported_mime_types.get(p.suffix.lower())
+        if mime is None:
+            logger.warning("Skipping unsupported diagram reference image type: %s", p.suffix.lower() or "(none)")
+            continue
         b64 = base64.b64encode(p.read_bytes()).decode("ascii")
         parts.append({"inline_data": {"mime_type": mime, "data": b64}})
     return parts

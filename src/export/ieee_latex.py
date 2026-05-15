@@ -657,6 +657,24 @@ def _md_section_to_latex(
             table_latex = _convert_md_table_to_latex(table_lines, citekeys, num_to_citekey, citekey_aliases)
             parts.extend(table_latex)
             parts.append("")
+        elif stripped.startswith("<!--INLINE_FIG:") or stripped.startswith("<!--INLINEFIG:"):
+            flush_list()
+            # Placement marker used only by markdown assembly; omit from TeX output.
+        elif re.match(r"!\[[^\]]*\]\([^)]+\)", stripped):
+            flush_list()
+            m = re.match(r"!\[([^\]]*)\]\(([^)]+)\)", stripped)
+            if m:
+                alt_text = m.group(1).strip()
+                raw_path = m.group(2).strip()
+                name = Path(raw_path).stem
+                inc_path = f"figures/{name}" if "/" not in raw_path else raw_path
+                parts.append("\\begin{figure}[htbp]")
+                parts.append("  \\centering")
+                parts.append(f"  \\includegraphics[width=0.9\\columnwidth]{{{inc_path}}}")
+                if alt_text:
+                    parts.append(f"  \\caption{{{_escape_latex(alt_text)}}}")
+                parts.append("\\end{figure}")
+                parts.append("")
         elif stripped.startswith("*   ") or stripped.startswith("-   "):
             content = stripped[4:].strip()
             list_items.append(content)

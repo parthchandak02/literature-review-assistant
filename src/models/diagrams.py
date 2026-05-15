@@ -304,9 +304,7 @@ class DiagramPlacementDecision(BaseModel):
     diagram_id: str = Field(..., min_length=3)
     target_section: Literal["introduction", "methods", "results", "discussion", "conclusion"]
     anchor_text: str = Field(..., min_length=8)
-    fallback_policy: Literal["append_to_figures_section", "append_to_end_of_target_section"] = (
-        "append_to_figures_section"
-    )
+    fallback_policy: Literal["append_to_figures_section"] = "append_to_figures_section"
     confidence: float = Field(default=0.0, ge=0.0, le=1.0)
     rationale: str = Field(default="", min_length=0)
 
