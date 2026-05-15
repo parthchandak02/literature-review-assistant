@@ -541,6 +541,182 @@ FIGURE_DEFS: list[tuple[str, str]] = [
 ]
 
 
+def _read_json_if_exists(path: Path) -> dict[str, Any] | None:
+    if not path.exists():
+        return None
+    try:
+        loaded = json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return None
+    return loaded if isinstance(loaded, dict) else None
+
+
+def _resolve_custom_inline_placements(
+    manuscript_path: Path,
+    artifacts: dict[str, str],
+    diagram_placement_plan_path: str | None = None,
+) -> dict[str, dict[str, Any]]:
+    """Return artifact_key -> placement decision for inline custom diagrams."""
+    inline_map: dict[str, dict[str, Any]] = {}
+    report_path = Path(artifacts.get("diagram_generation_report", ""))
+    report_payload = _read_json_if_exists(report_path) if report_path.name else None
+    if report_payload:
+        for result in report_payload.get("results", []) or []:
+            if not isinstance(result, dict):
+                continue
+            artifact_key = str(result.get("artifact_key", "") or "").strip()
+            placement = result.get("placement")
+            if artifact_key.startswith("custom_diagram_") and isinstance(placement, dict):
+                inline_map[artifact_key] = placement
+    if inline_map:
+        return inline_map
+
+    plan_path = Path(diagram_placement_plan_path or "")
+    plan_payload = _read_json_if_exists(plan_path) if plan_path.name else None
+    if not plan_payload:
+        return {}
+
+    # Fallback mapping by deterministic custom diagram order.
+    custom_keys = sorted(k for k in artifacts.keys() if k.startswith("custom_diagram_"))
+    decisions = [d for d in (plan_payload.get("decisions") or []) if isinstance(d, dict)]
+    for idx, decision in enumerate(decisions):
+        if idx >= len(custom_keys):
+            break
+        inline_map[custom_keys[idx]] = decision
+    return inline_map
+
+
+def _insert_inline_custom_diagrams(
+    body: str,
+    manuscript_path: Path,
+    artifacts: dict[str, str],
+    caption_overrides: dict[str, str] | None = None,
+    diagram_placement_plan_path: str | None = None,
+) -> tuple[str, set[str], dict[str, int]]:
+    """Insert custom diagrams inline and return (updated_body, inserted_keys)."""
+    placements = _resolve_custom_inline_placements(manuscript_path, artifacts, diagram_placement_plan_path)
+    manifest = get_existing_figure_manifest(manuscript_path, artifacts, caption_overrides)
+    default_number_map = {artifact_key: idx for idx, (artifact_key, _c, _p, _r) in enumerate(manifest, start=1)}
+    if not placements:
+        return body, set(), default_number_map
+
+    inserted: set[str] = set()
+    lines = body.splitlines()
+    section_start: dict[str, int] = {}
+    heading_to_key = {
+        "## introduction": "introduction",
+        "## methods": "methods",
+        "## results": "results",
+        "## discussion": "discussion",
+        "## conclusion": "conclusion",
+    }
+    for i, line in enumerate(lines):
+        normalized = line.strip().lower()
+        if normalized in heading_to_key:
+            section_start[heading_to_key[normalized]] = i
+
+    inline_candidates: list[str] = []
+    for artifact_key, decision in placements.items():
+        target_section = str(decision.get("target_section", "") or "").strip().lower()
+        if artifact_key not in default_number_map:
+            continue
+        if target_section not in section_start:
+            continue
+        inline_candidates.append(artifact_key)
+    ordered_keys = inline_candidates + [k for k in default_number_map.keys() if k not in set(inline_candidates)]
+    number_by_artifact = {artifact_key: idx for idx, artifact_key in enumerate(ordered_keys, start=1)}
+    rel_by_artifact = {artifact_key: rel for artifact_key, _c, _p, rel in manifest}
+    caption_by_artifact = {artifact_key: cap for artifact_key, cap, _p, _r in manifest}
+
+    for artifact_key, decision in placements.items():
+        if artifact_key in inserted:
+            continue
+        if artifact_key not in number_by_artifact or artifact_key not in rel_by_artifact:
+            continue
+        fig_num = number_by_artifact[artifact_key]
+        rel_path = rel_by_artifact[artifact_key]
+        caption = caption_by_artifact[artifact_key]
+        target_section = str(decision.get("target_section", "") or "").strip().lower()
+        anchor_text = str(decision.get("anchor_text", "") or "").strip().lower()
+        start_idx = section_start.get(target_section)
+        if start_idx is None:
+            continue
+        end_idx = len(lines)
+        for other_start in sorted(section_start.values()):
+            if other_start > start_idx:
+                end_idx = other_start
+                break
+
+        insert_at = _find_anchor_insert_index(lines, start_idx, end_idx, anchor_text)
+        if insert_at is None:
+            # Anchor not found in target section -> fallback to Figures section.
+            continue
+
+        inline_marker = f"<!--INLINEFIG:{Path(rel_path).stem.replace('_', '').upper()}-->"
+        block = [
+            "",
+            inline_marker,
+            f"**Fig. {fig_num}.** {caption}",
+            "",
+            f"![Fig. {fig_num}: {caption}]({rel_path})",
+            "",
+        ]
+        lines[insert_at:insert_at] = block
+        inserted.add(artifact_key)
+
+    return "\n".join(lines), inserted, number_by_artifact
+
+
+def _normalize_anchor_text(text: str) -> str:
+    lowered = text.lower().strip()
+    lowered = re.sub(r"[^a-z0-9\\s]", " ", lowered)
+    return re.sub(r"\\s+", " ", lowered).strip()
+
+
+def _find_anchor_insert_index(lines: list[str], start_idx: int, end_idx: int, anchor_text: str) -> int | None:
+    anchor_norm = _normalize_anchor_text(anchor_text)
+    if not anchor_norm:
+        return None
+    anchor_tokens = [token for token in anchor_norm.split(" ") if token]
+    for i in range(start_idx + 1, end_idx):
+        line_norm = _normalize_anchor_text(lines[i])
+        if not line_norm:
+            continue
+        if anchor_norm in line_norm or line_norm in anchor_norm:
+            return i + 1
+        if len(anchor_tokens) >= 4:
+            line_tokens = set(line_norm.split(" "))
+            overlap = sum(1 for token in anchor_tokens if token in line_tokens)
+            if overlap / len(anchor_tokens) >= 0.6:
+                return i + 1
+    return None
+
+
+def extract_inline_figure_artifact_keys(markdown_text: str, artifacts: dict[str, str]) -> set[str]:
+    """Return artifact keys marked as inline figure insertions in markdown body."""
+    text = markdown_text or ""
+    marker_ids = {
+        marker.strip().upper()
+        for marker in re.findall(r"<!--INLINEFIG:([A-Z0-9]+)-->", text)
+        if marker.strip()
+    }
+    if not marker_ids:
+        marker_ids = {
+            marker.replace("_", "").strip().upper()
+            for marker in re.findall(r"<!--INLINE_FIG:([a-zA-Z0-9_:-]+)-->", text)
+            if marker.strip()
+        }
+    if not marker_ids:
+        return set()
+
+    inline: set[str] = set()
+    for artifact_key, artifact_path in artifacts.items():
+        stem_id = Path(artifact_path).stem.replace("_", "").upper()
+        if stem_id in marker_ids:
+            inline.add(artifact_key)
+    return inline
+
+
 def _rob_traffic_caption_for_assessments(
     robins_i_assessments: list[Any] | None = None,
     casp_assessments: list[Any] | None = None,
@@ -578,6 +754,22 @@ def get_existing_figure_entries(
     paths are derived from one canonical manifest.
     """
     entries: list[tuple[str, Path, str]] = []
+    for _artifact_key, caption, fig_path, rel_path in get_existing_figure_manifest(
+        manuscript_path,
+        artifacts,
+        caption_overrides=caption_overrides,
+    ):
+        entries.append((caption, fig_path, rel_path))
+    return entries
+
+
+def get_existing_figure_manifest(
+    manuscript_path: Path,
+    artifacts: dict[str, str],
+    caption_overrides: dict[str, str] | None = None,
+) -> list[tuple[str, str, Path, str]]:
+    """Return ordered existing figures as (artifact_key, caption, absolute_path, relative_path)."""
+    manifest: list[tuple[str, str, Path, str]] = []
     _overrides = caption_overrides or {}
     for artifact_key, default_caption in FIGURE_DEFS:
         fig_path_str = artifacts.get(artifact_key, "")
@@ -597,14 +789,15 @@ def get_existing_figure_entries(
             rel_path = str(fig_path.relative_to(manuscript_path.parent))
         except ValueError:
             rel_path = str(fig_path)
-        entries.append((caption, fig_path, rel_path))
-    return entries
+        manifest.append((artifact_key, caption, fig_path, rel_path))
+    return manifest
 
 
 def get_latex_figure_paths(
     manuscript_path: Path,
     artifacts: dict[str, str],
     caption_overrides: dict[str, str] | None = None,
+    exclude_artifact_keys: set[str] | None = None,
 ) -> list[str]:
     """Return ordered figure paths safe for pdflatex includegraphics.
 
@@ -614,7 +807,14 @@ def get_latex_figure_paths(
     """
     raster_suffixes = {".png", ".jpg", ".jpeg", ".pdf"}
     paths: list[str] = []
-    for _caption, fig_path, rel_path in get_existing_figure_entries(manuscript_path, artifacts, caption_overrides):
+    excluded = exclude_artifact_keys or set()
+    for artifact_key, _caption, fig_path, rel_path in get_existing_figure_manifest(
+        manuscript_path,
+        artifacts,
+        caption_overrides,
+    ):
+        if artifact_key in excluded:
+            continue
         if fig_path.suffix.lower() in raster_suffixes:
             paths.append(rel_path)
     return paths
@@ -624,6 +824,8 @@ def build_markdown_figures_section(
     manuscript_path: Path,
     artifacts: dict[str, str],
     caption_overrides: dict[str, str] | None = None,
+    number_map: dict[str, int] | None = None,
+    exclude_artifact_keys: set[str] | None = None,
 ) -> str:
     """Build a Figures section with relative-path image embeds and IEEE captions.
 
@@ -634,16 +836,48 @@ def build_markdown_figures_section(
     Returns an empty string if no figures are available.
     """
     lines: list[str] = ["## Figures", ""]
-    seq = 1
-    for caption, _fig_path, rel in get_existing_figure_entries(manuscript_path, artifacts, caption_overrides):
+    excluded = exclude_artifact_keys or set()
+    manifest = get_existing_figure_manifest(manuscript_path, artifacts, caption_overrides)
+    local_number_map = number_map or {artifact_key: i for i, (artifact_key, _c, _p, _r) in enumerate(manifest, start=1)}
+    emitted = 0
+    for artifact_key, caption, _fig_path, rel in manifest:
+        if artifact_key in excluded:
+            continue
+        seq = local_number_map.get(artifact_key)
+        if seq is None:
+            continue
         lines.append(f"**Fig. {seq}.** {caption}")
         lines.append("")
         lines.append(f"![Fig. {seq}: {caption}]({rel})")
         lines.append("")
-        seq += 1
-    if seq == 1:
+        emitted += 1
+    if emitted == 0:
         return ""
     return "\n".join(lines)
+
+
+def _renumber_markdown_figures(text: str) -> str:
+    """Normalize all markdown figure labels to strict sequential order by appearance."""
+    fig_counter = 0
+
+    def _caption_repl(match: re.Match[str]) -> str:
+        nonlocal fig_counter
+        fig_counter += 1
+        caption = match.group(2)
+        return f"**Fig. {fig_counter}.** {caption}"
+
+    text = re.sub(r"^\*\*Fig\.\s+(\d+)\.\*\*\s+(.+)$", _caption_repl, text, flags=re.MULTILINE)
+
+    img_counter = 0
+
+    def _image_repl(match: re.Match[str]) -> str:
+        nonlocal img_counter
+        img_counter += 1
+        caption = match.group(2)
+        path = match.group(3)
+        return f"![Fig. {img_counter}: {caption}]({path})"
+
+    return re.sub(r"!\[Fig\.\s+(\d+):\s*([^\]]+)\]\(([^)]+)\)", _image_repl, text)
 
 
 def build_credit_section(author_name: str = "") -> str:
@@ -1592,6 +1826,7 @@ def assemble_submission_manuscript(
     research_question: str = "",
     title: str | None = None,
     fulltext_paper_ids: set[str] | None = None,
+    diagram_placement_plan_path: str | None = None,
     include_rq_block: bool = False,
     ir_validated: bool = False,
 ) -> str:
@@ -1692,6 +1927,21 @@ def assemble_submission_manuscript(
         if header_block:
             numbered_body = header_block + numbered_body
 
+    _figure_caption_overrides = {
+        "rob_traffic_light": _rob_traffic_caption_for_assessments(
+            robins_i_assessments=robins_i_assessments or [],
+            casp_assessments=casp_assessments or [],
+            mmat_assessments=mmat_assessments or [],
+        )
+    }
+    numbered_body, _inline_inserted, _figure_number_map = _insert_inline_custom_diagrams(
+        numbered_body,
+        manuscript_path,
+        artifacts,
+        caption_overrides=_figure_caption_overrides,
+        diagram_placement_plan_path=diagram_placement_plan_path,
+    )
+
     _protocol_registered = False
     _registration_id = ""
     _author_name = ""
@@ -1789,17 +2039,12 @@ def assemble_submission_manuscript(
             fulltext_paper_ids=fulltext_paper_ids,
         )
 
-    _figure_caption_overrides = {
-        "rob_traffic_light": _rob_traffic_caption_for_assessments(
-            robins_i_assessments=robins_i_assessments or [],
-            casp_assessments=casp_assessments or [],
-            mmat_assessments=mmat_assessments or [],
-        )
-    }
     figures_section = build_markdown_figures_section(
         manuscript_path,
         artifacts,
         caption_overrides=_figure_caption_overrides,
+        number_map=_figure_number_map,
+        exclude_artifact_keys=_inline_inserted,
     )
 
     refs_section = build_markdown_references_section(numbered_body, ordered_citation_rows, numbered=True)
@@ -1848,7 +2093,8 @@ def assemble_submission_manuscript(
     if search_appendix_section:
         parts.append(search_appendix_section)
 
-    return "\n\n---\n\n".join(parts)
+    assembled = "\n\n---\n\n".join(parts)
+    return _renumber_markdown_figures(assembled)
 
 
 def strip_appended_sections(text: str) -> str:

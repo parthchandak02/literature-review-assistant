@@ -65,6 +65,7 @@ async def run_start_node(state: ReviewState) -> None:
     state.artifacts["custom_diagram_02"] = str(run_paths.run_dir / "fig_custom_02.png")
     state.artifacts["custom_diagram_03"] = str(run_paths.run_dir / "fig_custom_03.png")
     state.artifacts["diagram_brief_pack"] = str(run_paths.run_dir / "data_diagram_brief_pack.json")
+    state.artifacts["diagram_placement_plan"] = str(run_paths.run_dir / "data_diagram_placement_plan.json")
     state.artifacts["diagram_generation_report"] = str(run_paths.run_dir / "data_diagram_generation_report.json")
     state.artifacts["evidence_network"] = str(run_paths.run_dir / "fig_evidence_network.png")
     state.artifacts["papers_dir"] = str(run_paths.run_dir / "papers")

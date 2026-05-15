@@ -26,7 +26,6 @@ PHASE_ORDER = [
     "phase_5b_knowledge_graph",
     "phase_5c_pre_writing_gate",
     "phase_6_writing",
-    "phase_7_audit",
     "finalize",
 ]
 
@@ -256,18 +255,6 @@ async def load_resume_state(
                     await repo.delete_checkpoints_for_phases(workflow_id, ["phase_6_writing"])
                     next_phase = "phase_6_writing"
 
-        if next_phase == "finalize" and checkpoints.get("phase_7_audit") == "completed":
-            _audit_md = run_dir / "doc_manuscript.md"
-            if not _audit_md.exists():
-                logger.warning(
-                    "phase_7_audit checkpoint completed but %s is missing; "
-                    "clearing checkpoint so ManuscriptAuditNode can re-run.",
-                    _audit_md,
-                )
-                await repo.delete_checkpoints_for_phases(workflow_id, ["phase_7_audit"])
-                checkpoints = await repo.get_checkpoints(workflow_id)
-                next_phase = "phase_7_audit"
-
     artifacts = {
         "run_summary": str(run_dir / "run_summary.json"),
         "search_appendix": str(run_dir / "doc_search_strategies_appendix.md"),
@@ -295,6 +282,7 @@ async def load_resume_state(
         "custom_diagram_02": str(run_dir / "fig_custom_02.png"),
         "custom_diagram_03": str(run_dir / "fig_custom_03.png"),
         "diagram_brief_pack": str(run_dir / "data_diagram_brief_pack.json"),
+        "diagram_placement_plan": str(run_dir / "data_diagram_placement_plan.json"),
         "diagram_generation_report": str(run_dir / "data_diagram_generation_report.json"),
         "prospero_form_md": str(run_dir / "doc_prospero_registration.md"),
         "prospero_form": str(run_dir / "doc_prospero_registration.docx"),

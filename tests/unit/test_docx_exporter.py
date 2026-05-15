@@ -40,3 +40,34 @@ def test_generate_docx_uses_source_resource_path(tmp_path: Path) -> None:
 
     assert generated == output
     assert output.exists()
+
+
+def test_generate_docx_rewrites_svg_images_before_conversion(tmp_path: Path) -> None:
+    source = tmp_path / "doc_manuscript.md"
+    output = tmp_path / "manuscript.docx"
+    svg = tmp_path / "fig_concept_taxonomy.svg"
+    source.write_text("![Taxonomy](fig_concept_taxonomy.svg)\n", encoding="utf-8")
+    svg.write_text(
+        '<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10"><rect width="10" height="10"/></svg>',
+        encoding="utf-8",
+    )
+
+    def _fake_convert_svg(svg_path: Path, png_path: Path) -> None:
+        assert svg_path == svg.resolve()
+        png_path.write_bytes(b"PNG")
+
+    def _fake_convert_file(source_path: str, to: str, outputfile: str, extra_args: list[str]) -> None:
+        assert to == "docx"
+        rendered_md = Path(source_path).read_text(encoding="utf-8")
+        assert "fig_concept_taxonomy.svg" not in rendered_md
+        assert "fig_concept_taxonomy_docx.png" in rendered_md
+        Document().save(outputfile)
+
+    with (
+        patch("src.export.docx_exporter._convert_svg_to_png", side_effect=_fake_convert_svg),
+        patch("src.export.docx_exporter.pypandoc.convert_file", side_effect=_fake_convert_file),
+    ):
+        generated = generate_docx(source, output)
+
+    assert generated == output
+    assert output.exists()
