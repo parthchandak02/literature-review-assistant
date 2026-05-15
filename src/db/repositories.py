@@ -52,6 +52,7 @@ from src.models import (
 )
 from src.models.enums import SourceCategory
 from src.models.papers import compute_display_label
+from src.search.source_quality import apply_source_quality_prior
 from src.synthesis.feasibility import SynthesisFeasibility
 from src.synthesis.narrative import NarrativeSynthesis
 
@@ -70,7 +71,8 @@ def _row_to_candidate_paper(row: tuple[Any, ...]) -> CandidatePaper:
     Expected column order (matches all SELECT queries in this module):
       0 paper_id, 1 title, 2 authors, 3 year, 4 source_database, 5 doi,
       6 abstract, 7 url, 8 keywords, 9 source_category, 10 openalex_id,
-      11 country, 12 journal, 13 display_label
+      11 country, 12 journal, 13 display_label, 14 source_quality_tier,
+      15 source_peer_reviewed, 16 source_open_index
     """
     authors_raw = row[2]
     authors = json.loads(authors_raw) if isinstance(authors_raw, str) else (authors_raw or [])
@@ -83,6 +85,9 @@ def _row_to_candidate_paper(row: tuple[Any, ...]) -> CandidatePaper:
     country = str(row[11]) if len(row) > 11 and row[11] else None
     journal = str(row[12]) if len(row) > 12 and row[12] else None
     display_label = str(row[13]) if len(row) > 13 and row[13] else None
+    source_quality_tier = str(row[14]) if len(row) > 14 and row[14] else None
+    source_peer_reviewed = bool(row[15]) if len(row) > 15 and row[15] is not None else None
+    source_open_index = bool(row[16]) if len(row) > 16 and row[16] is not None else None
     return CandidatePaper(
         paper_id=str(row[0]),
         title=str(row[1]),
@@ -98,6 +103,9 @@ def _row_to_candidate_paper(row: tuple[Any, ...]) -> CandidatePaper:
         country=country,
         journal=journal,
         display_label=display_label,
+        source_quality_tier=source_quality_tier,
+        source_peer_reviewed=source_peer_reviewed,
+        source_open_index=source_open_index,
     )
 
 
@@ -249,28 +257,26 @@ class WorkflowRepository:
 
     async def save_search_result(self, result: SearchResult) -> None:
         # Idempotency on resume/re-run: replace existing row for the same
-        # workflow/database/source/query tuple instead of accumulating duplicates.
+        # workflow/database/source tuple instead of accumulating duplicates.
         await self.db.execute(
             """
             DELETE FROM search_results
             WHERE workflow_id = ?
               AND database_name = ?
               AND source_category = ?
-              AND search_query = ?
             """,
             (
                 result.workflow_id,
                 result.database_name,
                 result.source_category.value,
-                result.search_query,
             ),
         )
         await self.db.execute(
             """
             INSERT INTO search_results (
                 database_name, source_category, search_date, search_query,
-                limits_applied, records_retrieved, workflow_id
-            ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                limits_applied, records_retrieved, diagnostic_cause, query_variant, workflow_id
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 result.database_name,
@@ -279,6 +285,8 @@ class WorkflowRepository:
                 result.search_query,
                 result.limits_applied,
                 result.records_retrieved,
+                result.diagnostic_cause,
+                result.query_variant or "primary",
                 result.workflow_id,
             ),
         )
@@ -287,6 +295,7 @@ class WorkflowRepository:
         await self.db.commit()
 
     async def save_paper(self, paper: CandidatePaper) -> None:
+        paper = apply_source_quality_prior(paper)
         label = paper.display_label or compute_display_label(paper)
         params = (
             paper.paper_id,
@@ -303,12 +312,16 @@ class WorkflowRepository:
             paper.country,
             paper.journal,
             label,
+            paper.source_quality_tier,
+            1 if paper.source_peer_reviewed else 0 if paper.source_peer_reviewed is not None else None,
+            1 if paper.source_open_index else 0 if paper.source_open_index is not None else None,
         )
         upsert_sql = """
             INSERT INTO papers (
                 paper_id, title, authors, year, source_database, doi, abstract, url,
-                keywords, source_category, openalex_id, country, journal, display_label
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                keywords, source_category, openalex_id, country, journal, display_label,
+                source_quality_tier, source_peer_reviewed, source_open_index
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(paper_id) DO UPDATE SET
                 title = excluded.title,
                 authors = excluded.authors,
@@ -322,7 +335,10 @@ class WorkflowRepository:
                 openalex_id = excluded.openalex_id,
                 country = excluded.country,
                 journal = excluded.journal,
-                display_label = excluded.display_label
+                display_label = excluded.display_label,
+                source_quality_tier = excluded.source_quality_tier,
+                source_peer_reviewed = excluded.source_peer_reviewed,
+                source_open_index = excluded.source_open_index
             """
         try:
             await self.db.execute(upsert_sql, params)

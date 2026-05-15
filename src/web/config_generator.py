@@ -68,26 +68,41 @@ def _resolve_model() -> str:
 _DEFAULT_DATE_START = 2010
 _DEFAULT_DATE_END = datetime.datetime.now().year
 _DEFAULT_DATABASES = [
-    "scopus",
-    "web_of_science",
     "openalex",
     "pubmed",
     "semantic_scholar",
+    "crossref",
+    "arxiv",
+    "dblp",
+    "europepmc",
+    "core",
+    "scopus",
+    "web_of_science",
     "ieee_xplore",
     "clinicaltrials_gov",
 ]
 _NON_BIOMED_DEFAULT_DATABASES = [
-    "scopus",
-    "web_of_science",
+    "dblp",
+    "arxiv",
     "openalex",
     "semantic_scholar",
+    "crossref",
+    "core",
+    "europepmc",
+    "scopus",
+    "web_of_science",
     "ieee_xplore",
 ]
 _AMBIGUOUS_DEFAULT_DATABASES = [
-    "scopus",
-    "web_of_science",
     "openalex",
     "semantic_scholar",
+    "crossref",
+    "arxiv",
+    "dblp",
+    "europepmc",
+    "core",
+    "scopus",
+    "web_of_science",
     "ieee_xplore",
     "pubmed",
 ]
@@ -132,6 +147,11 @@ _SUPPORTED_DATABASES = [
     "openalex",
     "pubmed",
     "semantic_scholar",
+    "crossref",
+    "arxiv",
+    "dblp",
+    "core",
+    "europepmc",
     "scopus",
     "web_of_science",
     "ieee_xplore",
@@ -338,6 +358,27 @@ class _SearchOverrides(BaseModel):
             "Bad (any topic): generic adjective clusters without a domain anchor ('automated advanced system outcomes')."
         ),
     )
+    dblp: str | None = Field(
+        default=None,
+        description=(
+            "DBLP query: short keyword phrase for CS bibliography search. "
+            "Use 4-8 concrete technical terms; avoid boolean operators."
+        ),
+    )
+    europepmc: str | None = Field(
+        default=None,
+        description=(
+            "Europe PMC query: concise biomedical phrase (keywords and condition terms). "
+            "Avoid long boolean chains; prioritize high-recall natural terms."
+        ),
+    )
+    core: str | None = Field(
+        default=None,
+        description=(
+            "CORE query: concise open-access discovery phrase. "
+            "Use intervention + outcome + setting terms in plain language."
+        ),
+    )
     clinicaltrials_gov: str | None = Field(
         default=None,
         description=(
@@ -394,8 +435,9 @@ class _GeneratedConfig(BaseModel):
         default=None,
         description=(
             "Database-specific search queries optimized for each database's query syntax. "
-            "Generate all six fields (pubmed, scopus, web_of_science, ieee_xplore, semantic_scholar, openalex) "
-            "using the keywords and PICO above."
+            "Generate fields for all relevant connectors among: pubmed, scopus, web_of_science, "
+            "ieee_xplore, semantic_scholar, openalex, crossref, arxiv, dblp, europepmc, core, "
+            "clinicaltrials_gov."
         ),
     )
 
@@ -713,6 +755,11 @@ def _build_yaml(
                 "ieee_xplore",
                 "semantic_scholar",
                 "openalex",
+                "crossref",
+                "arxiv",
+                "dblp",
+                "europepmc",
+                "core",
                 "clinicaltrials_gov",
             ):
                 val = getattr(cfg.search_overrides, db_name, None)
@@ -839,9 +886,11 @@ _STRUCTURE_PROMPT = (
     "- Generate a one-line domain description and a 2-4 sentence scope statement.\n"
     "- Set review_type to exactly 'systematic'.\n"
     "- Generate search_overrides with database-optimized queries for databases relevant\n"
-    "  to this topic. Always include scopus, web_of_science, ieee_xplore, semantic_scholar,\n"
-    "  and openalex. Include pubmed and clinicaltrials_gov only when topic evidence is clearly\n"
-    "  biomedical/clinical. Use actual terms from this review's topic, not placeholders.\n"
+    "  to this topic. Always include openalex and semantic_scholar. Include crossref, arxiv,\n"
+    "  and dblp for broad/open discovery. Include scopus, web_of_science, and ieee_xplore when\n"
+    "  quality-indexed technical coverage is needed. Include pubmed, europepmc, and\n"
+    "  clinicaltrials_gov when topic evidence is clearly biomedical/clinical.\n"
+    "  Use actual terms from this review's topic, not placeholders.\n"
     "  * pubmed: Use MeSH terms where available plus [Title/Abstract] field codes.\n"
     "    Pattern: (MeSHTerm[MeSH Terms] OR keyword[Title/Abstract] OR ...) AND\n"
     "    (setting_term[Title/Abstract] OR outcome_term[Title/Abstract] OR ...)\n"
@@ -873,6 +922,11 @@ _STRUCTURE_PROMPT = (
     "  * openalex: 5-8 space-separated keywords ONLY. No quotes, no boolean operators.\n"
     "    Same natural-language guidance as semantic_scholar above.\n"
     "    CRITICAL: pair generic outcome words with a specific domain term from this topic.\n"
+    "  * crossref: concise phrase query (intervention + setting + outcome), no long boolean chains.\n"
+    "  * arxiv: concise phrase query focused on intervention + technical domain terms.\n"
+    "  * dblp: concise CS-focused phrase query (4-8 key terms).\n"
+    "  * europepmc: concise biomedical phrase query (condition + intervention + outcome).\n"
+    "  * core: concise open-access discovery phrase (intervention + outcome + setting).\n"
     "    Generic words like 'efficiency', 'accuracy', 'barriers' alone match unrelated industries.\n"
     "    Good (educational technology review): 'educational technology student learning outcomes effectiveness'\n"
     "    Good (autonomous vehicles review): 'autonomous vehicle safety performance urban deployment'\n"

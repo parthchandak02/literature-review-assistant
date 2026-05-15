@@ -13,6 +13,9 @@ CREATE TABLE IF NOT EXISTS papers (
     country TEXT,
     journal TEXT,
     display_label TEXT,
+    source_quality_tier TEXT,
+    source_peer_reviewed INTEGER,
+    source_open_index INTEGER,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -24,6 +27,8 @@ CREATE TABLE IF NOT EXISTS search_results (
     search_query TEXT NOT NULL,
     limits_applied TEXT,
     records_retrieved INTEGER NOT NULL,
+    diagnostic_cause TEXT,
+    query_variant TEXT NOT NULL DEFAULT 'primary',
     workflow_id TEXT NOT NULL
 );
 

@@ -24,6 +24,9 @@ _DB_DISPLAY = {
     "semantic_scholar": "Semantic Scholar",
     "ieee_xplore": "IEEE Xplore",
     "openalex": "OpenAlex",
+    "dblp": "DBLP",
+    "core": "CORE",
+    "europepmc": "Europe PMC",
     "perplexity_web": "Web (Perplexity)",
     "web": "Web",
 }

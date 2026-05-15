@@ -70,6 +70,9 @@ agents:
   research_diagram_preparer:
     model: "google-gla:gemini-2.5-flash-lite"
     temperature: 0.2
+  research_diagram_placement:
+    model: "google-gla:gemini-2.5-flash-lite"
+    temperature: 0.1
   research_diagram_drawing:
     model: "google-gla:gemini-3.1-flash-image-preview"
     temperature: 0.2
@@ -330,17 +333,29 @@ search:
   per_database_limits:
     pubmed: 500
     openalex: 1000
+    crossref: 500
+    arxiv: 300
+    dblp: 500
+    europepmc: 500
+    core: 300
     scopus: 500
+    web_of_science: 300
     semantic_scholar: 500
     ieee_xplore: 200
-    # Legacy connectors kept for backward-compat but not in default target_databases:
-    crossref: 500
-    arxiv: 200
+    # Legacy auxiliary connector:
     perplexity_search: 20
   # Emit a WARNING log when a database returns fewer than this many records.
   # Surfaces over-restricted queries early so the user can fix before screening.
   # Set to 0 to disable.
   low_recall_warning_threshold: 10
+  # Soft quality ranking priors (never hard-filter).
+  quality_tier_weights:
+    high: 1.0
+    medium: 0.7
+    low: 0.4
+    unknown: 0.5
+  peer_review_bonus: 0.2
+  open_index_bonus: 0.1
   # Number of included papers chased concurrently during citation chasing.
   # Each paper triggers parallel Semantic Scholar + OpenAlex HTTP calls.
   citation_chasing_concurrency: 5

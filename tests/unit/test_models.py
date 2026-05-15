@@ -1,3 +1,5 @@
+import pytest
+
 from src.models import (
     CandidatePaper,
     DomainExpertConfig,
@@ -64,6 +66,54 @@ def test_review_config_domain_brief_helpers() -> None:
     assert "predictive maintenance" in config.domain_signal_terms()
     assert "clinical trial" in config.discouraged_terminology()
     assert any("Industrial engineering evidence reviewer" in line for line in config.domain_brief_lines())
+
+
+def test_review_config_database_bundle_resolution() -> None:
+    config = ReviewConfig(
+        research_question="rq",
+        review_type=ReviewType.SYSTEMATIC,
+        pico={
+            "population": "p",
+            "intervention": "i",
+            "comparison": "c",
+            "outcome": "o",
+        },
+        keywords=["k1"],
+        domain="d",
+        scope="s",
+        inclusion_criteria=["i1"],
+        exclusion_criteria=["e1"],
+        date_range_start=2015,
+        date_range_end=2026,
+        database_bundle="ai_agentic",
+        target_databases=["openalex"],
+    )
+    resolved = config.resolved_target_databases()
+    assert "openalex" in resolved
+    assert "dblp" in resolved
+    assert "arxiv" in resolved
+
+
+def test_review_config_rejects_unknown_database() -> None:
+    with pytest.raises(ValueError):
+        ReviewConfig(
+            research_question="rq",
+            review_type=ReviewType.SYSTEMATIC,
+            pico={
+                "population": "p",
+                "intervention": "i",
+                "comparison": "c",
+                "outcome": "o",
+            },
+            keywords=["k1"],
+            domain="d",
+            scope="s",
+            inclusion_criteria=["i1"],
+            exclusion_criteria=["e1"],
+            date_range_start=2015,
+            date_range_end=2026,
+            target_databases=["google_scholar"],
+        )
 
 
 def test_paper_and_screening_models() -> None:

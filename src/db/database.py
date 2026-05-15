@@ -514,6 +514,17 @@ async def run_migrations(db: aiosqlite.Connection) -> None:
         ALTER TABLE papers ADD COLUMN journal TEXT;
         """,
     )
+    # 22. Search diagnostics and source-quality metadata.
+    await _apply(
+        22,
+        """
+        ALTER TABLE papers ADD COLUMN source_quality_tier TEXT;
+        ALTER TABLE papers ADD COLUMN source_peer_reviewed INTEGER;
+        ALTER TABLE papers ADD COLUMN source_open_index INTEGER;
+        ALTER TABLE search_results ADD COLUMN diagnostic_cause TEXT;
+        ALTER TABLE search_results ADD COLUMN query_variant TEXT NOT NULL DEFAULT 'primary';
+        """,
+    )
     await _validate_schema_contract(db)
     await db.commit()
 

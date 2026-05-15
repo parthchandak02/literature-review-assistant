@@ -11,7 +11,12 @@ from src.screening.prompts import _quality_criteria_block
 from src.search.embase import EmbaseConnector
 from src.search.pubmed import PubMedConnector
 from src.search.scopus import ScopusConnector
-from src.search.strategy import SearchStrategyCoordinator, build_database_query, requires_primary_studies
+from src.search.strategy import (
+    SearchStrategyCoordinator,
+    build_database_query,
+    build_relaxed_database_query,
+    requires_primary_studies,
+)
 from src.search.web_of_science import WebOfScienceConnector
 
 
@@ -132,7 +137,11 @@ class _DelayedConnector:
 
 
 class _StubSearchRepo:
+    def __init__(self) -> None:
+        self.saved: list[SearchResult] = []
+
     async def save_search_result(self, _r: SearchResult) -> None:
+        self.saved.append(_r)
         return None
 
     async def append_decision_log(self, _entry: object) -> None:
@@ -142,6 +151,77 @@ class _StubSearchRepo:
 class _StubGateRunner:
     async def run_search_volume_gate(self, **_kwargs: object) -> None:
         return None
+
+
+class _LowRecallThenBroadConnector:
+    name = "scopus"
+    source_category = SourceCategory.DATABASE
+
+    def __init__(self) -> None:
+        self.queries: list[str] = []
+
+    async def search(
+        self,
+        query: str,
+        max_results: int = 100,
+        date_start: int | None = None,
+        date_end: int | None = None,
+    ) -> SearchResult:
+        _ = (max_results, date_start, date_end)
+        self.queries.append(query)
+        records = 0 if len(self.queries) == 1 else 5
+        return SearchResult(
+            workflow_id="wf-test",
+            database_name=self.name,
+            source_category=self.source_category,
+            search_date="2026-01-01",
+            search_query=query,
+            records_retrieved=records,
+            papers=[],
+        )
+
+
+class _MissingAuthConnector:
+    name = "core"
+    source_category = SourceCategory.DATABASE
+
+    def __init__(self) -> None:
+        self.calls = 0
+
+    async def search(
+        self,
+        query: str,
+        max_results: int = 100,
+        date_start: int | None = None,
+        date_end: int | None = None,
+    ) -> SearchResult:
+        _ = (query, max_results, date_start, date_end)
+        self.calls += 1
+        return SearchResult(
+            workflow_id="wf-test",
+            database_name=self.name,
+            source_category=self.source_category,
+            search_date="2026-01-01",
+            search_query="x",
+            limits_applied="max_results=100,missing_api_key",
+            records_retrieved=0,
+            papers=[],
+        )
+
+
+class _FailingConnector:
+    name = "web_of_science"
+    source_category = SourceCategory.DATABASE
+
+    async def search(
+        self,
+        query: str,
+        max_results: int = 100,
+        date_start: int | None = None,
+        date_end: int | None = None,
+    ) -> SearchResult:
+        _ = (query, max_results, date_start, date_end)
+        raise RuntimeError("WoS API: status 512 internal server error")
 
 
 @pytest.mark.asyncio
@@ -187,3 +267,97 @@ def test_build_database_query_scoping_does_not_force_primary_only_clause() -> No
     )
     query = build_database_query(scoping, "pubmed")
     assert '"systematic review"[Publication Type]' not in query
+
+
+def test_build_relaxed_query_scopus_is_less_restrictive() -> None:
+    strict = build_database_query(_review(), "scopus")
+    relaxed = build_relaxed_database_query(_review(), "scopus")
+    assert "TITLE-ABS-KEY" in relaxed
+    assert strict != relaxed
+    assert strict.count("TITLE-ABS-KEY") >= relaxed.count("TITLE-ABS-KEY")
+
+
+@pytest.mark.asyncio
+async def test_search_coordinator_retries_low_recall_with_relaxed_query() -> None:
+    connector = _LowRecallThenBroadConnector()
+    repo = _StubSearchRepo()
+    coordinator = SearchStrategyCoordinator(
+        workflow_id="wf-test",
+        config=_review(),
+        connectors=[connector],
+        repository=repo,  # type: ignore[arg-type]
+        gate_runner=_StubGateRunner(),  # type: ignore[arg-type]
+        low_recall_threshold=1,
+    )
+    results, _ = await coordinator.run(max_results=50)
+    assert len(connector.queries) == 2
+    assert connector.queries[0] != connector.queries[1]
+    assert len(results) == 1
+    assert results[0].query_variant == "relaxed"
+    assert results[0].records_retrieved == 5
+
+
+@pytest.mark.asyncio
+async def test_search_coordinator_does_not_retry_when_auth_missing() -> None:
+    connector = _MissingAuthConnector()
+    coordinator = SearchStrategyCoordinator(
+        workflow_id="wf-test",
+        config=_review(),
+        connectors=[connector],
+        repository=_StubSearchRepo(),  # type: ignore[arg-type]
+        gate_runner=_StubGateRunner(),  # type: ignore[arg-type]
+        low_recall_threshold=10,
+    )
+    results, _ = await coordinator.run(max_results=100)
+    assert connector.calls == 1
+    assert len(results) == 1
+    assert results[0].diagnostic_cause == "auth_missing"
+
+
+@pytest.mark.asyncio
+async def test_search_coordinator_low_recall_warning_excludes_failed_connectors(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    coordinator = SearchStrategyCoordinator(
+        workflow_id="wf-test",
+        config=_review(),
+        connectors=[_FailingConnector()],
+        repository=_StubSearchRepo(),  # type: ignore[arg-type]
+        gate_runner=_StubGateRunner(),  # type: ignore[arg-type]
+        low_recall_threshold=10,
+    )
+    await coordinator.run(max_results=100)
+    warning_messages = [record.message for record in caplog.records if "LOW RECALL:" in record.message]
+    assert not warning_messages
+
+
+@pytest.mark.asyncio
+async def test_search_coordinator_does_not_retry_when_auth_missing() -> None:
+    connector = _MissingAuthConnector()
+    coordinator = SearchStrategyCoordinator(
+        workflow_id="wf-test",
+        config=_review(),
+        connectors=[connector],
+        repository=_StubSearchRepo(),  # type: ignore[arg-type]
+        gate_runner=_StubGateRunner(),  # type: ignore[arg-type]
+        low_recall_threshold=10,
+    )
+    results, _ = await coordinator.run(max_results=100)
+    assert connector.calls == 1
+    assert len(results) == 1
+    assert results[0].diagnostic_cause == "auth_missing"
+
+
+@pytest.mark.asyncio
+async def test_search_coordinator_low_recall_warning_excludes_failed_connectors(caplog: pytest.LogCaptureFixture) -> None:
+    coordinator = SearchStrategyCoordinator(
+        workflow_id="wf-test",
+        config=_review(),
+        connectors=[_FailingConnector()],
+        repository=_StubSearchRepo(),  # type: ignore[arg-type]
+        gate_runner=_StubGateRunner(),  # type: ignore[arg-type]
+        low_recall_threshold=10,
+    )
+    await coordinator.run(max_results=100)
+    warning_messages = [record.message for record in caplog.records if "LOW RECALL:" in record.message]
+    assert not warning_messages
