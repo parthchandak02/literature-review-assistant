@@ -1963,7 +1963,6 @@ _RESUME_PHASE_ORDER = [
     "phase_5b_knowledge_graph",
     "phase_5c_pre_writing_gate",
     "phase_6_writing",
-    "phase_7_audit",
     "finalize",
 ]
 
@@ -4036,37 +4035,6 @@ async def trigger_export(run_id: str, run_root: str = "runs", force: bool = Fals
     if not workflow_id:
         raise HTTPException(status_code=422, detail="workflow_id not found in run_summary")
 
-    manuscript_md = summary.get("artifacts", {}).get("manuscript_md")
-    manuscript_tex = summary.get("artifacts", {}).get("manuscript_tex")
-    if manuscript_md and pathlib.Path(str(manuscript_md)).exists():
-        cfg = _load_configs()[1]
-        mode = getattr(getattr(cfg, "gates", None), "manuscript_contract_mode", "strict")
-        _extra_paths: list[str] = []
-        for _k in ("protocol", "prospero_form_md"):
-            _p = summary.get("artifacts", {}).get(_k)
-            if _p and pathlib.Path(str(_p)).is_file():
-                _extra_paths.append(str(_p))
-        _tex = str(manuscript_tex) if manuscript_tex and pathlib.Path(str(manuscript_tex)).is_file() else None
-        scorecard = await compute_readiness_scorecard(
-            db_path=db_path,
-            workflow_id=str(workflow_id),
-            manuscript_md_path=str(manuscript_md),
-            manuscript_tex_path=_tex,
-            extra_artifact_paths=_extra_paths,
-            contract_mode=mode,
-            abstract_word_limit=cfg.ieee_export.max_abstract_words,
-            abstract_minimum_words=cfg.writing.abstract_trim_floor_words,
-        )
-        if not scorecard.submission_ready:
-            raise HTTPException(
-                status_code=422,
-                detail={
-                    "message": "Readiness scorecard blocked export.",
-                    "mode": mode,
-                    "blocking_reasons": scorecard.blocking_reasons,
-                    "checks": [c.model_dump() for c in scorecard.checks],
-                },
-            )
     # Fast path: if key files are already present and caller did not force a rebuild,
     # return existing paths immediately (avoids re-running pdflatex and DOCX generation).
     if not force:

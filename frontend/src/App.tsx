@@ -45,7 +45,7 @@ import type { RunTab, SelectedRun } from "@/views/RunView"
 
 const SetupView = lazy(() => import("@/views/SetupView").then((m) => ({ default: m.SetupView })))
 
-const VALID_TABS = new Set<RunTab>(["activity", "results", "database", "cost", "config", "review-screening", "references", "quality"])
+const VALID_TABS = new Set<RunTab>(["activity", "results", "database", "cost", "config", "review-screening", "references"])
 
 // ---------------------------------------------------------------------------
 // Top-level error boundary: catches render-time crashes in any child view so
