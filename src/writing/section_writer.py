@@ -9,7 +9,7 @@ from dataclasses import dataclass
 from src.llm.provider import LLMProvider
 from src.llm.pydantic_client import PydanticAIClient
 from src.models import ReviewConfig, SettingsConfig
-from src.models.writing import SectionBlock, StructuredSectionDraft
+from src.models.writing import SectionBlock, StructuredAbstractOutput, StructuredSectionDraft
 from src.writing.renderers import render_section_markdown
 
 logger = logging.getLogger(__name__)
@@ -130,6 +130,37 @@ class SectionWriter:
             parts.append(f"\nWord limit: {word_limit} words.")
         return "\n".join(parts)
 
+    def _build_structured_abstract_prompt(
+        self,
+        context: str,
+        *,
+        min_words: int,
+        max_words: int,
+    ) -> str:
+        parts = [
+            "Role: Academic writer for a systematic review.",
+            f"Topic: {self.review.research_question}",
+            "Section: abstract",
+            "",
+            *self._domain_guidance_lines(),
+            "",
+            "You must output a structured abstract as JSON matching the schema.",
+            "Return only JSON. Do not return markdown outside JSON fields.",
+            "Do not use inline citation tokens such as [AuthorYear] in any field.",
+            f"The combined word count of background+objectives+methods+results+conclusions must be between {min_words} and {max_words}.",
+            "Write each field as concise, publication-ready sentences with no placeholders.",
+            "keywords must contain 3-8 concise terms relevant to the review topic.",
+            "",
+            "Context:",
+            context,
+            "",
+            PROHIBITED_PHRASES,
+        ]
+        if self.citation_catalog:
+            parts.append("")
+            parts.append(get_citation_catalog_constraint(self.citation_catalog))
+        return "\n".join(parts)
+
     def _catalog_citekeys(self) -> list[str]:
         keys: list[str] = []
         for line in self.citation_catalog.splitlines():
@@ -227,6 +258,11 @@ class SectionWriter:
         agent_name: str = "writing",
     ) -> tuple[StructuredSectionDraft, SectionWriteMetadata]:
         """Generate a structured section IR using schema-constrained output."""
+        if section == "abstract":
+            return await self._write_abstract_structured_async(
+                context=context,
+                agent_name=agent_name,
+            )
         prompt = self._build_structured_section_prompt(section, context, word_limit)
         agent_cfg = (
             self.settings.agents.get(agent_name)
@@ -275,6 +311,89 @@ class SectionWriter:
         if not structured.section_key:
             structured.section_key = section
         return structured, metadata
+
+    async def _write_abstract_structured_async(
+        self,
+        *,
+        context: str,
+        agent_name: str,
+    ) -> tuple[StructuredSectionDraft, SectionWriteMetadata]:
+        agent_cfg = (
+            self.settings.agents.get(agent_name)
+            or self.settings.agents.get("writing")
+            or self.settings.agents.get("extraction")
+        )
+        if not agent_cfg:
+            agent_cfg = next(iter(self.settings.agents.values()))
+        full_model = agent_cfg.model
+
+        min_words = int(getattr(getattr(self.settings, "writing", None), "abstract_trim_floor_words", 210))
+        max_words = int(getattr(getattr(self.settings, "ieee_export", None), "max_abstract_words", 250))
+        prompt = self._build_structured_abstract_prompt(context, min_words=min_words, max_words=max_words)
+        retry_prompt = prompt
+
+        total_tokens_in = 0
+        total_tokens_out = 0
+        total_cache_write = 0
+        total_cache_read = 0
+        elapsed_ms = 0
+
+        client = PydanticAIClient(timeout_seconds=self._timeout_seconds)
+        last_error: Exception | None = None
+        for attempt in range(2):
+            started = time.perf_counter()
+            try:
+                parsed, tok_in, tok_out, cache_write, cache_read, retries = await client.complete_validated(
+                    retry_prompt,
+                    model=full_model,
+                    temperature=agent_cfg.temperature,
+                    response_model=StructuredAbstractOutput,
+                )
+                total_tokens_in += tok_in
+                total_tokens_out += tok_out
+                total_cache_write += cache_write
+                total_cache_read += cache_read
+                elapsed_ms += int((time.perf_counter() - started) * 1000)
+                if retries > 0:
+                    logger.info(
+                        "Abstract structured output succeeded after %d schema retry(ies).",
+                        retries,
+                    )
+                normalized = parsed.normalized()
+                normalized.validate_word_band(min_words=min_words, max_words=max_words)
+                structured = normalized.to_section_draft()
+                cost_usd = LLMProvider.estimate_cost_usd(
+                    full_model,
+                    total_tokens_in,
+                    total_tokens_out,
+                    total_cache_write,
+                    total_cache_read,
+                )
+                metadata = SectionWriteMetadata(
+                    model=full_model,
+                    tokens_in=total_tokens_in,
+                    tokens_out=total_tokens_out,
+                    cost_usd=cost_usd,
+                    latency_ms=elapsed_ms,
+                    cache_read_tokens=total_cache_read,
+                    cache_write_tokens=total_cache_write,
+                )
+                return structured, metadata
+            except Exception as exc:
+                elapsed_ms += int((time.perf_counter() - started) * 1000)
+                last_error = exc
+                if attempt == 0:
+                    retry_prompt = (
+                        prompt
+                        + "\n\nRETRY: Previous output failed abstract word-band or schema constraints. "
+                        + f"Ensure body word count is strictly between {min_words} and {max_words}, include all fields, "
+                        + "and keep keywords concise and non-empty."
+                    )
+                    continue
+                raise RuntimeError(
+                    "Section 'abstract' failed structured output validation after bounded retries."
+                ) from exc
+        raise RuntimeError("Section 'abstract' failed structured output validation.") from last_error
 
     async def write_section_async(
         self,
