@@ -23,6 +23,7 @@ from src.models import (
     SectionQualityScore,
     SectionWriteResult,
     SettingsConfig,
+    StructuredAbstractOutput,
     StructuredSectionDraft,
 )
 from src.writing.citation_grounding import extract_and_strip_inline_citekeys, extract_used_citekeys
@@ -1588,6 +1589,59 @@ def _normalize_structured_abstract_fields(content: str) -> str:
     return normalized
 
 
+def parse_structured_abstract_markdown(content: str) -> StructuredAbstractOutput:
+    """Parse structured abstract markdown into typed payload."""
+    text = str(content or "").strip()
+
+    def _extract(field_pattern: str) -> str:
+        match = re.search(
+            rf"\*\*{field_pattern}:\*\*\s*(.*?)(?=(?:\s+\*\*[A-Za-z][A-Za-z ]*:\*\*|$))",
+            text,
+            flags=re.IGNORECASE | re.DOTALL,
+        )
+        return re.sub(r"\s+", " ", (match.group(1) if match else "").strip())
+
+    background = _extract("Background")
+    objectives = _extract("Objectives")
+    methods = _extract("Methods")
+    results = _extract("Results")
+    conclusions = _extract("Conclusions")
+    if not conclusions:
+        conclusions = _extract("Conclusion")
+    keywords_value = _extract("Keywords")
+    keywords = [kw.strip(" .,:;") for kw in keywords_value.split(",") if kw.strip(" .,:;")]
+
+    payload = StructuredAbstractOutput(
+        background=background,
+        objectives=objectives,
+        methods=methods,
+        results=results,
+        conclusions=conclusions,
+        keywords=keywords,
+    )
+    return payload.normalized()
+
+
+def validate_structured_abstract_markdown_band(
+    content: str,
+    *,
+    min_words: int,
+    max_words: int,
+) -> tuple[bool, str]:
+    """Return validity and reason for structured abstract markdown."""
+    try:
+        parsed = parse_structured_abstract_markdown(content)
+        parsed.validate_word_band(min_words=min_words, max_words=max_words)
+    except Exception as exc:
+        return False, str(exc)
+    return True, ""
+
+
+def canonicalize_structured_abstract_markdown(content: str) -> str:
+    """Return canonical multiline structured abstract markdown."""
+    return parse_structured_abstract_markdown(content).to_markdown()
+
+
 def _apply_structured_grounding_patches(
     section: str,
     draft: StructuredSectionDraft,
@@ -1602,7 +1656,19 @@ def _apply_structured_grounding_patches(
         minimum_words = int(getattr(getattr(settings, "writing", None), "abstract_trim_floor_words", 210))
 
         def _transform(content: str) -> str:
-            patched = _ensure_structured_abstract(content, review.research_question)
+            stripped = _strip_abstract_citation_markup(content)
+            normalized = _normalize_structured_abstract_fields(stripped)
+            has_all_fields = all(
+                bool(re.search(rf"\*\*{re.escape(field)}:\*\*", normalized, flags=re.IGNORECASE))
+                for field in _ABSTRACT_FIELDS
+            )
+            has_minimum_words = _abstract_body_word_count(normalized) >= minimum_words
+            if has_all_fields and has_minimum_words:
+                return normalized
+            logger.warning(
+                "Abstract structured output missed required field/word-band checks; applying legacy abstract repair fallback."
+            )
+            patched = _ensure_structured_abstract(normalized, review.research_question)
             patched = _patch_abstract_grounding(
                 patched,
                 grounding,
@@ -1613,41 +1679,9 @@ def _apply_structured_grounding_patches(
             return _normalize_structured_abstract_fields(patched)
 
         return _apply_markdown_transform_to_structured(section, draft, valid_citekeys, _transform)
-    if section == "introduction":
-        return _apply_markdown_transform_to_structured(
-            section,
-            draft,
-            valid_citekeys,
-            lambda content: _patch_introduction_grounding(content, review),
-        )
-    if section == "methods":
-        return _apply_markdown_transform_to_structured(
-            section,
-            draft,
-            valid_citekeys,
-            lambda content: _patch_methods_grounding(content, grounding, review),
-        )
-    if section == "results":
-        return _apply_markdown_transform_to_structured(
-            section,
-            draft,
-            valid_citekeys,
-            lambda content: _patch_results_grounding(content, grounding),
-        )
-    if section == "discussion":
-        return _apply_markdown_transform_to_structured(
-            section,
-            draft,
-            valid_citekeys,
-            lambda content: _patch_discussion_grounding(content, grounding),
-        )
-    if section == "conclusion":
-        return _apply_markdown_transform_to_structured(
-            section,
-            draft,
-            valid_citekeys,
-            lambda content: _patch_conclusion_grounding(content, grounding),
-        )
+    if section in {"introduction", "methods", "results", "discussion", "conclusion"}:
+        # Keep narrative content source-driven and avoid deterministic sentence injection.
+        return draft
     return draft
 
 
@@ -1692,14 +1726,18 @@ def _render_and_sanitize(
 
 
 def _abstract_body_word_count(content: str) -> int:
-    matches = re.findall(
-        r"\*\*(Background|Objectives|Methods|Results|Conclusions):\*\*\s*(.*?)(?=(?:\n\*\*[A-Za-z][A-Za-z ]*:\*\*|$))",
-        str(content or ""),
-        flags=re.IGNORECASE | re.DOTALL,
-    )
-    body = " ".join(text for field, text in matches if field.lower() != "keywords")
-    body = re.sub(r"\s+", " ", body).strip()
-    return len(body.split())
+    try:
+        parsed = parse_structured_abstract_markdown(content)
+        return parsed.body_word_count()
+    except Exception:
+        matches = re.findall(
+            r"\*\*(Background|Objectives|Methods|Results|Conclusions?):\*\*\s*(.*?)(?=(?:\s+\*\*[A-Za-z][A-Za-z ]*:\*\*|$))",
+            str(content or ""),
+            flags=re.IGNORECASE | re.DOTALL,
+        )
+        body = " ".join(text for _field, text in matches)
+        body = re.sub(r"\s+", " ", body).strip()
+        return len(body.split())
 
 
 def _append_abstract_field_sentence(content: str, field: str, sentence: str) -> str:
@@ -1826,7 +1864,7 @@ def _build_minimum_compliant_abstract(
     if keywords_value[-1] not in ".!?":
         keywords_value = f"{keywords_value}."
     candidate = (
-        f"**Background:** QR-code-enabled digital vaccine record systems may improve record continuity, reporting, and service coordination in rural settings where paper-based workflows can fragment vaccination histories. This review evaluated whether these systems improve vaccination coverage, tracking efficiency, and health system integration relative to traditional records.\n"
+        f"**Background:** This systematic review synthesized available evidence relevant to {research_question}, with emphasis on methodological transparency, evidence consistency, and practical interpretation.\n"
         f"**Objectives:** The objective of this review was to examine {research_question}.\n"
         f"**Methods:** Searches of {databases} were conducted on {grounding.search_date}{search_window_clause}. We screened {grounding.total_screened} records, sought {fulltext_sought} full-text reports, did not retrieve {fulltext_not_retrieved}, assessed {fulltext_assessed} reports for eligibility, and included {total_included} studies. {screening_method}{rob_sentence}\n"
         f"**Results:** Included evidence comprised {design_summary}. The overall direction of evidence was {direction}, with reported benefits concentrated in selected implementation and usability outcomes rather than a uniform effect across all domains.{participant_sentence} Heterogeneity in design, setting, and outcome definitions limited direct comparability and prevented strong pooled inference.{abstract_only_sentence}\n"

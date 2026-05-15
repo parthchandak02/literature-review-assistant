@@ -39,6 +39,22 @@ def test_extract_used_citekeys_includes_placeholder_patterns() -> None:
     assert extract_used_citekeys(text) == ["Ref141", "Paper_ab12cd", "Smith2023"]
 
 
+def test_extract_used_citekeys_supports_grouped_bracket_lists() -> None:
+    text = "Evidence includes [Smith2023, Jones2024, Patel2026] and [Ref141, Paper_ab12cd]."
+    assert extract_used_citekeys(text) == [
+        "Smith2023",
+        "Jones2024",
+        "Patel2026",
+        "Ref141",
+        "Paper_ab12cd",
+    ]
+
+
+def test_extract_used_citekeys_ignores_numeric_group_entries() -> None:
+    text = "Rendered IEEE cites [1, 2, 3] plus unresolved [Smith2023, 4]."
+    assert extract_used_citekeys(text) == ["Smith2023"]
+
+
 # ---------------------------------------------------------------------------
 # _fuzzy_match_citekey
 # ---------------------------------------------------------------------------

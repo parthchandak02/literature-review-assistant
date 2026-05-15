@@ -20,6 +20,7 @@ _BRACKET_BLOCK_RE = re.compile(r"\[([^\[\]\n]{1,120})\]")
 # - canonical AuthorYear keys: [Smith2023], [DeVries2021a]
 # - placeholder fallback keys: [Ref141], [Paper_ab12cd]
 _CITEKEY_RE = re.compile(r"\[((?:[A-Za-z][A-Za-z0-9_\-']+\d{4}[a-z]?|Ref\d+|Paper_[A-Za-z0-9_\-]+))\]")
+_CITEKEY_TOKEN_RE = re.compile(r"^(?:[A-Za-z][A-Za-z0-9_\-']+\d{4}[a-z]?|Ref\d+|Paper_[A-Za-z0-9_\-]+)$")
 _NUMERIC_CITATION_RE = re.compile(r"^\d+$")
 _PLACEHOLDER_CITEKEY_RE = re.compile(r"^(Ref\d+|Paper_[A-Za-z0-9_\-]+)$")
 _UUID_LIKE_BRACKET_RE = re.compile(r"\[(?:[0-9a-f]{7,}(?:-[0-9a-f]{2,})+)\]", re.IGNORECASE)
@@ -35,8 +36,29 @@ def extract_bracket_blocks(text: str) -> list[str]:
 
 
 def extract_used_citekeys(text: str) -> list[str]:
-    """Extract all citekeys in [AuthorYear] format used in a text."""
-    return list(dict.fromkeys(_CITEKEY_RE.findall(text)))
+    """Extract citekeys from single or grouped bracket citations in stable order."""
+    raw = str(text or "")
+    ordered: list[str] = []
+    seen: set[str] = set()
+
+    # Fast path for single-token bracket forms.
+    for citekey in _CITEKEY_RE.findall(raw):
+        if citekey in seen:
+            continue
+        seen.add(citekey)
+        ordered.append(citekey)
+
+    # Grouped citations: [Smith2023, Jones2024]
+    for block in extract_bracket_blocks(raw):
+        for token in block.split(","):
+            candidate = token.strip()
+            if not _CITEKEY_TOKEN_RE.fullmatch(candidate):
+                continue
+            if candidate in seen:
+                continue
+            seen.add(candidate)
+            ordered.append(candidate)
+    return ordered
 
 
 def extract_numeric_citation_refs(text: str) -> list[str]:

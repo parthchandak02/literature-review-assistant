@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from datetime import UTC, datetime
 from typing import Literal
 
@@ -25,6 +26,102 @@ class StructuredSectionDraft(BaseModel):
     required_subsections: list[str] = Field(default_factory=list)
     cited_keys: list[str] = Field(default_factory=list)
     blocks: list[SectionBlock] = Field(default_factory=list)
+
+
+class StructuredAbstractOutput(BaseModel):
+    """Typed structured abstract payload produced at generation time."""
+
+    background: str = Field(min_length=20, max_length=900)
+    objectives: str = Field(min_length=20, max_length=900)
+    methods: str = Field(min_length=30, max_length=1200)
+    results: str = Field(min_length=30, max_length=1400)
+    conclusions: str = Field(min_length=20, max_length=1000)
+    keywords: list[str] = Field(min_length=3, max_length=8)
+
+    @staticmethod
+    def _normalize_sentence(text: str) -> str:
+        cleaned = re.sub(r"\s+", " ", str(text or "")).strip()
+        if not cleaned:
+            return ""
+        cleaned = re.sub(r"\s+([,.;:])", r"\1", cleaned)
+        return cleaned if cleaned[-1] in ".!?" else f"{cleaned}."
+
+    @staticmethod
+    def _normalize_keyword(keyword: str) -> str:
+        cleaned = re.sub(r"\s+", " ", str(keyword or "")).strip(" ,.;:")
+        return cleaned
+
+    def normalized(self) -> "StructuredAbstractOutput":
+        """Return a normalized copy with punctuation/whitespace normalization."""
+        deduped_keywords: list[str] = []
+        seen: set[str] = set()
+        for keyword in self.keywords:
+            normalized = self._normalize_keyword(keyword)
+            if not normalized:
+                continue
+            lower = normalized.lower()
+            if lower in seen:
+                continue
+            seen.add(lower)
+            deduped_keywords.append(normalized)
+        return StructuredAbstractOutput(
+            background=self._normalize_sentence(self.background),
+            objectives=self._normalize_sentence(self.objectives),
+            methods=self._normalize_sentence(self.methods),
+            results=self._normalize_sentence(self.results),
+            conclusions=self._normalize_sentence(self.conclusions),
+            keywords=deduped_keywords,
+        )
+
+    def body_word_count(self) -> int:
+        body = " ".join(
+            [
+                self.background,
+                self.objectives,
+                self.methods,
+                self.results,
+                self.conclusions,
+            ]
+        )
+        return len(re.findall(r"\b[\w'-]+\b", body))
+
+    def validate_word_band(self, *, min_words: int, max_words: int) -> None:
+        """Raise ValueError when body words are outside configured abstract band."""
+        if min_words < 0 or max_words <= 0 or min_words > max_words:
+            raise ValueError(f"Invalid abstract word band: min={min_words}, max={max_words}")
+        word_count = self.body_word_count()
+        if word_count < min_words:
+            raise ValueError(
+                f"Structured abstract under minimum word requirement: {word_count} < {min_words}"
+            )
+        if word_count > max_words:
+            raise ValueError(
+                f"Structured abstract exceeds maximum word requirement: {word_count} > {max_words}"
+            )
+        if len(self.keywords) < 3:
+            raise ValueError("Structured abstract must include at least 3 keywords.")
+
+    def to_markdown(self) -> str:
+        """Render deterministic structured abstract markdown lines."""
+        normalized = self.normalized()
+        keywords_text = ", ".join(normalized.keywords)
+        if keywords_text and keywords_text[-1] not in ".!?":
+            keywords_text = f"{keywords_text}."
+        lines = [
+            f"**Background:** {normalized.background}",
+            f"**Objectives:** {normalized.objectives}",
+            f"**Methods:** {normalized.methods}",
+            f"**Results:** {normalized.results}",
+            f"**Conclusions:** {normalized.conclusions}",
+            f"**Keywords:** {keywords_text}",
+        ]
+        return "\n".join(lines)
+
+    def to_section_draft(self) -> StructuredSectionDraft:
+        """Project structured abstract payload to section IR blocks."""
+        markdown = self.to_markdown()
+        blocks = [SectionBlock(block_type="paragraph", text=line) for line in markdown.splitlines() if line.strip()]
+        return StructuredSectionDraft(section_key="abstract", blocks=blocks, cited_keys=[])
 
 
 class StructuredManuscriptDraft(BaseModel):
