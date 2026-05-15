@@ -91,6 +91,9 @@ class CandidatePaper(BaseModel):
     country: str | None = None
     journal: str | None = None
     display_label: str | None = None
+    source_quality_tier: str | None = None
+    source_peer_reviewed: bool | None = None
+    source_open_index: bool | None = None
 
 
 def compute_display_label(paper: CandidatePaper) -> str:
@@ -161,3 +164,5 @@ class SearchResult(BaseModel):
     limits_applied: str | None = None
     records_retrieved: int
     papers: list[CandidatePaper]
+    diagnostic_cause: str | None = None
+    query_variant: str | None = "primary"

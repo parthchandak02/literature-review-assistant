@@ -45,11 +45,24 @@ exclusion_criteria:
 date_range_start: 2000
 date_range_end: 2026
 
+# Optional source preset:
+# - general_open (open APIs first, quality-focused)
+# - general_balanced (open + licensed indexers)
+# - ai_agentic (CS/AI workflow coverage)
+# - biomedical (PubMed-first plus registry support)
+# database_bundle: "general_open"
+
 target_databases:
   - openalex
   - pubmed
   - semantic_scholar
+  - crossref
+  - arxiv
+  - dblp
+  - europepmc
+  - core
   - scopus
+  - web_of_science
   - ieee_xplore
   - clinicaltrials_gov
 
@@ -83,4 +96,7 @@ author_name: ""  # Fill in: full name of the corresponding/first author (used in
 #   ieee_xplore: "(\"keyword\") AND (\"application domain\")"
 #   semantic_scholar: "keyword intervention outcome population"
 #   openalex: "keyword intervention outcome effectiveness"
+#   dblp: "keyword intervention outcome"
+#   europepmc: "keyword intervention outcome"
+#   core: "keyword intervention outcome"
 #   clinicaltrials_gov: "\"keyword\" OR \"intervention\" OR \"outcome\""

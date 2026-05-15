@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from src.models import CandidatePaper, ReviewConfig, ScreeningDecision
+from src.search.source_quality import screening_quality_hint
 
 
 def _topic_header(review: ReviewConfig, role: str, goal: str, backstory: str) -> str:
@@ -95,6 +96,7 @@ def _paper_block(paper: CandidatePaper, stage: str, full_text: str | None) -> st
         f"Title: {paper.title}",
         f"Authors: {', '.join(paper.authors)}",
         f"Abstract: {paper.abstract or ''}",
+        screening_quality_hint(paper),
     ]
     if stage == "fulltext":
         lines.append(f"Full Text (truncated to 8000 chars): {(full_text or '')[:8000]}")

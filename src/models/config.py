@@ -6,9 +6,74 @@ import re
 import uuid
 from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from src.models.enums import ReviewType
+
+SUPPORTED_SEARCH_DATABASES: tuple[str, ...] = (
+    "openalex",
+    "pubmed",
+    "semantic_scholar",
+    "scopus",
+    "ieee_xplore",
+    "web_of_science",
+    "wos",
+    "clinicaltrials_gov",
+    "clinicaltrials",
+    "arxiv",
+    "crossref",
+    "embase",
+    "perplexity_search",
+    "dblp",
+    "core",
+    "europepmc",
+)
+
+DATABASE_BUNDLES: dict[str, list[str]] = {
+    "general_open": [
+        "openalex",
+        "pubmed",
+        "semantic_scholar",
+        "crossref",
+        "arxiv",
+        "dblp",
+        "core",
+        "europepmc",
+    ],
+    "general_balanced": [
+        "openalex",
+        "pubmed",
+        "semantic_scholar",
+        "crossref",
+        "arxiv",
+        "dblp",
+        "core",
+        "europepmc",
+        "scopus",
+        "web_of_science",
+        "ieee_xplore",
+    ],
+    "ai_agentic": [
+        "dblp",
+        "arxiv",
+        "openalex",
+        "semantic_scholar",
+        "crossref",
+        "ieee_xplore",
+        "scopus",
+        "web_of_science",
+    ],
+    "biomedical": [
+        "pubmed",
+        "europepmc",
+        "openalex",
+        "semantic_scholar",
+        "crossref",
+        "clinicaltrials_gov",
+        "scopus",
+        "web_of_science",
+    ],
+}
 
 
 class PICOConfig(BaseModel):
@@ -94,6 +159,13 @@ class ReviewConfig(BaseModel):
     exclusion_criteria: list[str] = Field(min_length=1)
     date_range_start: int
     date_range_end: int
+    database_bundle: Literal["general_open", "general_balanced", "ai_agentic", "biomedical"] | None = Field(
+        default=None,
+        description=(
+            "Optional preset for recommended source bundles. "
+            "When provided, the runtime appends any missing bundle connectors to target_databases."
+        ),
+    )
     target_databases: list[str] = Field(min_length=1)
     target_sections: list[str] = Field(
         default_factory=lambda: [
@@ -118,7 +190,11 @@ class ReviewConfig(BaseModel):
     )
     search_overrides: dict[str, str] | None = Field(
         default=None,
-        description="Optional per-database query overrides. Keys: openalex, pubmed, arxiv, ieee_xplore, semantic_scholar, crossref, perplexity_search. Omit a database to use auto-generated query.",
+        description=(
+            "Optional per-database query overrides. Supported keys include: "
+            "openalex, pubmed, arxiv, ieee_xplore, semantic_scholar, crossref, perplexity_search, "
+            "scopus, web_of_science, embase, clinicaltrials_gov, dblp, core, europepmc."
+        ),
     )
     living_review: bool = Field(
         default=False,
@@ -163,12 +239,57 @@ class ReviewConfig(BaseModel):
         ),
     )
 
+    @field_validator("target_databases")
+    @classmethod
+    def _validate_target_databases(cls, value: list[str]) -> list[str]:
+        normalized: list[str] = []
+        for db in value:
+            item = str(db or "").strip().lower()
+            if item == "clinicaltrials":
+                item = "clinicaltrials_gov"
+            if item == "wos":
+                item = "web_of_science"
+            if not item:
+                continue
+            if item not in SUPPORTED_SEARCH_DATABASES:
+                supported = ", ".join(sorted({x for x in SUPPORTED_SEARCH_DATABASES if x not in {"wos", "clinicaltrials"}}))
+                raise ValueError(f"Unsupported target_databases entry '{db}'. Supported: {supported}")
+            if item not in normalized:
+                normalized.append(item)
+        if not normalized:
+            raise ValueError("target_databases must contain at least one supported connector")
+        return normalized
+
+    @field_validator("search_overrides")
+    @classmethod
+    def _validate_search_overrides(cls, value: dict[str, str] | None) -> dict[str, str] | None:
+        if value is None:
+            return None
+        cleaned: dict[str, str] = {}
+        for raw_key, raw_query in value.items():
+            key = str(raw_key or "").strip().lower()
+            if key == "clinicaltrials":
+                key = "clinicaltrials_gov"
+            if key == "wos":
+                key = "web_of_science"
+            if key not in SUPPORTED_SEARCH_DATABASES:
+                raise ValueError(f"search_overrides key '{raw_key}' is not a supported connector")
+            cleaned[key] = str(raw_query or "").strip()
+        return cleaned
+
     def expert_topic(self) -> str:
         return (
             _compact_phrase(self.domain_expert.domain_summary)
             or _compact_phrase(self.scope)
             or _compact_phrase(self.research_question)
         )
+
+    def resolved_target_databases(self) -> list[str]:
+        if not self.database_bundle:
+            return list(self.target_databases)
+        bundle = DATABASE_BUNDLES.get(self.database_bundle, [])
+        merged = _dedupe_terms([*self.target_databases, *bundle])
+        return [db for db in merged if db in SUPPORTED_SEARCH_DATABASES]
 
     def expert_role_label(self) -> str:
         return _compact_phrase(self.domain_expert.expert_role) or f"Systematic review expert for {self.domain}"
@@ -806,7 +927,8 @@ class SearchConfig(BaseModel):
         default_factory=dict,
         description=(
             "Per-connector record limits. Keys must match connector names: "
-            "openalex, pubmed, arxiv, ieee_xplore, semantic_scholar, crossref, perplexity_search."
+            "openalex, pubmed, semantic_scholar, crossref, arxiv, dblp, core, europepmc, "
+            "scopus, web_of_science, ieee_xplore, embase, clinicaltrials_gov, perplexity_search."
         ),
     )
     citation_chasing_enabled: bool = Field(
@@ -834,6 +956,25 @@ class SearchConfig(BaseModel):
             "Each paper triggers 1-2 HTTP calls to Semantic Scholar and OpenAlex. "
             "Lower if rate-limit errors appear in the activity log."
         ),
+    )
+    quality_tier_weights: dict[str, float] = Field(
+        default_factory=lambda: {"high": 1.0, "medium": 0.7, "low": 0.4, "unknown": 0.5},
+        description=(
+            "Search-source quality tier weights used for soft ranking before screening. "
+            "Higher score sources are prioritized first but never hard-filtered out."
+        ),
+    )
+    peer_review_bonus: float = Field(
+        default=0.2,
+        ge=0.0,
+        le=2.0,
+        description="Additive score bonus when source is likely peer-reviewed.",
+    )
+    open_index_bonus: float = Field(
+        default=0.1,
+        ge=0.0,
+        le=2.0,
+        description="Additive score bonus for open index sources.",
     )
 
 
