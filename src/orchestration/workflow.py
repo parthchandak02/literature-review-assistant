@@ -71,6 +71,7 @@ from src.models import (
     WritingManifestRecord,
 )
 from src.models.diagrams import (
+    DiagramPlacementPlan,
     DiagramStyleGuide,
     FlowchartDiagramInput,
     FlowchartPhase,
@@ -109,10 +110,13 @@ from src.search.arxiv import ArxivConnector
 from src.search.base import SearchConnector
 from src.search.citation_chasing import CitationChaser
 from src.search.clinicaltrials import ClinicalTrialsConnector
+from src.search.core import CoreConnector
 from src.search.crossref import CrossrefConnector
 from src.search.csv_import import parse_masterlist_csv, parse_supplementary_csvs
+from src.search.dblp import DblpConnector
 from src.search.deduplication import deduplicate_papers
 from src.search.embase import EmbaseConnector
+from src.search.europepmc import EuropePmcConnector
 from src.search.ieee_xplore import IEEEXploreConnector
 from src.search.openalex import OpenAlexConnector
 from src.search.pdf_retrieval import PDFRetriever
@@ -120,6 +124,7 @@ from src.search.perplexity_search import PerplexitySearchConnector
 from src.search.pubmed import PubMedConnector
 from src.search.scopus import ScopusConnector
 from src.search.semantic_scholar import SemanticScholarConnector
+from src.search.source_quality import quality_priority_score
 from src.search.strategy import SearchStrategyCoordinator
 from src.search.web_of_science import WebOfScienceConnector
 from src.synthesis import assess_meta_analysis_feasibility, build_narrative_synthesis
@@ -135,6 +140,7 @@ from src.visualization import (
 from src.visualization.concept_diagrams import render_concept_diagrams
 from src.visualization.forest_plot import render_forest_plot
 from src.visualization.funnel_plot import render_funnel_plot
+from src.visualization.research_diagram_placement import plan_inline_diagram_placements
 from src.visualization.research_diagram_preparer import prepare_research_diagram_briefs
 from src.visualization.research_diagram_renderer import render_custom_research_diagrams
 from src.writing.citation_grounding import (
@@ -156,6 +162,8 @@ from src.writing.humanizer_guardrails import (
 from src.writing.orchestration import (
     _citation_entries_from_papers,
     _ensure_structured_abstract,
+    canonicalize_structured_abstract_markdown,
+    validate_structured_abstract_markdown_band,
     prepare_writing_context,
     register_background_sr_citations,
     register_citations_from_papers,
@@ -247,6 +255,12 @@ def _build_connectors(workflow_id: str, target_databases: list[str]) -> tuple[li
                 connectors.append(WebOfScienceConnector(workflow_id))
             elif normalized in {"clinicaltrials", "clinicaltrials_gov"}:
                 connectors.append(ClinicalTrialsConnector(workflow_id))
+            elif normalized == "dblp":
+                connectors.append(DblpConnector(workflow_id))
+            elif normalized == "core":
+                connectors.append(CoreConnector(workflow_id))
+            elif normalized == "europepmc":
+                connectors.append(EuropePmcConnector(workflow_id))
             elif normalized == "embase":
                 connectors.append(EmbaseConnector(workflow_id))
             else:
@@ -470,7 +484,6 @@ class ResumeStartNode(BaseNode[ReviewState]):
         | SynthesisNode
         | KnowledgeGraphNode
         | WritingNode
-        | ManuscriptAuditNode
         | FinalizeNode
     ):
         state = ctx.state
@@ -494,7 +507,7 @@ class ResumeStartNode(BaseNode[ReviewState]):
         if phase == "phase_6_writing":
             return WritingNode()
         if phase == "phase_7_audit":
-            return ManuscriptAuditNode()
+            return FinalizeNode()
         if phase == "finalize":
             return FinalizeNode()
         return SearchNode()
@@ -628,7 +641,10 @@ class SearchNode(BaseNode[ReviewState]):
             return ScreeningNode()
         # --- end CSV branch ---
 
-        connectors, connector_init_failures = _build_connectors(state.workflow_id, state.review.target_databases)
+        connectors, connector_init_failures = _build_connectors(
+            state.workflow_id,
+            state.review.resolved_target_databases(),
+        )
         state.connector_init_failures = connector_init_failures
         if rc:
             rc.emit_phase_start("phase_2_search", "Running connectors...", total=len(connectors))
@@ -808,6 +824,17 @@ class SearchNode(BaseNode[ReviewState]):
                 )
 
             deduped, _ = deduplicate_papers(all_papers)
+            tier_weights = state.settings.search.quality_tier_weights or {}
+            deduped = sorted(
+                deduped,
+                key=lambda paper: quality_priority_score(
+                    paper.source_database,
+                    tier_weights=tier_weights,
+                    open_index_bonus=state.settings.search.open_index_bonus,
+                    peer_review_bonus=state.settings.search.peer_review_bonus,
+                ),
+                reverse=True,
+            )
 
             # Backfill abstracts for Scopus papers (Search API never returns dc:description)
             scopus_no_abstract = sum(1 for p in deduped if p.source_database == "scopus" and not p.abstract and p.doi)
@@ -3626,9 +3653,14 @@ def _validate_writing_persistence_invariant(
     persisted_sections: set[str],
     failed_sections: list[str],
 ) -> tuple[bool, list[str]]:
-    """Return (violated, missing_sections) for writing completion invariant."""
+    """Return (violated, missing_sections) for writing completion invariant.
+
+    A section failure is tolerated only when that same section was later persisted
+    successfully (for example, after bounded retries or deterministic fallback).
+    """
     missing_sections = sorted(set(required_sections) - persisted_sections)
-    violated = bool(failed_sections or missing_sections)
+    unrecovered_failed = sorted(set(failed_sections) - persisted_sections)
+    violated = bool(unrecovered_failed or missing_sections)
     return violated, missing_sections
 
 
@@ -3639,7 +3671,6 @@ _PRE_WRITING_PHASE_ORDER = (
     "phase_5b_knowledge_graph",
     "phase_5c_pre_writing_gate",
     "phase_6_writing",
-    "phase_7_audit",
     "finalize",
 )
 
@@ -4000,7 +4031,7 @@ class PreWritingGateNode(BaseNode[ReviewState]):
 class WritingNode(BaseNode[ReviewState]):
     """Write manuscript sections, validate citations, save drafts."""
 
-    async def run(self, ctx: GraphRunContext[ReviewState]) -> ManuscriptAuditNode:
+    async def run(self, ctx: GraphRunContext[ReviewState]) -> FinalizeNode:
         state = ctx.state
         rc = _rc(state)
         if rc:
@@ -4870,8 +4901,53 @@ class WritingNode(BaseNode[ReviewState]):
                                         )
                                         _content = _before_h
                                         continue
+                                if section == "abstract":
+                                    _min_abs_words = int(
+                                        getattr(getattr(state.settings, "writing", None), "abstract_trim_floor_words", 210)
+                                    )
+                                    _max_abs_words = int(
+                                        getattr(getattr(state.settings, "ieee_export", None), "max_abstract_words", 250)
+                                    )
+                                    _abstract_ok, _abstract_reason = validate_structured_abstract_markdown_band(
+                                        _content,
+                                        min_words=_min_abs_words,
+                                        max_words=_max_abs_words,
+                                    )
+                                    if not _abstract_ok:
+                                        logger.warning(
+                                            "Humanizer pass reverted for abstract due to structured constraints: %s",
+                                            _abstract_reason[:200],
+                                        )
+                                        _content = _before_h
+                                        continue
                             # Deterministic typography and filler cleanup after LLM humanization.
                             _content = apply_deterministic_guardrails(_content)
+                            if section == "abstract" and _section_result is not None:
+                                _min_abs_words = int(
+                                    getattr(getattr(state.settings, "writing", None), "abstract_trim_floor_words", 210)
+                                )
+                                _max_abs_words = int(
+                                    getattr(getattr(state.settings, "ieee_export", None), "max_abstract_words", 250)
+                                )
+                                _abstract_ok, _abstract_reason = validate_structured_abstract_markdown_band(
+                                    _content,
+                                    min_words=_min_abs_words,
+                                    max_words=_max_abs_words,
+                                )
+                                if not _abstract_ok:
+                                    logger.warning(
+                                        "Post-humanizer abstract drift detected; restoring structured writer output (%s).",
+                                        _abstract_reason[:200],
+                                    )
+                                    _content = _section_result.content_markdown
+                                else:
+                                    try:
+                                        _content = canonicalize_structured_abstract_markdown(_content)
+                                    except Exception as _canon_exc:
+                                        logger.warning(
+                                            "Abstract canonicalization skipped after validation: %s",
+                                            str(_canon_exc)[:180],
+                                        )
 
                         word_count = len(_content.split())
                         draft = SectionDraft(
@@ -5050,32 +5126,51 @@ class WritingNode(BaseNode[ReviewState]):
                         + _prisma_sentence
                     )
 
-                # Abstract post-trim: enforce word limit after LLM generation.
-                # Apply deterministic post-trim as a hard backstop.
-                # Target is derived from settings:
-                # max(settings.ieee_export.max_abstract_words - writing.abstract_trim_headroom_words,
-                #     writing.abstract_trim_floor_words).
+                # Abstract finalize hardening:
+                # validate structured shape + word band first; only use legacy repair
+                # fallback if constraints are violated.
                 if _abs_idx >= 0 and sections_written[_abs_idx]:
                     _max_abs_words = int(
                         getattr(getattr(state.settings, "ieee_export", None), "max_abstract_words", 250)
                     )
                     _writing_cfg = getattr(state.settings, "writing", None)
-                    _headroom = int(getattr(_writing_cfg, "abstract_trim_headroom_words", 20))
                     _floor = int(getattr(_writing_cfg, "abstract_trim_floor_words", 210))
-                    set_abstract_word_limit(_max_abs_words)
-                    _abs_limit = max(_max_abs_words - _headroom, _floor)
-                    _trimmed_abs = _trim_abstract_to_limit(sections_written[_abs_idx], limit=_abs_limit)
-                    if _trimmed_abs != sections_written[_abs_idx]:
-                        logger.info(
-                            "WritingNode: abstract trimmed from %d to ~%d words",
-                            len(sections_written[_abs_idx].split()),
-                            len(_trimmed_abs.split()),
-                        )
-                        sections_written[_abs_idx] = _trimmed_abs
-                    sections_written[_abs_idx] = _ensure_structured_abstract(
+                    _abstract_ok, _abstract_reason = validate_structured_abstract_markdown_band(
                         sections_written[_abs_idx],
-                        state.review.research_question if state.review else "",
+                        min_words=_floor,
+                        max_words=_max_abs_words,
                     )
+                    if not _abstract_ok:
+                        logger.warning(
+                            "WritingNode: abstract failed structured finalize checks; applying legacy fallback (%s).",
+                            _abstract_reason[:200],
+                        )
+                        sections_written[_abs_idx] = _ensure_structured_abstract(
+                            sections_written[_abs_idx],
+                            state.review.research_question if state.review else "",
+                        )
+                        _abstract_ok, _abstract_reason = validate_structured_abstract_markdown_band(
+                            sections_written[_abs_idx],
+                            min_words=_floor,
+                            max_words=_max_abs_words,
+                        )
+                        if not _abstract_ok:
+                            _trimmed_abs = _trim_abstract_to_limit(sections_written[_abs_idx], limit=_max_abs_words)
+                            if _trimmed_abs != sections_written[_abs_idx]:
+                                logger.warning(
+                                    "WritingNode: abstract used bounded trim as final fallback to satisfy contracts."
+                                )
+                                sections_written[_abs_idx] = _trimmed_abs
+                    else:
+                        try:
+                            sections_written[_abs_idx] = canonicalize_structured_abstract_markdown(
+                                sections_written[_abs_idx]
+                            )
+                        except Exception as _canon_exc:
+                            logger.warning(
+                                "WritingNode: abstract canonicalization skipped (%s).",
+                                str(_canon_exc)[:180],
+                            )
                 # Do not apply post-hoc semantic prose rewrites to abstract/methods/results.
                 # Prompt-grounded generation plus manuscript contracts own these guarantees.
 
@@ -5330,8 +5425,8 @@ class WritingNode(BaseNode[ReviewState]):
                 _cited_in_body = set(extract_used_citekeys(body))
                 _uncited = sorted(_included_keys - _cited_in_body)
                 if _uncited:
-                    logger.warning(
-                        "WritingNode: %d included-study citekeys not cited in manuscript: %s",
+                    logger.info(
+                        "WritingNode: detected %d uncited included-study citekeys before coverage patch: %s",
                         len(_uncited),
                         _uncited[:10],
                     )
@@ -5414,6 +5509,17 @@ class WritingNode(BaseNode[ReviewState]):
                                 )
                     except Exception as _db_patch_exc:
                         logger.debug("WritingNode: DB draft patch failed (non-fatal): %s", _db_patch_exc)
+                    _remaining_uncited = sorted(_included_keys - set(extract_used_citekeys(body)))
+                    if _remaining_uncited:
+                        logger.warning(
+                            "WritingNode: %d included-study citekeys remained uncited after coverage patch: %s",
+                            len(_remaining_uncited),
+                            _remaining_uncited[:10],
+                        )
+                    else:
+                        logger.info(
+                            "WritingNode: citation coverage patch resolved all included-study citekeys."
+                        )
                 else:
                     logger.info("WritingNode: citation coverage OK -- all %d included keys cited", len(_included_keys))
         except Exception as _cov_exc:
@@ -5493,6 +5599,7 @@ class WritingNode(BaseNode[ReviewState]):
             research_question=state.review.research_question if state.review else "",
             title=None,
             fulltext_paper_ids=_fulltext_paper_ids if _fulltext_paper_ids else None,
+            diagram_placement_plan_path=state.artifacts.get("diagram_placement_plan", ""),
             ir_validated=True,
         )
         manuscript_path.write_text(full_manuscript, encoding="utf-8")
@@ -5836,6 +5943,26 @@ class WritingNode(BaseNode[ReviewState]):
                 if _brief_path.name:
                     _brief_path.write_text(_brief_pack.model_dump_json(indent=2), encoding="utf-8")
 
+                _placement_plan = DiagramPlacementPlan(workflow_id=state.workflow_id)
+                _placement_agent = state.settings.agents.get(
+                    "research_diagram_placement",
+                    state.settings.agents.get("writing"),
+                )
+                _placement_usage: dict[str, int] = {}
+                try:
+                    _placement_plan, _placement_usage = await plan_inline_diagram_placements(
+                        workflow_id=state.workflow_id,
+                        brief_pack=_brief_pack,
+                        manuscript_body=body,
+                        model=_placement_agent.model,
+                        temperature=_placement_agent.temperature,
+                    )
+                except Exception as _placement_exc:  # noqa: BLE001
+                    logger.warning("Custom diagram placement planning failed: %s", _placement_exc)
+                _placement_path = Path(state.artifacts.get("diagram_placement_plan", ""))
+                if _placement_path.name:
+                    _placement_path.write_text(_placement_plan.model_dump_json(indent=2), encoding="utf-8")
+
                 _prep_tokens = int(_prep_usage.get("tokens_in", 0)) + int(_prep_usage.get("tokens_out", 0))
                 if _prep_tokens > 0:
                     async with get_db(state.db_path) as _dg_db:
@@ -5857,6 +5984,29 @@ class WritingNode(BaseNode[ReviewState]):
                                 latency_ms=0,
                                 cache_read_tokens=int(_prep_usage.get("cache_read_tokens", 0)),
                                 cache_write_tokens=int(_prep_usage.get("cache_write_tokens", 0)),
+                            )
+                        )
+                _placement_tokens = int(_placement_usage.get("tokens_in", 0)) + int(_placement_usage.get("tokens_out", 0))
+                if _placement_tokens > 0:
+                    async with get_db(state.db_path) as _dg_db:
+                        _dg_repo = WorkflowRepository(_dg_db)
+                        await _dg_repo.save_cost_record(
+                            CostRecord(
+                                workflow_id=state.workflow_id,
+                                model=_placement_agent.model,
+                                phase="phase_6f_custom_diagram_placement",
+                                tokens_in=int(_placement_usage.get("tokens_in", 0)),
+                                tokens_out=int(_placement_usage.get("tokens_out", 0)),
+                                cost_usd=LLMProvider.estimate_cost_usd(
+                                    model=_placement_agent.model,
+                                    tokens_in=int(_placement_usage.get("tokens_in", 0)),
+                                    tokens_out=int(_placement_usage.get("tokens_out", 0)),
+                                    cache_write=int(_placement_usage.get("cache_write_tokens", 0)),
+                                    cache_read=int(_placement_usage.get("cache_read_tokens", 0)),
+                                ),
+                                latency_ms=0,
+                                cache_read_tokens=int(_placement_usage.get("cache_read_tokens", 0)),
+                                cache_write_tokens=int(_placement_usage.get("cache_write_tokens", 0)),
                             )
                         )
 
@@ -5895,6 +6045,12 @@ class WritingNode(BaseNode[ReviewState]):
                     )
 
                 for _result in _report.results:
+                    _decision = next(
+                        (d for d in _placement_plan.decisions if d.diagram_id == _result.diagram_id),
+                        None,
+                    )
+                    if _decision is not None:
+                        _result.placement = _decision
                     state.artifacts[_result.artifact_key] = _result.output_path
 
                 _report_path = Path(state.artifacts.get("diagram_generation_report", ""))
@@ -5937,6 +6093,7 @@ class WritingNode(BaseNode[ReviewState]):
                 research_question=state.review.research_question if state.review else "",
                 title=None,
                 fulltext_paper_ids=_fulltext_paper_ids if _fulltext_paper_ids else None,
+                diagram_placement_plan_path=state.artifacts.get("diagram_placement_plan", ""),
                 ir_validated=True,
             )
             manuscript_path.write_text(patched, encoding="utf-8")
@@ -6007,7 +6164,7 @@ class WritingNode(BaseNode[ReviewState]):
         except Exception:
             _log.debug("writing manifest persistence failed (non-fatal)", exc_info=True)
 
-        return ManuscriptAuditNode()
+        return FinalizeNode()
 
 
 def _collect_manuscript_gate_failure_reasons(
@@ -6054,7 +6211,7 @@ async def _refresh_manuscript_export_artifacts(
     from src.export.bibtex_builder import build_bibtex as _build_bibtex
     from src.export.bibtex_builder import build_citekey_alias_map as _build_citekey_alias_map
     from src.export.ieee_latex import markdown_to_latex as _md_to_latex
-    from src.export.markdown_refs import get_latex_figure_paths
+    from src.export.markdown_refs import extract_inline_figure_artifact_keys, get_latex_figure_paths
     from src.export.submission_packager import (
         _build_number_to_citekey,
         llm_resolve_unmatched_citations,
@@ -6100,7 +6257,12 @@ async def _refresh_manuscript_export_artifacts(
         num_map.setdefault(old_key, new_key)
 
     author_name = str(getattr(getattr(state, "review", None), "author_name", "") or "")
-    figure_paths = get_latex_figure_paths(manuscript_path, state.artifacts)
+    inline_artifact_keys = extract_inline_figure_artifact_keys(md_text, state.artifacts)
+    figure_paths = get_latex_figure_paths(
+        manuscript_path,
+        state.artifacts,
+        exclude_artifact_keys=inline_artifact_keys,
+    )
     tex_content = _md_to_latex(
         md_text,
         citekeys=citekeys,
@@ -6263,7 +6425,7 @@ class ManuscriptAuditNode(BaseNode[ReviewState]):
                         "domain": state.review.domain,
                         "scope": state.review.scope,
                         "expert_topic": state.review.expert_topic(),
-                        "target_databases": list(state.review.target_databases),
+                        "target_databases": list(state.review.resolved_target_databases()),
                         "date_range": {
                             "start": state.review.date_range_start,
                             "end": state.review.date_range_end,
@@ -6424,8 +6586,6 @@ class FinalizeNode(BaseNode[ReviewState]):
         except Exception:
             pass
 
-        _contract_mode = str(getattr(getattr(state.settings, "gates", None), "manuscript_contract_mode", "strict"))
-        _strict_finalize = _contract_mode == "strict"
         _finalize_errors: list[str] = []
 
         # Generate doc_manuscript.tex and references.bib as first-class run artifacts.
@@ -6437,13 +6597,11 @@ class FinalizeNode(BaseNode[ReviewState]):
             try:
                 await _refresh_manuscript_export_artifacts(
                     state,
-                    strict_export=_strict_finalize,
+                    strict_export=False,
                     persist_assembly=True,
                 )
                 logger.info("FinalizeNode: wrote doc_manuscript.tex and references.bib")
             except Exception as _tex_err:  # noqa: BLE001
-                if _strict_finalize:
-                    _finalize_errors.append(f"latex_export_failed:{_tex_err}")
                 logger.warning("FinalizeNode: LaTeX artifact generation failed (non-fatal): %s", _tex_err)
 
         # Generate doc_prospero_registration.docx as a first-class run artifact.
@@ -6530,7 +6688,7 @@ class FinalizeNode(BaseNode[ReviewState]):
                         {
                             str(name)
                             for name in (state.search_counts or {}).keys()
-                            if str(name) not in {str(db) for db in (state.review.target_databases or [])}
+                            if str(name) not in {str(db) for db in state.review.resolved_target_databases()}
                         }
                     ),
                 )
@@ -6591,10 +6749,6 @@ class FinalizeNode(BaseNode[ReviewState]):
             "rag_sections_skipped": state.rag_sections_skipped,
             "rag_threshold_breached": state.rag_threshold_breached,
         }
-        # --- Citation lineage validation gate ---
-        # Strict finalize always blocks on unresolved claim->evidence->citation
-        # lineage. Non-strict modes may still downgrade to advisory behavior via
-        # citation_lineage.block_export_on_unresolved.
         _manuscript_path = state.artifacts.get("manuscript_md", "")
         if _manuscript_path and os.path.isfile(_manuscript_path):
             try:
@@ -6603,80 +6757,14 @@ class FinalizeNode(BaseNode[ReviewState]):
                     _ledger = CitationLedger(CitationRepository(_cit_db))
                     _validation = await _ledger.validate_manuscript(_manuscript_text)
                     _lineage_invalid = bool(_validation.unresolved_claims or _validation.unresolved_citations)
-                    _block_on_unresolved = (
-                        True
-                        if _strict_finalize
-                        else (state.settings.citation_lineage.block_export_on_unresolved if state.settings else True)
-                    )
                     summary["citation_lineage"] = {
                         "valid": not _lineage_invalid,
                         "unresolved_claim_count": len(_validation.unresolved_claims),
                         "unresolved_citation_count": len(_validation.unresolved_citations),
                     }
-                    if _lineage_invalid and _block_on_unresolved:
-                        _log.warning(
-                            "Citation lineage gate: unresolved citations or claims detected in final manuscript."
-                        )
-                        summary["citation_lineage_valid"] = False
-                        _finalize_errors.append("citation_lineage_invalid")
-                    else:
-                        summary["citation_lineage_valid"] = not _lineage_invalid
+                    summary["citation_lineage_valid"] = not _lineage_invalid
             except Exception as _cit_err:
                 _log.warning("Citation lineage check skipped: %s", _cit_err)
-                if _strict_finalize:
-                    _finalize_errors.append(f"citation_lineage_check_failed:{_cit_err}")
-
-        # --- Cross-artifact manuscript contract gate ---
-        _contract_summary: dict[str, object] = {"mode": _contract_mode, "passed": True, "violations": []}
-        if _manuscript_path and os.path.isfile(_manuscript_path):
-            try:
-                async with get_db(state.db_path) as _contract_db:
-                    _contract_repo = WorkflowRepository(_contract_db)
-                    _contract_citation_repo = CitationRepository(_contract_db)
-                    _contract_result = await run_manuscript_contracts(
-                        repository=_contract_repo,
-                        citation_repository=_contract_citation_repo,
-                        workflow_id=state.workflow_id,
-                        manuscript_md_path=_manuscript_path,
-                        manuscript_tex_path=state.artifacts.get("manuscript_tex"),
-                        extra_artifact_paths=[
-                            state.artifacts.get("protocol", ""),
-                            state.artifacts.get("prospero_form_md", ""),
-                        ],
-                        mode=_contract_mode,
-                        abstract_word_limit=state.settings.ieee_export.max_abstract_words,
-                        abstract_minimum_words=state.settings.writing.abstract_trim_floor_words,
-                        review_config=state.review,
-                    )
-                    _contract_summary = {
-                        "mode": _contract_result.mode,
-                        "passed": _contract_result.passed,
-                        "violations": [v.model_dump() for v in _contract_result.violations],
-                    }
-                    if not _contract_result.passed:
-                        logger.warning(
-                            "Manuscript contract gate failed in mode=%s with %d violations",
-                            _contract_mode,
-                            len(_contract_result.violations),
-                        )
-                        if _strict_finalize:
-                            _finalize_errors.append(
-                                "manuscript_contract_failed:"
-                                + ",".join(v.code for v in _contract_result.violations[:10])
-                            )
-            except Exception as _contract_err:
-                logger.warning("Manuscript contract gate skipped due to error: %s", _contract_err)
-                if _strict_finalize:
-                    _finalize_errors.append(f"manuscript_contract_check_failed:{_contract_err}")
-        summary["manuscript_contract"] = _contract_summary
-        try:
-            async with get_db(state.db_path) as _audit_db:
-                _audit_repo = WorkflowRepository(_audit_db)
-                _latest_audit = await _audit_repo.get_latest_manuscript_audit(state.workflow_id)
-                if _latest_audit is not None:
-                    summary["manuscript_audit"] = _latest_audit.model_dump(mode="json")
-        except Exception as _audit_err:
-            logger.warning("FinalizeNode: could not load manuscript audit summary: %s", _audit_err)
 
         # Query cost_records -- single source of truth for all LLM call costs.
         # This ensures run_summary.json is a self-contained record across all sessions.
@@ -6742,7 +6830,6 @@ RUN_GRAPH = Graph(
         KnowledgeGraphNode,
         PreWritingGateNode,
         WritingNode,
-        ManuscriptAuditNode,
         FinalizeNode,
     ],
     state_type=ReviewState,

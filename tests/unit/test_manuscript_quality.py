@@ -562,6 +562,18 @@ def test_validate_writing_persistence_invariant_flags_missing_or_failed_sections
     assert missing == ["methods"]
 
 
+def test_validate_writing_persistence_invariant_allows_recovered_failed_sections() -> None:
+    from src.orchestration.workflow import _validate_writing_persistence_invariant
+
+    violated, missing = _validate_writing_persistence_invariant(
+        required_sections=["abstract", "introduction", "methods"],
+        persisted_sections={"abstract", "introduction", "methods"},
+        failed_sections=["abstract"],
+    )
+    assert violated is False
+    assert missing == []
+
+
 def test_ensure_structured_abstract_adds_missing_fields() -> None:
     from src.writing.orchestration import _ensure_structured_abstract
 

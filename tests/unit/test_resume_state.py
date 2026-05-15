@@ -75,6 +75,7 @@ async def test_load_resume_state_phase3(tmp_path) -> None:
     assert "custom_diagram_01" in state.artifacts
     assert "custom_diagram_02" in state.artifacts
     assert "diagram_brief_pack" in state.artifacts
+    assert "diagram_placement_plan" in state.artifacts
 
 
 @pytest.mark.asyncio
@@ -617,9 +618,9 @@ async def test_run_workflow_web_context_without_console_uses_non_console_resume_
     assert out["status"] == "ok"
 
 
-def test_phase_order_includes_phase_7_audit_before_finalize() -> None:
-    assert "phase_7_audit" in PHASE_ORDER
-    assert PHASE_ORDER.index("phase_7_audit") < PHASE_ORDER.index("finalize")
+def test_phase_order_routes_writing_directly_to_finalize() -> None:
+    assert "phase_6_writing" in PHASE_ORDER
+    assert PHASE_ORDER.index("phase_6_writing") < PHASE_ORDER.index("finalize")
 
 
 def test_phase_order_includes_pre_writing_gate_before_writing() -> None:

@@ -21,7 +21,6 @@ import { EvidenceNetworkViz } from "@/components/EvidenceNetworkViz"
 import {
   APIResponseError,
   fetchGradeSof,
-  fetchRunReadiness,
   prosperoFormDocxUrl,
   prosperoFormMarkdownUrl,
   triggerExport,
@@ -32,7 +31,7 @@ import { Skeleton } from "@/components/ui/skeleton"
 import { FetchError, EmptyState } from "@/components/ui/feedback"
 import { CollapsibleSection } from "@/components/ui/section"
 import { cn } from "@/lib/utils"
-import type { AuditSummary, GradeSofResponse, ReadinessScorecard } from "@/lib/api"
+import type { GradeSofResponse } from "@/lib/api"
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -140,121 +139,6 @@ function formatExportError(error: unknown): string {
   }
   if (error instanceof Error) return error.message
   return "Export failed"
-}
-
-function summaryToneClass(submissionReady: boolean, auditSummary: AuditSummary | null | undefined): string {
-  if (submissionReady) return "border-emerald-500/30 bg-emerald-500/8 text-emerald-100"
-  if (auditSummary?.status_label === "blocked") return "border-red-500/30 bg-red-500/8 text-red-100"
-  return "border-amber-500/30 bg-amber-500/8 text-amber-100"
-}
-
-function formatStatusChipLabel(status: string | undefined): string {
-  if (!status) return "pending"
-  if (status === "completed_with_findings") return "findings"
-  return status
-}
-
-function SubmissionReadinessSummary({
-  readiness,
-  loading,
-  error,
-}: {
-  readiness: ReadinessScorecard | null
-  loading: boolean
-  error: string | null
-}) {
-  if (loading) {
-    return (
-      <div className="rounded-xl border border-zinc-800 bg-zinc-950/60 px-4 py-4 space-y-3">
-        <Skeleton className="h-5 w-52" />
-        <Skeleton className="h-4 w-full" />
-        <Skeleton className="h-4 w-5/6" />
-      </div>
-    )
-  }
-
-  if (error) {
-    return <FetchError message={`Failed to load submission readiness: ${error}`} />
-  }
-
-  if (!readiness) return null
-
-  const submissionReady = readiness.submission_ready ?? readiness.ready
-  const contractReady = readiness.contract_ready ?? readiness.contract_passed
-  const auditReady = readiness.audit_ready ?? false
-  const auditSummary = readiness.audit_summary ?? null
-  const toneClass = summaryToneClass(submissionReady, auditSummary)
-  const headline = submissionReady
-    ? "Submission readiness is clear."
-    : "Submission is blocked until the issues below are resolved."
-
-  return (
-    <div className={cn("rounded-xl border px-4 py-4", toneClass)}>
-      <div className="flex items-start justify-between gap-4">
-        <div className="min-w-0">
-          <div className="text-sm font-semibold">Submission readiness</div>
-          <div className="mt-1 text-sm text-zinc-100">{headline}</div>
-          <div className="mt-1 text-xs opacity-80">
-            Results is the primary export path. Use Quality for PRISMA, diagnostics, and full audit details.
-          </div>
-        </div>
-        <span className="rounded border border-current/20 px-2 py-1 text-[10px] font-mono uppercase tracking-wide shrink-0">
-          {submissionReady ? "ready" : "blocked"}
-        </span>
-      </div>
-
-      <div className="mt-3 flex flex-wrap gap-2 text-[11px]">
-        <span className={cn("rounded-full border px-2 py-0.5", contractReady ? "border-emerald-800 bg-emerald-900/20 text-emerald-300" : "border-amber-800 bg-amber-900/20 text-amber-300")}>
-          Contract {contractReady ? "ready" : "blocked"}
-        </span>
-        <span className={cn("rounded-full border px-2 py-0.5", auditReady ? "border-emerald-800 bg-emerald-900/20 text-emerald-300" : "border-amber-800 bg-amber-900/20 text-amber-300")}>
-          Audit {auditReady ? "ready" : "blocked"}
-        </span>
-        <span className={cn("rounded-full border px-2 py-0.5", submissionReady ? "border-emerald-800 bg-emerald-900/20 text-emerald-300" : "border-amber-800 bg-amber-900/20 text-amber-300")}>
-          Submission {submissionReady ? "ready" : "blocked"}
-        </span>
-        {auditSummary ? (
-          <span className="rounded-full border border-zinc-700 bg-zinc-900/40 px-2 py-0.5 text-zinc-300">
-            Audit status {formatStatusChipLabel(auditSummary.status_label)}
-          </span>
-        ) : null}
-      </div>
-
-      {!submissionReady && readiness.blocking_reasons.length > 0 ? (
-        <div className="mt-4 rounded-lg border border-current/15 bg-black/10 px-3 py-3">
-          <div className="text-xs font-semibold uppercase tracking-wide opacity-80">Top blockers</div>
-          <div className="mt-2 space-y-2">
-            {readiness.blocking_reasons.slice(0, 3).map((reason) => (
-              <div key={reason} className="text-sm text-zinc-100/95">
-                {reason}
-              </div>
-            ))}
-          </div>
-        </div>
-      ) : null}
-
-      {auditSummary ? (
-        <div className="mt-4 rounded-lg border border-zinc-800 bg-zinc-950/50 px-3 py-3">
-          <div className="flex items-center justify-between gap-3">
-            <div className="text-xs font-semibold uppercase tracking-wide text-zinc-300">Audit summary</div>
-            <div className="text-[11px] text-zinc-500">
-              Verdict={auditSummary.verdict} | findings={auditSummary.total_findings} | blocking={auditSummary.blocking_count}
-            </div>
-          </div>
-          {auditSummary.summary ? <div className="mt-2 text-sm text-zinc-200">{auditSummary.summary}</div> : null}
-          {auditSummary.top_recommendations.length > 0 ? (
-            <div className="mt-3 space-y-1">
-              {auditSummary.top_recommendations.slice(0, 3).map((recommendation) => (
-                <div key={recommendation} className="text-xs text-zinc-400">
-                  {recommendation}
-                </div>
-              ))}
-            </div>
-          ) : null}
-        </div>
-      ) : null}
-    </div>
-  )
 }
 
 // ---------------------------------------------------------------------------
@@ -714,10 +598,6 @@ export function ResultsView({
   const canExport = exportRunId != null && hasResults
   const [artifactsOpen, setArtifactsOpen] = useState(false)
   const [submissionReady, setSubmissionReady] = useState(false)
-  const [readinessReady, setReadinessReady] = useState(false)
-  const [readiness, setReadiness] = useState<ReadinessScorecard | null>(null)
-  const [readinessLoading, setReadinessLoading] = useState(false)
-  const [readinessError, setReadinessError] = useState<string | null>(null)
 
   const manuscriptPath = useMemo(
     () => findFileByName(effectiveOutputs, "doc_manuscript"),
@@ -749,39 +629,6 @@ export function ResultsView({
   }, [effectiveOutputs])
 
   useEffect(() => {
-    if (!exportRunId) {
-      setReadinessReady(false)
-      setReadiness(null)
-      setReadinessError(null)
-      setReadinessLoading(false)
-      return
-    }
-    let cancelled = false
-    void (async () => {
-      setReadinessLoading(true)
-      setReadinessError(null)
-      try {
-        const readiness = await fetchRunReadiness(exportRunId)
-        if (!cancelled) {
-          setReadiness(readiness)
-          setReadinessReady(readiness.submission_ready ?? readiness.ready)
-        }
-      } catch {
-        if (!cancelled) {
-          setReadinessReady(false)
-          setReadiness(null)
-          setReadinessError("Unable to load readiness state.")
-        }
-      } finally {
-        if (!cancelled) setReadinessLoading(false)
-      }
-    })()
-    return () => {
-      cancelled = true
-    }
-  }, [exportRunId])
-
-  useEffect(() => {
     if (submissionFocusTarget && !artifactsOpen) {
       setArtifactsOpen(true)
     }
@@ -810,13 +657,6 @@ export function ResultsView({
 
   return (
     <div className="flex flex-col gap-3 min-h-[520px]">
-      {exportRunId ? (
-        <SubmissionReadinessSummary
-          readiness={readiness}
-          loading={readinessLoading}
-          error={readinessError}
-        />
-      ) : null}
       {manuscriptPath && (
         <CollapsibleSection
           icon={FileText}
@@ -825,7 +665,7 @@ export function ResultsView({
           actions={
             <ManuscriptActions
               docxPath={docxPath}
-              canExport={canExport && readinessReady}
+              canExport={canExport}
               exportRunId={exportRunId}
               allOutputs={effectiveOutputs}
               onExportReadyChange={setSubmissionReady}

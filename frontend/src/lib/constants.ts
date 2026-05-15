@@ -13,7 +13,6 @@ export const PHASE_ORDER = [
   "phase_5b_knowledge_graph",
   "phase_5c_pre_writing_gate",
   "phase_6_writing",
-  "phase_7_audit",
   "finalize",
 ] as const
 
@@ -32,7 +31,6 @@ export const PHASE_LABELS: Record<string, string> = {
   phase_5b_knowledge_graph: "Knowledge Graph",
   phase_5c_pre_writing_gate: "Pre-Writing Gate",
   phase_6_writing: "Writing",
-  phase_7_audit: "Audit",
   finalize: "Finalize",
 }
 
@@ -46,7 +44,6 @@ export const RESUME_PHASE_ORDER = [
   "phase_5b_knowledge_graph",
   "phase_5c_pre_writing_gate",
   "phase_6_writing",
-  "phase_7_audit",
   "finalize",
 ] as const
 
@@ -129,7 +126,6 @@ export const PHASE_COLORS: Record<string, string> = {
   phase_5b_knowledge_graph: "#14b8a6",
   phase_5c_pre_writing_gate: "#0f766e",
   phase_6_writing: "#ef4444",
-  phase_7_audit: "#f43f5e",
   phase_6_humanizer: "#f97316",
   quality_rob2: "#06b6d4",
   quality_robins_i: "#0ea5e9",
@@ -158,7 +154,6 @@ export const PHASE_LABEL_MAP: Record<string, string> = {
   phase_5b_knowledge_graph: "K. Graph",
   phase_5c_pre_writing_gate: "Pre-Write",
   phase_6_writing: "Writing",
-  phase_7_audit: "Audit",
   phase_6_humanizer: "Humanizer",
   quality_rob2: "RoB 2",
   quality_robins_i: "ROBINS-I",
