@@ -107,7 +107,9 @@ async def compute_readiness_scorecard(
             ReadinessCheck(
                 name="prisma_arithmetic_valid",
                 ok=prisma_ok,
-                detail="PRISMA counts are internally consistent" if prisma_ok else "PRISMA counts failed arithmetic check",
+                detail="PRISMA counts are internally consistent"
+                if prisma_ok
+                else "PRISMA counts failed arithmetic check",
             )
         )
         if not prisma_ok:
@@ -130,7 +132,9 @@ async def compute_readiness_scorecard(
             blocking.append("manuscript audit has not been run")
         else:
             audit_ready = bool(latest_audit.passed) and not bool(latest_audit.gate_blocked)
-            audit_detail = f"{audit_status}; verdict={latest_audit.verdict}; blocking={int(latest_audit.blocking_count or 0)}"
+            audit_detail = (
+                f"{audit_status}; verdict={latest_audit.verdict}; blocking={int(latest_audit.blocking_count or 0)}"
+            )
             checks.append(
                 ReadinessCheck(
                     name="manuscript_audit",
@@ -202,10 +206,7 @@ async def compute_readiness_scorecard(
                 detail=(
                     "valid"
                     if citation_lineage_valid
-                    else (
-                        f"claims={len(lineage.unresolved_claims)}, "
-                        f"citations={len(lineage.unresolved_citations)}"
-                    )
+                    else (f"claims={len(lineage.unresolved_claims)}, citations={len(lineage.unresolved_citations)}")
                 ),
             )
         )

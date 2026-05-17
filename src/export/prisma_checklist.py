@@ -53,48 +53,308 @@ class PrismaValidationResult:
 
 
 _PRISMA_RULES: tuple[PrismaRule, ...] = (
-    PrismaRule("1", "Title", "Identify report as systematic review", (("systematic review", "meta-analysis", "meta analysis"),), ("title",)),
-    PrismaRule("2", "Abstract", "Structured abstract reports PRISMA abstract items", (("objective", "aim", "purpose"), ("method", "methods"), ("result", "results"), ("conclusion", "conclusions")), ("abstract",)),
-    PrismaRule("3", "Introduction", "Rationale in context of existing knowledge", (("rationale", "background", "context"), ("gap", "uncertaint", "needed", "necessary")), ("introduction",)),
-    PrismaRule("4", "Introduction", "Explicit objectives or questions", (("objective", "aim", "research question", "question"),), ("introduction", "abstract")),
-    PrismaRule("5", "Methods", "Eligibility criteria and synthesis groups", (("eligibility", "inclusion", "exclusion"), ("study design", "population", "intervention", "outcome", "pico")), ("methods",)),
-    PrismaRule("6", "Methods", "Information sources and last search dates", (("database", "register", "source", "website"), ("searched", "search date", "last search")), ("methods",)),
-    PrismaRule("7", "Methods", "Full search strategies with filters and limits", (("search strategy", "search string", "query"), ("filter", "limit", "boolean")), ("methods", "other")),
-    PrismaRule("8", "Methods", "Selection process including reviewer independence and automation use", (("selection", "screening"), ("reviewer", "independent", "adjudicat"), ("automation", "machine learning", "batch", "bm25", "tool")), ("methods",)),
-    PrismaRule("9", "Methods", "Data collection process including reviewer processes", (("data collection", "data extraction"), ("reviewer", "independent", "disagreement")), ("methods",)),
-    PrismaRule("10a", "Methods", "Data items outcomes defined and sought", (("outcome", "outcomes"), ("defined", "sought", "time point")), ("methods",)),
-    PrismaRule("10b", "Methods", "Other data items and assumptions for missing info", (("participant", "intervention", "funding", "characteristics"), ("missing", "assumption", "unclear")), ("methods",)),
-    PrismaRule("11", "Methods", "Study risk of bias methods and tool details", (("risk of bias", "rob", "robins", "casp", "mmat"), ("reviewer", "tool", "domain")), ("methods",)),
-    PrismaRule("12", "Methods", "Effect measures for outcomes", (("effect measure", "odds ratio", "risk ratio", "mean difference", "smd"),), ("methods", "results")),
-    PrismaRule("13a", "Methods", "Synthesis eligibility process", (("eligible", "eligibility"), ("synthesis", "group", "comparison")), ("methods", "results")),
-    PrismaRule("13b", "Methods", "Methods to prepare data for synthesis", (("missing data", "conversion", "prepare", "imputation"),), ("methods",), "has_synthesis"),
-    PrismaRule("13c", "Methods", "Tabulation and visual display methods", (("table", "tabulate", "figure", "plot", "visual"),), ("methods", "results"), "has_synthesis"),
-    PrismaRule("13d", "Methods", "Statistical synthesis methods and software", (("meta-analysis", "synthesis", "model"), ("software", "statsmodels", "scipy", "method")), ("methods",), "has_synthesis"),
-    PrismaRule("13e", "Methods", "Methods to explore heterogeneity", (("heterogeneity", "subgroup", "meta-regression"),), ("methods",), "has_meta"),
-    PrismaRule("13f", "Methods", "Sensitivity analysis methods", (("sensitivity analysis", "leave-one-out", "robust"),), ("methods",), "has_synthesis"),
-    PrismaRule("14", "Methods", "Reporting bias assessment methods", (("reporting bias", "publication bias", "small-study"), ("funnel", "asymmetry", "bias")), ("methods", "results"), "has_synthesis"),
-    PrismaRule("15", "Methods", "Certainty assessment methods", (("certainty", "confidence", "grade"), ("assessment", "summary of findings")), ("methods", "results")),
-    PrismaRule("16a", "Results", "Search and selection results with flow", (("identified", "screened", "included"), ("flow", "prisma")), ("results", "methods")),
-    PrismaRule("16b", "Results", "Excluded studies that seemed eligible with reasons", (("excluded", "exclusion reason", "reason for exclusion"),), ("results", "other")),
-    PrismaRule("17", "Results", "Characteristics of included studies", (("study characteristics", "included studies", "table"),), ("results",)),
-    PrismaRule("18", "Results", "Risk of bias in studies results", (("risk of bias", "rob", "traffic light"),), ("results",)),
-    PrismaRule("19", "Results", "Results of individual studies with effect estimates", (("individual studies", "effect estimate", "confidence interval", "study characteristics"),), ("results",)),
-    PrismaRule("20a", "Results", "Summary of characteristics and risk of bias for each synthesis", (("synthesis",), ("risk of bias", "characteristics")), ("results",), "has_synthesis"),
-    PrismaRule("20b", "Results", "Results of statistical syntheses with heterogeneity", (("summary estimate", "pooled", "meta-analysis"), ("heterogeneity", "i2", "tau")), ("results",), "has_synthesis"),
-    PrismaRule("20c", "Results", "Results of heterogeneity investigations", (("subgroup", "heterogeneity", "meta-regression"), ("result", "interaction", "modifier")), ("results",), "has_meta"),
-    PrismaRule("20d", "Results", "Results of sensitivity analyses", (("sensitivity", "robust"), ("result", "analysis")), ("results",), "has_synthesis"),
-    PrismaRule("21", "Results", "Reporting bias assessments for syntheses", (("reporting bias", "publication bias", "funnel"),), ("results",), "has_synthesis"),
-    PrismaRule("22", "Results", "Certainty of evidence for each outcome", (("certainty", "grade", "summary of findings"), ("outcome",)), ("results", "discussion")),
-    PrismaRule("23a", "Discussion", "Interpretation in context of other evidence", (("interpret", "context", "other evidence", "literature"),), ("discussion",)),
-    PrismaRule("23b", "Discussion", "Limitations of the evidence", (("limitation",), ("evidence", "study")), ("discussion",)),
-    PrismaRule("23c", "Discussion", "Limitations of review processes", (("limitation",), ("review process", "screening process", "method")), ("discussion",)),
-    PrismaRule("23d", "Discussion", "Implications for practice policy and research", (("implication", "practice", "policy", "future research"),), ("discussion",)),
-    PrismaRule("24a", "Other", "Registration information", (("registration", "prospero", "crd"),), ("other", "methods", "abstract")),
-    PrismaRule("24b", "Other", "Protocol accessibility statement", (("protocol",), ("available", "access", "link")), ("other", "methods")),
-    PrismaRule("24c", "Other", "Amendments to protocol or registration information", (("amendment", "deviation", "updated protocol"),), ("other", "methods"), "has_registration_or_protocol"),
-    PrismaRule("25", "Other", "Support and role of funders", (("funding", "support", "sponsor"), ("role", "grant", "no role")), ("other", "abstract")),
-    PrismaRule("26", "Other", "Competing interests declaration", (("competing interest", "conflict of interest", "disclosure"),), ("other", "abstract")),
-    PrismaRule("27", "Other", "Availability of data code and materials", (("data availability", "code availability", "materials"), ("repository", "available", "upon request")), ("other",)),
+    PrismaRule(
+        "1",
+        "Title",
+        "Identify report as systematic review",
+        (("systematic review", "meta-analysis", "meta analysis"),),
+        ("title",),
+    ),
+    PrismaRule(
+        "2",
+        "Abstract",
+        "Structured abstract reports PRISMA abstract items",
+        (("objective", "aim", "purpose"), ("method", "methods"), ("result", "results"), ("conclusion", "conclusions")),
+        ("abstract",),
+    ),
+    PrismaRule(
+        "3",
+        "Introduction",
+        "Rationale in context of existing knowledge",
+        (("rationale", "background", "context"), ("gap", "uncertaint", "needed", "necessary")),
+        ("introduction",),
+    ),
+    PrismaRule(
+        "4",
+        "Introduction",
+        "Explicit objectives or questions",
+        (("objective", "aim", "research question", "question"),),
+        ("introduction", "abstract"),
+    ),
+    PrismaRule(
+        "5",
+        "Methods",
+        "Eligibility criteria and synthesis groups",
+        (("eligibility", "inclusion", "exclusion"), ("study design", "population", "intervention", "outcome", "pico")),
+        ("methods",),
+    ),
+    PrismaRule(
+        "6",
+        "Methods",
+        "Information sources and last search dates",
+        (("database", "register", "source", "website"), ("searched", "search date", "last search")),
+        ("methods",),
+    ),
+    PrismaRule(
+        "7",
+        "Methods",
+        "Full search strategies with filters and limits",
+        (("search strategy", "search string", "query"), ("filter", "limit", "boolean")),
+        ("methods", "other"),
+    ),
+    PrismaRule(
+        "8",
+        "Methods",
+        "Selection process including reviewer independence and automation use",
+        (
+            ("selection", "screening"),
+            ("reviewer", "independent", "adjudicat"),
+            ("automation", "machine learning", "batch", "bm25", "tool"),
+        ),
+        ("methods",),
+    ),
+    PrismaRule(
+        "9",
+        "Methods",
+        "Data collection process including reviewer processes",
+        (("data collection", "data extraction"), ("reviewer", "independent", "disagreement")),
+        ("methods",),
+    ),
+    PrismaRule(
+        "10a",
+        "Methods",
+        "Data items outcomes defined and sought",
+        (("outcome", "outcomes"), ("defined", "sought", "time point")),
+        ("methods",),
+    ),
+    PrismaRule(
+        "10b",
+        "Methods",
+        "Other data items and assumptions for missing info",
+        (("participant", "intervention", "funding", "characteristics"), ("missing", "assumption", "unclear")),
+        ("methods",),
+    ),
+    PrismaRule(
+        "11",
+        "Methods",
+        "Study risk of bias methods and tool details",
+        (("risk of bias", "rob", "robins", "casp", "mmat"), ("reviewer", "tool", "domain")),
+        ("methods",),
+    ),
+    PrismaRule(
+        "12",
+        "Methods",
+        "Effect measures for outcomes",
+        (("effect measure", "odds ratio", "risk ratio", "mean difference", "smd"),),
+        ("methods", "results"),
+    ),
+    PrismaRule(
+        "13a",
+        "Methods",
+        "Synthesis eligibility process",
+        (("eligible", "eligibility"), ("synthesis", "group", "comparison")),
+        ("methods", "results"),
+    ),
+    PrismaRule(
+        "13b",
+        "Methods",
+        "Methods to prepare data for synthesis",
+        (("missing data", "conversion", "prepare", "imputation"),),
+        ("methods",),
+        "has_synthesis",
+    ),
+    PrismaRule(
+        "13c",
+        "Methods",
+        "Tabulation and visual display methods",
+        (("table", "tabulate", "figure", "plot", "visual"),),
+        ("methods", "results"),
+        "has_synthesis",
+    ),
+    PrismaRule(
+        "13d",
+        "Methods",
+        "Statistical synthesis methods and software",
+        (("meta-analysis", "synthesis", "model"), ("software", "statsmodels", "scipy", "method")),
+        ("methods",),
+        "has_synthesis",
+    ),
+    PrismaRule(
+        "13e",
+        "Methods",
+        "Methods to explore heterogeneity",
+        (("heterogeneity", "subgroup", "meta-regression"),),
+        ("methods",),
+        "has_meta",
+    ),
+    PrismaRule(
+        "13f",
+        "Methods",
+        "Sensitivity analysis methods",
+        (("sensitivity analysis", "leave-one-out", "robust"),),
+        ("methods",),
+        "has_synthesis",
+    ),
+    PrismaRule(
+        "14",
+        "Methods",
+        "Reporting bias assessment methods",
+        (("reporting bias", "publication bias", "small-study"), ("funnel", "asymmetry", "bias")),
+        ("methods", "results"),
+        "has_synthesis",
+    ),
+    PrismaRule(
+        "15",
+        "Methods",
+        "Certainty assessment methods",
+        (("certainty", "confidence", "grade"), ("assessment", "summary of findings")),
+        ("methods", "results"),
+    ),
+    PrismaRule(
+        "16a",
+        "Results",
+        "Search and selection results with flow",
+        (("identified", "screened", "included"), ("flow", "prisma")),
+        ("results", "methods"),
+    ),
+    PrismaRule(
+        "16b",
+        "Results",
+        "Excluded studies that seemed eligible with reasons",
+        (("excluded", "exclusion reason", "reason for exclusion"),),
+        ("results", "other"),
+    ),
+    PrismaRule(
+        "17",
+        "Results",
+        "Characteristics of included studies",
+        (("study characteristics", "included studies", "table"),),
+        ("results",),
+    ),
+    PrismaRule(
+        "18", "Results", "Risk of bias in studies results", (("risk of bias", "rob", "traffic light"),), ("results",)
+    ),
+    PrismaRule(
+        "19",
+        "Results",
+        "Results of individual studies with effect estimates",
+        (("individual studies", "effect estimate", "confidence interval", "study characteristics"),),
+        ("results",),
+    ),
+    PrismaRule(
+        "20a",
+        "Results",
+        "Summary of characteristics and risk of bias for each synthesis",
+        (("synthesis",), ("risk of bias", "characteristics")),
+        ("results",),
+        "has_synthesis",
+    ),
+    PrismaRule(
+        "20b",
+        "Results",
+        "Results of statistical syntheses with heterogeneity",
+        (("summary estimate", "pooled", "meta-analysis"), ("heterogeneity", "i2", "tau")),
+        ("results",),
+        "has_synthesis",
+    ),
+    PrismaRule(
+        "20c",
+        "Results",
+        "Results of heterogeneity investigations",
+        (("subgroup", "heterogeneity", "meta-regression"), ("result", "interaction", "modifier")),
+        ("results",),
+        "has_meta",
+    ),
+    PrismaRule(
+        "20d",
+        "Results",
+        "Results of sensitivity analyses",
+        (("sensitivity", "robust"), ("result", "analysis")),
+        ("results",),
+        "has_synthesis",
+    ),
+    PrismaRule(
+        "21",
+        "Results",
+        "Reporting bias assessments for syntheses",
+        (("reporting bias", "publication bias", "funnel"),),
+        ("results",),
+        "has_synthesis",
+    ),
+    PrismaRule(
+        "22",
+        "Results",
+        "Certainty of evidence for each outcome",
+        (("certainty", "grade", "summary of findings"), ("outcome",)),
+        ("results", "discussion"),
+    ),
+    PrismaRule(
+        "23a",
+        "Discussion",
+        "Interpretation in context of other evidence",
+        (("interpret", "context", "other evidence", "literature"),),
+        ("discussion",),
+    ),
+    PrismaRule(
+        "23b", "Discussion", "Limitations of the evidence", (("limitation",), ("evidence", "study")), ("discussion",)
+    ),
+    PrismaRule(
+        "23c",
+        "Discussion",
+        "Limitations of review processes",
+        (("limitation",), ("review process", "screening process", "method")),
+        ("discussion",),
+    ),
+    PrismaRule(
+        "23d",
+        "Discussion",
+        "Implications for practice policy and research",
+        (("implication", "practice", "policy", "future research"),),
+        ("discussion",),
+    ),
+    PrismaRule(
+        "24a",
+        "Other",
+        "Registration information",
+        (("registration", "prospero", "crd"),),
+        ("other", "methods", "abstract"),
+    ),
+    PrismaRule(
+        "24b",
+        "Other",
+        "Protocol accessibility statement",
+        (("protocol",), ("available", "access", "link")),
+        ("other", "methods"),
+    ),
+    PrismaRule(
+        "24c",
+        "Other",
+        "Amendments to protocol or registration information",
+        (("amendment", "deviation", "updated protocol"),),
+        ("other", "methods"),
+        "has_registration_or_protocol",
+    ),
+    PrismaRule(
+        "25",
+        "Other",
+        "Support and role of funders",
+        (("funding", "support", "sponsor"), ("role", "grant", "no role")),
+        ("other", "abstract"),
+    ),
+    PrismaRule(
+        "26",
+        "Other",
+        "Competing interests declaration",
+        (("competing interest", "conflict of interest", "disclosure"),),
+        ("other", "abstract"),
+    ),
+    PrismaRule(
+        "27",
+        "Other",
+        "Availability of data code and materials",
+        (("data availability", "code availability", "materials"), ("repository", "available", "upon request")),
+        ("other",),
+    ),
 )
 
 
@@ -285,8 +545,14 @@ def validate_prisma(tex_content: str | None, md_content: str | None = None) -> P
     scope_text = _build_scope_text(md_text, tex_text)
     all_text = scope_text["all"]
     flags = {
-        "has_synthesis": any(_term_present(all_text, term) for term in ("synthesis", "narrative", "meta-analysis", "meta analysis", "pooled")),
-        "has_meta": any(_term_present(all_text, term) for term in ("meta-analysis", "meta analysis", "forest plot", "i2", "tau", "random-effects", "fixed-effect")),
+        "has_synthesis": any(
+            _term_present(all_text, term)
+            for term in ("synthesis", "narrative", "meta-analysis", "meta analysis", "pooled")
+        ),
+        "has_meta": any(
+            _term_present(all_text, term)
+            for term in ("meta-analysis", "meta analysis", "forest plot", "i2", "tau", "random-effects", "fixed-effect")
+        ),
         "has_registration": any(_term_present(all_text, term) for term in ("prospero", "registration", "crd")),
         "has_protocol": _term_present(all_text, "protocol"),
     }
@@ -350,6 +616,7 @@ def render_prisma_csv(result: PrismaValidationResult) -> str:
 
 def render_prisma_html(result: PrismaValidationResult) -> str:
     """Render checklist as a styled HTML supplementary artifact."""
+
     def _esc(value: str) -> str:
         return (
             value.replace("&", "&amp;")
@@ -375,7 +642,7 @@ def render_prisma_html(result: PrismaValidationResult) -> str:
             "<tr>"
             f"<td>{_esc(item.item_id)}</td>"
             f"<td>{_esc(item.section)}</td>"
-            f"<td><span class=\"badge {_status_class(item.status)}\">{_esc(item.status)}</span></td>"
+            f'<td><span class="badge {_status_class(item.status)}">{_esc(item.status)}</span></td>'
             f"<td>{'YES' if item.applies else 'NO'}</td>"
             f"<td>{_esc(item.description)}</td>"
             f"<td>{_esc(item.rationale)}</td>"
@@ -385,14 +652,14 @@ def render_prisma_html(result: PrismaValidationResult) -> str:
 
     return (
         "<!doctype html>\n"
-        "<html lang=\"en\">\n"
+        '<html lang="en">\n'
         "<head>\n"
-        "  <meta charset=\"utf-8\" />\n"
-        "  <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\" />\n"
+        '  <meta charset="utf-8" />\n'
+        '  <meta name="viewport" content="width=device-width, initial-scale=1" />\n'
         "  <title>PRISMA 2020 Checklist Validation</title>\n"
         "  <style>\n"
         "    :root { color-scheme: dark; }\n"
-        "    body { margin: 0; padding: 24px; background: #0b1020; color: #e5e7eb; font-family: -apple-system, BlinkMacSystemFont, \"Segoe UI\", sans-serif; }\n"
+        '    body { margin: 0; padding: 24px; background: #0b1020; color: #e5e7eb; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }\n'
         "    h1 { margin: 0 0 12px; font-size: 22px; }\n"
         "    .summary { display: grid; grid-template-columns: repeat(3, minmax(180px, 1fr)); gap: 8px; margin: 12px 0 18px; }\n"
         "    .card { background: #111827; border: 1px solid #334155; border-radius: 8px; padding: 10px 12px; }\n"
@@ -412,13 +679,13 @@ def render_prisma_html(result: PrismaValidationResult) -> str:
         "<body>\n"
         "  <h1>PRISMA 2020 Checklist Validation</h1>\n"
         f"  <p>Source state: <strong>{_esc(result.source_state)}</strong> | Primary score: <strong>{result.reported_count}/{result.primary_total}</strong> | Pass: <strong>{'PASS' if result.passed else 'FAIL'}</strong></p>\n"
-        "  <div class=\"summary\">\n"
-        f"    <div class=\"card\"><div class=\"label\">Reported</div><div class=\"value\">{result.reported_count}</div></div>\n"
-        f"    <div class=\"card\"><div class=\"label\">Partial</div><div class=\"value\">{result.partial_count}</div></div>\n"
-        f"    <div class=\"card\"><div class=\"label\">Missing</div><div class=\"value\">{result.missing_count}</div></div>\n"
-        f"    <div class=\"card\"><div class=\"label\">Not applicable</div><div class=\"value\">{result.not_applicable_count}</div></div>\n"
-        f"    <div class=\"card\"><div class=\"label\">Item rows</div><div class=\"value\">{len(result.items)}</div></div>\n"
-        f"    <div class=\"card\"><div class=\"label\">Threshold</div><div class=\"value\">24/27</div></div>\n"
+        '  <div class="summary">\n'
+        f'    <div class="card"><div class="label">Reported</div><div class="value">{result.reported_count}</div></div>\n'
+        f'    <div class="card"><div class="label">Partial</div><div class="value">{result.partial_count}</div></div>\n'
+        f'    <div class="card"><div class="label">Missing</div><div class="value">{result.missing_count}</div></div>\n'
+        f'    <div class="card"><div class="label">Not applicable</div><div class="value">{result.not_applicable_count}</div></div>\n'
+        f'    <div class="card"><div class="label">Item rows</div><div class="value">{len(result.items)}</div></div>\n'
+        f'    <div class="card"><div class="label">Threshold</div><div class="value">24/27</div></div>\n'
         "  </div>\n"
         "  <table>\n"
         "    <thead><tr><th>Item</th><th>Section</th><th>Status</th><th>Applies</th><th>Description</th><th>Rationale</th><th>Evidence terms</th></tr></thead>\n"

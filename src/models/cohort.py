@@ -35,4 +35,3 @@ class CohortMembershipRecord(BaseModel):
     exclusion_reason_code: str | None = None
     source_phase: str = "unknown"
     updated_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
-

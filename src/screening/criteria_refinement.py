@@ -155,11 +155,10 @@ async def refine_criteria_from_corrections(
     if not key:
         return []
 
-    prompt = _REFINEMENT_PROMPT_TEMPLATE.format(
-        corrections=_format_corrections_for_prompt(corrections, papers)
-    )
+    prompt = _REFINEMENT_PROMPT_TEMPLATE.format(corrections=_format_corrections_for_prompt(corrections, papers))
     try:
         from src.config.loader import load_configs
+
         _, settings = load_configs(settings_path="config/settings.yaml")
         provider = LLMProvider(settings=settings, repository=repository)
         reserve_agent = "criteria_refinement" if "criteria_refinement" in settings.agents else "screening_adjudicator"

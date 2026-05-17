@@ -137,17 +137,19 @@ class PDFRetriever:
                     "use_openalex_content": _use_openalex,
                 }
                 if _ext is not None:
-                    _tier_kwargs.update({
-                        "use_sciencedirect": getattr(_ext, "sciencedirect_full_text", True),
-                        "use_unpaywall": getattr(_ext, "unpaywall_full_text", True),
-                        "use_pmc": getattr(_ext, "pmc_full_text", True),
-                        "use_core": getattr(_ext, "core_full_text", True),
-                        "use_europepmc": getattr(_ext, "europepmc_full_text", True),
-                        "use_semanticscholar": getattr(_ext, "semanticscholar_full_text", True),
-                        "use_arxiv_pdf": getattr(_ext, "arxiv_full_text", True),
-                        "use_biorxiv_medrxiv": getattr(_ext, "biorxiv_medrxiv_full_text", True),
-                        "use_crossref_links": getattr(_ext, "crossref_links_full_text", True),
-                    })
+                    _tier_kwargs.update(
+                        {
+                            "use_sciencedirect": getattr(_ext, "sciencedirect_full_text", True),
+                            "use_unpaywall": getattr(_ext, "unpaywall_full_text", True),
+                            "use_pmc": getattr(_ext, "pmc_full_text", True),
+                            "use_core": getattr(_ext, "core_full_text", True),
+                            "use_europepmc": getattr(_ext, "europepmc_full_text", True),
+                            "use_semanticscholar": getattr(_ext, "semanticscholar_full_text", True),
+                            "use_arxiv_pdf": getattr(_ext, "arxiv_full_text", True),
+                            "use_biorxiv_medrxiv": getattr(_ext, "biorxiv_medrxiv_full_text", True),
+                            "use_crossref_links": getattr(_ext, "crossref_links_full_text", True),
+                        }
+                    )
                     if getattr(_ext, "openalex_content_full_text", False) and _use_openalex:
                         _tier_kwargs["use_openalex_content"] = True
                 ft_result = await fetch_full_text(

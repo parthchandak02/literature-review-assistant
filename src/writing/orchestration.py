@@ -622,15 +622,9 @@ def _sanitize_ir_block_text(text: str) -> str:
     # Guard against survey-item dumps and raw field enumerations.
     if len(cleaned) > 900 and _EXCESSIVE_LIST_RE.search(cleaned):
         parts = [p.strip() for p in cleaned.split(",") if p.strip()]
-        lower_start_ratio = (
-            sum(1 for p in parts if p and p[0].islower()) / len(parts)
-            if parts
-            else 0.0
-        )
+        lower_start_ratio = sum(1 for p in parts if p and p[0].islower()) / len(parts) if parts else 0.0
         punctuation_ratio = (
-            sum(1 for p in parts if any(tok in p for tok in (".", ";", ":"))) / len(parts)
-            if parts
-            else 0.0
+            sum(1 for p in parts if any(tok in p for tok in (".", ";", ":"))) / len(parts) if parts else 0.0
         )
         if len(parts) > 20 and lower_start_ratio > 0.55 and punctuation_ratio < 0.25:
             cleaned = ", ".join(parts[:12]) + ", and additional outcomes were reported."
@@ -666,7 +660,7 @@ def _validate_structured_section_draft(
         block.text = text
         merged_citations: list[str] = []
         merged_seen: set[str] = set()
-        for raw_key in ([] if section == "abstract" else list(block.citations or [])):
+        for raw_key in [] if section == "abstract" else list(block.citations or []):
             key = str(raw_key or "").strip()
             if not key:
                 continue
@@ -779,7 +773,9 @@ def _grounding_integrity_issues(
         issues.append("grounding_count_mismatch:not_retrieved")
 
     if section == "methods" and expected_fulltext_total > expected_retrieved:
-        if re.search(r"\ball\s+\d+\s+included studies had (?:their )?full text retrieved\b", content, flags=re.IGNORECASE):
+        if re.search(
+            r"\ball\s+\d+\s+included studies had (?:their )?full text retrieved\b", content, flags=re.IGNORECASE
+        ):
             issues.append("grounding_fulltext_retrieval_contradiction")
     if section in {"results", "discussion"} and expected_fulltext_total > expected_retrieved:
         if re.search(
@@ -915,7 +911,9 @@ def _topic_anchor_issues(
     if grounding is None or section not in {"results", "discussion", "conclusion"}:
         return []
     issues: list[str] = []
-    topic_terms = [str(t).strip().lower() for t in (getattr(grounding, "topic_anchor_terms", []) or []) if str(t).strip()]
+    topic_terms = [
+        str(t).strip().lower() for t in (getattr(grounding, "topic_anchor_terms", []) or []) if str(t).strip()
+    ]
     low = str(content or "").lower()
     if topic_terms:
         matched = [t for t in topic_terms[:6] if re.search(rf"\b{re.escape(t)}\b", low)]
@@ -958,9 +956,8 @@ def _best_effort_accept(
     generated_substantive = _draft_substantive_paragraph_count(generated, included_study_count)
     fallback_substantive = _draft_substantive_paragraph_count(fallback, included_study_count)
     min_words = 80 if section in {"methods", "results", "discussion", "conclusion"} else 40
-    return (
-        generated_words >= max(min_words, fallback_words * 2)
-        and generated_substantive >= max(1, fallback_substantive)
+    return generated_words >= max(min_words, fallback_words * 2) and generated_substantive >= max(
+        1, fallback_substantive
     )
 
 
@@ -1006,7 +1003,7 @@ def _replace_phrase_variants_case_insensitive(text: str, variants: tuple[str, ..
             idx = patched.lower().find(source_lower)
             if idx < 0:
                 break
-            patched = f"{patched[:idx]}{replacement}{patched[idx + len(source):]}"
+            patched = f"{patched[:idx]}{replacement}{patched[idx + len(source) :]}"
     return patched
 
 
@@ -1068,17 +1065,12 @@ def _patch_methods_grounding(content: str, grounding: WritingGroundingData | Non
     if grounding is None:
         return content
     patched = content.strip()
-    had_combined_info_search = bool(
-        re.search(r"(?im)^###\s+Information Sources and Search Strategy\s*$", patched)
-    )
+    had_combined_info_search = bool(re.search(r"(?im)^###\s+Information Sources and Search Strategy\s*$", patched))
     abstract_only_count = max(0, int(grounding.fulltext_total_count) - int(grounding.fulltext_retrieved_count))
-    db_sentence = (
-        f"The review searched {', '.join(grounding.databases_searched)} on {grounding.search_date}"
-        + (
-            f" with an eligibility window of {grounding.search_eligibility_window}."
-            if grounding.search_eligibility_window
-            else "."
-        )
+    db_sentence = f"The review searched {', '.join(grounding.databases_searched)} on {grounding.search_date}" + (
+        f" with an eligibility window of {grounding.search_eligibility_window}."
+        if grounding.search_eligibility_window
+        else "."
     )
     if getattr(grounding, "failed_databases", []):
         db_sentence = (
@@ -1167,9 +1159,7 @@ def _patch_methods_grounding(content: str, grounding: WritingGroundingData | Non
             f"To verify automated exclusions, {batch_validation_n} low-relevance records were "
             f"cross-checked by dual review; {validation_npv_pct}% were confirmed as true exclusions."
         )
-    outcome_definition_sentence = (
-        "Primary and secondary outcomes were defined a priori and sought across all reported time points for each study."
-    )
+    outcome_definition_sentence = "Primary and secondary outcomes were defined a priori and sought across all reported time points for each study."
     effect_measure_sentence = (
         "The primary effect measure was the reported direction of effect; when available, odds ratio, risk ratio, "
         "mean difference, or standardized mean difference estimates were extracted descriptively rather than pooled."
@@ -1186,9 +1176,7 @@ def _patch_methods_grounding(content: str, grounding: WritingGroundingData | Non
         "No formal reporting bias or publication bias assessment was feasible because the synthesis did not support pooled "
         "meta-analysis and included too few studies for a funnel plot or leave-one-out evaluation."
     )
-    software_sentence = (
-        "Quantitative synthesis software such as statsmodels or scipy was not used because no pooled meta-analysis was performed."
-    )
+    software_sentence = "Quantitative synthesis software such as statsmodels or scipy was not used because no pooled meta-analysis was performed."
     rob_coverage_sentence = ""
     missing_rob = int(getattr(grounding, "included_studies_without_rob_mapping", 0) or 0)
     if missing_rob > 0:
@@ -1280,7 +1268,10 @@ def _patch_results_grounding(content: str, grounding: WritingGroundingData | Non
                 getattr(
                     grounding,
                     "fulltext_excluded",
-                    max(0, int(getattr(grounding, "fulltext_assessed", 0)) - int(getattr(grounding, "total_included", 0))),
+                    max(
+                        0,
+                        int(getattr(grounding, "fulltext_assessed", 0)) - int(getattr(grounding, "total_included", 0)),
+                    ),
                 )
                 or 0
             )
@@ -1403,7 +1394,10 @@ def _patch_discussion_grounding(content: str, grounding: WritingGroundingData | 
                 "rows, so certainty judgments for those records are conservative and should be interpreted as "
                 "hypothesis-generating rather than confirmatory."
             )
-            if "without mapped appraisal rows" not in lower and "hypothesis-generating rather than confirmatory" not in lower:
+            if (
+                "without mapped appraisal rows" not in lower
+                and "hypothesis-generating rather than confirmatory" not in lower
+            ):
                 patched = f"{patched.rstrip()}\n\n{rob_gap_sentence}"
                 lower = patched.lower()
     if grounding is not None and grounding.grade_summary:
@@ -1767,12 +1761,12 @@ def _expand_abstract_to_minimum_words(content: str, grounding: WritingGroundingD
         (
             "Methods",
             f"Eligibility assessment covered {grounding.fulltext_assessed} retrieved reports after screening "
-            f"{grounding.total_screened} records across the configured databases."
+            f"{grounding.total_screened} records across the configured databases.",
         ),
         (
             "Results",
             f"Study designs were heterogeneous, and {grounding.total_included} included studies produced an overall "
-            f"{str(grounding.synthesis_direction).replace('_', ' ')} direction of evidence."
+            f"{str(grounding.synthesis_direction).replace('_', ' ')} direction of evidence.",
         ),
     ]
     if abstract_only_count > 0:
@@ -1780,7 +1774,7 @@ def _expand_abstract_to_minimum_words(content: str, grounding: WritingGroundingD
             (
                 "Conclusions",
                 f"{abstract_only_count} included studies were extracted from abstracts and metadata only, which "
-                "limits synthesis depth and increases uncertainty."
+                "limits synthesis depth and increases uncertainty.",
             )
         )
     if getattr(grounding, "grade_summary", ""):
@@ -1788,7 +1782,7 @@ def _expand_abstract_to_minimum_words(content: str, grounding: WritingGroundingD
             (
                 "Conclusions",
                 "Certainty of evidence was predominantly low to very low, so findings should be treated as "
-                "hypothesis-generating rather than definitive."
+                "hypothesis-generating rather than definitive.",
             )
         )
     for field, sentence in expansion_steps:
@@ -1847,14 +1841,10 @@ def _build_minimum_compliant_abstract(
     abstract_only_count = max(0, fulltext_total_count - fulltext_retrieved_count)
     abstract_only_sentence = ""
     if abstract_only_count > 0:
-        abstract_only_sentence = (
-            f" {abstract_only_count} included studies were extracted from abstracts and metadata only because retrievable full-text PDFs were unavailable."
-        )
+        abstract_only_sentence = f" {abstract_only_count} included studies were extracted from abstracts and metadata only because retrievable full-text PDFs were unavailable."
     retrieval_sentence = ""
     if fulltext_not_retrieved > 0:
-        retrieval_sentence = (
-            f" The evidence base was constrained by non-retrieval of {fulltext_not_retrieved} of {fulltext_sought} reports sought for full-text review."
-        )
+        retrieval_sentence = f" The evidence base was constrained by non-retrieval of {fulltext_not_retrieved} of {fulltext_sought} reports sought for full-text review."
     rob_summary = str(getattr(grounding, "rob_summary", "") or "").strip()
     rob_sentence = ""
     if rob_summary:
@@ -1899,9 +1889,13 @@ def _build_deterministic_section_fallback(
         first = sorted(valid_citekeys)[0]
         fallback_citations = [first]
     if section == "abstract":
-        databases = ", ".join(getattr(grounding, "databases_searched", []) or []) or "configured bibliographic databases"
+        databases = (
+            ", ".join(getattr(grounding, "databases_searched", []) or []) or "configured bibliographic databases"
+        )
         review_topic = str(
-            getattr(grounding, "research_question", "") or getattr(grounding, "review_topic", "") or "the review question"
+            getattr(grounding, "research_question", "")
+            or getattr(grounding, "review_topic", "")
+            or "the review question"
         ).strip()
         screened = getattr(grounding, "total_screened", 0) if grounding is not None else 0
         assessed = getattr(grounding, "fulltext_assessed", 0) if grounding is not None else 0
@@ -2416,8 +2410,7 @@ async def register_background_sr_citations(
             )
         if not papers_relevant:
             logger.info(
-                "Background SR topic filter matched 0 of %d papers; "
-                "returning empty to avoid off-topic citations.",
+                "Background SR topic filter matched 0 of %d papers; returning empty to avoid off-topic citations.",
                 len(papers_raw),
             )
             return []
@@ -2559,8 +2552,8 @@ async def write_section_with_validation(
         )
 
     if section == "results" and grounding is not None:
-        effective_context = effective_context + "\n\n" + render_results_evidence_context(
-            build_results_evidence_pack(grounding)
+        effective_context = (
+            effective_context + "\n\n" + render_results_evidence_context(build_results_evidence_pack(grounding))
         )
 
     writer = SectionWriter(
@@ -2646,7 +2639,9 @@ async def write_section_with_validation(
             if issues:
                 validation_issues = sorted(set(issues))
                 fallback_structured = _build_deterministic_section_fallback(section, grounding, valid_citekeys)
-                if _best_effort_accept(section, structured, fallback_structured, validation_issues, included_study_count):
+                if _best_effort_accept(
+                    section, structured, fallback_structured, validation_issues, included_study_count
+                ):
                     logger.warning(
                         "Section '%s' still failed completeness checks after retry (%s); keeping best-effort content.",
                         section,

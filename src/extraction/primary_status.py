@@ -60,4 +60,3 @@ def resolve_primary_status(
         if by_design != PrimaryStudyStatus.UNKNOWN:
             return by_design
     return primary_status_from_exclusion_reason(exclusion_reason)
-

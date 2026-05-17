@@ -169,7 +169,7 @@ def _normalize_selected_profiles(
             deduped.append(typed_profile)
     if not deduped:
         deduped = [_GENERAL_PROFILE]
-    return deduped[:max(1, max_profiles)]
+    return deduped[: max(1, max_profiles)]
 
 
 def _profile_catalog_text() -> str:
@@ -553,7 +553,7 @@ async def run_manuscript_audit(
             for idx, f in enumerate(parsed.findings):
                 findings.append(
                     ManuscriptAuditFinding(
-                        finding_id=f"{profile}-{_finding_scope_token(audit_pass.label)}-{pass_idx}-{idx+1}",
+                        finding_id=f"{profile}-{_finding_scope_token(audit_pass.label)}-{pass_idx}-{idx + 1}",
                         profile=profile,  # type: ignore[arg-type]
                         severity=f.severity,
                         category=f.category,
@@ -610,4 +610,3 @@ def serialize_contract_summary(summary: dict[str, object]) -> str:
 def serialize_audit_context(summary: dict[str, object]) -> str:
     """Stable JSON serialization for audit-context grounding."""
     return serialize_contract_summary(summary)
-

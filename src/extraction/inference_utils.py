@@ -417,15 +417,14 @@ def derive_concise_result_summary(text: str) -> str:
         if has_specific_result_summary(candidate):
             return _ensure_terminal_punctuation(candidate)
 
-    sentences = [
-        sentence.strip(" ;")
-        for sentence in re.split(r"(?<=[.!?])\s+", cleaned)
-        if sentence.strip()
-    ]
+    sentences = [sentence.strip(" ;") for sentence in re.split(r"(?<=[.!?])\s+", cleaned) if sentence.strip()]
     result_sentences: list[str] = []
     for sentence in sentences:
         sentence_low = sentence.lower().lstrip()
-        if any(sentence_low.startswith(prefix + ":") or sentence_low.startswith(prefix + " ") for prefix in _NON_RESULT_PREFIXES):
+        if any(
+            sentence_low.startswith(prefix + ":") or sentence_low.startswith(prefix + " ")
+            for prefix in _NON_RESULT_PREFIXES
+        ):
             continue
         if has_specific_result_summary(sentence):
             result_sentences.append(_ensure_terminal_punctuation(sentence))

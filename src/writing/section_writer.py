@@ -43,9 +43,7 @@ class SectionWriter:
         self.review = review
         self.settings = settings
         self.citation_catalog = citation_catalog
-        self._timeout_seconds = float(
-            getattr(getattr(settings, "llm", None), "request_timeout_seconds", 180)
-        )
+        self._timeout_seconds = float(getattr(getattr(settings, "llm", None), "request_timeout_seconds", 180))
 
     def _domain_guidance_lines(self) -> list[str]:
         lines = self.review.domain_brief_lines()
@@ -276,14 +274,12 @@ class SectionWriter:
         start = time.perf_counter()
         client = PydanticAIClient(timeout_seconds=self._timeout_seconds)
         try:
-            structured, tokens_in, tokens_out, cache_write, cache_read, retries = (
-                await client.complete_validated(
-                    prompt,
-                    model=full_model,
-                    temperature=agent_cfg.temperature,
-                    response_model=StructuredSectionDraft,
-                    json_schema=self._structured_schema(),
-                )
+            structured, tokens_in, tokens_out, cache_write, cache_read, retries = await client.complete_validated(
+                prompt,
+                model=full_model,
+                temperature=agent_cfg.temperature,
+                response_model=StructuredSectionDraft,
+                json_schema=self._structured_schema(),
             )
             if retries > 0:
                 logger.info(

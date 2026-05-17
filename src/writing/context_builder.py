@@ -856,8 +856,12 @@ def build_writing_grounding(
     _inclusion_criteria = []
     _exclusion_criteria = []
     if review_config is not None:
-        _inclusion_criteria = [str(x).strip() for x in (getattr(review_config, "inclusion_criteria", []) or []) if str(x).strip()]
-        _exclusion_criteria = [str(x).strip() for x in (getattr(review_config, "exclusion_criteria", []) or []) if str(x).strip()]
+        _inclusion_criteria = [
+            str(x).strip() for x in (getattr(review_config, "inclusion_criteria", []) or []) if str(x).strip()
+        ]
+        _exclusion_criteria = [
+            str(x).strip() for x in (getattr(review_config, "exclusion_criteria", []) or []) if str(x).strip()
+        ]
     _inclusion_criteria = _normalize_criterion_date_windows(_inclusion_criteria, search_eligibility_window)
     _exclusion_criteria = _normalize_criterion_date_windows(_exclusion_criteria, search_eligibility_window)
     criteria_date_warning = ""
@@ -884,15 +888,15 @@ def build_writing_grounding(
         "qualitative",
         "rct",
     )
-    _eligible_study_designs = [
-        c for c in _inclusion_criteria if any(k in c.lower() for k in _design_keywords)
-    ]
+    _eligible_study_designs = [c for c in _inclusion_criteria if any(k in c.lower() for k in _design_keywords)]
 
     # Full-text retrieval counts: prefer explicit resolver-tracked ids when available.
     # Fall back to extraction_source heuristics only when no explicit id set exists.
     _fulltext_id_set = {str(pid) for pid in (fulltext_paper_ids or set())}
     if _fulltext_id_set:
-        fulltext_retrieved = sum(1 for rec in extraction_records if str(getattr(rec, "paper_id", "")) in _fulltext_id_set)
+        fulltext_retrieved = sum(
+            1 for rec in extraction_records if str(getattr(rec, "paper_id", "")) in _fulltext_id_set
+        )
     else:
         fulltext_retrieved = sum(
             1 for rec in extraction_records if getattr(rec, "extraction_source", "text") not in _ABSTRACT_ONLY_SOURCES
@@ -977,7 +981,9 @@ def build_writing_grounding(
         _search_date = datetime.now().date().isoformat()
 
     _fulltext_nonretrieval_rate = (
-        (prisma_counts.reports_not_retrieved / prisma_counts.reports_sought) if prisma_counts.reports_sought > 0 else 0.0
+        (prisma_counts.reports_not_retrieved / prisma_counts.reports_sought)
+        if prisma_counts.reports_sought > 0
+        else 0.0
     )
     _abstract_only = max(0, fulltext_total - fulltext_retrieved)
     _abstract_only_rate = (_abstract_only / fulltext_total) if fulltext_total > 0 else 0.0
@@ -1358,8 +1364,7 @@ def format_grounding_block(data: WritingGroundingData) -> str:
             lines.append(f"  - {item}")
     if data.eligible_study_designs:
         lines.append(
-            "Eligible study design criteria (from inclusion criteria): "
-            + "; ".join(data.eligible_study_designs)
+            "Eligible study design criteria (from inclusion criteria): " + "; ".join(data.eligible_study_designs)
         )
     if data.eligibility_inclusion_criteria or data.eligibility_exclusion_criteria:
         lines.append(
@@ -1459,14 +1464,10 @@ def format_grounding_block(data: WritingGroundingData) -> str:
             f"Meta-analysis: ATTEMPTED for {outcomes_str} but effect sizes were not "
             "numeric -- NARRATIVE SYNTHESIS ONLY."
         )
-        lines.append(
-            f"CRITICAL: {NARRATIVE_ONLY_META_ANALYSIS_RULE}"
-        )
+        lines.append(f"CRITICAL: {NARRATIVE_ONLY_META_ANALYSIS_RULE}")
     else:
         lines.append("Meta-analysis: NOT feasible - narrative synthesis only.")
-        lines.append(
-            f"CRITICAL: {NARRATIVE_ONLY_META_ANALYSIS_RULE}"
-        )
+        lines.append(f"CRITICAL: {NARRATIVE_ONLY_META_ANALYSIS_RULE}")
     if data.protocol_registered and data.protocol_registration_number:
         reg_status = f"YES (ID: {data.protocol_registration_number})"
     elif data.protocol_registered:

@@ -90,7 +90,9 @@ class EuropePmcConnector:
         }
         papers: list[CandidatePaper] = []
         async with aiohttp.ClientSession(connector=tcp_connector_with_certifi()) as session:
-            async with session.get(_EUROPEPMC_SEARCH_URL, params=params, timeout=aiohttp.ClientTimeout(total=30)) as resp:
+            async with session.get(
+                _EUROPEPMC_SEARCH_URL, params=params, timeout=aiohttp.ClientTimeout(total=30)
+            ) as resp:
                 if resp.status != 200:
                     body = (await resp.text())[:240]
                     raise RuntimeError(f"Europe PMC API returned HTTP {resp.status}: {body}")

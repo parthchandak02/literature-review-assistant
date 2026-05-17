@@ -696,9 +696,7 @@ def extract_inline_figure_artifact_keys(markdown_text: str, artifacts: dict[str,
     """Return artifact keys marked as inline figure insertions in markdown body."""
     text = markdown_text or ""
     marker_ids = {
-        marker.strip().upper()
-        for marker in re.findall(r"<!--INLINEFIG:([A-Z0-9]+)-->", text)
-        if marker.strip()
+        marker.strip().upper() for marker in re.findall(r"<!--INLINEFIG:([A-Z0-9]+)-->", text) if marker.strip()
     }
     if not marker_ids:
         marker_ids = {
@@ -926,8 +924,13 @@ def build_markdown_declarations_section(
     """Build a Declarations section with funding, COI, data availability, registration, and CRediT."""
     funding_text = funding or "No funding was received for this review."
     if "no role" not in funding_text.lower():
-        funding_text = f"{funding_text.rstrip()} The funders had no role in study design, analysis, interpretation, or reporting."
-    coi_text = coi or "The authors declare no competing interest and no conflict of interest. This disclosure applies to all authors."
+        funding_text = (
+            f"{funding_text.rstrip()} The funders had no role in study design, analysis, interpretation, or reporting."
+        )
+    coi_text = (
+        coi
+        or "The authors declare no competing interest and no conflict of interest. This disclosure applies to all authors."
+    )
     if protocol_registered and registration_id:
         reg_text = f"The protocol was prospectively registered (ID: {registration_id})."
     elif protocol_registered:
@@ -979,7 +982,11 @@ def _country_for_display(rec: Any, paper: Any) -> str:
     inferred = infer_country_from_text(
         title,
         getattr(paper, "abstract", "") or "",
-        ((getattr(rec, "results_summary", {}) or {}).get("summary", "") if isinstance(getattr(rec, "results_summary", {}), dict) else ""),
+        (
+            (getattr(rec, "results_summary", {}) or {}).get("summary", "")
+            if isinstance(getattr(rec, "results_summary", {}), dict)
+            else ""
+        ),
     )
     country = extracted or metadata or title_hint or inferred
     if title_hint and country != title_hint:
@@ -1395,6 +1402,22 @@ def build_quality_assessment_coverage_table(
     return "## Quality Assessment Coverage\n\n" + "\n".join(rows) + "\n\n" + note
 
 
+def _strip_criteria_boilerplate(part: str) -> str:
+    """Remove common rationale fragments that leak into PICOS tables from YAML bullets.
+
+    Criteria are often semicolon-joined; substrings like *to ensure technological relevance*
+    may appear mid-sentence, so stripping only line-anchored semicolon segments is not enough.
+    """
+    out = part
+    for pat in (
+        r"(?i)\bto ensure technological relevance\b\.?",
+        r"(?i)\bwill be considered\b\.?",
+    ):
+        out = re.sub(pat, "", out)
+    out = re.sub(r"\s{2,}", " ", out).strip(" ,;")
+    return out
+
+
 def _normalize_criteria_text(raw_text: str) -> str:
     """Normalize criteria lists and drop malformed placeholder fragments."""
     if not (raw_text or "").strip():
@@ -1402,6 +1425,9 @@ def _normalize_criteria_text(raw_text: str) -> str:
     parts = [p.strip(" ;") for p in raw_text.split(";")]
     cleaned_parts: list[str] = []
     for part in parts:
+        if not part:
+            continue
+        part = _strip_criteria_boilerplate(part)
         if not part:
             continue
         if re.match(r"^(?:will\s+be\s+considered|to\s+ensure\s+technological\s+relevance)\b", part, re.IGNORECASE):
@@ -1772,16 +1798,26 @@ def _normalize_date_range(text: str, date_start: str, date_end: str | None) -> s
         ),
         (
             re.compile(
-                r"\bfrom\s+(?:" + month + r")?(?:\d{1,2},?\s+)?"
+                r"\bfrom\s+(?:"
+                + month
+                + r")?(?:\d{1,2},?\s+)?"
                 + re.escape(date_start)
-                + r"\s*,?\s*to\s+(?:" + month + r")?(?:\d{1,2},?\s+)?(?:\d{4}|present|the present)\b",
+                + r"\s*,?\s*to\s+(?:"
+                + month
+                + r")?(?:\d{1,2},?\s+)?(?:\d{4}|present|the present)\b",
                 re.IGNORECASE,
             ),
             f"from {canonical_to}",
         ),
         (
             re.compile(
-                r"\bbetween\s+(?:" + month + r")?" + re.escape(date_start) + r"\s+and\s+(?:" + month + r")?(?:\d{4}|present|the present)\b",
+                r"\bbetween\s+(?:"
+                + month
+                + r")?"
+                + re.escape(date_start)
+                + r"\s+and\s+(?:"
+                + month
+                + r")?(?:\d{4}|present|the present)\b",
                 re.IGNORECASE,
             ),
             canonical_between,

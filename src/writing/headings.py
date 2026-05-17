@@ -247,7 +247,8 @@ def normalize_subsection_heading_layout(text: str) -> str:
                         for pos, word in enumerate(right_words):
                             if (
                                 pos > 0
-                                and word.lower() in {"the", "this", "these", "we", "our", "in", "across", "to", "a", "an"}
+                                and word.lower()
+                                in {"the", "this", "these", "we", "our", "in", "across", "to", "a", "an"}
                                 and pos + 1 < len(right_words)
                                 and right_words[pos + 1][:1].islower()
                             ):
@@ -278,9 +279,10 @@ def normalize_subsection_heading_layout(text: str) -> str:
                             out_lines.extend([f"{level} {heading_title}", "", body])
                             i += 1
                             break
-                    if (_SENTENCE_START_RE.match(right) or (right and right[0].isupper() and any(c in right for c in ".,"))) and (
-                        not _looks_title_fragment(right)
-                    ):
+                    if (
+                        _SENTENCE_START_RE.match(right)
+                        or (right and right[0].isupper() and any(c in right for c in ".,"))
+                    ) and (not _looks_title_fragment(right)):
                         out_lines.extend([f"{level} {' '.join(left_words)}", "", right])
                         i += 1
                         break
@@ -348,7 +350,9 @@ def markdown_subheading_paragraphs(lines: list[str], *, min_level: int = 3, max_
     return subheading_blocks
 
 
-def extract_markdown_heading_inventory(md_text: str, *, min_level: int = 2, max_level: int = 4) -> list[tuple[int, str]]:
+def extract_markdown_heading_inventory(
+    md_text: str, *, min_level: int = 2, max_level: int = 4
+) -> list[tuple[int, str]]:
     out: list[tuple[int, str]] = []
     normalized_md = normalize_subsection_heading_layout(md_text)
     for line in normalized_md.splitlines():

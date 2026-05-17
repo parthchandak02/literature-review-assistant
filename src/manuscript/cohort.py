@@ -34,9 +34,7 @@ class IncludedSetResolver:
                 fulltext_status=fulltext_status,
                 synthesis_eligibility=synthesis_eligibility,
                 exclusion_reason_code=(
-                    None
-                    if screening_status == "included"
-                    else (exclusion_reason_code or "screening_excluded")
+                    None if screening_status == "included" else (exclusion_reason_code or "screening_excluded")
                 ),
                 source_phase=source_phase,
             )
@@ -83,4 +81,3 @@ class IncludedSetResolver:
 
     async def get_synthesis_included_ids(self) -> set[str]:
         return await self.repository.get_synthesis_included_paper_ids(self.workflow_id)
-

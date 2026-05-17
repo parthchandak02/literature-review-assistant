@@ -51,7 +51,7 @@ class StructuredAbstractOutput(BaseModel):
         cleaned = re.sub(r"\s+", " ", str(keyword or "")).strip(" ,.;:")
         return cleaned
 
-    def normalized(self) -> "StructuredAbstractOutput":
+    def normalized(self) -> StructuredAbstractOutput:
         """Return a normalized copy with punctuation/whitespace normalization."""
         deduped_keywords: list[str] = []
         seen: set[str] = set()
@@ -91,13 +91,9 @@ class StructuredAbstractOutput(BaseModel):
             raise ValueError(f"Invalid abstract word band: min={min_words}, max={max_words}")
         word_count = self.body_word_count()
         if word_count < min_words:
-            raise ValueError(
-                f"Structured abstract under minimum word requirement: {word_count} < {min_words}"
-            )
+            raise ValueError(f"Structured abstract under minimum word requirement: {word_count} < {min_words}")
         if word_count > max_words:
-            raise ValueError(
-                f"Structured abstract exceeds maximum word requirement: {word_count} > {max_words}"
-            )
+            raise ValueError(f"Structured abstract exceeds maximum word requirement: {word_count} > {max_words}")
         if len(self.keywords) < 3:
             raise ValueError("Structured abstract must include at least 3 keywords.")
 

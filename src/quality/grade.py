@@ -201,14 +201,18 @@ class GradeAssessor:
         else:
             parts.append(f"No downgrade for risk of bias across {len(rob_assessments)} assessments.")
         if imprecision_downgrade > 0:
-            parts.append(f"Downgraded {_level_phrase(imprecision_downgrade)} for imprecision because total N was {total_n}.")
+            parts.append(
+                f"Downgraded {_level_phrase(imprecision_downgrade)} for imprecision because total N was {total_n}."
+            )
         elif total_n > 0:
             parts.append(f"No downgrade for imprecision because total N was {total_n}.")
         parts.append("Assessments with insufficient methodological detail were treated as serious risk of bias.")
         if n_studies == 1:
             parts.append("Inconsistency was not assessed because only one study informed this outcome.")
         else:
-            parts.append("Inconsistency should be reviewed manually because automated heterogeneity estimates were unavailable.")
+            parts.append(
+                "Inconsistency should be reviewed manually because automated heterogeneity estimates were unavailable."
+            )
         parts.append("Indirectness should be reviewed manually because directness was not assessed automatically.")
         justification = " ".join(parts)
         return assessment.model_copy(

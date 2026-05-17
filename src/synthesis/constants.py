@@ -14,9 +14,7 @@ GENERIC_OUTCOME_NAMES = frozenset(
     }
 )
 
-DEFAULT_HETEROGENEITY_THRESHOLD = float(
-    MetaAnalysisConfig.model_fields["heterogeneity_threshold"].default
-)
+DEFAULT_HETEROGENEITY_THRESHOLD = float(MetaAnalysisConfig.model_fields["heterogeneity_threshold"].default)
 
 
 def normalize_outcome_name(name: str) -> str:
