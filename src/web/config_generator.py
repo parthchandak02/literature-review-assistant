@@ -406,9 +406,9 @@ class _GeneratedConfig(BaseModel):
     review_type: str = Field(description="Always 'systematic'")
     pico: _Pico
     keywords: list[str] = Field(
-        description="18-24 specific search keywords including intervention synonyms, abbreviations, population/setting terms, outcome terms, and implementation terms; brands/acronyms may appear but must remain supplemental; each keyword must include at least one token with length >= 2",
+        description="18-28 specific search keywords including intervention synonyms, abbreviations, population/setting terms, outcome terms, and implementation terms; brands/acronyms may appear but must remain supplemental; each keyword must include at least one token with length >= 2",
         min_length=15,
-        max_length=28,
+        max_length=32,
     )
     domain: str = Field(description="One-line domain description (topic area and setting)")
     scope: str = Field(
@@ -616,6 +616,7 @@ def _build_yaml(
     cfg: _GeneratedConfig,
     defaults: _DefaultConfigDict | None = None,
     resolved_databases: list[str] | None = None,
+    generation_mode: str = "web_grounded",
 ) -> str:
     """Build YAML from LLM output, using defaults for structural settings when provided."""
     if defaults is not None:
@@ -638,6 +639,12 @@ def _build_yaml(
         sections = _DEFAULT_SECTIONS
 
     lines: list[str] = []
+    if generation_mode == "model_fallback":
+        lines.append("# Config generation mode: model-knowledge fallback (web research unavailable).")
+    else:
+        lines.append("# Config generation mode: web-grounded brief with live web research.")
+    lines.append("# Review and edit this YAML before launching the workflow.")
+    lines.append("")
     lines.append(f"research_question: {_yaml_str(cfg.research_question)}")
     lines.append(f"review_type: {_yaml_str(cfg.review_type)}")
     lines.append("")
@@ -791,7 +798,7 @@ def _build_yaml(
 
 _RESEARCH_PROMPT = (
     "You are helping set up a systematic literature review. Search the web to "
-    "research the following topic thoroughly, then return a concise research brief.\n\n"
+    "research the following topic thoroughly, then return a high-coverage research brief.\n\n"
     "Topic: {research_question}\n\n"
     "Search for and report back:\n"
     "1. The main technology, system, or intervention -- all synonyms, abbreviations,\n"
@@ -805,8 +812,10 @@ _RESEARCH_PROMPT = (
     "6. Common implementation or adoption challenges and workflow terms.\n"
     "7. Any adjacent or overlapping technologies that should be distinguished from the\n"
     "   main intervention (so they can be excluded from the review).\n\n"
-    "Format as a concise bullet-point brief. Be specific. Include real brand names,\n"
-    "real domain terms, and real metric names. Do not generalize."
+    "Format as a detailed bullet-point brief with explicit headings 1-7.\n"
+    "For each heading provide at least 4 concrete bullets when evidence exists, and\n"
+    "prefer comprehensive synonym and metric coverage over brevity. Be specific.\n"
+    "Include real brand names, real domain terms, and real metric names. Do not generalize."
 )
 
 # ---------------------------------------------------------------------------
@@ -838,7 +847,7 @@ _STRUCTURE_PROMPT = (
     "  (technology/treatment/system being evaluated), comparison (controls, baselines,\n"
     "  alternatives, or pre-implementation state), outcome (all relevant measurable\n"
     "  outcomes).\n"
-    "- Generate 18-24 specific search keywords. Draw directly from the research\n"
+    "- Generate 18-28 specific search keywords. Draw directly from the research\n"
     "  brief above. Cover ALL of:\n"
     "  (a) the core intervention technology and its synonyms and abbreviations from\n"
     "      the research brief,\n"
@@ -941,6 +950,17 @@ _STRUCTURE_PROMPT = (
     "  verbatim in papers and will always return zero results.\n\n"
     "Return the response as a JSON object matching the schema exactly. All text fields\n"
     "must be in English. Do not truncate or omit any field."
+)
+
+_FALLBACK_RESEARCH_BRIEF = "(Web search unavailable -- rely on training knowledge only.)"
+_FALLBACK_STRUCTURE_INSTRUCTION = (
+    "\n\nSPECIAL MODE: WEB RESEARCH WAS UNAVAILABLE.\n"
+    "- You must infer terminology from the original research question alone.\n"
+    "- Expand synonyms conservatively: include canonical terms, common abbreviations,\n"
+    "  and adjacent phrasing variants used in academic abstracts.\n"
+    "- Prefer recall-safe keyword coverage (without generic cross-domain noise) so\n"
+    "  downstream screening can narrow scope later.\n"
+    "- When uncertain, choose broadly used domain terms over niche or speculative terms.\n"
 )
 
 
@@ -1195,7 +1215,7 @@ async def generate_config_yaml(
     except Exception as exc:
         logger.warning("Config gen Stage 1 (web search+fetch) failed, falling back to model knowledge: %s", exc)
         # Graceful degradation: skip the research brief, rely on model knowledge.
-        research_brief = "(Web search unavailable -- rely on training knowledge only.)"
+        research_brief = _FALLBACK_RESEARCH_BRIEF
         emit("web_research_fallback")
 
     emit("web_research_done")
@@ -1208,6 +1228,9 @@ async def generate_config_yaml(
         research_question=rq,
         research_brief=research_brief,
     )
+    using_fallback = research_brief == _FALLBACK_RESEARCH_BRIEF
+    if using_fallback:
+        structure_prompt += _FALLBACK_STRUCTURE_INSTRUCTION
     schema = _GeneratedConfig.model_json_schema()
     output_type = NativeOutput(StructuredDict(schema))
     structure_agent: Agent = Agent(_model, output_type=output_type)  # type: ignore[arg-type]
@@ -1222,7 +1245,7 @@ async def generate_config_yaml(
 
     repair_instruction = (
         "\\n\\nREPAIR INSTRUCTION:\\n"
-        "Return valid keywords only. Must include 18-24 items, each with at least one token of "
+        "Return valid keywords only. Must include 18-28 items, each with at least one token of "
         "length >= 2. Do not return single letters/fragments. Keep brands/acronyms supplemental "
         "(<= 35% of keywords), and prioritize domain/setting/outcome terms."
     )
@@ -1278,7 +1301,12 @@ async def generate_config_yaml(
         matched_biomedical_terms=route.matched_biomedical_terms,
         matched_generic_terms=route.matched_generic_terms,
     )
-    return _build_yaml(parsed, defaults, resolved_databases=resolved_databases)
+    return _build_yaml(
+        parsed,
+        defaults,
+        resolved_databases=resolved_databases,
+        generation_mode="model_fallback" if using_fallback else "web_grounded",
+    )
 
 
 def evaluate_config_quality_dict(raw_cfg: dict[str, Any]) -> dict[str, Any]:
@@ -1356,9 +1384,7 @@ def evaluate_config_quality_dict(raw_cfg: dict[str, Any]) -> dict[str, Any]:
         ]
     ).lower()
     topic_terms = {
-        tok
-        for tok in re.findall(r"[a-z0-9]+", topic_blob)
-        if len(tok) >= 4 and tok not in _GENERIC_NOISE_TERMS
+        tok for tok in re.findall(r"[a-z0-9]+", topic_blob) if len(tok) >= 4 and tok not in _GENERIC_NOISE_TERMS
     }
     topic_anchor_floor = max(8, min(20, len(topic_terms)))
     specificity_scores: list[float] = []
@@ -1368,9 +1394,7 @@ def evaluate_config_quality_dict(raw_cfg: dict[str, Any]) -> dict[str, Any]:
         generic_penalty = len(override_terms & _GENERIC_NOISE_TERMS)
         raw_specificity = (100.0 * anchored / topic_anchor_floor) - (7.0 * generic_penalty)
         specificity_scores.append(max(0.0, min(100.0, raw_specificity)))
-    specificity_score = (
-        sum(specificity_scores) / len(specificity_scores) if specificity_scores else 70.0
-    )
+    specificity_score = sum(specificity_scores) / len(specificity_scores) if specificity_scores else 70.0
     override_complexity = round((0.6 * length_complexity) + (0.4 * specificity_score), 2)
     db_relevance = 100.0
     if route.policy == "high_confidence_generic":
@@ -1386,12 +1410,7 @@ def evaluate_config_quality_dict(raw_cfg: dict[str, Any]) -> dict[str, Any]:
             db_relevance -= 20.0
     db_relevance = max(0.0, db_relevance)
 
-    total = (
-        0.35 * syntax_sanity
-        + 0.3 * keyword_quality
-        + 0.2 * db_relevance
-        + 0.15 * override_complexity
-    )
+    total = 0.35 * syntax_sanity + 0.3 * keyword_quality + 0.2 * db_relevance + 0.15 * override_complexity
 
     return {
         "total": round(total, 2),
