@@ -29,6 +29,7 @@ from src.quality.runner import QualityLLMRunner
 
 logger = logging.getLogger(__name__)
 
+
 class _MmatLLMResponse(BaseModel):
     screening_1_clear_question: bool = False
     screening_2_appropriate_data: bool = False

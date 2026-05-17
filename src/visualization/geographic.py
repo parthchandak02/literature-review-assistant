@@ -60,11 +60,7 @@ def render_geographic(papers: list[CandidatePaper], output_path: str) -> Path:
     path.parent.mkdir(parents=True, exist_ok=True)
 
     total_papers = len(papers)
-    countries = [
-        p.country
-        for p in papers
-        if p.country and str(p.country).strip().lower() not in _NOT_REPORTED
-    ]
+    countries = [p.country for p in papers if p.country and str(p.country).strip().lower() not in _NOT_REPORTED]
     n_missing = total_papers - len(countries)
 
     if countries:

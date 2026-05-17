@@ -119,9 +119,7 @@ async def generate_contradiction_paragraph(
         with _with_api_key(api_key):
             client = PydanticAIClient()
             started = monotonic()
-            raw, tok_in, tok_out, cw, cr = await client.complete_with_usage(
-                prompt, model=model_name, temperature=0.1
-            )
+            raw, tok_in, tok_out, cw, cr = await client.complete_with_usage(prompt, model=model_name, temperature=0.1)
             latency_ms = int((monotonic() - started) * 1000)
         text = str(raw or "").strip()
         if len(text) < 50:

@@ -17,7 +17,11 @@ from src.db.workflow_registry import find_by_workflow_id, find_by_workflow_id_fa
 from src.export.bibtex_builder import build_bibtex, build_citekey_alias_map
 from src.export.docx_exporter import generate_docx
 from src.export.ieee_latex import markdown_to_latex
-from src.export.markdown_refs import extract_inline_figure_artifact_keys, get_existing_figure_entries, get_latex_figure_paths
+from src.export.markdown_refs import (
+    extract_inline_figure_artifact_keys,
+    get_existing_figure_entries,
+    get_latex_figure_paths,
+)
 from src.export.prisma_checklist import (
     render_prisma_csv,
     render_prisma_html,
@@ -108,7 +112,9 @@ async def _export_extraction_records(db_path: str, workflow_id: str, out_path: P
         return
     with open(out_path, "w", newline="", encoding="utf-8") as f:
         writer = csv.writer(f)
-        writer.writerow(["paper_id", "study_design", "primary_study_status", "intervention_description", "results_summary"])
+        writer.writerow(
+            ["paper_id", "study_design", "primary_study_status", "intervention_description", "results_summary"]
+        )
         for row in rows:
             paper_id, study_design, primary_study_status, data_json = str(row[0]), str(row[1]), str(row[2]), row[3]
             try:
@@ -644,9 +650,7 @@ async def package_submission(
         try:
             _run_summary = json.loads(_run_summary_path.read_text(encoding="utf-8"))
             _artifacts = {
-                str(k): str(v)
-                for k, v in (_run_summary.get("artifacts", {}) or {}).items()
-                if isinstance(v, str)
+                str(k): str(v) for k, v in (_run_summary.get("artifacts", {}) or {}).items() if isinstance(v, str)
             }
         except Exception:
             _artifacts = {}

@@ -41,9 +41,10 @@ SOFT_BLOCK_CODES: frozenset[str] = frozenset(
     }
 )
 
-# During phase_7_audit, missing optional finalize-time artifacts must not block
-# the audit gate; they are availability observations until FinalizeNode runs.
-PHASE_7_AVAILABILITY_ONLY_CODES: frozenset[str] = frozenset(
+# During manuscript-audit evaluation, missing optional finalize-time artifacts
+# must not block the audit gate; they are availability observations until
+# FinalizeNode runs.
+MANUSCRIPT_AUDIT_AVAILABILITY_ONLY_CODES: frozenset[str] = frozenset(
     {
         "FIGURE_ASSET_MISSING",
         "FIGURE_LATEX_MISMATCH",
@@ -52,23 +53,30 @@ PHASE_7_AVAILABILITY_ONLY_CODES: frozenset[str] = frozenset(
     }
 )
 
+# Back-compat for tests and callers; prefer MANUSCRIPT_AUDIT_AVAILABILITY_ONLY_CODES.
+PHASE_7_AVAILABILITY_ONLY_CODES = MANUSCRIPT_AUDIT_AVAILABILITY_ONLY_CODES
+
+
+def _is_manuscript_audit_phase(contract_phase: str) -> bool:
+    return contract_phase in {"manuscript_audit", "phase_7_audit"}
+
 
 def hard_failure(mode: str, code: str, contract_phase: str = "finalize") -> bool:
     """Return True when this violation should fail the contract gate in the given mode."""
     if mode == "observe":
         return False
     if mode == "soft":
-        if contract_phase == "phase_7_audit" and code in PHASE_7_AVAILABILITY_ONLY_CODES:
+        if _is_manuscript_audit_phase(contract_phase) and code in MANUSCRIPT_AUDIT_AVAILABILITY_ONLY_CODES:
             return False
         return code in SOFT_BLOCK_CODES
     # strict
-    if contract_phase == "phase_7_audit" and code in PHASE_7_AVAILABILITY_ONLY_CODES:
+    if _is_manuscript_audit_phase(contract_phase) and code in MANUSCRIPT_AUDIT_AVAILABILITY_ONLY_CODES:
         return False
     return True
 
 
 def violation_category(code: str, contract_phase: str) -> str:
     """Label a violation as compliance vs availability for diagnostics."""
-    if contract_phase == "phase_7_audit" and code in PHASE_7_AVAILABILITY_ONLY_CODES:
+    if _is_manuscript_audit_phase(contract_phase) and code in MANUSCRIPT_AUDIT_AVAILABILITY_ONLY_CODES:
         return "artifact_availability"
     return "methodological_compliance"

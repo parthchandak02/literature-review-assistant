@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import logging
 import re
-from typing import Any
 
 from pydantic import BaseModel
 
@@ -32,7 +31,9 @@ class _PlacementEnvelope(BaseModel):
 
 def _split_sections(markdown_body: str) -> dict[str, str]:
     """Return canonical section-key to section-body mapping."""
-    section_map: dict[str, list[str]] = {k: [] for k in ("introduction", "methods", "results", "discussion", "conclusion")}
+    section_map: dict[str, list[str]] = {
+        k: [] for k in ("introduction", "methods", "results", "discussion", "conclusion")
+    }
     current: str | None = None
     heading_re = re.compile(r"^##\s+(.+?)\s*$")
     for raw_line in markdown_body.splitlines():
@@ -91,9 +92,7 @@ async def plan_inline_diagram_placements(
 ) -> tuple[DiagramPlacementPlan, dict[str, int]]:
     """Generate agent-selected placement decisions with deterministic fallback."""
     section_map = _split_sections(manuscript_body)
-    section_digest = "\n\n".join(
-        f"## {k}\n{(v[:1400] if v else '[missing section]')}" for k, v in section_map.items()
-    )
+    section_digest = "\n\n".join(f"## {k}\n{(v[:1400] if v else '[missing section]')}" for k, v in section_map.items())
     brief_digest = []
     for brief in brief_pack.diagrams:
         labels = ", ".join(brief.required_labels[:6]) or "n/a"
@@ -153,7 +152,9 @@ async def plan_inline_diagram_placements(
             decision = by_id.get(brief.diagram_id)
             if decision is None:
                 warnings.append(f"{brief.diagram_id}: missing placement decision; used fallback")
-                decision = _fallback_decision(brief, section_map.get(_DEFAULT_SECTION_BY_TYPE.get(brief.diagram_type, "results"), ""))
+                decision = _fallback_decision(
+                    brief, section_map.get(_DEFAULT_SECTION_BY_TYPE.get(brief.diagram_type, "results"), "")
+                )
             decisions.append(decision)
         return DiagramPlacementPlan(workflow_id=workflow_id, decisions=decisions, warnings=warnings), usage
     except Exception as exc:  # noqa: BLE001

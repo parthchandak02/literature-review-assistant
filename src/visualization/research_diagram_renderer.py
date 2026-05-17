@@ -12,11 +12,11 @@ from time import monotonic
 from typing import Any
 
 import aiohttp
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 from pydantic_ai.messages import BinaryContent
 
-from src.llm.pydantic_client import PydanticAIClient
 from src.llm.provider import LLMProvider
+from src.llm.pydantic_client import PydanticAIClient
 from src.models import CostRecord
 from src.models.diagrams import (
     DiagramBriefPack,
@@ -64,7 +64,10 @@ def _extract_usage_tokens(payload: dict[str, Any]) -> dict[str, int]:
     candidates = int(usage.get("candidatesTokenCount") or usage.get("candidates_token_count") or 0)
     total = int(usage.get("totalTokenCount") or usage.get("total_token_count") or 0)
     cache_read = int(
-        usage.get("cachedContentTokenCount") or usage.get("cached_content_token_count") or usage.get("cacheReadTokenCount") or 0
+        usage.get("cachedContentTokenCount")
+        or usage.get("cached_content_token_count")
+        or usage.get("cacheReadTokenCount")
+        or 0
     )
     cache_write = int(usage.get("cacheWriteTokenCount") or usage.get("cache_write_token_count") or 0)
     if candidates <= 0 and total > 0:
@@ -284,12 +287,12 @@ async def render_custom_research_diagrams(
     drawing_model: str,
     critic_model: str,
     style_guide: DiagramStyleGuide,
-    max_rounds: int = 3,
+    max_rounds: int = 1,
     image_size: str = "2K",
     aspect_ratio: str = "16:9",
     repository: Any | None = None,
 ) -> DiagramGenerationReport:
-    """Generate custom figures with draw->critic refinement loops."""
+    """Generate custom figures; optional multi-round draw->critic refinement (default: one round)."""
     out_dir.mkdir(parents=True, exist_ok=True)
     report = DiagramGenerationReport(
         workflow_id=brief_pack.workflow_id,

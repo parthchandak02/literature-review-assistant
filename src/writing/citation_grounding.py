@@ -63,11 +63,7 @@ def extract_used_citekeys(text: str) -> list[str]:
 
 def extract_numeric_citation_refs(text: str) -> list[str]:
     """Extract numeric bracket citations like [1] in stable order."""
-    return [
-        token
-        for token in extract_bracket_blocks(text)
-        if _NUMERIC_CITATION_RE.fullmatch(token.strip())
-    ]
+    return [token for token in extract_bracket_blocks(text) if _NUMERIC_CITATION_RE.fullmatch(token.strip())]
 
 
 def extract_and_strip_inline_citekeys(text: str) -> tuple[str, list[str]]:

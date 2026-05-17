@@ -77,9 +77,7 @@ class PRISMACounts(BaseModel):
         """
         violations: list[str] = []
 
-        expected_after_dedup = (
-            self.total_identified_databases + self.total_identified_other - self.duplicates_removed
-        )
+        expected_after_dedup = self.total_identified_databases + self.total_identified_other - self.duplicates_removed
         if self.records_after_deduplication != expected_after_dedup and self.records_after_deduplication > 0:
             violations.append(
                 f"records_after_deduplication mismatch: "
@@ -104,9 +102,7 @@ class PRISMACounts(BaseModel):
 
         expected_included = self.studies_included_qualitative + self.studies_included_quantitative
         if self.total_included != expected_included and self.total_included > 0:
-            violations.append(
-                f"total_included mismatch: stored={self.total_included}, expected={expected_included}"
-            )
+            violations.append(f"total_included mismatch: stored={self.total_included}, expected={expected_included}")
 
         if violations:
             msg = "PRISMA arithmetic violations: " + "; ".join(violations)

@@ -172,21 +172,25 @@ class StudyClassifier:
             "education, social science, computer science, etc.).",
         ]
         if abstract_only:
-            lines.extend([
+            lines.extend(
+                [
+                    "",
+                    "ABSTRACT-ONLY CLASSIFICATION: You are classifying from title and abstract ONLY",
+                    "(full text was not available). When uncertain between development_study and an",
+                    "empirical category (non_randomized, quasi_experimental, pre_post), PREFER the",
+                    "empirical category. Across all domains, papers routinely describe their method",
+                    "or system in the abstract while the full quantitative evaluation appears only",
+                    "in the body. Reserve development_study ONLY for papers whose abstract explicitly",
+                    "states that NO evaluation, testing, or results are presented.",
+                ]
+            )
+        lines.extend(
+            [
                 "",
-                "ABSTRACT-ONLY CLASSIFICATION: You are classifying from title and abstract ONLY",
-                "(full text was not available). When uncertain between development_study and an",
-                "empirical category (non_randomized, quasi_experimental, pre_post), PREFER the",
-                "empirical category. Across all domains, papers routinely describe their method",
-                "or system in the abstract while the full quantitative evaluation appears only",
-                "in the body. Reserve development_study ONLY for papers whose abstract explicitly",
-                "states that NO evaluation, testing, or results are presented.",
-            ])
-        lines.extend([
-            "",
-            "Return ONLY valid JSON matching this exact schema:",
-            '{"study_design":"rct|non_randomized|quasi_experimental|cohort|case_control|pre_post|qualitative|mixed_methods|cross_sectional|usability_study|development_study|protocol|conference_abstract|narrative_review|other","confidence":0.0,"reasoning":"..."}',
-        ])
+                "Return ONLY valid JSON matching this exact schema:",
+                '{"study_design":"rct|non_randomized|quasi_experimental|cohort|case_control|pre_post|qualitative|mixed_methods|cross_sectional|usability_study|development_study|protocol|conference_abstract|narrative_review|other","confidence":0.0,"reasoning":"..."}',
+            ]
+        )
         return "\n".join(lines)
 
     @staticmethod
@@ -325,11 +329,7 @@ class StudyClassifier:
             )
             confidence = parsed.confidence
             predicted = parsed.study_design.value
-        elif (
-            abstract_only
-            and parsed.study_design == StudyDesign.DEVELOPMENT_STUDY
-            and parsed.confidence < 0.85
-        ):
+        elif abstract_only and parsed.study_design == StudyDesign.DEVELOPMENT_STUDY and parsed.confidence < 0.85:
             final_design = StudyDesign.NON_RANDOMIZED
             rationale = (
                 f"Abstract-only classification returned development_study with "

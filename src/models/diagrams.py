@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import hashlib
 import re
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Literal
 
 from pydantic import BaseModel, Field
@@ -248,7 +248,7 @@ class DiagramBriefPack(BaseModel):
     source_included_count: int = Field(..., ge=1)
     source_file_count: int = Field(default=0, ge=0)
     diagrams: list[ResearchDiagramBrief] = Field(..., min_length=2, max_length=3)
-    created_at_utc: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    created_at_utc: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
 
 class DiagramStyleGuide(BaseModel):
@@ -331,7 +331,7 @@ class DiagramPlacementPlan(BaseModel):
     workflow_id: str = Field(..., min_length=3)
     decisions: list[DiagramPlacementDecision] = Field(default_factory=list)
     warnings: list[str] = Field(default_factory=list)
-    created_at_utc: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    created_at_utc: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
 
 class DiagramGenerationReport(BaseModel):
@@ -341,4 +341,4 @@ class DiagramGenerationReport(BaseModel):
     style_profile: str = Field(default="academic_bw_v1", min_length=3)
     results: list[DiagramGenerationResult] = Field(default_factory=list)
     warnings: list[str] = Field(default_factory=list)
-    created_at_utc: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    created_at_utc: datetime = Field(default_factory=lambda: datetime.now(UTC))

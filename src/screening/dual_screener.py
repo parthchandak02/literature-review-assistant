@@ -600,7 +600,9 @@ class DualReviewerScreener:
                 and reviewer_a.confidence >= include_thresh
                 and reviewer_a.decision == ScreeningDecisionType.INCLUDE
             )
-            exclude_fast_path = reviewer_a.confidence >= exclude_thresh and reviewer_a.decision == ScreeningDecisionType.EXCLUDE
+            exclude_fast_path = (
+                reviewer_a.confidence >= exclude_thresh and reviewer_a.decision == ScreeningDecisionType.EXCLUDE
+            )
             require_dual_for_exclude = getattr(self.settings.screening, "exclude_fast_path_requires_dual", False)
             fast_path = include_fast_path or (exclude_fast_path and not require_dual_for_exclude)
 
@@ -846,6 +848,7 @@ class DualReviewerScreener:
         Keeps decision and exclusion_reason strongly typed while tolerating
         common output drift (id key variants, missing confidence/reasoning).
         """
+
         def _coerce_pid(value: object) -> str | None:
             if isinstance(value, bool) or value is None:
                 return None
@@ -1263,9 +1266,7 @@ class DualReviewerScreener:
             else:
                 anchor_matched = self._has_intervention_anchor_match(paper, ft.get(paper.paper_id))
                 include_fast = (
-                    anchor_matched
-                    and a.confidence >= include_thresh
-                    and a.decision == ScreeningDecisionType.INCLUDE
+                    anchor_matched and a.confidence >= include_thresh and a.decision == ScreeningDecisionType.INCLUDE
                 )
                 exclude_fast = a.confidence >= exclude_thresh and a.decision == ScreeningDecisionType.EXCLUDE
                 is_fast = include_fast or (exclude_fast and not require_dual_for_exclude)
@@ -1531,13 +1532,17 @@ class DualReviewerScreener:
         started = time.perf_counter()
         if hasattr(self.llm_client, "complete_json_with_usage"):
             if hasattr(self.llm_client, "complete_screening_response_with_usage"):
-                parsed, tokens_in, tokens_out, cache_write, cache_read = (
-                    await self.llm_client.complete_screening_response_with_usage(
-                        prompt,
-                        agent_name=spec.agent_name,
-                        model=runtime.model,
-                        temperature=runtime.temperature,
-                    )
+                (
+                    parsed,
+                    tokens_in,
+                    tokens_out,
+                    cache_write,
+                    cache_read,
+                ) = await self.llm_client.complete_screening_response_with_usage(
+                    prompt,
+                    agent_name=spec.agent_name,
+                    model=runtime.model,
+                    temperature=runtime.temperature,
                 )
                 raw = parsed.model_dump_json()
             else:

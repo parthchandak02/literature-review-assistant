@@ -1940,13 +1940,18 @@ async def extract_tables_from_pdf(
         t0 = time.monotonic()
         pdf_part = BinaryContent(data=pdf_bytes, media_type="application/pdf")
         client = PydanticAIClient()
-        parsed, tokens_in, tokens_out, cache_write_tokens, cache_read_tokens, _retries = (
-            await client.complete_validated_parts(
-                [pdf_part, _TABLE_EXTRACTION_PROMPT],
-                model=full_model,
-                temperature=0.1,
-                response_model=_TableOutcomePayloadEnvelope,
-            )
+        (
+            parsed,
+            tokens_in,
+            tokens_out,
+            cache_write_tokens,
+            cache_read_tokens,
+            _retries,
+        ) = await client.complete_validated_parts(
+            [pdf_part, _TABLE_EXTRACTION_PROMPT],
+            model=full_model,
+            temperature=0.1,
+            response_model=_TableOutcomePayloadEnvelope,
         )
         elapsed_ms = int((time.monotonic() - t0) * 1000)
 

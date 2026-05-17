@@ -225,8 +225,7 @@ class ScopusConnector(ElsevierConnectorMixin):
             search_date=date.today().isoformat(),
             search_query=full_query,
             limits_applied=(
-                f"max_results={max_results},"
-                f"primary_study_filter={primary_filter_mode_from_query(full_query)}"
+                f"max_results={max_results},primary_study_filter={primary_filter_mode_from_query(full_query)}"
             ),
             records_retrieved=len(papers),
             papers=papers,

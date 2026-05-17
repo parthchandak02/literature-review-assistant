@@ -504,7 +504,21 @@ def _md_section_to_latex(
         _sentence_start_re = re.compile(r"^(The|This|These|We|Our|In|Across|To|A|An|Studies|Study|Data)\b")
         _title_token_re = re.compile(r"^[A-Z][A-Za-z0-9()/:,\-']*$")
         _connector_tail = {"and", "of", "for", "to", "with"}
-        _sentence_starters = {"the", "this", "these", "we", "our", "in", "across", "to", "a", "an", "studies", "study", "data"}
+        _sentence_starters = {
+            "the",
+            "this",
+            "these",
+            "we",
+            "our",
+            "in",
+            "across",
+            "to",
+            "a",
+            "an",
+            "studies",
+            "study",
+            "data",
+        }
 
         def _looks_title_fragment(s: str) -> bool:
             words = s.strip().split()
@@ -561,9 +575,9 @@ def _md_section_to_latex(
                     merged_right = " ".join(right_words[consumed:]).strip()
                     if merged_right:
                         return level, " ".join(merged_left), merged_right
-            if (_sentence_start_re.match(right) or (right and right[0].isupper() and any(c in right for c in ".,"))) and (
-                not _looks_title_fragment(right)
-            ):
+            if (
+                _sentence_start_re.match(right) or (right and right[0].isupper() and any(c in right for c in ".,"))
+            ) and (not _looks_title_fragment(right)):
                 return level, " ".join(left_words), right
         return None
 

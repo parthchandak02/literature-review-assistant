@@ -20,7 +20,7 @@ AuditVerdict = Literal["accept", "minor_revisions", "major_revisions", "reject"]
 
 
 class ManuscriptAuditProfileSelection(BaseModel):
-    """Profile routing result for phase_7_audit."""
+    """Profile routing result for manuscript-audit evaluation."""
 
     selected_profiles: list[AuditProfileName] = Field(default_factory=list)
     routing_reason: str = ""
@@ -78,4 +78,3 @@ class ManuscriptAuditResult(BaseModel):
     top_recommendations: list[str] = Field(default_factory=list)
     created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
     last_audited_at: datetime | None = None
-

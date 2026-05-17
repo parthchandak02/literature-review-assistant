@@ -164,10 +164,7 @@ class PubMedConnector:
             source_category=self.source_category,
             search_date=date.today().isoformat(),
             search_query=query,
-            limits_applied=(
-                f"max_results={max_results},"
-                f"primary_study_filter={self._primary_filter_mode(query)}"
-            ),
+            limits_applied=(f"max_results={max_results},primary_study_filter={self._primary_filter_mode(query)}"),
             records_retrieved=len(papers),
             papers=papers,
         )

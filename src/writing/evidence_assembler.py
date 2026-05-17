@@ -240,8 +240,7 @@ def build_results_evidence_pack(grounding: WritingGroundingData | None) -> Resul
     theme_sentences = []
     if len(reportable_themes) >= 2:
         theme_sentences = [
-            f"Theme {idx + 1}: {_naturalize_label(theme)}."
-            for idx, theme in enumerate(reportable_themes)
+            f"Theme {idx + 1}: {_naturalize_label(theme)}." for idx, theme in enumerate(reportable_themes)
         ]
 
     studies: list[ResultsEvidenceStudy] = []
@@ -277,7 +276,9 @@ def render_results_evidence_context(pack: ResultsEvidencePack) -> str:
     if pack.studies:
         lines.append("- Study-level evidence roster:")
         for study in pack.studies:
-            participant_text = f"; participants={study.participant_count}" if study.participant_count is not None else ""
+            participant_text = (
+                f"; participants={study.participant_count}" if study.participant_count is not None else ""
+            )
             cite_text = f"[{study.citekey}] " if study.citekey else ""
             lines.append(
                 f"  - {cite_text}{study.title} | design={study.study_design}{participant_text} | "

@@ -126,4 +126,3 @@ def collect_section_heading_inventory(section: StructuredSectionDraft) -> list[t
 def collect_manuscript_heading_inventory(manuscript: StructuredManuscriptDraft) -> dict[str, list[tuple[int, str]]]:
     """Return canonical heading inventory for each structured manuscript section."""
     return {section.section_key: collect_section_heading_inventory(section) for section in manuscript.sections}
-

@@ -198,14 +198,12 @@ async def build_narrative_synthesis(
     direction_counts: dict[str, int] = {"positive": 0, "negative": 0, "mixed": 0, "null": 0}
     themes: list[str] = []
     use_llm = llm_client is not None and settings is not None
-    topic_tokens = {
-        tok
-        for tok in _tokenize_theme_terms(review_question)
-        if tok not in _THEME_STOPWORDS
-    }
+    topic_tokens = {tok for tok in _tokenize_theme_terms(review_question) if tok not in _THEME_STOPWORDS}
     if pico is not None:
         for attr in ("population", "intervention", "comparison", "outcome"):
-            topic_tokens.update(tok for tok in _tokenize_theme_terms(getattr(pico, attr, "")) if tok not in _THEME_STOPWORDS)
+            topic_tokens.update(
+                tok for tok in _tokenize_theme_terms(getattr(pico, attr, "")) if tok not in _THEME_STOPWORDS
+            )
 
     for record in records:
         summary = (record.results_summary.get("summary") or "").strip()

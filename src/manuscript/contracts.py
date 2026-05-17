@@ -347,9 +347,7 @@ def _find_meta_feasibility_contradiction(md_text: str) -> bool:
 def _find_protocol_registration_contradiction(md_text: str) -> bool:
     """Detect contradictory protocol registration claims."""
     lines = [ln.strip().lower() for ln in md_text.splitlines() if ln.strip()]
-    has_non_prospective = any(
-        ("not prospectively registered" in ln) or ("post-hoc registration" in ln) for ln in lines
-    )
+    has_non_prospective = any(("not prospectively registered" in ln) or ("post-hoc registration" in ln) for ln in lines)
     if not has_non_prospective:
         return False
     # Positive markers must appear in a non-negated context.
@@ -526,7 +524,9 @@ def _find_rob_figure_caption_mismatch(md_text: str) -> bool:
     """Detect static ROBINS-I/CASP figure caption when MMAT is the active tool family."""
     low = md_text.lower()
     has_mmat = "## mmat quality assessment" in low or "mmat (mixed-methods" in low
-    has_legacy_caption = "risk of bias traffic-light plot for included non-randomized studies and reviews (robins-i/casp)" in low
+    has_legacy_caption = (
+        "risk of bias traffic-light plot for included non-randomized studies and reviews (robins-i/casp)" in low
+    )
     return bool(has_mmat and has_legacy_caption)
 
 
@@ -602,7 +602,9 @@ def _missing_abstract_fields(md_text: str) -> list[str]:
         "results": r"\*\*Results:\*\*",
         "conclusions": r"\*\*(Conclusion|Conclusions):\*\*",
     }
-    return [name for name, pattern in required.items() if re.search(pattern, abstract_text, flags=re.IGNORECASE) is None]
+    return [
+        name for name, pattern in required.items() if re.search(pattern, abstract_text, flags=re.IGNORECASE) is None
+    ]
 
 
 def _extract_structured_abstract_fields(md_text: str) -> dict[str, str]:
@@ -1291,7 +1293,9 @@ async def run_manuscript_contracts(
 
     extraction_records = await repository.load_extraction_records(workflow_id)
     extraction_by_paper = {record.paper_id: record for record in extraction_records}
-    included_with_records = [extraction_by_paper[paper_id] for paper_id in synthesis_ids if paper_id in extraction_by_paper]
+    included_with_records = [
+        extraction_by_paper[paper_id] for paper_id in synthesis_ids if paper_id in extraction_by_paper
+    ]
     if included_with_records:
         low_yield_count = 0
         for record in included_with_records:
@@ -1334,9 +1338,7 @@ async def run_manuscript_contracts(
             )
         )
 
-    violations_out = [
-        v.model_copy(update={"category": violation_category(v.code, phase_label)}) for v in violations
-    ]
+    violations_out = [v.model_copy(update={"category": violation_category(v.code, phase_label)}) for v in violations]
     passed = all(not hard_failure(mode, v.code, phase_label) for v in violations_out)
     return ManuscriptContractResult(
         passed=passed,

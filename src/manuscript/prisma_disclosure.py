@@ -101,9 +101,5 @@ def should_use_db_prisma_flow_checks(prisma: PRISMACounts) -> bool:
     """True when repository-derived counts are coherent enough to gate prose."""
     return bool(
         prisma.arithmetic_valid
-        and (
-            prisma.reports_sought > 0
-            or prisma.reports_not_retrieved > 0
-            or prisma.records_screened > 0
-        )
+        and (prisma.reports_sought > 0 or prisma.reports_not_retrieved > 0 or prisma.records_screened > 0)
     )

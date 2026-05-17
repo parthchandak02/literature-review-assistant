@@ -33,7 +33,11 @@ def source_quality_prior(source_database: str) -> tuple[str, bool, bool]:
 
 
 def apply_source_quality_prior(paper: CandidatePaper) -> CandidatePaper:
-    if paper.source_quality_tier is not None and paper.source_peer_reviewed is not None and paper.source_open_index is not None:
+    if (
+        paper.source_quality_tier is not None
+        and paper.source_peer_reviewed is not None
+        and paper.source_open_index is not None
+    ):
         return paper
     tier, peer_reviewed, open_index = source_quality_prior(paper.source_database)
     return paper.model_copy(

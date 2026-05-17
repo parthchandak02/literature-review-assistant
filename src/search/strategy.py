@@ -89,7 +89,10 @@ def _diagnostic_cause(
 
 
 def _result_indicates_auth_missing(result_list: list[SearchResult]) -> bool:
-    return any(_diagnostic_cause(query="", records=0, error=None, limits_applied=r.limits_applied) == "auth_missing" for r in result_list)
+    return any(
+        _diagnostic_cause(query="", records=0, error=None, limits_applied=r.limits_applied) == "auth_missing"
+        for r in result_list
+    )
 
 
 def requires_primary_studies(config: ReviewConfig) -> bool:

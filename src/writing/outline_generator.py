@@ -53,7 +53,9 @@ def build_fallback_section_outline(
             node_id=_slugify(heading),
             heading=heading,
             intent=f"Cover the required {heading.lower()} content for the {section} section using grounded evidence only.",
-            required_citekeys=included_citekeys if section == "results" and heading.lower() != "study selection" else [],
+            required_citekeys=included_citekeys
+            if section == "results" and heading.lower() != "study selection"
+            else [],
             evidence_chunk_ids=[],
         )
         for heading in headings
