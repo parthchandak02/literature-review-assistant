@@ -62,15 +62,24 @@ const GEN_STEPS: { key: string; label: string; detail: string }[] = [
   { key: "finalizing",       label: "Finalizing your config",           detail: "Validating and serializing to YAML" },
 ]
 
+const STEP_ALIASES: Record<string, string> = {
+  structuring_retry: "structuring",
+}
+const WEB_RESEARCH_FALLBACK_STEP = "web_research_fallback"
+const WEB_RESEARCH_DONE_INDEX = GEN_STEPS.findIndex((s) => s.key === "web_research_done")
+
 function GeneratingScreen({
   activeStepKey,
   stepMetadata,
+  usedWebFallback,
 }: {
   activeStepKey: string
   stepMetadata: Record<string, unknown>
+  usedWebFallback: boolean
 }) {
   const activeIdx = GEN_STEPS.findIndex((s) => s.key === activeStepKey)
-  const activeStep = activeIdx === -1 ? GEN_STEPS.length - 1 : activeIdx
+  const activeStep = activeIdx === -1 ? 0 : activeIdx
+  const hasPassedWebSearch = activeStep > WEB_RESEARCH_DONE_INDEX
   const routeDetail = (() => {
     const domain = typeof stepMetadata.domain === "string" ? stepMetadata.domain : null
     const confidence = typeof stepMetadata.confidence === "number" ? stepMetadata.confidence : null
@@ -97,21 +106,65 @@ function GeneratingScreen({
 
       <div className="w-full flex flex-col gap-1.5">
         {GEN_STEPS.map((step, i) => {
+          const fallbackSkipped =
+            step.key === WEB_RESEARCH_FALLBACK_STEP && !usedWebFallback && hasPassedWebSearch
+          const fallbackDegraded =
+            step.key === WEB_RESEARCH_FALLBACK_STEP && usedWebFallback && (i <= activeStep)
           const done = i < activeStep
           const active = i === activeStep
+          const showDetail = active || done || fallbackSkipped
+          const rowCls = fallbackDegraded
+            ? done
+              ? "bg-amber-500/10 border-amber-500/30"
+              : active
+              ? "bg-amber-500/12 border-amber-500/40"
+              : "bg-zinc-900/40 border-zinc-800"
+            : fallbackSkipped
+            ? "bg-sky-500/8 border-sky-500/20"
+            : done
+            ? "bg-emerald-500/8 border-emerald-500/20"
+            : active
+            ? "bg-violet-500/10 border-violet-500/30"
+            : "bg-zinc-900/40 border-zinc-800"
+          const titleCls = fallbackDegraded
+            ? done || active
+              ? "text-amber-200"
+              : "text-zinc-600"
+            : fallbackSkipped
+            ? "text-sky-200/80"
+            : done
+            ? "text-emerald-300/80"
+            : active
+            ? "text-violet-200"
+            : "text-zinc-600"
+          const detailCls = fallbackDegraded
+            ? "text-amber-300/70"
+            : fallbackSkipped
+            ? "text-sky-300/60"
+            : done
+            ? "text-emerald-400/50"
+            : "text-zinc-500"
+          const detailText = fallbackSkipped
+            ? "Skipped because web research succeeded."
+            : step.key === "topic_routing" && routeDetail
+            ? routeDetail
+            : step.detail
+
           return (
             <div
               key={step.key}
-              className={`flex items-start gap-3 px-3 py-2.5 rounded-xl border transition-all duration-500 ${
-                done
-                  ? "bg-emerald-500/8 border-emerald-500/20"
-                  : active
-                  ? "bg-violet-500/10 border-violet-500/30"
-                  : "bg-zinc-900/40 border-zinc-800"
-              }`}
+              className={`flex items-start gap-3 px-3 py-2.5 rounded-xl border transition-all duration-500 ${rowCls}`}
             >
               <div className="flex-shrink-0 mt-0.5">
-                {done ? (
+                {fallbackDegraded ? (
+                  <div className="w-4 h-4 rounded-full bg-amber-500/20 border border-amber-400/60 flex items-center justify-center">
+                    <div className="w-1.5 h-1.5 rounded-full bg-amber-300" />
+                  </div>
+                ) : fallbackSkipped ? (
+                  <div className="w-4 h-4 rounded-full bg-sky-500/15 border border-sky-400/45 flex items-center justify-center">
+                    <div className="w-1.5 h-1.5 rounded-full bg-sky-300/80" />
+                  </div>
+                ) : done ? (
                   <div className="w-4 h-4 rounded-full bg-emerald-500/30 border border-emerald-400/50 flex items-center justify-center">
                     <div className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
                   </div>
@@ -124,16 +177,12 @@ function GeneratingScreen({
                 )}
               </div>
               <div className="flex-1 min-w-0">
-                <p className={`text-xs font-medium leading-snug ${
-                  done ? "text-emerald-300/80" : active ? "text-violet-200" : "text-zinc-600"
-                }`}>
+                <p className={`text-xs font-medium leading-snug ${titleCls}`}>
                   {step.label}
                 </p>
-                {(active || done) && (
-                  <p className={`text-xs mt-0.5 leading-snug ${
-                    done ? "text-emerald-400/50" : "text-zinc-500"
-                  }`}>
-                    {step.key === "topic_routing" && routeDetail ? routeDetail : step.detail}
+                {showDetail && (
+                  <p className={`text-xs mt-0.5 leading-snug ${detailCls}`}>
+                    {detailText}
                   </p>
                 )}
               </div>
@@ -602,6 +651,7 @@ function QuestionStage({
   const [generating, setGenerating] = useState(false)
   const [activeGenStep, setActiveGenStep] = useState("start")
   const [activeStepMetadata, setActiveStepMetadata] = useState<Record<string, unknown>>({})
+  const [usedWebFallback, setUsedWebFallback] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [showHistory, setShowHistory] = useState(false)
   const [csvFile, setCsvFile] = useState<File | null>(null)
@@ -623,13 +673,16 @@ function QuestionStage({
     setError(null)
     setActiveGenStep("start")
     setActiveStepMetadata({})
+    setUsedWebFallback(false)
     setGenerating(true)
     try {
       const yaml = await generateConfigStream(
         question.trim(),
         geminiKey.trim(),
         (step, metadata) => {
-          setActiveGenStep(step)
+          const normalizedStep = STEP_ALIASES[step] ?? step
+          if (step === WEB_RESEARCH_FALLBACK_STEP) setUsedWebFallback(true)
+          setActiveGenStep(normalizedStep)
           setActiveStepMetadata(metadata ?? {})
         },
       )
@@ -641,7 +694,13 @@ function QuestionStage({
   }
 
   if (generating) {
-    return <GeneratingScreen activeStepKey={activeGenStep} stepMetadata={activeStepMetadata} />
+    return (
+      <GeneratingScreen
+        activeStepKey={activeGenStep}
+        stepMetadata={activeStepMetadata}
+        usedWebFallback={usedWebFallback}
+      />
+    )
   }
 
   const completedRuns = history.filter((h) => h.status === "completed").slice(0, 10)

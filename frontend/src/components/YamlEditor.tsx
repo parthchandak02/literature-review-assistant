@@ -29,6 +29,10 @@ export function YamlEditor({
   className = "",
 }: YamlEditorProps) {
   const [editMode, setEditMode] = useState(false)
+  const previewTokenStyle = `
+    .yaml-preview-pre .hljs-literal { color: #f59e0b; }
+    .yaml-preview-pre .hljs-number { color: #f97316; }
+  `
 
   const highlighted = useMemo(() => {
     if (!value.trim()) return ""
@@ -42,6 +46,7 @@ export function YamlEditor({
   if (editMode) {
     return (
       <div className={`flex flex-col gap-2 ${className}`}>
+        <style>{previewTokenStyle}</style>
         <div className="flex justify-end">
           <Button
             type="button"
@@ -68,6 +73,7 @@ export function YamlEditor({
 
   return (
     <div className={`flex flex-col gap-2 ${className}`}>
+      <style>{previewTokenStyle}</style>
       <div className="flex justify-end">
         <Button
           type="button"
@@ -81,7 +87,7 @@ export function YamlEditor({
         </Button>
       </div>
       <ScrollArea className="border border-zinc-800 rounded-md bg-zinc-950 h-[400px]">
-        <pre className="hljs text-xs p-4 font-mono leading-relaxed whitespace-pre-wrap min-h-full">
+        <pre className="hljs yaml-preview-pre text-xs p-4 font-mono leading-relaxed whitespace-pre-wrap min-h-full">
           {value.trim() ? (
             <code dangerouslySetInnerHTML={{ __html: highlighted }} />
           ) : (

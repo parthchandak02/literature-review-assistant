@@ -426,7 +426,7 @@ export function useSSEStream(runId: string | null, workflowId?: string | null) {
     }
   // workflowId intentionally excluded -- kept in workflowIdRef to avoid
   // restarting the SSE connection when workflow_id_ready fires.
-   
+
   }, [runId])
 
   const abort = useCallback(() => {

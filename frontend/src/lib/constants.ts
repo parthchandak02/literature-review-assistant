@@ -34,6 +34,34 @@ export const PHASE_LABELS: Record<string, string> = {
   finalize: "Finalize",
 }
 
+export const PHASE_MILESTONES = [
+  {
+    key: "discovery",
+    label: "Discovery",
+    phases: ["phase_2_search", "phase_3_screening", "fulltext_pdf_retrieval"],
+  },
+  {
+    key: "evidence",
+    label: "Evidence Build",
+    phases: ["phase_4_extraction_quality", "phase_4b_embedding"],
+  },
+  {
+    key: "synthesis",
+    label: "Synthesis",
+    phases: ["phase_5_synthesis", "phase_5b_knowledge_graph", "phase_5c_pre_writing_gate"],
+  },
+  {
+    key: "manuscript",
+    label: "Manuscript",
+    phases: ["phase_6_writing"],
+  },
+  {
+    key: "finalize",
+    label: "Finalize",
+    phases: ["finalize"],
+  },
+] as const
+
 /** Phase order for resume-from-phase (matches backend PHASE_ORDER). */
 export const RESUME_PHASE_ORDER = [
   "phase_2_search",
