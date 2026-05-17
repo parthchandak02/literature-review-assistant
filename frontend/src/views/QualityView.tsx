@@ -421,7 +421,7 @@ function ManuscriptAuditCard({ runId }: { runId: string }) {
           <EmptyState
             icon={AlertTriangle}
             heading="No manuscript audit data yet."
-            sub="Run must complete phase_7_audit before findings appear."
+            sub="Findings appear only after manuscript-audit outputs are generated."
             className="py-6"
           />
         )}

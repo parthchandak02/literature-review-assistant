@@ -18,7 +18,7 @@ import { FetchError } from "@/components/ui/feedback"
 import { Skeleton } from "@/components/ui/skeleton"
 import { fetchRunEvents, fetchWorkflowEvents } from "@/lib/api"
 import { shouldUsePrefetchedHistorical } from "@/lib/runSelection"
-import { PHASE_ORDER, PHASE_LABELS, RESUME_PHASE_ORDER } from "@/lib/constants"
+import { PHASE_ORDER, PHASE_LABELS, PHASE_MILESTONES, RESUME_PHASE_ORDER } from "@/lib/constants"
 import type { ReviewEvent } from "@/lib/api"
 import { cn } from "@/lib/utils"
 
@@ -97,6 +97,32 @@ function isPhaseEligibleForResume(
   return Boolean(state && (state.status === "done" || state.status === "running" || state.status === "error"))
 }
 
+function buildMilestoneState(
+  phases: readonly string[],
+  phaseStates: Record<string, PhaseState>,
+): PhaseState {
+  const states = phases.map((phase) => phaseStates[phase] ?? { status: "pending" as const })
+  if (states.some((s) => s.status === "error")) {
+    return { status: "error" }
+  }
+  const allDone = states.every((s) => s.status === "done")
+  if (allDone) {
+    const firstStarted = states.find((s) => s.startedTs)?.startedTs
+    const lastDone = [...states].reverse().find((s) => s.doneTss)?.doneTss
+    return { status: "done", startedTs: firstStarted, doneTss: lastDone }
+  }
+  const runningState = states.find((s) => s.status === "running" || s.status === "done")
+  if (runningState) {
+    return {
+      status: "running",
+      progress: runningState.progress,
+      startedTs: runningState.startedTs,
+      doneTss: runningState.doneTss,
+    }
+  }
+  return { status: "pending" }
+}
+
 
 function fmtDuration(ms: number): string {
   const secs = Math.floor(ms / 1000)
@@ -112,6 +138,7 @@ interface PhaseStepProps {
   phase: string
   state: PhaseState
   isLast: boolean
+  label?: string
   isResumeSelectable?: boolean
   isArmed?: boolean
   inResumeRange?: boolean
@@ -124,6 +151,7 @@ function PhaseStep({
   phase,
   state,
   isLast,
+  label,
   isResumeSelectable = false,
   isArmed = false,
   inResumeRange = false,
@@ -131,7 +159,7 @@ function PhaseStep({
   isRangeEnd = false,
   onResumeTap,
 }: PhaseStepProps) {
-  const label = PHASE_LABELS[phase] ?? phase
+  const stepLabel = label ?? PHASE_LABELS[phase] ?? phase
 
   const durationStr =
     state.status === "done" && state.startedTs && state.doneTss
@@ -213,7 +241,7 @@ function PhaseStep({
             <Circle className="h-3 w-3 sm:h-3.5 sm:w-3.5" />
           )}
         </button>
-        <span className={labelCls}>{label}</span>
+        <span className={labelCls}>{stepLabel}</span>
         {subLabel && <span className={subLabelCls}>{subLabel}</span>}
         {durationStr && (
           <span className="text-[9px] sm:text-[10px] font-mono tabular-nums text-zinc-600 mt-0.5 text-center">
@@ -234,7 +262,7 @@ function HorizontalStepperContent({
   canResumeFromTimeline,
   isPhaseResumeSelectable,
   armedResumePhase,
-  armedResumeStartIdx,
+  armedMilestoneStartIdx,
   onResumeTap,
 }: {
   phaseStates: Record<string, PhaseState>
@@ -242,19 +270,19 @@ function HorizontalStepperContent({
   canResumeFromTimeline: boolean
   isPhaseResumeSelectable: (phase: string) => boolean
   armedResumePhase: string | null
-  armedResumeStartIdx: number
+  armedMilestoneStartIdx: number
   onResumeTap: (phase: string) => void
 }) {
   if (loading) {
     return (
       <div className="flex items-start gap-1 px-3 py-4 sm:px-4 sm:py-5">
-        {PHASE_ORDER.map((p, i) => (
-          <div key={p} className="flex items-start flex-1">
+        {PHASE_MILESTONES.map((milestone, i) => (
+          <div key={milestone.key} className="flex items-start flex-1">
             <div className="flex flex-col items-center gap-1.5 w-full shrink-0">
               <Skeleton className="w-7 h-7 sm:w-8 sm:h-8 rounded-full" />
               <Skeleton className="h-2.5 w-8 sm:w-10" />
             </div>
-            {i < PHASE_ORDER.length - 1 && <div className="flex-1 mt-3.5 sm:mt-4 h-px bg-zinc-800" />}
+            {i < PHASE_MILESTONES.length - 1 && <div className="flex-1 mt-3.5 sm:mt-4 h-px bg-zinc-800" />}
           </div>
         ))}
       </div>
@@ -263,18 +291,20 @@ function HorizontalStepperContent({
   return (
     <div className="px-3 py-4 sm:px-4 sm:py-5 overflow-hidden">
       <div className="flex items-start w-full gap-0.5 sm:gap-1">
-        {PHASE_ORDER.map((phase, i) => {
-          const inResumeRange = armedResumeStartIdx >= 0 && i >= armedResumeStartIdx
-          const isRangeStart = inResumeRange && i === armedResumeStartIdx
-          const isRangeEnd = inResumeRange && i === PHASE_ORDER.length - 1
+        {PHASE_MILESTONES.map((milestone, i) => {
+          const targetPhase = milestone.phases.find((phase) => isPhaseResumeSelectable(phase)) ?? milestone.phases[0]
+          const inResumeRange = armedMilestoneStartIdx >= 0 && i >= armedMilestoneStartIdx
+          const isRangeStart = inResumeRange && i === armedMilestoneStartIdx
+          const isRangeEnd = inResumeRange && i === PHASE_MILESTONES.length - 1
           return (
             <PhaseStep
-              key={phase}
-              phase={phase}
-              state={phaseStates[phase] ?? { status: "pending" }}
-              isLast={i === PHASE_ORDER.length - 1}
-              isResumeSelectable={canResumeFromTimeline && isPhaseResumeSelectable(phase)}
-              isArmed={armedResumePhase === phase}
+              key={milestone.key}
+              phase={targetPhase}
+              label={milestone.label}
+              state={buildMilestoneState(milestone.phases, phaseStates)}
+              isLast={i === PHASE_MILESTONES.length - 1}
+              isResumeSelectable={canResumeFromTimeline && isPhaseResumeSelectable(targetPhase)}
+              isArmed={armedResumePhase === targetPhase}
               inResumeRange={inResumeRange}
               isRangeStart={isRangeStart}
               isRangeEnd={isRangeEnd}
@@ -428,9 +458,11 @@ export function ActivityView({
     (phase: string) => isPhaseEligibleForResume(phase, phaseStates, completedWorkflow),
     [phaseStates, completedWorkflow],
   )
-  const armedResumeStartIdx = useMemo(() => {
+  const armedMilestoneStartIdx = useMemo(() => {
     if (!armedResumePhase) return -1
-    return PHASE_ORDER.indexOf(armedResumePhase as (typeof PHASE_ORDER)[number])
+    return PHASE_MILESTONES.findIndex((milestone) =>
+      milestone.phases.some((phase) => phase === armedResumePhase),
+    )
   }, [armedResumePhase])
 
   useEffect(() => {
@@ -549,7 +581,7 @@ export function ActivityView({
             canResumeFromTimeline={canResumeFromTimeline}
             isPhaseResumeSelectable={isPhaseResumeSelectable}
             armedResumePhase={armedResumePhase}
-            armedResumeStartIdx={armedResumeStartIdx}
+            armedMilestoneStartIdx={armedMilestoneStartIdx}
             onResumeTap={handlePhaseResumeTap}
           />
         </div>
