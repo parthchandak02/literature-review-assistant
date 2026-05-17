@@ -59,11 +59,7 @@ class GateRunner:
     ) -> GateResult:
         minimum = self.settings.gates.search_volume_minimum
         sparse_min = self.settings.search.low_recall_warning_threshold
-        sparse_mode = (
-            (total_records < minimum)
-            and (sparse_min > 0)
-            and (total_records >= sparse_min)
-        )
+        sparse_mode = (total_records < minimum) and (sparse_min > 0) and (total_records >= sparse_min)
 
         if sparse_mode:
             status = GateStatus.WARNING
@@ -105,7 +101,11 @@ class GateRunner:
             continuation_mode = (
                 "zero_evidence_continuation"
                 if passed_screening == 0
-                else ("below_sparse_topic_min_continuation" if passed_screening < sparse_min else "sparse_topic_continuation")
+                else (
+                    "below_sparse_topic_min_continuation"
+                    if passed_screening < sparse_min
+                    else "sparse_topic_continuation"
+                )
             )
             details = (
                 f"passed_screening={passed_screening}, minimum={minimum}, "
@@ -117,10 +117,7 @@ class GateRunner:
             details = f"passed_screening={passed_screening}, minimum={minimum}"
         else:
             status = GateStatus.FAILED
-            details = (
-                f"passed_screening={passed_screening}, minimum={minimum}, "
-                f"sparse_topic_min={sparse_min}"
-            )
+            details = f"passed_screening={passed_screening}, minimum={minimum}, sparse_topic_min={sparse_min}"
 
         result = GateResult(
             workflow_id=workflow_id,
@@ -154,9 +151,7 @@ class GateRunner:
                 passed = passed and weak_evidence_rate <= max_empty_rate
                 details += f", weak_evidence_rate={weak_evidence_rate:.2f}, max_empty_rate={max_empty_rate:.2f}"
                 threshold_value = f"completeness>={threshold:.2f}, weak<={max_empty_rate:.2f}"
-                actual_value = (
-                    f"completeness={completeness_ratio:.2f}, weak={weak_evidence_rate:.2f}"
-                )
+                actual_value = f"completeness={completeness_ratio:.2f}, weak={weak_evidence_rate:.2f}"
             if metric_details:
                 details += f", {metric_details}"
             return (
