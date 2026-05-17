@@ -267,7 +267,9 @@ async def _run_checks(
     return checks
 
 
-def _print_summary(workflow_id: str, runtime_db: Path, validation_run_id: str, checks: list[ValidationCheckRecord]) -> None:
+def _print_summary(
+    workflow_id: str, runtime_db: Path, validation_run_id: str, checks: list[ValidationCheckRecord]
+) -> None:
     error_count = sum(1 for c in checks if c.status == "fail" and c.severity == "error")
     warn_count = sum(1 for c in checks if c.status in {"fail", "warn"} and c.severity == "warn")
     table = Table(title=f"Workflow replay validation: {workflow_id}")

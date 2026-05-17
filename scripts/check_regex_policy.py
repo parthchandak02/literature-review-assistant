@@ -43,9 +43,7 @@ def main() -> int:
             continue
         current = count_re_usage(abs_path)
         if current > baseline:
-            violations.append(
-                f"{rel_path}: found {current} regex usages, baseline allows {baseline}."
-            )
+            violations.append(f"{rel_path}: found {current} regex usages, baseline allows {baseline}.")
     if violations:
         print("Regex policy check failed:")
         for item in violations:
@@ -57,4 +55,3 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-
