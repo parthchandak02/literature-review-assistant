@@ -87,10 +87,7 @@ agents:
     temperature: 0.0
 
 diagram_generation:
-  enabled: true
-  pilot_workflow_ids:
-    - "wf-0083"
-  max_rounds: 3
+  max_rounds: 1
   image_size: "2K"
   aspect_ratio: "16:9"
   max_papers_for_brief: 24
