@@ -104,7 +104,12 @@ async def test_llm_extraction_synthesizes_summary_from_structured_outcomes(tmp_p
                     "intervention_description": "digital registry",
                     "comparator_description": "paper register",
                     "outcomes": [
-                        {"name": "Coverage", "description": "vaccination coverage", "effect_size": "RR=1.22", "n": "240"}
+                        {
+                            "name": "Coverage",
+                            "description": "vaccination coverage",
+                            "effect_size": "RR=1.22",
+                            "n": "240",
+                        }
                     ],
                     "results_summary": "The provided text cannot summarize the findings from this excerpt.",
                     "funding_source": "not reported",
@@ -157,8 +162,7 @@ def test_build_sof_table_sanitizes_pipeline_jargon() -> None:
         residual_confounding_upgrade=0,
         final_certainty=GRADECertainty.VERY_LOW,
         justification=(
-            "RoB downgrade=1 (worst-case across 2 assessments). "
-            "Computed from configured downgrade/upgrade factors."
+            "RoB downgrade=1 (worst-case across 2 assessments). Computed from configured downgrade/upgrade factors."
         ),
     )
     table = build_sof_table([assessment])
@@ -255,7 +259,9 @@ async def test_manuscript_contracts_catch_new_quality_failures(tmp_path) -> None
                 paper_id=paper.paper_id,
                 study_design=StudyDesign.NON_RANDOMIZED,
                 intervention_description="Digital registry",
-                results_summary={"summary": "The provided text does not contain enough information to summarize the findings."},
+                results_summary={
+                    "summary": "The provided text does not contain enough information to summarize the findings."
+                },
             ),
         )
 

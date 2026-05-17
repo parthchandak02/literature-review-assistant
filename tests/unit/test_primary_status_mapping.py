@@ -21,7 +21,9 @@ def test_primary_status_from_study_design_non_primary() -> None:
 
 def test_primary_status_from_exclusion_reason() -> None:
     assert primary_status_from_exclusion_reason(ExclusionReason.PROTOCOL_ONLY) == PrimaryStudyStatus.PROTOCOL_ONLY
-    assert primary_status_from_exclusion_reason(ExclusionReason.WRONG_STUDY_DESIGN) == PrimaryStudyStatus.SECONDARY_REVIEW
+    assert (
+        primary_status_from_exclusion_reason(ExclusionReason.WRONG_STUDY_DESIGN) == PrimaryStudyStatus.SECONDARY_REVIEW
+    )
     assert primary_status_from_exclusion_reason(ExclusionReason.INSUFFICIENT_DATA) == PrimaryStudyStatus.NON_EMPIRICAL
 
 
@@ -39,4 +41,3 @@ def test_resolve_primary_status_uses_screening_fallback_when_design_missing() ->
         exclusion_reason=ExclusionReason.PROTOCOL_ONLY,
     )
     assert resolved == PrimaryStudyStatus.PROTOCOL_ONLY
-

@@ -15,8 +15,8 @@ from src.writing.orchestration import (
     _post_render_completeness_issues,
     _section_completeness_issues,
     _validate_structured_section_draft,
-    parse_structured_abstract_markdown,
     canonicalize_structured_abstract_markdown,
+    parse_structured_abstract_markdown,
     validate_structured_abstract_markdown_band,
 )
 from src.writing.renderers import render_section_latex, render_section_markdown
@@ -472,7 +472,9 @@ def test_patch_abstract_grounding_forces_minimum_compliant_fallback_for_real_flo
             "pre_post": 1,
         }
         total_participants = 700155
-        screening_method_description = "An AI-assisted dual-reviewer pipeline screened titles and abstracts with adjudication for disagreements."
+        screening_method_description = (
+            "An AI-assisted dual-reviewer pipeline screened titles and abstracts with adjudication for disagreements."
+        )
         rob_summary = "ROBINS-I (non-RCTs, n=2): low: 1; no information: 1 | CASP (cross-sectional/qualitative, n=4): 1/8 criteria met: 1; 2/8 criteria met: 3"
 
     class _Review:
@@ -565,7 +567,10 @@ def test_patch_methods_grounding_adds_batch_validation_sentence() -> None:
 
     content = "### Selection Process\n\nLegacy selection text."
     patched = _patch_methods_grounding(content, _Grounding(), _Review())
-    assert "To verify automated exclusions, 24 low-relevance records were cross-checked by dual review; 88% were confirmed as true exclusions." in patched
+    assert (
+        "To verify automated exclusions, 24 low-relevance records were cross-checked by dual review; 88% were confirmed as true exclusions."
+        in patched
+    )
 
 
 def test_patch_methods_grounding_adds_rob_coverage_gap_sentence() -> None:
@@ -730,7 +735,9 @@ def test_apply_structured_grounding_patches_keeps_valid_abstract_without_legacy_
             SectionBlock(block_type="paragraph", text="**Objectives:** " + _abstract_sentences("Objectives", repeat=3)),
             SectionBlock(block_type="paragraph", text="**Methods:** " + _abstract_sentences("Methods", repeat=4)),
             SectionBlock(block_type="paragraph", text="**Results:** " + _abstract_sentences("Results", repeat=4)),
-            SectionBlock(block_type="paragraph", text="**Conclusions:** " + _abstract_sentences("Conclusions", repeat=3)),
+            SectionBlock(
+                block_type="paragraph", text="**Conclusions:** " + _abstract_sentences("Conclusions", repeat=3)
+            ),
             SectionBlock(
                 block_type="paragraph",
                 text="**Keywords:** systematic review, evidence synthesis, implementation science.",
@@ -769,10 +776,7 @@ def test_patch_results_grounding_preserves_following_subheading_boundary() -> No
         risk_tool_counts = {"casp": 2, "mmat": 5}
         study_design_counts = {"mixed_methods": 3, "pre_post": 2}
 
-    content = (
-        "### Study Selection\n\nLegacy counts.\n\n"
-        "### Study Characteristics\n\nStudy details follow."
-    )
+    content = "### Study Selection\n\nLegacy counts.\n\n### Study Characteristics\n\nStudy details follow."
     patched = _patch_results_grounding(content, _Grounding())
     assert "\n\n### Study Characteristics" in patched
     assert ".### Study Characteristics" not in patched
@@ -803,4 +807,3 @@ def test_post_render_completeness_flags_truncated_discussion_tail() -> None:
     )
     issues = _post_render_completeness_issues("discussion", content)
     assert any("post_trailing_fragment" in issue for issue in issues)
-

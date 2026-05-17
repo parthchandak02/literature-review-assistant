@@ -30,9 +30,7 @@ def _review() -> ReviewConfig:
 
 
 def _settings() -> SettingsConfig:
-    return SettingsConfig(
-        agents={"writing": AgentConfig(model="google-gla:gemini-2.5-flash", temperature=0.1)}
-    )
+    return SettingsConfig(agents={"writing": AgentConfig(model="google-gla:gemini-2.5-flash", temperature=0.1)})
 
 
 def test_section_writer_prompt_and_schema_use_structured_citations_only() -> None:

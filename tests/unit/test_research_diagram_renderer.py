@@ -9,9 +9,7 @@ from src.visualization import research_diagram_renderer as renderer
 
 
 def test_extract_inline_image_b64_supports_camel_and_snake_case() -> None:
-    payload_camel = {
-        "candidates": [{"content": {"parts": [{"inlineData": {"data": "AAA", "mimeType": "image/png"}}]}}]
-    }
+    payload_camel = {"candidates": [{"content": {"parts": [{"inlineData": {"data": "AAA", "mimeType": "image/png"}}]}}]}
     payload_snake = {
         "candidates": [{"content": {"parts": [{"inline_data": {"data": "BBB", "mime_type": "image/png"}}]}}]
     }

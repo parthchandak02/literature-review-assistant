@@ -239,7 +239,6 @@ def test_non_availability_codes_always_compliance() -> None:
     assert violation_category(compliance_code, "finalize") == "methodological_compliance"
 
 
-
 # ---------------------------------------------------------------------------
 # ReadinessScorecard model construction
 # ---------------------------------------------------------------------------

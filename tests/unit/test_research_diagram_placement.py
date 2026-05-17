@@ -24,7 +24,9 @@ async def test_plan_inline_diagram_placements_falls_back_when_agent_fails(monkey
                 title="Method flow overview",
                 objective="Show how studies move through extraction and synthesis.",
                 required_labels=["Search", "Screen", "Extract"],
-                evidence_claims=[DiagramEvidenceClaim(claim="Screening removes ineligible studies.", supporting_paper_ids=["p1"])],
+                evidence_claims=[
+                    DiagramEvidenceClaim(claim="Screening removes ineligible studies.", supporting_paper_ids=["p1"])
+                ],
             ),
             ResearchDiagramBrief(
                 diagram_id="d02",

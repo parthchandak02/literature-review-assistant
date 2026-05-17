@@ -240,11 +240,7 @@ def test_extract_included_study_citekeys_empty_catalog() -> None:
 
 
 def test_extract_included_study_citekeys_no_methodology_block() -> None:
-    catalog = (
-        "## INCLUDED STUDIES\n"
-        "[Alpha2020] Study (2020)\n"
-        "[Beta2021] Study (2021)\n"
-    )
+    catalog = "## INCLUDED STUDIES\n[Alpha2020] Study (2020)\n[Beta2021] Study (2021)\n"
     keys = _extract_included_study_citekeys(catalog)
     assert keys == {"Alpha2020", "Beta2021"}
 
@@ -277,11 +273,7 @@ def test_compute_citation_budget_abstract_section_empty() -> None:
 
 
 def test_compute_citation_budget_filters_by_valid_keys() -> None:
-    catalog = (
-        "## INCLUDED STUDIES\n"
-        "[Smith2023] Study\n"
-        "[Invalid2000] Ghost\n"
-    )
+    catalog = "## INCLUDED STUDIES\n[Smith2023] Study\n[Invalid2000] Ghost\n"
     valid = {"Smith2023"}
     budget = _compute_section_citation_budget("results", catalog, valid)
     assert budget == {"Smith2023"}
@@ -304,9 +296,7 @@ def test_citation_coverage_issues_all_cited() -> None:
         ],
         cited_keys=["Smith2023", "Jones2024"],
     )
-    issues, missing = _citation_coverage_issues(
-        "results", draft, {"Smith2023", "Jones2024"}
-    )
+    issues, missing = _citation_coverage_issues("results", draft, {"Smith2023", "Jones2024"})
     assert issues == []
     assert missing == set()
 
@@ -323,9 +313,7 @@ def test_citation_coverage_issues_detects_missing() -> None:
         ],
         cited_keys=["Smith2023"],
     )
-    issues, missing = _citation_coverage_issues(
-        "results", draft, {"Smith2023", "Jones2024"}
-    )
+    issues, missing = _citation_coverage_issues("results", draft, {"Smith2023", "Jones2024"})
     assert len(issues) == 1
     assert "missing_required_citations:1" in issues
     assert missing == {"Jones2024"}
@@ -350,9 +338,7 @@ def test_citation_coverage_finds_inline_citekeys_in_text() -> None:
         ],
         cited_keys=[],
     )
-    issues, missing = _citation_coverage_issues(
-        "results", draft, {"Smith2023", "Jones2024"}
-    )
+    issues, missing = _citation_coverage_issues("results", draft, {"Smith2023", "Jones2024"})
     assert "Smith2023" in missing
     assert "Jones2024" not in missing
 

@@ -312,10 +312,7 @@ def test_post_render_completeness_ignores_terminal_citations() -> None:
 
 
 def test_normalize_subsection_heading_layout_splits_punctuation_joined_heading() -> None:
-    raw = (
-        "Full-text PDFs were retrieved for 13 studies.### Study Characteristics\n\n"
-        "Study details follow."
-    )
+    raw = "Full-text PDFs were retrieved for 13 studies.### Study Characteristics\n\nStudy details follow."
     normalized = normalize_subsection_heading_layout(raw)
     assert "Full-text PDFs were retrieved for 13 studies.\n\n### Study Characteristics" in normalized
 
@@ -355,7 +352,9 @@ def test_shared_heading_inventory_matches_rendered_markdown() -> None:
         ],
     )
     rendered = render_section_markdown(draft)
-    assert collect_section_heading_inventory(draft) == extract_markdown_heading_inventory(rendered, min_level=3, max_level=4)
+    assert collect_section_heading_inventory(draft) == extract_markdown_heading_inventory(
+        rendered, min_level=3, max_level=4
+    )
 
 
 def test_grounding_patches_replace_conflicting_selection_and_fulltext_sentences() -> None:

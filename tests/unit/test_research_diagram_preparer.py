@@ -42,9 +42,7 @@ async def test_prepare_research_diagram_briefs_normalizes_returned_pack(monkeypa
                 title="Title 1",
                 objective="Objective one for diagram.",
                 required_labels=["A", "B", "C"],
-                evidence_claims=[
-                    DiagramEvidenceClaim(claim="claim one", supporting_paper_ids=["p1"])
-                ],
+                evidence_claims=[DiagramEvidenceClaim(claim="claim one", supporting_paper_ids=["p1"])],
             ),
             ResearchDiagramBrief(
                 diagram_id="diag_2",
@@ -52,9 +50,7 @@ async def test_prepare_research_diagram_briefs_normalizes_returned_pack(monkeypa
                 title="Title 2",
                 objective="Objective two for diagram.",
                 required_labels=["A", "B", "C"],
-                evidence_claims=[
-                    DiagramEvidenceClaim(claim="claim two", supporting_paper_ids=["p2"])
-                ],
+                evidence_claims=[DiagramEvidenceClaim(claim="claim two", supporting_paper_ids=["p2"])],
             ),
         ],
     )

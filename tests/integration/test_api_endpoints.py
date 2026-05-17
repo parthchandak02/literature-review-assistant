@@ -705,7 +705,9 @@ async def test_history_costs_aggregates_returns_cross_run_payload(
     db_a = run_root / "runtime_a.db"
     db_b = run_root / "runtime_b.db"
 
-    async def _seed_runtime_db(db_path: Path, workflow_id: str, topic: str, cost_rows: list[tuple[str, str, int, int, float, str]]) -> None:
+    async def _seed_runtime_db(
+        db_path: Path, workflow_id: str, topic: str, cost_rows: list[tuple[str, str, int, int, float, str]]
+    ) -> None:
         async with get_db(str(db_path)) as db:
             await db.execute(
                 "INSERT INTO workflows (workflow_id, topic, config_hash, status) VALUES (?, ?, ?, ?)",
@@ -2090,11 +2092,7 @@ async def test_generate_config_stream_includes_topic_routing_metadata(
         if line.startswith("data: "):
             payloads.append(json.loads(line[6:]))
 
-    routing_events = [
-        p
-        for p in payloads
-        if p.get("type") == "progress" and p.get("step") == "topic_routing"
-    ]
+    routing_events = [p for p in payloads if p.get("type") == "progress" and p.get("step") == "topic_routing"]
     assert len(routing_events) == 1
     routing = routing_events[0]
     assert routing.get("domain") == "ambiguous"
@@ -2319,7 +2317,7 @@ async def test_workflow_manuscript_audit_endpoints_return_expected_shapes(
                             "message": "citations unresolved",
                             "expected": None,
                             "actual": None,
-                        }
+                        },
                     ]
                 ),
                 1,
@@ -2370,9 +2368,7 @@ async def test_workflow_manuscript_audit_endpoints_return_expected_shapes(
     assert summary_payload["history"][0]["gate_mode"] == "advisory"
     assert summary_payload["history"][0]["gate_action"] == "advisory_only"
     assert summary_payload["audit_summary"]["status_label"] == "completed_with_findings"
-    assert summary_payload["audit_summary"]["top_recommendations"] == [
-        "Align counts across markdown and LaTeX outputs"
-    ]
+    assert summary_payload["audit_summary"]["top_recommendations"] == ["Align counts across markdown and LaTeX outputs"]
 
     findings_resp = await client.get(f"/api/workflow/{workflow_id}/manuscript-audit/findings")
     assert findings_resp.status_code == 200
@@ -2733,9 +2729,7 @@ async def test_run_readiness_returns_degraded_payload_with_audit_summary_on_comp
         assert payload["submission_ready"] is False
         assert payload["checks"][0]["name"] == "readiness_runtime"
         assert payload["audit_summary"]["status_label"] == "completed_with_findings"
-        assert payload["audit_summary"]["top_recommendations"] == [
-            "Unify PRISMA counts across outputs"
-        ]
+        assert payload["audit_summary"]["top_recommendations"] == ["Unify PRISMA counts across outputs"]
     finally:
         _active_runs.pop(run_id, None)
 

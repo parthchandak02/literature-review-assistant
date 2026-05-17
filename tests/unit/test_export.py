@@ -95,7 +95,16 @@ def test_build_bibtex_prunes_uncited_entries() -> None:
 
 def test_build_citekey_alias_map_recovers_author_year_variants() -> None:
     citations = [
-        ("c1", "Olorunsogo2026", None, "Liberia registry study", '[{"last":"Adeoye","first":"Olorunsogo"}]', 2026, "J", None),
+        (
+            "c1",
+            "Olorunsogo2026",
+            None,
+            "Liberia registry study",
+            '[{"last":"Adeoye","first":"Olorunsogo"}]',
+            2026,
+            "J",
+            None,
+        ),
         ("c2", "Anas2013", None, "Jeev mobile tracking", '[{"last":"Katib","first":"Anas"}]', 2013, "J", None),
     ]
     alias_map = build_citekey_alias_map(citations)
@@ -127,7 +136,16 @@ def test_markdown_to_latex_basic():
 
 def test_convert_to_numbered_citations_resolves_author_year_aliases() -> None:
     citations = [
-        ("c1", "Olorunsogo2026", None, "Liberia registry study", '[{"last":"Adeoye","first":"Olorunsogo"}]', 2026, "J", None),
+        (
+            "c1",
+            "Olorunsogo2026",
+            None,
+            "Liberia registry study",
+            '[{"last":"Adeoye","first":"Olorunsogo"}]',
+            2026,
+            "J",
+            None,
+        ),
         ("c2", "Anas2013", None, "Jeev mobile tracking", '[{"last":"Katib","first":"Anas"}]', 2013, "J", None),
     ]
     numbered, ordered = convert_to_numbered_citations(
@@ -491,9 +509,7 @@ async def test_manuscript_contract_does_not_false_flag_large_study_table_count(t
     manuscript_md = tmp_path / "doc_manuscript.md"
     manuscript_tex = tmp_path / "doc_manuscript.tex"
     long_intro = "A" * 7005
-    table_rows = [
-        f"| Study {i} (2024) | IN | Mixed Methods | {10+i} | Improved outcome |" for i in range(1, 55)
-    ]
+    table_rows = [f"| Study {i} (2024) | IN | Mixed Methods | {10 + i} | Improved outcome |" for i in range(1, 55)]
     manuscript_md.write_text(
         "\n".join(
             [
@@ -961,7 +977,9 @@ async def test_manuscript_contract_requires_acknowledgments_section(tmp_path: Pa
             manuscript_tex_path=str(manuscript_tex),
             mode="soft",
         )
-    assert any(v.code == "REQUIRED_SECTION_MISSING" and "acknowledgments" in (v.actual or "") for v in result.violations)
+    assert any(
+        v.code == "REQUIRED_SECTION_MISSING" and "acknowledgments" in (v.actual or "") for v in result.violations
+    )
 
 
 @pytest.mark.asyncio
@@ -2256,10 +2274,7 @@ def test_normalize_subsection_heading_layout_keeps_comparison_with_prior_work_he
 
 
 def test_normalize_subsection_heading_layout_splits_search_strategy_run_on_heading() -> None:
-    text = (
-        "### Search Strategy combined keywords related to simulation and AI. "
-        "Boolean operators were used."
-    )
+    text = "### Search Strategy combined keywords related to simulation and AI. Boolean operators were used."
     out = _normalize_subsection_heading_layout(text)
     assert "### Search Strategy" in out
     assert "combined keywords related to simulation and AI." in out

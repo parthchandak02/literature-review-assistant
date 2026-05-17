@@ -60,5 +60,3 @@ def test_hard_failure_finalize_still_blocks_figure_assets() -> None:
 def test_violation_category_availability_in_phase_7() -> None:
     assert violation_category("FIGURE_ASSET_MISSING", "phase_7_audit") == "artifact_availability"
     assert violation_category("FIGURE_ASSET_MISSING", "finalize") == "methodological_compliance"
-
-
