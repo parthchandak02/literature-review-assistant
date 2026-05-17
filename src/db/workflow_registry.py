@@ -47,16 +47,12 @@ INSERT OR IGNORE INTO workflow_counter (id, last_seq) VALUES (1, 0);
 
 _MIGRATION_ADD_HEARTBEAT = "ALTER TABLE workflows_registry ADD COLUMN heartbeat_at TEXT"
 _MIGRATION_ADD_NOTES = "ALTER TABLE workflows_registry ADD COLUMN notes TEXT"
-_MIGRATION_ADD_IS_ARCHIVED = (
-    "ALTER TABLE workflows_registry ADD COLUMN is_archived INTEGER NOT NULL DEFAULT 0"
-)
+_MIGRATION_ADD_IS_ARCHIVED = "ALTER TABLE workflows_registry ADD COLUMN is_archived INTEGER NOT NULL DEFAULT 0"
 _MIGRATION_ADD_ARCHIVED_AT = "ALTER TABLE workflows_registry ADD COLUMN archived_at TEXT"
 _MIGRATION_ADD_IS_COMPLETED_HIDDEN = (
     "ALTER TABLE workflows_registry ADD COLUMN is_completed_hidden INTEGER NOT NULL DEFAULT 0"
 )
-_MIGRATION_ADD_COMPLETED_HIDDEN_AT = (
-    "ALTER TABLE workflows_registry ADD COLUMN completed_hidden_at TEXT"
-)
+_MIGRATION_ADD_COMPLETED_HIDDEN_AT = "ALTER TABLE workflows_registry ADD COLUMN completed_hidden_at TEXT"
 
 
 @asynccontextmanager

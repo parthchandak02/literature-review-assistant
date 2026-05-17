@@ -1588,18 +1588,15 @@ class WorkflowRepository:
         alter_statements = [
             (
                 "gate_mode",
-                "ALTER TABLE manuscript_audit_runs "
-                "ADD COLUMN gate_mode TEXT NOT NULL DEFAULT 'strict'",
+                "ALTER TABLE manuscript_audit_runs ADD COLUMN gate_mode TEXT NOT NULL DEFAULT 'strict'",
             ),
             (
                 "gate_action",
-                "ALTER TABLE manuscript_audit_runs "
-                "ADD COLUMN gate_action TEXT NOT NULL DEFAULT 'strict_block'",
+                "ALTER TABLE manuscript_audit_runs ADD COLUMN gate_action TEXT NOT NULL DEFAULT 'strict_block'",
             ),
             (
                 "top_recommendations_json",
-                "ALTER TABLE manuscript_audit_runs "
-                "ADD COLUMN top_recommendations_json TEXT NOT NULL DEFAULT '[]'",
+                "ALTER TABLE manuscript_audit_runs ADD COLUMN top_recommendations_json TEXT NOT NULL DEFAULT '[]'",
             ),
         ]
         changed = False
@@ -2266,6 +2263,67 @@ class WorkflowRepository:
             summary[phase_key][status_key] = int(row[2])
         return summary
 
+    async def get_phase_performance_summary(self, workflow_id: str) -> list[dict[str, int | float | str]]:
+        """Return per-phase wall time + token/cost summary for diagnostics."""
+        cursor = await self.db.execute(
+            """
+            WITH step_perf AS (
+                SELECT
+                    phase,
+                    COALESCE(SUM(duration_ms), 0) AS duration_ms,
+                    COUNT(*) AS step_attempts
+                FROM workflow_steps
+                WHERE workflow_id = ?
+                GROUP BY phase
+            ),
+            cost_perf AS (
+                SELECT
+                    phase,
+                    COUNT(*) AS llm_calls,
+                    COALESCE(SUM(tokens_in), 0) AS tokens_in,
+                    COALESCE(SUM(tokens_out), 0) AS tokens_out,
+                    COALESCE(SUM(cost_usd), 0.0) AS cost_usd,
+                    COALESCE(SUM(latency_ms), 0) AS llm_latency_ms
+                FROM cost_records
+                WHERE workflow_id = ?
+                GROUP BY phase
+            ),
+            phases AS (
+                SELECT phase FROM step_perf
+                UNION
+                SELECT phase FROM cost_perf
+            )
+            SELECT
+                phases.phase AS phase,
+                COALESCE(step_perf.duration_ms, 0) AS duration_ms,
+                COALESCE(step_perf.step_attempts, 0) AS step_attempts,
+                COALESCE(cost_perf.llm_calls, 0) AS llm_calls,
+                COALESCE(cost_perf.tokens_in, 0) AS tokens_in,
+                COALESCE(cost_perf.tokens_out, 0) AS tokens_out,
+                COALESCE(cost_perf.cost_usd, 0.0) AS cost_usd,
+                COALESCE(cost_perf.llm_latency_ms, 0) AS llm_latency_ms
+            FROM phases
+            LEFT JOIN step_perf ON step_perf.phase = phases.phase
+            LEFT JOIN cost_perf ON cost_perf.phase = phases.phase
+            ORDER BY duration_ms DESC, cost_usd DESC
+            """,
+            (workflow_id, workflow_id),
+        )
+        rows = await cursor.fetchall()
+        return [
+            {
+                "phase": str(row[0]),
+                "duration_ms": int(row[1] or 0),
+                "step_attempts": int(row[2] or 0),
+                "llm_calls": int(row[3] or 0),
+                "tokens_in": int(row[4] or 0),
+                "tokens_out": int(row[5] or 0),
+                "cost_usd": float(row[6] or 0.0),
+                "llm_latency_ms": int(row[7] or 0),
+            }
+            for row in rows
+        ]
+
     async def count_running_steps(self, workflow_id: str, phase: str | None = None) -> int:
         if phase:
             cursor = await self.db.execute(
@@ -2469,7 +2527,9 @@ class WorkflowRepository:
         )
         await self.db.commit()
 
-    async def get_writing_manifests(self, workflow_id: str, section_key: str | None = None) -> list[WritingManifestRecord]:
+    async def get_writing_manifests(
+        self, workflow_id: str, section_key: str | None = None
+    ) -> list[WritingManifestRecord]:
         """Return writing manifests for a workflow, optionally filtered by section."""
         generation = await self.get_writing_generation(workflow_id)
         if section_key:
@@ -2785,9 +2845,7 @@ class WorkflowRepository:
                 continue
         return assessments
 
-    async def save_casp_assessment(
-        self, workflow_id: str, paper_id: str, assessment: CaspAssessment
-    ) -> None:
+    async def save_casp_assessment(self, workflow_id: str, paper_id: str, assessment: CaspAssessment) -> None:
         """Persist full structured CASP assessment for a paper (upsert on paper_id)."""
         await self.db.execute(
             """
@@ -2801,9 +2859,7 @@ class WorkflowRepository:
         )
         await self.db.commit()
 
-    async def save_mmat_assessment(
-        self, workflow_id: str, paper_id: str, assessment: MmatAssessment
-    ) -> None:
+    async def save_mmat_assessment(self, workflow_id: str, paper_id: str, assessment: MmatAssessment) -> None:
         """Persist full structured MMAT assessment for a paper (upsert on paper_id)."""
         await self.db.execute(
             """
@@ -2951,7 +3007,6 @@ class WorkflowRepository:
             "phase_5b_knowledge_graph",
             "phase_5c_pre_writing_gate",
             "phase_6_writing",
-            "phase_7_audit",
             "finalize",
         ]
         if from_phase not in phase_order:
@@ -2996,8 +3051,9 @@ class WorkflowRepository:
             for table in ("evidence_links", "claims", "citations"):
                 await _delete(table, has_workflow_id=False)
 
-        # Manuscript audit stage
-        if start_idx <= phase_order.index("phase_7_audit"):
+        # Manuscript-audit outputs are post-writing artifacts and should be
+        # invalidated whenever writing/finalize is rewound.
+        if start_idx <= phase_order.index("phase_6_writing"):
             for table in ("manuscript_audit_findings", "manuscript_audit_runs"):
                 await _delete(table)
 
@@ -3237,7 +3293,9 @@ class CitationRepository:
         await self.db.commit()
 
     async def register_citation(self, citation: CitationEntryRecord) -> None:
-        _citekey_cur = await self.db.execute("SELECT citation_id FROM citations WHERE citekey = ? LIMIT 1", (citation.citekey,))
+        _citekey_cur = await self.db.execute(
+            "SELECT citation_id FROM citations WHERE citekey = ? LIMIT 1", (citation.citekey,)
+        )
         _citekey_row = await _citekey_cur.fetchone()
         if _citekey_row:
             await self.db.execute(
