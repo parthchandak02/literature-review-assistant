@@ -166,6 +166,14 @@ class ReviewConfig(BaseModel):
             "When provided, the runtime appends any missing bundle connectors to target_databases."
         ),
     )
+    execution_profile: Literal["balanced", "throughput", "max_quality"] = Field(
+        default="balanced",
+        description=(
+            "Runtime preset that tunes existing settings fields for speed-vs-quality tradeoffs. "
+            "'balanced' keeps configured values, 'throughput' prioritizes runtime/cost efficiency, "
+            "and 'max_quality' prioritizes recall/grounding quality."
+        ),
+    )
     target_databases: list[str] = Field(min_length=1)
     target_sections: list[str] = Field(
         default_factory=lambda: [
@@ -252,7 +260,9 @@ class ReviewConfig(BaseModel):
             if not item:
                 continue
             if item not in SUPPORTED_SEARCH_DATABASES:
-                supported = ", ".join(sorted({x for x in SUPPORTED_SEARCH_DATABASES if x not in {"wos", "clinicaltrials"}}))
+                supported = ", ".join(
+                    sorted({x for x in SUPPORTED_SEARCH_DATABASES if x not in {"wos", "clinicaltrials"}})
+                )
                 raise ValueError(f"Unsupported target_databases entry '{db}'. Supported: {supported}")
             if item not in normalized:
                 normalized.append(item)
@@ -412,8 +422,7 @@ class ScreeningConfig(BaseModel):
             "meta analysis",
         ],
         description=(
-            "Lowercase title/abstract phrases used for deterministic pre-LLM exclusion "
-            "of secondary-review studies."
+            "Lowercase title/abstract phrases used for deterministic pre-LLM exclusion of secondary-review studies."
         ),
     )
     protocol_only_patterns: list[str] = Field(
@@ -426,8 +435,7 @@ class ScreeningConfig(BaseModel):
             "prospero protocol",
         ],
         description=(
-            "Lowercase title/abstract phrases used for deterministic pre-LLM exclusion "
-            "of protocol-only records."
+            "Lowercase title/abstract phrases used for deterministic pre-LLM exclusion of protocol-only records."
         ),
     )
     deterministic_allowlist_patterns: list[str] = Field(
@@ -441,10 +449,7 @@ class ScreeningConfig(BaseModel):
         default=20,
         ge=0,
         le=200,
-        description=(
-            "Maximum random sample size emitted for deterministic exclusion QA review "
-            "per screening run."
-        ),
+        description=("Maximum random sample size emitted for deterministic exclusion QA review per screening run."),
     )
     empty_abstract_rescue_sample_size: int = Field(
         default=5,
@@ -505,8 +510,7 @@ class ScreeningConfig(BaseModel):
         ge=0.0,
         le=1.0,
         description=(
-            "Minimum include-or-uncertain rate in the BM25 validation tail required "
-            "to trigger overflow screening."
+            "Minimum include-or-uncertain rate in the BM25 validation tail required to trigger overflow screening."
         ),
     )
     cap_overflow_min_validation_n: int = Field(
@@ -610,8 +614,7 @@ class ScreeningConfig(BaseModel):
         ge=0.01,
         le=0.50,
         description=(
-            "Fraction of auto-excluded records to re-score for validation. "
-            "Used with min/max sample bounds below."
+            "Fraction of auto-excluded records to re-score for validation. Used with min/max sample bounds below."
         ),
     )
     batch_screen_validation_min_sample: int = Field(
@@ -731,8 +734,7 @@ class GatesConfig(BaseModel):
     manuscript_audit_mode: GateMode = Field(
         default="strict",
         description=(
-            "Phase-7 manuscript audit gate mode: "
-            "observe (never blocks), soft (blocks reject), strict (blocks any fail)."
+            "Manuscript-audit verdict mode: observe (never blocks), soft (blocks reject), strict (blocks any fail)."
         ),
     )
     audit_gate_mode: AuditGateMode = Field(
@@ -740,7 +742,7 @@ class GatesConfig(BaseModel):
         description=(
             "Workflow outcome behavior when the manuscript audit reports blocking findings: "
             "advisory completes the workflow and preserves the audit report, "
-            "strict fails the workflow at phase_7_audit."
+            "strict marks the workflow failed."
         ),
     )
 
@@ -820,10 +822,7 @@ class WritingConfig(BaseModel):
         ge=0.0,
         le=1.0,
         default=0.25,
-        description=(
-            "Trigger threshold for cautionary wording when too many included studies "
-            "are abstract-only."
-        ),
+        description=("Trigger threshold for cautionary wording when too many included studies are abstract-only."),
     )
     citation_cluster_chunk_size: int = Field(
         ge=1,
@@ -853,7 +852,7 @@ class ManuscriptAuditConfig(BaseModel):
     cost_cap_usd: float = Field(
         default=0.25,
         ge=0.0,
-        description="Hard per-run cost cap for the phase_7_audit LLM calls.",
+        description="Hard per-run cost cap for manuscript-audit LLM calls.",
     )
 
 
@@ -1246,19 +1245,11 @@ class WebConfig(BaseModel):
 
 
 class DiagramGenerationConfig(BaseModel):
-    enabled: bool = Field(
-        default=True,
-        description="Enable custom research diagram generation pipeline.",
-    )
-    pilot_workflow_ids: list[str] = Field(
-        default_factory=lambda: ["wf-0083"],
-        description="Workflow IDs allowed to run the pilot diagram pipeline.",
-    )
     max_rounds: int = Field(
-        default=3,
+        default=1,
         ge=1,
         le=6,
-        description="Maximum draw->critic refinement rounds per custom diagram.",
+        description="Maximum draw->critic refinement rounds per custom diagram (1 = single pass).",
     )
     image_size: Literal["512", "1K", "2K", "4K"] = Field(
         default="2K",

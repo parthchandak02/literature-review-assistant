@@ -8,6 +8,7 @@ from pathlib import Path
 import yaml
 from dotenv import load_dotenv
 
+from src.config.execution_profiles import apply_execution_profile
 from src.models import ReviewConfig, SettingsConfig
 
 # Map model string prefixes to the env var that must be set for that provider.
@@ -95,6 +96,7 @@ def load_configs(
     review = ReviewConfig.model_validate(_read_yaml(review_path))
     raw_settings = _read_yaml(settings_path)
     settings = SettingsConfig.model_validate(raw_settings)
+    apply_execution_profile(review, settings)
     _validate_model_configuration(settings, raw_settings)
     return review, settings
 
