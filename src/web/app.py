@@ -56,8 +56,9 @@ from src.export.submission_packager import package_submission
 from src.manuscript.readiness import compute_readiness_scorecard
 from src.models import ManuscriptAuditFinding, ManuscriptAuditResult
 from src.orchestration.context import WebRunContext
-from src.orchestration.workflow import run_workflow, run_workflow_resume
 from src.search.csv_import import validate_csv_file
+from src.web.diagnostics_utils import summarize_phase_performance
+from src.web.orchestration_facade import resume_workflow_run, start_workflow_run
 
 _logger = logging.getLogger(__name__)
 
@@ -606,9 +607,7 @@ async def _ensure_runtime_db_migrated(db_path: str) -> None:
                             parity = await _repo.validate_manuscript_md_parity(
                                 _wid, _legacy_md.read_text(encoding="utf-8")
                             )
-                            if parity.has_assembly and not (
-                                parity.citation_set_match and parity.section_count_match
-                            ):
+                            if parity.has_assembly and not (parity.citation_set_match and parity.section_count_match):
                                 _logger.warning(
                                     "runtime.db manuscript parity warning for %s: %s",
                                     _wid,
@@ -688,12 +687,11 @@ async def _run_wrapper(record: _RunRecord, review_path: str, req: RunRequest) ->
         _event_flusher_loop(record, interval=_web_cfg.event_flush_interval_seconds)
     )
     try:
-        outputs = await run_workflow(
+        outputs = await start_workflow_run(
             review_path=review_path,
             settings_path="config/settings.yaml",
             run_root=req.run_root,
             run_context=ctx,
-            fresh=True,
             parent_db_path=req.parent_db_path,
         )
         record.outputs = outputs if isinstance(outputs, dict) else {}
@@ -1079,7 +1077,9 @@ async def generate_config_stream(req: _GenerateConfigRequest) -> StreamingRespon
     Emits progress events as each stage completes, then a final 'done' event
     containing the generated YAML. Events are JSON-encoded SSE data lines.
 
-    Progress steps: start -> web_research -> web_research_done -> structuring -> finalizing -> done
+    Progress steps:
+      start -> web_research -> [web_research_fallback] -> web_research_done
+      -> structuring -> [structuring_retry] -> finalizing -> topic_routing -> done
     Error: {"type": "error", "detail": "..."}
     Done:  {"type": "done", "yaml": "...", "quality": {...}}
     """
@@ -1173,8 +1173,7 @@ async def _fetch_run_stats(db_path: str) -> dict[str, Any]:
                     FROM study_cohort_membership scm
                     WHERE scm.workflow_id = ?
                       AND scm.synthesis_eligibility = 'included_primary'
-                    """
-                    ,
+                    """,
                     (_workflow_id,),
                 )
             ).fetchone()
@@ -1236,7 +1235,9 @@ async def _fetch_run_stats(db_path: str) -> dict[str, Any]:
                 ).fetchone()
                 _event_inc = int(_event_inc_row[0]) if (_event_inc_row and _event_inc_row[0] is not None) else None
                 _cohort_inc = (
-                    int(included_from_cohort[0]) if (included_from_cohort and included_from_cohort[0] is not None) else 0
+                    int(included_from_cohort[0])
+                    if (included_from_cohort and included_from_cohort[0] is not None)
+                    else 0
                 )
                 _dual_inc = (
                     int(included_from_dual[0]) if (included_from_dual and included_from_dual[0] is not None) else 0
@@ -1511,9 +1512,7 @@ async def list_history(response: Response, run_root: str = "runs") -> list[Histo
             # Backward-safe archive migration for registries created before
             # archive columns existed.
             try:
-                await db.execute(
-                    "ALTER TABLE workflows_registry ADD COLUMN is_archived INTEGER NOT NULL DEFAULT 0"
-                )
+                await db.execute("ALTER TABLE workflows_registry ADD COLUMN is_archived INTEGER NOT NULL DEFAULT 0")
             except Exception:
                 pass
             try:
@@ -1603,9 +1602,7 @@ async def list_history(response: Response, run_root: str = "runs") -> list[Histo
                 is_archived=bool(row["is_archived"]),
                 archived_at=row["archived_at"] if row["archived_at"] is not None else None,
                 is_completed_hidden=bool(row["is_completed_hidden"]),
-                completed_hidden_at=(
-                    row["completed_hidden_at"] if row["completed_hidden_at"] is not None else None
-                ),
+                completed_hidden_at=(row["completed_hidden_at"] if row["completed_hidden_at"] is not None else None),
             )
         )
     return enriched
@@ -1859,7 +1856,7 @@ async def _resume_wrapper(
         debug=debug,
     )
     try:
-        outputs = await run_workflow_resume(
+        outputs = await resume_workflow_run(
             workflow_id=workflow_id,
             review_path=review_path,
             settings_path="config/settings.yaml",
@@ -2548,9 +2545,7 @@ async def get_papers_all(
                 conditions.append("COALESCE(ft.final_decision, '') LIKE ?")
                 params.append(f"%{ft_decision}%")
             if primary_status:
-                conditions.append(
-                    "COALESCE(json_extract(er.data, '$.primary_study_status'), 'unknown') LIKE ?"
-                )
+                conditions.append("COALESCE(json_extract(er.data, '$.primary_study_status'), 'unknown') LIKE ?")
                 params.append(f"%{primary_status}%")
             if year:
                 conditions.append("CAST(p.year AS TEXT) LIKE ?")
@@ -2861,12 +2856,36 @@ def _build_global_cost_aggregates_payload(
         totals["total_calls"] += 1
         totals["total_tokens_in"] += tokens_in
         totals["total_tokens_out"] += tokens_out
-        _merge_cost_group_row(by_day, _bucket_created_at(row["created_at"], "day"), tokens_in=tokens_in, tokens_out=tokens_out, cost_usd=cost_usd)
-        _merge_cost_group_row(by_week, _bucket_created_at(row["created_at"], "week"), tokens_in=tokens_in, tokens_out=tokens_out, cost_usd=cost_usd)
-        _merge_cost_group_row(by_month, _bucket_created_at(row["created_at"], "month"), tokens_in=tokens_in, tokens_out=tokens_out, cost_usd=cost_usd)
-        _merge_cost_group_row(by_workflow, str(row["workflow_id"]), tokens_in=tokens_in, tokens_out=tokens_out, cost_usd=cost_usd)
-        _merge_cost_group_row(by_phase, str(row["phase"]), tokens_in=tokens_in, tokens_out=tokens_out, cost_usd=cost_usd)
-        _merge_cost_group_row(by_model, str(row["model"]), tokens_in=tokens_in, tokens_out=tokens_out, cost_usd=cost_usd)
+        _merge_cost_group_row(
+            by_day,
+            _bucket_created_at(row["created_at"], "day"),
+            tokens_in=tokens_in,
+            tokens_out=tokens_out,
+            cost_usd=cost_usd,
+        )
+        _merge_cost_group_row(
+            by_week,
+            _bucket_created_at(row["created_at"], "week"),
+            tokens_in=tokens_in,
+            tokens_out=tokens_out,
+            cost_usd=cost_usd,
+        )
+        _merge_cost_group_row(
+            by_month,
+            _bucket_created_at(row["created_at"], "month"),
+            tokens_in=tokens_in,
+            tokens_out=tokens_out,
+            cost_usd=cost_usd,
+        )
+        _merge_cost_group_row(
+            by_workflow, str(row["workflow_id"]), tokens_in=tokens_in, tokens_out=tokens_out, cost_usd=cost_usd
+        )
+        _merge_cost_group_row(
+            by_phase, str(row["phase"]), tokens_in=tokens_in, tokens_out=tokens_out, cost_usd=cost_usd
+        )
+        _merge_cost_group_row(
+            by_model, str(row["model"]), tokens_in=tokens_in, tokens_out=tokens_out, cost_usd=cost_usd
+        )
 
     return {
         "start_ts": start_ts,
@@ -2876,9 +2895,18 @@ def _build_global_cost_aggregates_payload(
         "by_day": [{"bucket": key, **value} for key, value in sorted(by_day.items(), key=lambda item: item[0])],
         "by_week": [{"bucket": key, **value} for key, value in sorted(by_week.items(), key=lambda item: item[0])],
         "by_month": [{"bucket": key, **value} for key, value in sorted(by_month.items(), key=lambda item: item[0])],
-        "by_workflow": [{"group_key": key, **value} for key, value in sorted(by_workflow.items(), key=lambda item: item[1]["cost_usd"], reverse=True)],
-        "by_phase": [{"group_key": key, **value} for key, value in sorted(by_phase.items(), key=lambda item: item[1]["cost_usd"], reverse=True)],
-        "by_model": [{"group_key": key, **value} for key, value in sorted(by_model.items(), key=lambda item: item[1]["cost_usd"], reverse=True)],
+        "by_workflow": [
+            {"group_key": key, **value}
+            for key, value in sorted(by_workflow.items(), key=lambda item: item[1]["cost_usd"], reverse=True)
+        ],
+        "by_phase": [
+            {"group_key": key, **value}
+            for key, value in sorted(by_phase.items(), key=lambda item: item[1]["cost_usd"], reverse=True)
+        ],
+        "by_model": [
+            {"group_key": key, **value}
+            for key, value in sorted(by_model.items(), key=lambda item: item[1]["cost_usd"], reverse=True)
+        ],
     }
 
 
@@ -3028,7 +3056,9 @@ async def export_db_costs_csv(
 
         buffer = io.StringIO()
         writer = csv.writer(buffer)
-        writer.writerow(["timestamp_bucket", "workflow_id", "phase", "model", "call_count", "tokens_in", "tokens_out", "cost_usd"])
+        writer.writerow(
+            ["timestamp_bucket", "workflow_id", "phase", "model", "call_count", "tokens_in", "tokens_out", "cost_usd"]
+        )
         for row in rows:
             writer.writerow(
                 [
@@ -3097,7 +3127,9 @@ async def export_history_costs_csv(
 
         buffer = io.StringIO()
         writer = csv.writer(buffer)
-        writer.writerow(["timestamp_bucket", "workflow_id", "phase", "model", "call_count", "tokens_in", "tokens_out", "cost_usd"])
+        writer.writerow(
+            ["timestamp_bucket", "workflow_id", "phase", "model", "call_count", "tokens_in", "tokens_out", "cost_usd"]
+        )
         for row in sorted(grouped.values(), key=lambda item: (str(item["timestamp_bucket"]), -float(item["cost_usd"]))):
             writer.writerow(
                 [
@@ -3276,7 +3308,7 @@ def _format_manuscript_audit_summary(latest_run: ManuscriptAuditResult | None) -
 
 @app.get("/api/workflow/{workflow_id}/manuscript-audit/summary")
 async def get_workflow_manuscript_audit_summary(workflow_id: str, limit: int = 20) -> dict[str, Any]:
-    """Return latest and historical phase_7_audit summaries for a workflow."""
+    """Return latest and historical manuscript-audit summaries for a workflow."""
     db_path = await _resolve_db_path_from_run_or_workflow(workflow_id)
     try:
         from src.db.repositories import WorkflowRepository as _WorkflowRepository
@@ -3350,9 +3382,7 @@ async def get_run_manuscript_audit(run_id: str, history_limit: int = 20) -> dict
             db.row_factory = aiosqlite.Row
             audit_repo = AuditRepository(_WorkflowRepository(db))
             wf_row = await (
-                await db.execute(
-                    "SELECT workflow_id FROM workflows ORDER BY updated_at DESC, rowid DESC LIMIT 1"
-                )
+                await db.execute("SELECT workflow_id FROM workflows ORDER BY updated_at DESC, rowid DESC LIMIT 1")
             ).fetchone()
             workflow_id = str(wf_row["workflow_id"]) if wf_row and wf_row["workflow_id"] else run_id
             latest = await audit_repo.get_latest_run(workflow_id)
@@ -4241,7 +4271,9 @@ async def _build_screening_diagnostics(
 
     return {
         "prefilter": {
-            "metadata_rejected": int(prefilter_event.get("metadata_rejected", metrics.get("prefilter_metadata_rejected", 0))),
+            "metadata_rejected": int(
+                prefilter_event.get("metadata_rejected", metrics.get("prefilter_metadata_rejected", 0))
+            ),
             "automation_excluded": int(
                 prefilter_event.get("automation_excluded", metrics.get("prefilter_automation_excluded", 0))
             ),
@@ -4253,7 +4285,9 @@ async def _build_screening_diagnostics(
                 prefilter_event.get("keyword_fallback_applied", metrics.get("keyword_fallback_applied", 0))
             ),
             "keyword_fallback_threshold": float(prefilter_event.get("keyword_fallback_threshold", 0.0) or 0.0),
-            "empty_abstract_pool": int(prefilter_event.get("empty_abstract_pool", metrics.get("empty_abstract_pool", 0))),
+            "empty_abstract_pool": int(
+                prefilter_event.get("empty_abstract_pool", metrics.get("empty_abstract_pool", 0))
+            ),
             "empty_abstract_excluded": int(
                 prefilter_event.get("empty_abstract_excluded", metrics.get("empty_abstract_excluded", 0))
             ),
@@ -4456,6 +4490,7 @@ async def get_run_diagnostics(run_id: str, run_root: str = "runs") -> dict[str, 
         fallback_summary = await repo.get_fallback_event_summary(workflow_id)
         writing_manifests = await repo.get_writing_manifests(workflow_id)
         latest_audit = await repo.get_latest_manuscript_audit(workflow_id)
+        phase_performance_rows = await repo.get_phase_performance_summary(workflow_id)
         screening_diagnostics = await _build_screening_diagnostics(db, workflow_id)
         extraction_diagnostics = await _build_extraction_diagnostics(repo, db, workflow_id, db_path)
     return {
@@ -4465,6 +4500,7 @@ async def get_run_diagnostics(run_id: str, run_root: str = "runs") -> dict[str, 
         "running_steps": running_steps,
         "fallback_count": fallback_count,
         "fallback_summary": fallback_summary,
+        "phase_performance": summarize_phase_performance(phase_performance_rows),
         "screening_diagnostics": screening_diagnostics,
         "extraction_diagnostics": extraction_diagnostics,
         "writing_manifests": [m.model_dump(mode="json") for m in writing_manifests],
