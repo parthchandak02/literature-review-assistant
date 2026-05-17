@@ -232,7 +232,7 @@ async def run_migrations(db: aiosqlite.Connection) -> None:
             ON screening_decisions(workflow_id, paper_id, stage, reviewer_type);
         """,
     )
-    # 13. Manuscript audit persistence tables (phase_7_audit).
+    # 13. Manuscript audit persistence tables (legacy phase_7 naming in some rows).
     await _apply(
         13,
         """
@@ -562,8 +562,23 @@ async def _validate_schema_contract(db: aiosqlite.Connection) -> None:
         },
         "section_drafts": {"workflow_id", "section", "version", "generation", "content"},
         "manuscript_sections": {"workflow_id", "section_key", "section_order", "version", "generation", "content"},
-        "manuscript_blocks": {"workflow_id", "section_key", "section_version", "generation", "block_order", "block_type", "text"},
-        "manuscript_assemblies": {"workflow_id", "assembly_id", "target_format", "generation", "content", "manifest_json"},
+        "manuscript_blocks": {
+            "workflow_id",
+            "section_key",
+            "section_version",
+            "generation",
+            "block_order",
+            "block_type",
+            "text",
+        },
+        "manuscript_assemblies": {
+            "workflow_id",
+            "assembly_id",
+            "target_format",
+            "generation",
+            "content",
+            "manifest_json",
+        },
         "manuscript_audit_runs": {
             "audit_run_id",
             "workflow_id",
@@ -576,16 +591,31 @@ async def _validate_schema_contract(db: aiosqlite.Connection) -> None:
         },
         "manuscript_audit_findings": {"audit_run_id", "workflow_id", "finding_id", "severity", "evidence"},
         "workflow_steps": {
-            "step_id", "workflow_id", "phase", "step_name", "status",
-            "attempt_number", "max_attempts",
+            "step_id",
+            "workflow_id",
+            "phase",
+            "step_name",
+            "status",
+            "attempt_number",
+            "max_attempts",
         },
         "recovery_policies": {
-            "workflow_id", "phase", "step_name", "max_retries", "max_rewinds",
-            "current_retries", "current_rewinds", "policy_status",
+            "workflow_id",
+            "phase",
+            "step_name",
+            "max_retries",
+            "max_rewinds",
+            "current_retries",
+            "current_rewinds",
+            "policy_status",
         },
         "writing_manifests": {
-            "workflow_id", "section_key", "attempt_number", "generation",
-            "contract_status", "fallback_used",
+            "workflow_id",
+            "section_key",
+            "attempt_number",
+            "generation",
+            "contract_status",
+            "fallback_used",
         },
         "workflows": {"workflow_id", "topic", "config_hash", "status", "writing_generation"},
     }
