@@ -333,8 +333,18 @@ async def test_high_confidence_include_without_anchor_requires_cross_review(tmp_
     )
     responses = [
         {"decision": "include", "confidence": 0.95, "reasoning": "A high confidence include"},
-        {"decision": "exclude", "confidence": 0.90, "reasoning": "No intervention anchor", "exclusion_reason": "wrong_intervention"},
-        {"decision": "exclude", "confidence": 0.92, "reasoning": "Adjudicator excludes", "exclusion_reason": "wrong_intervention"},
+        {
+            "decision": "exclude",
+            "confidence": 0.90,
+            "reasoning": "No intervention anchor",
+            "exclusion_reason": "wrong_intervention",
+        },
+        {
+            "decision": "exclude",
+            "confidence": 0.92,
+            "reasoning": "Adjudicator excludes",
+            "exclusion_reason": "wrong_intervention",
+        },
     ]
     async with get_db(str(tmp_path / "screening_anchor.db")) as db:
         repo = WorkflowRepository(db)
@@ -354,9 +364,7 @@ async def test_high_confidence_include_without_anchor_requires_cross_review(tmp_
         )
         assert len(results) == 1
         assert results[0].decision == ScreeningDecisionType.EXCLUDE
-        cur = await db.execute(
-            "SELECT COUNT(*) FROM screening_decisions WHERE workflow_id = 'wf-anchor'"
-        )
+        cur = await db.execute("SELECT COUNT(*) FROM screening_decisions WHERE workflow_id = 'wf-anchor'")
         row = await cur.fetchone()
         assert int(row[0]) == 3
 

@@ -98,20 +98,27 @@ async def test_step_summary_aggregation(repo):
 @pytest.mark.asyncio
 async def test_recovery_policy_create_and_increment(repo):
     policy = await repo.get_or_create_recovery_policy(
-        "wf-test", "phase_5c_pre_writing_gate", "pre_writing_validation",
-        max_retries=0, max_rewinds=1,
+        "wf-test",
+        "phase_5c_pre_writing_gate",
+        "pre_writing_validation",
+        max_retries=0,
+        max_rewinds=1,
     )
     assert policy.max_rewinds == 1
     assert policy.current_rewinds == 0
     assert not policy.rewinds_exhausted
 
     new_count = await repo.increment_rewind_count(
-        "wf-test", "phase_5c_pre_writing_gate", "pre_writing_validation",
+        "wf-test",
+        "phase_5c_pre_writing_gate",
+        "pre_writing_validation",
     )
     assert new_count == 1
 
     policy2 = await repo.get_or_create_recovery_policy(
-        "wf-test", "phase_5c_pre_writing_gate", "pre_writing_validation",
+        "wf-test",
+        "phase_5c_pre_writing_gate",
+        "pre_writing_validation",
     )
     assert policy2.current_rewinds == 1
     assert policy2.rewinds_exhausted
@@ -120,8 +127,11 @@ async def test_recovery_policy_create_and_increment(repo):
 @pytest.mark.asyncio
 async def test_recovery_policy_retry_exhaustion(repo):
     policy = await repo.get_or_create_recovery_policy(
-        "wf-test", "phase_6_writing", "section_write",
-        max_retries=2, max_rewinds=0,
+        "wf-test",
+        "phase_6_writing",
+        "section_write",
+        max_retries=2,
+        max_rewinds=0,
     )
     assert not policy.retries_exhausted
 
@@ -130,7 +140,9 @@ async def test_recovery_policy_retry_exhaustion(repo):
     assert count == 2
 
     policy2 = await repo.get_or_create_recovery_policy(
-        "wf-test", "phase_6_writing", "section_write",
+        "wf-test",
+        "phase_6_writing",
+        "section_write",
     )
     assert policy2.retries_exhausted
     assert policy2.status_label() == "exhausted"
@@ -179,30 +191,44 @@ async def test_writing_manifest_fallback_tracking(repo):
 @pytest.mark.asyncio
 async def test_model_properties():
     step = WorkflowStepRecord(
-        step_id="s1", workflow_id="wf", phase="p", step_name="n",
+        step_id="s1",
+        workflow_id="wf",
+        phase="p",
+        step_name="n",
         status=StepStatus.SUCCEEDED,
     )
     assert step.is_terminal
 
     step2 = WorkflowStepRecord(
-        step_id="s2", workflow_id="wf", phase="p", step_name="n",
+        step_id="s2",
+        workflow_id="wf",
+        phase="p",
+        step_name="n",
         status=StepStatus.RUNNING,
     )
     assert not step2.is_terminal
 
     policy = RecoveryPolicyRecord(
-        workflow_id="wf", phase="p", step_name="n",
-        max_retries=3, max_rewinds=1,
-        current_retries=3, current_rewinds=0,
+        workflow_id="wf",
+        phase="p",
+        step_name="n",
+        max_retries=3,
+        max_rewinds=1,
+        current_retries=3,
+        current_rewinds=0,
     )
     assert policy.retries_exhausted
     assert not policy.rewinds_exhausted
     assert "exhausted" not in policy.status_label()
 
     policy2 = RecoveryPolicyRecord(
-        workflow_id="wf", phase="p", step_name="n",
-        max_retries=3, max_rewinds=1,
-        current_retries=3, current_rewinds=1,
+        workflow_id="wf",
+        phase="p",
+        step_name="n",
+        max_retries=3,
+        max_rewinds=1,
+        current_retries=3,
+        current_rewinds=1,
     )
     assert policy2.status_label() == "exhausted"
 
@@ -210,7 +236,9 @@ async def test_model_properties():
 @pytest.mark.asyncio
 async def test_writing_manifest_evidence_ids():
     m = WritingManifestRecord(
-        workflow_id="wf", section_key="intro", attempt_number=1,
+        workflow_id="wf",
+        section_key="intro",
+        attempt_number=1,
         evidence_source_ids='["p1", "p2", "p3"]',
         contract_issues='["missing_citations"]',
     )
@@ -234,11 +262,17 @@ async def test_rollback_clears_control_plane_tables(tmp_path):
         )
         await repo.save_workflow_step(step)
         await repo.get_or_create_recovery_policy(
-            "wf-rb", "phase_6_writing", "section_write",
+            "wf-rb",
+            "phase_6_writing",
+            "section_write",
         )
-        await repo.save_writing_manifest(WritingManifestRecord(
-            workflow_id="wf-rb", section_key="results", attempt_number=1,
-        ))
+        await repo.save_writing_manifest(
+            WritingManifestRecord(
+                workflow_id="wf-rb",
+                section_key="results",
+                attempt_number=1,
+            )
+        )
 
         history_before = await repo.get_step_history("wf-rb", "phase_6_writing")
         assert len(history_before) == 1
@@ -306,7 +340,8 @@ async def test_journal_step_complete_rejects_invalid_failure_category(repo):
 
     with pytest.raises(ValueError, match="Invalid FailureCategory"):
         await _journal_step_complete(
-            repo, step,
+            repo,
+            step,
             status=StepStatus.FAILED,
             error_message="gate failed",
             failure_category="gate_failure",  # type: ignore[arg-type]
@@ -330,7 +365,8 @@ async def test_journal_step_complete_rejects_invalid_recovery_action(repo):
 
     with pytest.raises(ValueError, match="Invalid RecoveryAction"):
         await _journal_step_complete(
-            repo, step,
+            repo,
+            step,
             status=StepStatus.FAILED,
             error_message="gate failed",
             failure_category=FailureCategory.TERMINAL,
@@ -354,7 +390,8 @@ async def test_journal_step_complete_rejects_invalid_step_status(repo):
 
     with pytest.raises(ValueError, match="Invalid StepStatus"):
         await _journal_step_complete(
-            repo, step,
+            repo,
+            step,
             status="done",  # type: ignore[arg-type]
         )
 
@@ -374,7 +411,8 @@ async def test_journal_step_complete_accepts_all_valid_failure_categories(repo):
         )
         await repo.save_workflow_step(step)
         await _journal_step_complete(
-            repo, step,
+            repo,
+            step,
             status=StepStatus.FAILED,
             error_message=f"testing {fc.value}",
             failure_category=fc,
@@ -398,7 +436,8 @@ async def test_journal_step_complete_accepts_all_valid_recovery_actions(repo):
         )
         await repo.save_workflow_step(step)
         await _journal_step_complete(
-            repo, step,
+            repo,
+            step,
             status=StepStatus.FAILED,
             error_message=f"testing {ra.value}",
             failure_category=FailureCategory.TERMINAL,
@@ -429,7 +468,10 @@ async def test_journal_step_complete_allows_none_for_optional_enums(repo):
 def test_workflow_step_record_rejects_invalid_enum_on_assignment():
     """Pydantic validate_assignment must reject invalid enum values."""
     step = WorkflowStepRecord(
-        step_id="s1", workflow_id="wf", phase="p", step_name="n",
+        step_id="s1",
+        workflow_id="wf",
+        phase="p",
+        step_name="n",
     )
     with pytest.raises(Exception):
         step.failure_category = "gate_failure"  # type: ignore[assignment]
@@ -466,9 +508,9 @@ def test_workflow_module_uses_only_valid_enum_members():
     verify every one refers to a real member.  This would have caught
     FailureCategory.GATE_FAILURE and RecoveryAction.STOP before runtime.
     """
-    workflow_src = Path(inspect.getfile(
-        __import__("src.orchestration.workflow", fromlist=["_journal_step_complete"])
-    )).read_text(encoding="utf-8")
+    workflow_src = Path(
+        inspect.getfile(__import__("src.orchestration.workflow", fromlist=["_journal_step_complete"]))
+    ).read_text(encoding="utf-8")
 
     accesses = _collect_enum_attr_accesses(workflow_src)
     assert accesses, "Expected at least one enum access in workflow.py"
@@ -476,12 +518,6 @@ def test_workflow_module_uses_only_valid_enum_members():
     invalid: list[str] = []
     for lineno, cls_name, member_name in accesses:
         if member_name not in _ENUM_MEMBERS[cls_name]:
-            invalid.append(
-                f"  line {lineno}: {cls_name}.{member_name} "
-                f"(valid: {sorted(_ENUM_MEMBERS[cls_name])})"
-            )
+            invalid.append(f"  line {lineno}: {cls_name}.{member_name} (valid: {sorted(_ENUM_MEMBERS[cls_name])})")
 
-    assert not invalid, (
-        "workflow.py references non-existent enum members:\n"
-        + "\n".join(invalid)
-    )
+    assert not invalid, "workflow.py references non-existent enum members:\n" + "\n".join(invalid)

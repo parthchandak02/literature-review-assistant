@@ -74,9 +74,7 @@ async def test_validate_section_scopes_unlinked_claims_to_requested_section(tmp_
         await ledger.register_citation(
             CitationEntryRecord(citekey="Smith2024", title="Study", authors=["Smith"], resolved=True)
         )
-        await ledger.register_claim(
-            ClaimRecord(claim_text="Unlinked claim", section="results", confidence=0.9)
-        )
+        await ledger.register_claim(ClaimRecord(claim_text="Unlinked claim", section="results", confidence=0.9))
 
         discussion_result = await ledger.validate_section("discussion", "Narrative discussion [Smith2024].")
         results_result = await ledger.validate_section("results", "Results statement [Smith2024].")

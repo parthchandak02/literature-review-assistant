@@ -244,8 +244,14 @@ search_overrides:
 
 def test_historical_snapshot_scores_wf0011_vs_wf0012_when_available() -> None:
     root = Path("/Users/parthchandak/projects/literature-review-assistant")
-    wf0011 = root / "runs/2026-03-10/wf-0011-what-are-the-clinical-operational-and-financial-impacts-of-trans/run_10-41-24AM/config_snapshot.yaml"
-    wf0012 = root / "runs/2026-03-10/wf-0012-what-is-the-effectiveness-of-voice-first-medication-reminder-rob/run_12-17-44PM/config_snapshot.yaml"
+    wf0011 = (
+        root
+        / "runs/2026-03-10/wf-0011-what-are-the-clinical-operational-and-financial-impacts-of-trans/run_10-41-24AM/config_snapshot.yaml"
+    )
+    wf0012 = (
+        root
+        / "runs/2026-03-10/wf-0012-what-is-the-effectiveness-of-voice-first-medication-reminder-rob/run_12-17-44PM/config_snapshot.yaml"
+    )
 
     if not wf0011.exists() or not wf0012.exists():
         pytest.skip("Historical run snapshots not present in this environment.")
@@ -436,14 +442,14 @@ def test_quality_evaluator_penalizes_generic_search_overrides() -> None:
     weak = dict(topic_cfg)
     weak["search_overrides"] = {
         "openalex": "outcomes effectiveness quality analysis evaluation",
-        "scopus": "TITLE-ABS-KEY(\"outcomes\" OR \"quality\") AND TITLE-ABS-KEY(\"implementation\")",
+        "scopus": 'TITLE-ABS-KEY("outcomes" OR "quality") AND TITLE-ABS-KEY("implementation")',
     }
     strong = dict(topic_cfg)
     strong["search_overrides"] = {
         "openalex": "robotic medication dispensing university health center dispensing accuracy operational costs",
         "scopus": (
-            "TITLE-ABS-KEY(\"robotic medication dispensing\" OR \"automated dispensing cabinets\" OR \"omnicell\") "
-            "AND TITLE-ABS-KEY(\"university health center\" OR \"dispensing accuracy\" OR \"operational cost\")"
+            'TITLE-ABS-KEY("robotic medication dispensing" OR "automated dispensing cabinets" OR "omnicell") '
+            'AND TITLE-ABS-KEY("university health center" OR "dispensing accuracy" OR "operational cost")'
         ),
     }
 
@@ -454,9 +460,18 @@ def test_quality_evaluator_penalizes_generic_search_overrides() -> None:
 
 def test_historical_snapshot_scores_wf0013_against_wf0011_wf0012_when_available() -> None:
     root = Path("/Users/parthchandak/projects/literature-review-assistant")
-    wf0011 = root / "runs/2026-03-10/wf-0011-what-are-the-clinical-operational-and-financial-impacts-of-trans/run_10-41-24AM/config_snapshot.yaml"
-    wf0012 = root / "runs/2026-03-10/wf-0012-what-is-the-effectiveness-of-voice-first-medication-reminder-rob/run_12-17-44PM/config_snapshot.yaml"
-    wf0013 = root / "runs/2026-03-10/wf-0013-what-is-the-impact-of-robotic-medication-dispensing-systems-on-dispe/run_12-57-40PM/config_snapshot.yaml"
+    wf0011 = (
+        root
+        / "runs/2026-03-10/wf-0011-what-are-the-clinical-operational-and-financial-impacts-of-trans/run_10-41-24AM/config_snapshot.yaml"
+    )
+    wf0012 = (
+        root
+        / "runs/2026-03-10/wf-0012-what-is-the-effectiveness-of-voice-first-medication-reminder-rob/run_12-17-44PM/config_snapshot.yaml"
+    )
+    wf0013 = (
+        root
+        / "runs/2026-03-10/wf-0013-what-is-the-impact-of-robotic-medication-dispensing-systems-on-dispe/run_12-57-40PM/config_snapshot.yaml"
+    )
 
     if not wf0011.exists() or not wf0012.exists() or not wf0013.exists():
         pytest.skip("One or more historical run snapshots are not present in this environment.")

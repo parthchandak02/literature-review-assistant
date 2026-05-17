@@ -102,12 +102,7 @@ def test_assemble_submission_manuscript_falls_back_to_figures_when_section_missi
 
 
 def test_markdown_to_latex_converts_inline_markdown_image_to_figure_env() -> None:
-    md = (
-        "# Title\n\n"
-        "## Abstract\nA short abstract.\n\n"
-        "## Results\n"
-        "![Fig. 1: Custom diagram](fig_custom_01.png)\n"
-    )
+    md = "# Title\n\n## Abstract\nA short abstract.\n\n## Results\n![Fig. 1: Custom diagram](fig_custom_01.png)\n"
     tex = markdown_to_latex(md, citekeys=set(), figure_paths=[])
     assert "\\includegraphics" in tex
     assert "figures/fig_custom_01" in tex

@@ -398,7 +398,12 @@ async def test_contract_flags_domain_scope_drift_terms(tmp_path: Path) -> None:
     review = ReviewConfig(
         research_question="How do AI tutors affect learning gain?",
         review_type=ReviewType.SYSTEMATIC,
-        pico={"population": "students", "intervention": "AI tutor", "comparison": "standard teaching", "outcome": "learning gain"},
+        pico={
+            "population": "students",
+            "intervention": "AI tutor",
+            "comparison": "standard teaching",
+            "outcome": "learning gain",
+        },
         keywords=["AI tutor", "learning gain"],
         domain="education",
         scope="Education interventions and learner outcomes.",
@@ -434,7 +439,12 @@ def test_audit_profile_selection_uses_domain_brief() -> None:
     review = ReviewConfig(
         research_question="What implementation barriers affect school AI tutor adoption?",
         review_type=ReviewType.SYSTEMATIC,
-        pico={"population": "students", "intervention": "AI tutor", "comparison": "standard teaching", "outcome": "learning gain"},
+        pico={
+            "population": "students",
+            "intervention": "AI tutor",
+            "comparison": "standard teaching",
+            "outcome": "learning gain",
+        },
         keywords=["AI tutor", "barriers"],
         domain="education",
         scope="Education implementation review.",

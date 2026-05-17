@@ -86,9 +86,7 @@ async def real_workflow_target() -> tuple[str, Path]:
             pytest.skip("No workflows_registry.db found for real workflow replay tests.")
         async with aiosqlite.connect(str(registry)) as db:
             row = await (
-                await db.execute(
-                    "SELECT workflow_id FROM workflows_registry ORDER BY updated_at DESC LIMIT 1"
-                )
+                await db.execute("SELECT workflow_id FROM workflows_registry ORDER BY updated_at DESC LIMIT 1")
             ).fetchone()
         if not row or not row[0]:
             pytest.skip("No workflow id found in workflows_registry.")

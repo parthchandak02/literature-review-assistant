@@ -350,7 +350,9 @@ async def test_load_resume_state_from_screening_clears_screening_and_extraction_
             await db.execute("SELECT COUNT(*) FROM screening_decisions WHERE workflow_id = ?", ("wf-from-screening",))
         ).fetchone()
         dual_count = await (
-            await db.execute("SELECT COUNT(*) FROM dual_screening_results WHERE workflow_id = ?", ("wf-from-screening",))
+            await db.execute(
+                "SELECT COUNT(*) FROM dual_screening_results WHERE workflow_id = ?", ("wf-from-screening",)
+            )
         ).fetchone()
         extraction_count = await (
             await db.execute("SELECT COUNT(*) FROM extraction_records WHERE workflow_id = ?", ("wf-from-screening",))

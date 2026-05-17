@@ -329,35 +329,3 @@ async def test_search_coordinator_low_recall_warning_excludes_failed_connectors(
     await coordinator.run(max_results=100)
     warning_messages = [record.message for record in caplog.records if "LOW RECALL:" in record.message]
     assert not warning_messages
-
-
-@pytest.mark.asyncio
-async def test_search_coordinator_does_not_retry_when_auth_missing() -> None:
-    connector = _MissingAuthConnector()
-    coordinator = SearchStrategyCoordinator(
-        workflow_id="wf-test",
-        config=_review(),
-        connectors=[connector],
-        repository=_StubSearchRepo(),  # type: ignore[arg-type]
-        gate_runner=_StubGateRunner(),  # type: ignore[arg-type]
-        low_recall_threshold=10,
-    )
-    results, _ = await coordinator.run(max_results=100)
-    assert connector.calls == 1
-    assert len(results) == 1
-    assert results[0].diagnostic_cause == "auth_missing"
-
-
-@pytest.mark.asyncio
-async def test_search_coordinator_low_recall_warning_excludes_failed_connectors(caplog: pytest.LogCaptureFixture) -> None:
-    coordinator = SearchStrategyCoordinator(
-        workflow_id="wf-test",
-        config=_review(),
-        connectors=[_FailingConnector()],
-        repository=_StubSearchRepo(),  # type: ignore[arg-type]
-        gate_runner=_StubGateRunner(),  # type: ignore[arg-type]
-        low_recall_threshold=10,
-    )
-    await coordinator.run(max_results=100)
-    warning_messages = [record.message for record in caplog.records if "LOW RECALL:" in record.message]
-    assert not warning_messages
