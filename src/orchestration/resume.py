@@ -158,9 +158,7 @@ async def load_resume_state(
                 _phase_row = await _phase_cur.fetchone()
                 if not _phase_row:
                     continue
-                _phase_payload = (
-                    _json.loads(_phase_row[0]) if isinstance(_phase_row[0], str) else _phase_row[0]
-                )
+                _phase_payload = _json.loads(_phase_row[0]) if isinstance(_phase_row[0], str) else _phase_row[0]
                 if isinstance(_phase_payload, dict):
                     _phase_payloads.append(_phase_payload)
             (

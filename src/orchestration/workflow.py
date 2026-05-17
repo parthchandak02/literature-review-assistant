@@ -163,11 +163,11 @@ from src.writing.orchestration import (
     _citation_entries_from_papers,
     _ensure_structured_abstract,
     canonicalize_structured_abstract_markdown,
-    validate_structured_abstract_markdown_band,
     prepare_writing_context,
     register_background_sr_citations,
     register_citations_from_papers,
     register_methodology_citations,
+    validate_structured_abstract_markdown_band,
     write_section_with_validation,
 )
 from src.writing.outline_generator import build_fallback_section_outline, generate_section_outline
@@ -1438,7 +1438,9 @@ class ScreeningNode(BaseNode[ReviewState]):
                             on_status=_on_status,
                             provider=provider,
                             workflow_id=state.workflow_id,
-                            reserve_agent=_batch_agent_key if _batch_agent_key in state.settings.agents else "screening_reviewer_a",
+                            reserve_agent=_batch_agent_key
+                            if _batch_agent_key in state.settings.agents
+                            else "screening_reviewer_a",
                         )
                         _batch_forwarded, _batch_excluded_decisions = await _br.rank_and_split(_papers_for_batch)
                         state.batch_screener_model = _batch_agent.model
@@ -4903,7 +4905,9 @@ class WritingNode(BaseNode[ReviewState]):
                                         continue
                                 if section == "abstract":
                                     _min_abs_words = int(
-                                        getattr(getattr(state.settings, "writing", None), "abstract_trim_floor_words", 210)
+                                        getattr(
+                                            getattr(state.settings, "writing", None), "abstract_trim_floor_words", 210
+                                        )
                                     )
                                     _max_abs_words = int(
                                         getattr(getattr(state.settings, "ieee_export", None), "max_abstract_words", 250)
@@ -5517,9 +5521,7 @@ class WritingNode(BaseNode[ReviewState]):
                             _remaining_uncited[:10],
                         )
                     else:
-                        logger.info(
-                            "WritingNode: citation coverage patch resolved all included-study citekeys."
-                        )
+                        logger.info("WritingNode: citation coverage patch resolved all included-study citekeys.")
                 else:
                     logger.info("WritingNode: citation coverage OK -- all %d included keys cited", len(_included_keys))
         except Exception as _cov_exc:
@@ -5862,212 +5864,204 @@ class WritingNode(BaseNode[ReviewState]):
         else:
             await _save_subphase_checkpoint("phase_6e_concepts", papers_processed=len(SECTIONS))
 
-        # --- Custom diagram pilot (direct Gemini image generation) ---
+        # --- Custom diagrams (direct Gemini image generation) ---
         try:
-            _dg_cfg = getattr(state.settings, "diagram_generation", None)
-            _pilot_ids = set(getattr(_dg_cfg, "pilot_workflow_ids", []) or [])
-            _pilot_enabled = bool(
-                _dg_cfg
-                and getattr(_dg_cfg, "enabled", False)
-                and state.workflow_id in _pilot_ids
-            )
-            if _pilot_enabled:
-                _topic = state.review.research_question if state.review else "Systematic Review"
-                _rq = state.review.research_question if state.review else _topic
-                _manifest_path = Path(state.artifacts.get("papers_manifest", ""))
-                _manifest_entries: dict[str, dict] | list[dict] = {}
-                if _manifest_path.exists():
-                    try:
-                        _manifest_entries = json.loads(_manifest_path.read_text(encoding="utf-8"))
-                    except Exception as _manifest_exc:  # noqa: BLE001
-                        logger.warning("Custom diagram pilot: invalid papers manifest: %s", _manifest_exc)
+            _dg_cfg = state.settings.diagram_generation
+            _topic = state.review.research_question if state.review else "Systematic Review"
+            _rq = state.review.research_question if state.review else _topic
+            _manifest_path = Path(state.artifacts.get("papers_manifest", ""))
+            _manifest_entries: dict[str, dict] | list[dict] = {}
+            if _manifest_path.exists():
+                try:
+                    _manifest_entries = json.loads(_manifest_path.read_text(encoding="utf-8"))
+                except Exception as _manifest_exc:  # noqa: BLE001
+                    logger.warning("Custom diagram: invalid papers manifest: %s", _manifest_exc)
 
+            async with get_db(state.db_path) as _dg_db:
+                _dg_repo = WorkflowRepository(_dg_db)
+                _canonical_ids = await _dg_repo.get_synthesis_included_paper_ids(state.workflow_id)
+
+            _included_rows: list[dict[str, object]] = []
+            _canonical_set = set(_canonical_ids)
+            for _p in state.included_papers:
+                if _canonical_set and _p.paper_id not in _canonical_set:
+                    continue
+                _included_rows.append(
+                    {
+                        "paper_id": _p.paper_id,
+                        "title": _p.title,
+                        "year": _p.year,
+                    }
+                )
+            if not _included_rows:
+                _included_rows = [
+                    {"paper_id": _p.paper_id, "title": _p.title, "year": _p.year} for _p in state.included_papers
+                ]
+
+            _max_papers = int(getattr(_dg_cfg, "max_papers_for_brief", 24) or 24)
+            if _max_papers > 0:
+                _included_rows = _included_rows[:_max_papers]
+
+            _extraction_rows: list[dict[str, object]] = []
+            for _rec in state.extraction_records or []:
+                if _canonical_set and _rec.paper_id not in _canonical_set:
+                    continue
+                _summary = (_rec.results_summary or {}).get("summary", "")
+                _first_outcome = _rec.outcomes[0].description if _rec.outcomes else ""
+                _extraction_rows.append(
+                    {
+                        "paper_id": _rec.paper_id,
+                        "study_design": _rec.study_design.value if _rec.study_design else "",
+                        "summary": sanitize_summary_text_for_writing(_summary),
+                        "primary_outcome": _first_outcome,
+                        "intervention": _rec.intervention_description or "",
+                        "population": _rec.participant_demographics or "",
+                    }
+                )
+
+            _prep_agent = state.settings.agents.get(
+                "research_diagram_preparer",
+                state.settings.agents.get("concept_diagrams", state.settings.agents["writing"]),
+            )
+            _brief_pack, _prep_usage = await prepare_research_diagram_briefs(
+                workflow_id=state.workflow_id,
+                review_topic=_topic,
+                research_question=_rq,
+                included_studies=_included_rows,
+                extraction_summaries=_extraction_rows,
+                manifest_entries=_manifest_entries,
+                model=_prep_agent.model,
+                temperature=_prep_agent.temperature,
+            )
+            _brief_path = Path(state.artifacts.get("diagram_brief_pack", ""))
+            if _brief_path.name:
+                _brief_path.write_text(_brief_pack.model_dump_json(indent=2), encoding="utf-8")
+
+            _placement_plan = DiagramPlacementPlan(workflow_id=state.workflow_id)
+            _placement_agent = state.settings.agents.get(
+                "research_diagram_placement",
+                state.settings.agents.get("writing"),
+            )
+            _placement_usage: dict[str, int] = {}
+            try:
+                _placement_plan, _placement_usage = await plan_inline_diagram_placements(
+                    workflow_id=state.workflow_id,
+                    brief_pack=_brief_pack,
+                    manuscript_body=body,
+                    model=_placement_agent.model,
+                    temperature=_placement_agent.temperature,
+                )
+            except Exception as _placement_exc:  # noqa: BLE001
+                logger.warning("Custom diagram placement planning failed: %s", _placement_exc)
+            _placement_path = Path(state.artifacts.get("diagram_placement_plan", ""))
+            if _placement_path.name:
+                _placement_path.write_text(_placement_plan.model_dump_json(indent=2), encoding="utf-8")
+
+            _prep_tokens = int(_prep_usage.get("tokens_in", 0)) + int(_prep_usage.get("tokens_out", 0))
+            if _prep_tokens > 0:
                 async with get_db(state.db_path) as _dg_db:
                     _dg_repo = WorkflowRepository(_dg_db)
-                    _canonical_ids = await _dg_repo.get_synthesis_included_paper_ids(state.workflow_id)
-
-                _included_rows: list[dict[str, object]] = []
-                _canonical_set = set(_canonical_ids)
-                for _p in state.included_papers:
-                    if _canonical_set and _p.paper_id not in _canonical_set:
-                        continue
-                    _included_rows.append(
-                        {
-                            "paper_id": _p.paper_id,
-                            "title": _p.title,
-                            "year": _p.year,
-                        }
-                    )
-                if not _included_rows:
-                    _included_rows = [
-                        {"paper_id": _p.paper_id, "title": _p.title, "year": _p.year}
-                        for _p in state.included_papers
-                    ]
-
-                _max_papers = int(getattr(_dg_cfg, "max_papers_for_brief", 24) or 24)
-                if _max_papers > 0:
-                    _included_rows = _included_rows[:_max_papers]
-
-                _extraction_rows: list[dict[str, object]] = []
-                for _rec in (state.extraction_records or []):
-                    if _canonical_set and _rec.paper_id not in _canonical_set:
-                        continue
-                    _summary = (_rec.results_summary or {}).get("summary", "")
-                    _first_outcome = _rec.outcomes[0].description if _rec.outcomes else ""
-                    _extraction_rows.append(
-                        {
-                            "paper_id": _rec.paper_id,
-                            "study_design": _rec.study_design.value if _rec.study_design else "",
-                            "summary": sanitize_summary_text_for_writing(_summary),
-                            "primary_outcome": _first_outcome,
-                            "intervention": _rec.intervention_description or "",
-                            "population": _rec.participant_demographics or "",
-                        }
-                    )
-
-                _prep_agent = state.settings.agents.get(
-                    "research_diagram_preparer",
-                    state.settings.agents.get("concept_diagrams", state.settings.agents["writing"]),
-                )
-                _brief_pack, _prep_usage = await prepare_research_diagram_briefs(
-                    workflow_id=state.workflow_id,
-                    review_topic=_topic,
-                    research_question=_rq,
-                    included_studies=_included_rows,
-                    extraction_summaries=_extraction_rows,
-                    manifest_entries=_manifest_entries,
-                    model=_prep_agent.model,
-                    temperature=_prep_agent.temperature,
-                )
-                _brief_path = Path(state.artifacts.get("diagram_brief_pack", ""))
-                if _brief_path.name:
-                    _brief_path.write_text(_brief_pack.model_dump_json(indent=2), encoding="utf-8")
-
-                _placement_plan = DiagramPlacementPlan(workflow_id=state.workflow_id)
-                _placement_agent = state.settings.agents.get(
-                    "research_diagram_placement",
-                    state.settings.agents.get("writing"),
-                )
-                _placement_usage: dict[str, int] = {}
-                try:
-                    _placement_plan, _placement_usage = await plan_inline_diagram_placements(
-                        workflow_id=state.workflow_id,
-                        brief_pack=_brief_pack,
-                        manuscript_body=body,
-                        model=_placement_agent.model,
-                        temperature=_placement_agent.temperature,
-                    )
-                except Exception as _placement_exc:  # noqa: BLE001
-                    logger.warning("Custom diagram placement planning failed: %s", _placement_exc)
-                _placement_path = Path(state.artifacts.get("diagram_placement_plan", ""))
-                if _placement_path.name:
-                    _placement_path.write_text(_placement_plan.model_dump_json(indent=2), encoding="utf-8")
-
-                _prep_tokens = int(_prep_usage.get("tokens_in", 0)) + int(_prep_usage.get("tokens_out", 0))
-                if _prep_tokens > 0:
-                    async with get_db(state.db_path) as _dg_db:
-                        _dg_repo = WorkflowRepository(_dg_db)
-                        await _dg_repo.save_cost_record(
-                            CostRecord(
-                                workflow_id=state.workflow_id,
+                    await _dg_repo.save_cost_record(
+                        CostRecord(
+                            workflow_id=state.workflow_id,
+                            model=_prep_agent.model,
+                            phase="phase_6f_custom_diagram_preparer",
+                            tokens_in=int(_prep_usage.get("tokens_in", 0)),
+                            tokens_out=int(_prep_usage.get("tokens_out", 0)),
+                            cost_usd=LLMProvider.estimate_cost_usd(
                                 model=_prep_agent.model,
-                                phase="phase_6f_custom_diagram_preparer",
                                 tokens_in=int(_prep_usage.get("tokens_in", 0)),
                                 tokens_out=int(_prep_usage.get("tokens_out", 0)),
-                                cost_usd=LLMProvider.estimate_cost_usd(
-                                    model=_prep_agent.model,
-                                    tokens_in=int(_prep_usage.get("tokens_in", 0)),
-                                    tokens_out=int(_prep_usage.get("tokens_out", 0)),
-                                    cache_write=int(_prep_usage.get("cache_write_tokens", 0)),
-                                    cache_read=int(_prep_usage.get("cache_read_tokens", 0)),
-                                ),
-                                latency_ms=0,
-                                cache_read_tokens=int(_prep_usage.get("cache_read_tokens", 0)),
-                                cache_write_tokens=int(_prep_usage.get("cache_write_tokens", 0)),
-                            )
+                                cache_write=int(_prep_usage.get("cache_write_tokens", 0)),
+                                cache_read=int(_prep_usage.get("cache_read_tokens", 0)),
+                            ),
+                            latency_ms=0,
+                            cache_read_tokens=int(_prep_usage.get("cache_read_tokens", 0)),
+                            cache_write_tokens=int(_prep_usage.get("cache_write_tokens", 0)),
                         )
-                _placement_tokens = int(_placement_usage.get("tokens_in", 0)) + int(_placement_usage.get("tokens_out", 0))
-                if _placement_tokens > 0:
-                    async with get_db(state.db_path) as _dg_db:
-                        _dg_repo = WorkflowRepository(_dg_db)
-                        await _dg_repo.save_cost_record(
-                            CostRecord(
-                                workflow_id=state.workflow_id,
-                                model=_placement_agent.model,
-                                phase="phase_6f_custom_diagram_placement",
-                                tokens_in=int(_placement_usage.get("tokens_in", 0)),
-                                tokens_out=int(_placement_usage.get("tokens_out", 0)),
-                                cost_usd=LLMProvider.estimate_cost_usd(
-                                    model=_placement_agent.model,
-                                    tokens_in=int(_placement_usage.get("tokens_in", 0)),
-                                    tokens_out=int(_placement_usage.get("tokens_out", 0)),
-                                    cache_write=int(_placement_usage.get("cache_write_tokens", 0)),
-                                    cache_read=int(_placement_usage.get("cache_read_tokens", 0)),
-                                ),
-                                latency_ms=0,
-                                cache_read_tokens=int(_placement_usage.get("cache_read_tokens", 0)),
-                                cache_write_tokens=int(_placement_usage.get("cache_write_tokens", 0)),
-                            )
-                        )
-
-                _style_refs: list[str] = []
-                if bool(getattr(_dg_cfg, "include_reference_style_images", True)):
-                    for _k in ("concept_taxonomy", "conceptual_framework", "methodology_flow"):
-                        _p = Path(state.artifacts.get(_k, ""))
-                        if _p.exists():
-                            _style_refs.append(str(_p))
-                _style = DiagramStyleGuide(style_reference_paths=_style_refs[:6])
-
-                _drawing_agent = state.settings.agents.get(
-                    "research_diagram_drawing",
-                    state.settings.agents.get("concept_diagrams", state.settings.agents["writing"]),
-                )
-                _critic_agent = state.settings.agents.get(
-                    "research_diagram_critic",
-                    state.settings.agents.get("writing"),
-                )
-
+                    )
+            _placement_tokens = int(_placement_usage.get("tokens_in", 0)) + int(_placement_usage.get("tokens_out", 0))
+            if _placement_tokens > 0:
                 async with get_db(state.db_path) as _dg_db:
                     _dg_repo = WorkflowRepository(_dg_db)
-                    _report = await asyncio.wait_for(
-                        render_custom_research_diagrams(
-                            brief_pack=_brief_pack,
-                            out_dir=Path(state.output_dir),
-                            drawing_model=_drawing_agent.model,
-                            critic_model=_critic_agent.model,
-                            style_guide=_style,
-                            max_rounds=int(getattr(_dg_cfg, "max_rounds", 3) or 3),
-                            image_size=str(getattr(_dg_cfg, "image_size", "2K")),
-                            aspect_ratio=str(getattr(_dg_cfg, "aspect_ratio", "16:9")),
-                            repository=_dg_repo,
-                        ),
-                        timeout=420.0,
+                    await _dg_repo.save_cost_record(
+                        CostRecord(
+                            workflow_id=state.workflow_id,
+                            model=_placement_agent.model,
+                            phase="phase_6f_custom_diagram_placement",
+                            tokens_in=int(_placement_usage.get("tokens_in", 0)),
+                            tokens_out=int(_placement_usage.get("tokens_out", 0)),
+                            cost_usd=LLMProvider.estimate_cost_usd(
+                                model=_placement_agent.model,
+                                tokens_in=int(_placement_usage.get("tokens_in", 0)),
+                                tokens_out=int(_placement_usage.get("tokens_out", 0)),
+                                cache_write=int(_placement_usage.get("cache_write_tokens", 0)),
+                                cache_read=int(_placement_usage.get("cache_read_tokens", 0)),
+                            ),
+                            latency_ms=0,
+                            cache_read_tokens=int(_placement_usage.get("cache_read_tokens", 0)),
+                            cache_write_tokens=int(_placement_usage.get("cache_write_tokens", 0)),
+                        )
                     )
 
-                for _result in _report.results:
-                    _decision = next(
-                        (d for d in _placement_plan.decisions if d.diagram_id == _result.diagram_id),
-                        None,
-                    )
-                    if _decision is not None:
-                        _result.placement = _decision
-                    state.artifacts[_result.artifact_key] = _result.output_path
+            _style_refs: list[str] = []
+            if bool(getattr(_dg_cfg, "include_reference_style_images", True)):
+                for _k in ("concept_taxonomy", "conceptual_framework", "methodology_flow"):
+                    _p = Path(state.artifacts.get(_k, ""))
+                    if _p.exists():
+                        _style_refs.append(str(_p))
+            _style = DiagramStyleGuide(style_reference_paths=_style_refs[:6])
 
-                _report_path = Path(state.artifacts.get("diagram_generation_report", ""))
-                if _report_path.name:
-                    _report_path.write_text(_report.model_dump_json(indent=2), encoding="utf-8")
-                await _save_subphase_checkpoint(
-                    "phase_6f_custom_diagrams",
-                    papers_processed=len(_report.results),
+            _drawing_agent = state.settings.agents.get(
+                "research_diagram_drawing",
+                state.settings.agents.get("concept_diagrams", state.settings.agents["writing"]),
+            )
+            _critic_agent = state.settings.agents.get(
+                "research_diagram_critic",
+                state.settings.agents.get("writing"),
+            )
+
+            async with get_db(state.db_path) as _dg_db:
+                _dg_repo = WorkflowRepository(_dg_db)
+                _report = await asyncio.wait_for(
+                    render_custom_research_diagrams(
+                        brief_pack=_brief_pack,
+                        out_dir=Path(state.output_dir),
+                        drawing_model=_drawing_agent.model,
+                        critic_model=_critic_agent.model,
+                        style_guide=_style,
+                        max_rounds=int(getattr(_dg_cfg, "max_rounds", 1) or 1),
+                        image_size=str(getattr(_dg_cfg, "image_size", "2K")),
+                        aspect_ratio=str(getattr(_dg_cfg, "aspect_ratio", "16:9")),
+                        repository=_dg_repo,
+                    ),
+                    timeout=420.0,
                 )
-                if rc and rc.verbose:
-                    _rc_print(rc, f"  Custom diagram pilot outputs: {len(_report.results)}")
+
+            for _result in _report.results:
+                _decision = next(
+                    (d for d in _placement_plan.decisions if d.diagram_id == _result.diagram_id),
+                    None,
+                )
+                if _decision is not None:
+                    _result.placement = _decision
+                state.artifacts[_result.artifact_key] = _result.output_path
+
+            _report_path = Path(state.artifacts.get("diagram_generation_report", ""))
+            if _report_path.name:
+                _report_path.write_text(_report.model_dump_json(indent=2), encoding="utf-8")
+            await _save_subphase_checkpoint(
+                "phase_6f_custom_diagrams",
+                papers_processed=len(_report.results),
+            )
+            if rc and rc.verbose:
+                _rc_print(rc, f"  Custom diagram outputs: {len(_report.results)}")
         except TimeoutError:
-            logger.warning("Custom diagram pilot timed out -- skipping")
+            logger.warning("Custom diagram generation timed out -- skipping")
         except asyncio.CancelledError:
-            logger.warning("Custom diagram pilot cancelled -- skipping")
+            logger.warning("Custom diagram generation cancelled -- skipping")
         except Exception as _custom_diag_exc:  # noqa: BLE001
-            logger.warning("Custom diagram pilot failed: %s", _custom_diag_exc)
+            logger.warning("Custom diagram generation failed: %s", _custom_diag_exc)
 
         # Re-assemble the manuscript now that concept diagram SVGs exist on disk.
         # The first assembly above ran before SVGs were written, so those figures
