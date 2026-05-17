@@ -6,7 +6,7 @@ disable-model-invocation: true
 
 # Setup Pre-Commit
 
-Default to Python `pre-commit` workflow for this repository.  
+Default to Python `pre-commit` workflow for this repository.
 Use frontend hooks only when JS/TS files are present and relevant.
 
 ## What to set up
@@ -71,12 +71,12 @@ If hooks fail, fix root cause, rerun, and confirm clean pass.
 
 ## Fallback path
 
-Only if user explicitly asks for Husky/lint-staged, provide that path.  
+Only if user explicitly asks for Husky/lint-staged, provide that path.
 Otherwise prefer Python `pre-commit` for this repo.
 
 ## Scope boundary
 
-This skill configures hooks. It does not own commit sequencing, staging policy, or push confirmation rules.  
+This skill configures hooks. It does not own commit sequencing, staging policy, or push confirmation rules.
 For commit/push safety workflow, use `general-rules`.
 
 ## Guardrails

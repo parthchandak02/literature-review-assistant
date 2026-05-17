@@ -6,8 +6,8 @@ description: Implements PRISMA 2020 flow diagram and visualizations. Use when bu
 # PRISMA Diagram & Visualizations
 
 Guide for implementing build-phase 7 PRISMA diagram and related visualizations.
-This build-phase label is not the same as runtime checkpoint `phase_7_audit`.
-Do not conflate PRISMA/timeline/geographic generation with the final audit phase.
+This build-phase label is **not** a resume checkpoint key; PRISMA/viz work is part of writing/export delivery, not the checkpoint list in `src/orchestration/resume.py`.
+Do not conflate PRISMA/timeline/geographic generation with manuscript-audit or other optional gates.
 
 ## PRISMA 2020 Two-Column Structure
 

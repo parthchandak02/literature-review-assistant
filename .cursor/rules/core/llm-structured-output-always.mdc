@@ -29,4 +29,3 @@ Treat LLM output structure as a pipeline contract, not a cosmetic cleanup step.
 - Add/maintain strict contract checks for headings, abstract fields, citation tokens, placeholders, and cross-artifact consistency.
 - Extend unit tests for each new structural contract and each previous regression.
 - A fix is complete only when rerun outputs pass contracts without manual artifact edits.
-
