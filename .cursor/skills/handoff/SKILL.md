@@ -13,7 +13,7 @@ If the user provides arguments, treat them as the next-session objective and tai
 
 ## Primary mode
 
-Default to handoff content in chat.  
+Default to handoff content in chat.
 Create a markdown file only when the user explicitly asks for a file artifact.
 
 If a file is requested, use a temp path from:
@@ -42,7 +42,7 @@ Read the generated file before writing to it.
 
 ## De-duplication rule
 
-Do not duplicate content already captured in plans, PR descriptions, ADRs, issues, commits, or diffs.  
+Do not duplicate content already captured in plans, PR descriptions, ADRs, issues, commits, or diffs.
 Link or cite those artifacts instead.
 
 ## Guardrails

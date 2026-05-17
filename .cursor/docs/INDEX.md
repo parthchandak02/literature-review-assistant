@@ -9,7 +9,7 @@ If any statement here conflicts with `.cursor/rules/core/`, trust the rule and t
 ## Core Docs (read first)
 
 - `ARCHITECTURE.md` - runtime boundaries, invariants, canonical source-of-truth paths
-- `PIPELINE.md` - phase lifecycle and stage contracts
+- `PIPELINE.md` - phase lifecycle, canonical process diagram, and checkpoint taxonomy map
 - `IMPLEMENTATION_STATUS.md` - validation surfaces and parity checklist
 
 ## Deep Docs (read on demand)

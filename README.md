@@ -264,10 +264,10 @@ Two config files control behavior:
 - `max_llm_screen` -- hard cap on LLM screening volume (cost control)
 - `human_in_the_loop.enabled` -- pause after screening for manual review of AI decisions
 - `gates.manuscript_contract_mode` -- contract enforcement (`observe` / `soft` / `strict`, default is `strict`)
-- `gates.manuscript_audit_mode` -- audit verdict mode (`observe` / `soft` / `strict`) used to mark the audit run itself as passed or failed
-- `gates.audit_gate_mode` -- workflow behavior for blocking audit findings (`advisory` keeps the workflow completed and preserves the audit report; `strict` hard-fails at `phase_7_audit`)
+- `gates.manuscript_audit_mode` -- manuscript-audit verdict mode (`observe` / `soft` / `strict`) used to classify audit runs as passed or failed
+- `gates.audit_gate_mode` -- workflow behavior for blocking audit findings (`advisory` keeps workflow completion and preserves the audit report; `strict` marks the run failed)
 - `writing.ratchet_*` -- optional section rewrite loop controls (`ratchet_max_iterations`, `ratchet_cost_cap_per_section`, `ratchet_outline_enabled`) for outline-guided writing quality refinement
-- `manuscript_audit.*` -- profile activation and `cost_cap_usd` for `phase_7_audit`
+- `manuscript_audit.*` -- profile activation and `cost_cap_usd` for manuscript-audit calls
 - Quality gate thresholds
 - Search depth (records per database)
 
@@ -299,12 +299,11 @@ Phase 5: Synthesis (meta-analysis or narrative + sensitivity)
 Phase 5b: Knowledge-graph sub-phase (communities + gap signals)
 Phase 5c: Pre-writing gate (cohort/readiness checks before section generation)
 Phase 6: Writing via structured section IR (outline generation -> schema-constrained output -> ratchet quality scoring/rewrite loop -> deterministic render) + manuscript assembly (`doc_manuscript.md`) + PRISMA/timeline/geographic figures
-Phase 7: Manuscript audit (profile-routed final guardian checks with bounded cost, persisted findings, audit verdict from `manuscript_audit_mode`, and workflow completion behavior from `audit_gate_mode`)
 Finalize: final artifacts (`doc_manuscript.tex`, `references.bib`, `run_summary.json`)
 Export (on demand): submission packaging (`submission/`, zip, docx/pdf when dependencies are available)
 ```
 
-Build-phase naming in `.cursor/skills/build-phase/SKILL.md` is intentionally separate from runtime checkpoint keys; for example, build "Phase 7" (PRISMA/Viz) is distinct from runtime `phase_7_audit`.
+Build-phase naming in `.cursor/skills/build-phase/SKILL.md` is intentionally separate from runtime checkpoint keys; for example, build "Phase 7" (PRISMA/Viz) is a delivery label, while runtime checkpoints are sourced from `src/orchestration/resume.py`.
 
 Every factual claim in the manuscript is traced back to a citation via the citation ledger. The LLM is given only the real extracted data -- it cannot hallucinate statistics.
 

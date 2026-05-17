@@ -66,10 +66,9 @@ When the user asks to implement a build phase, follow these steps:
 
 Naming note: build-phase numbering (1-8) is not the same as runtime checkpoint
 key names. The orchestration graph includes `phase_5c_pre_writing_gate`
-between knowledge-graph and writing, plus the post-writing checkpoint
-`phase_7_audit` before `finalize` in `src/orchestration/resume.py`. Keep
-discussion of build "Phase 7: PRISMA/Viz" separate from runtime
-`phase_7_audit`.
+between knowledge-graph and writing before `finalize` in
+`src/orchestration/resume.py`. Keep discussion of build
+"Phase 7: PRISMA/Viz" separate from runtime checkpoint keys.
 
 When validating runtime phase coverage after synthesis/writing changes, include
 `tests/unit/test_pre_writing_gate.py` and confirm

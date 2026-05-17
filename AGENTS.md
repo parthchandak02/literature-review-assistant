@@ -52,6 +52,7 @@ If sources conflict, follow this order and verify in code.
 
 Before `git commit` or `git push`, follow `.cursor/skills/general-rules/SKILL.md` (canonical).
 Use `.cursor/commands/3-pre-commit-workflow.md` as a compact entrypoint/safety checklist.
+If the change is **high level** (architecture, phases, API, persistence, frontend phase alignment, or `.cursor/` docs), run the **Before you commit** section in `.cursor/docs/IMPLEMENTATION_STATUS.md` first; if not, normal hooks/tests are enough.
 
 ## Compatibility Notes
 

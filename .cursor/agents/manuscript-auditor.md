@@ -98,7 +98,7 @@ You may read these directly from `runtime.db` or via API:
 - `GET /api/run/{run_id}/diagnostics` (step journal, failures, running steps, fallback events, writing manifests, `audit_summary`)
 - `GET /api/run/{run_id}/readiness` (readiness scorecard: finalize, PRISMA, contracts, citation lineage, fallback events, `audit_summary`)
 
-Use this as supplemental evidence alignment with `phase_7_audit`; keep
+Use this as supplemental evidence alignment with manuscript-audit persistence (`manuscript_audit_*` tables and related APIs); keep
 artifact-based contract reading (`run_summary.json`) as primary. Treat
 `run_summary.json`, the readiness endpoint, and the diagnostics endpoint as the
 runtime source of truth for gate status, citation validity, and control-plane health.

@@ -25,8 +25,36 @@ Canonical backend order in `src/orchestration/resume.py`:
 - `phase_5b_knowledge_graph`
 - `phase_5c_pre_writing_gate`
 - `phase_6_writing`
-- `phase_7_audit`
 - `finalize`
+
+`phase_7_audit` is removed from canonical runtime checkpoint contracts.
+Any historical rows with that phase key are treated as legacy artifacts, not
+active resume targets.
+
+## End-to-End Runtime Map
+
+```mermaid
+flowchart TD
+    postRun["POST /api/run"] --> startNode["StartNode"]
+    startNode --> phase2["phase_2_search"]
+    phase2 --> phase3["phase_3_screening"]
+    phase3 --> reviewGate["human_review_checkpoint (optional)"]
+    reviewGate --> phase4["phase_4_extraction_quality"]
+    phase4 --> phase4b["phase_4b_embedding"]
+    phase4b --> phase5["phase_5_synthesis"]
+    phase5 --> phase5b["phase_5b_knowledge_graph"]
+    phase5b --> phase5c["phase_5c_pre_writing_gate"]
+    phase5c --> phase6["phase_6_writing"]
+    phase6 --> finalize["finalize"]
+```
+
+## Checkpoint Taxonomy
+
+- Runtime resume checkpoints (backend truth): `src/orchestration/resume.py` `PHASE_ORDER`
+- Frontend resume contract: `frontend/src/lib/constants.ts` `RESUME_PHASE_ORDER` (must match backend)
+- Frontend display flow: `frontend/src/lib/constants.ts` `PHASE_ORDER` (may include UI-only stages)
+- Rewind and cleanup semantics: `src/db/repositories.py` `rollback_phase_data`
+- API entry/resume lifecycle: `src/web/app.py`
 
 ## Stage-to-Artifact Contract
 

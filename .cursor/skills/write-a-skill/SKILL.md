@@ -62,7 +62,7 @@ Use lints/diagnostics if available for changed files.
 
 ## Scope boundary
 
-This skill owns skill authoring/refactoring only.  
+This skill owns skill authoring/refactoring only.
 For general coding workflow, commit hygiene, or session bootstrap, use `general-rules`.
 
 ## Repository guardrails
