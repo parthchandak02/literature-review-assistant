@@ -140,6 +140,50 @@ class DomainExpertConfig(BaseModel):
         )
 
 
+class ResearchHealthImpactConfig(BaseModel):
+    primary_concern: str = ""
+    affected_populations: list[str] = Field(default_factory=list)
+    health_outcomes_targeted: list[str] = Field(default_factory=list)
+    who_indicator: str = ""
+    estimated_impact_pathway: str = ""
+
+
+class ResearchPrimarySdgConfig(BaseModel):
+    goal: int = Field(default=3, ge=1, le=17)
+    name: str = ""
+    target: str = ""
+    sub_target: str = ""
+
+
+class ResearchSecondarySdgConfig(BaseModel):
+    goal: int = Field(ge=1, le=17)
+    name: str = ""
+    relevance: str = ""
+    target: str = ""
+
+
+class ResearchSdgAlignmentConfig(BaseModel):
+    primary_sdg: ResearchPrimarySdgConfig = Field(default_factory=ResearchPrimarySdgConfig)
+    secondary_sdgs: list[ResearchSecondarySdgConfig] = Field(default_factory=list)
+
+
+class ResearchMetadataConfig(BaseModel):
+    domain: str = ""
+    methodology_suggested: str = ""
+    data_sources: list[str] = Field(default_factory=list)
+    keywords: list[str] = Field(default_factory=list)
+    geographic_scope: str = ""
+    time_horizon: str = ""
+
+
+class ResearchEntryConfig(BaseModel):
+    original_topic: str = ""
+    research_question: str = ""
+    health_impact: ResearchHealthImpactConfig = Field(default_factory=ResearchHealthImpactConfig)
+    sdg_alignment: ResearchSdgAlignmentConfig = Field(default_factory=ResearchSdgAlignmentConfig)
+    research_metadata: ResearchMetadataConfig = Field(default_factory=ResearchMetadataConfig)
+
+
 class ReviewConfig(BaseModel):
     project_id: str = Field(default_factory=lambda: str(uuid.uuid4())[:8])
     research_question: str
@@ -244,6 +288,13 @@ class ReviewConfig(BaseModel):
             "Optional statement of search/source limitation (e.g. 'Searches were limited "
             "to Scopus to align with institutional access.'). Injected into Methods section "
             "when present."
+        ),
+    )
+    research_entry: ResearchEntryConfig | None = Field(
+        default=None,
+        description=(
+            "Optional framing metadata that links the review topic to health-impact pathways "
+            "and UN Sustainable Development Goal targets."
         ),
     )
 

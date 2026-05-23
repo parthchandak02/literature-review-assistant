@@ -7,7 +7,9 @@ from src.web.config_generator import (
     _NON_BIOMED_DEFAULT_DATABASES,
     _STRUCTURE_PROMPT,
     _build_yaml,
+    _coerce_health_sdg_question,
     _GeneratedConfig,
+    _GeneratedConfigHealthSdg,
     _Pico,
     _resolve_target_databases,
     _sanitize_keywords,
@@ -151,6 +153,61 @@ def test_structure_prompt_contains_neutral_style_guardrail() -> None:
     assert "few-shot style example (biomedical)" in lowered
     assert "ban fragments" in lowered
     assert "balance keyword mix" in lowered
+
+
+def test_health_sdg_question_coercion_reframes_top_level_question() -> None:
+    cfg = _GeneratedConfigHealthSdg(
+        research_question="What are the benefits of pickleball?",
+        review_type="systematic",
+        pico=_Pico(
+            population="Adults",
+            intervention="Pickleball participation",
+            comparison="Low-activity controls",
+            outcome="Fitness and wellbeing",
+        ),
+        keywords=[
+            "pickleball",
+            "physical activity",
+            "community sport",
+            "adult recreation",
+            "exercise adherence",
+            "cardiorespiratory fitness",
+            "mobility",
+            "social connection",
+            "chronic disease prevention",
+            "wellbeing",
+            "healthy aging",
+            "public recreation",
+            "lifestyle intervention",
+            "active living",
+            "municipal sports",
+        ],
+        domain="Community sports and recreation",
+        scope="Assesses community sport participation effects.",
+        inclusion_criteria=[
+            "Empirical studies with measurable outcomes.",
+            "Comparative or longitudinal study designs.",
+            "Peer-reviewed publications.",
+            "Adult populations.",
+        ],
+        exclusion_criteria=[
+            "Opinion-only publications.",
+            "No measurable outcomes.",
+            "No intervention details.",
+        ],
+        research_entry={
+            "original_topic": "",
+            "research_question": "What are the benefits of pickleball?",
+        },
+        search_overrides=None,
+    )
+
+    updated = _coerce_health_sdg_question(cfg, "pickleball and its benefits")
+    lowered = updated.research_question.lower()
+    assert "health" in lowered
+    assert "sdg" in lowered or "sustainable development goal" in lowered
+    assert updated.research_entry.original_topic == "pickleball and its benefits"
+    assert updated.research_entry.research_question == updated.research_question
 
 
 def test_ambiguous_topic_uses_low_confidence_fallback_policy() -> None:

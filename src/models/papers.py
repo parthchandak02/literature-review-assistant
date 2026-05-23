@@ -83,6 +83,7 @@ class CandidatePaper(BaseModel):
     year: int | None = None
     source_database: str
     doi: str | None = None
+    pmid: str | None = None
     abstract: str | None = None
     url: str | None = None
     keywords: list[str] | None = None

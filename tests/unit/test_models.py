@@ -116,6 +116,64 @@ def test_review_config_rejects_unknown_database() -> None:
         )
 
 
+def test_review_config_accepts_research_entry() -> None:
+    config = ReviewConfig(
+        research_question="Can waste heat recovery improve urban respiratory health outcomes?",
+        review_type=ReviewType.SYSTEMATIC,
+        pico={
+            "population": "Urban populations in high-traffic corridors",
+            "intervention": "Automotive waste heat recovery",
+            "comparison": "Baseline vehicles without recovery systems",
+            "outcome": "Air pollution and respiratory health indicators",
+        },
+        keywords=["waste heat recovery", "vehicular emissions", "sdg 3.9.1"],
+        domain="Automotive engineering and environmental health",
+        scope="Hybrid engineering-health systematic review framing.",
+        inclusion_criteria=["Primary empirical studies reporting emissions or health outcomes."],
+        exclusion_criteria=["Narrative reviews and opinion pieces."],
+        date_range_start=2015,
+        date_range_end=2026,
+        target_databases=["openalex", "pubmed"],
+        research_entry={
+            "original_topic": "Waste heat generation in automobiles",
+            "research_question": "Can automotive waste heat recovery reduce urban pollution-related health harms?",
+            "health_impact": {
+                "primary_concern": "Ambient air pollution from vehicle exhaust",
+                "affected_populations": ["Urban residents"],
+                "health_outcomes_targeted": ["Respiratory disease burden"],
+                "who_indicator": "SDG 3.9.1",
+                "estimated_impact_pathway": "Lower fuel burn -> reduced PM2.5/NOx -> lower exposure.",
+            },
+            "sdg_alignment": {
+                "primary_sdg": {
+                    "goal": 3,
+                    "name": "Good Health and Well-Being",
+                    "target": "3.9",
+                    "sub_target": "3.9.1",
+                },
+                "secondary_sdgs": [
+                    {
+                        "goal": 7,
+                        "name": "Affordable and Clean Energy",
+                        "relevance": "Energy efficiency co-benefit",
+                        "target": "7.3",
+                    }
+                ],
+            },
+            "research_metadata": {
+                "domain": "Automotive engineering / environmental health",
+                "methodology_suggested": "Quantitative synthesis",
+                "data_sources": ["WHO Air Quality Database"],
+                "keywords": ["waste heat recovery", "pm2.5"],
+                "geographic_scope": "Global urban centers",
+                "time_horizon": "2025-2030",
+            },
+        },
+    )
+    assert config.research_entry is not None
+    assert config.research_entry.sdg_alignment.primary_sdg.goal == 3
+
+
 def test_paper_and_screening_models() -> None:
     paper = CandidatePaper(
         title="t",
