@@ -109,7 +109,7 @@ _PRISMA_RULES: tuple[PrismaRule, ...] = (
         (
             ("selection", "screening"),
             ("reviewer", "independent", "adjudicat"),
-            ("automation", "machine learning", "batch", "bm25", "tool"),
+            ("automation", "relevance pre-screen", "priority scoring", "staged", "tool"),
         ),
         ("methods",),
     ),

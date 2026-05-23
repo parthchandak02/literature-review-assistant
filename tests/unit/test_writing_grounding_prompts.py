@@ -9,6 +9,18 @@ from src.writing.prompts.sections import (
     get_results_prompt_context,
 )
 
+_BANNED_OUTPUT_TERMS = (
+    "ai-assisted",
+    "artificial intelligence",
+    "llm",
+    "language model",
+    "bm25",
+    "bm225",
+    "machine learning",
+    "computerized",
+    "automated pipeline",
+)
+
 
 def _make_grounding(**overrides) -> WritingGroundingData:
     payload = {
@@ -126,6 +138,13 @@ def test_methods_prompt_blocks_unsupported_claims() -> None:
     assert "RoB 2, ROBINS-I, CASP, MMAT" in prompt
 
 
+def test_methods_prompt_uses_neutral_screening_wording() -> None:
+    prompt = get_methods_prompt_context().lower()
+    assert "ai-assisted dual-reviewer pipeline" not in prompt
+    assert "llm screening transparency" not in prompt
+    assert "batch llm pre-ranker" not in prompt
+
+
 def test_conclusion_prompt_enforces_hedging_when_required() -> None:
     data = _make_grounding(
         conclusion_hedging_required=True,
@@ -216,3 +235,20 @@ def test_grounding_block_flags_validation_sample_floor_violation() -> None:
     out = format_grounding_block(data)
     assert "VALIDATION SAMPLE FLOOR" in out
     assert "required minimum is 20" in out
+
+
+def test_grounding_block_screening_language_avoids_banned_terms() -> None:
+    data = _make_grounding(
+        automation_excluded=12,
+        batch_screen_forwarded=30,
+        batch_screen_excluded=20,
+        batch_screen_threshold=0.25,
+        batch_screen_validation_n=20,
+        batch_screen_validation_npv=0.75,
+    )
+    out = format_grounding_block(data).lower()
+    assert "relevance pre-screen" in out
+    assert "priority scoring" in out
+    assert "independent dual screening" in out
+    for term in _BANNED_OUTPUT_TERMS:
+        assert term not in out

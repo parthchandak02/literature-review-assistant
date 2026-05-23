@@ -102,8 +102,8 @@ class ProtocolGenerator:
             eligibility_criteria=config.inclusion_criteria + config.exclusion_criteria,
             planned_databases=config.target_databases,
             planned_screening_method=(
-                "Three-stage: (1) BM25 keyword pre-filter; "
-                f"(2) batch LLM pre-ranker (relevance threshold {batch_threshold:.2f}) "
+                "Three-stage: (1) relevance pre-screen; "
+                f"(2) priority scoring stage (relevance threshold {batch_threshold:.2f}) "
                 f"with {validation_pct}% cross-validation; "
                 "(3) independent dual-reviewer screening with adjudication. "
                 "Full-text retrieval via multi-tier resolver (Unpaywall, Semantic Scholar, "
@@ -419,8 +419,8 @@ class ProtocolGenerator:
 
         _heading2("Data extraction from published articles and reports")
         doc.add_paragraph(
-            "Structured data extraction performed independently using an AI-assisted extraction "
-            "pipeline with human oversight. Extracted fields include: study design, sample size, "
+            "Structured data extraction was performed with reviewer oversight. "
+            "Extracted fields include: study design, sample size, "
             "population characteristics, intervention details, comparator details, outcome "
             "measures and results, follow-up duration, and country of study."
         )
@@ -523,8 +523,8 @@ class ProtocolGenerator:
 
         _heading2("Additional information")
         doc.add_paragraph(
-            f"This systematic review was conducted using an automated pipeline "
-            f"(Literature Review Assistant). Search conducted on: {run_date}. "
+            f"This systematic review was conducted using the Literature Review Assistant workflow. "
+            f"Search conducted on: {run_date}. "
             f"Full run artifacts are available in the run directory."
         )
 
@@ -720,8 +720,8 @@ class ProtocolGenerator:
                 "",
                 "### Data extraction from published articles and reports",
                 (
-                    "Structured data extraction performed independently using an AI-assisted extraction pipeline "
-                    "with human oversight. Extracted fields include: study design, sample size, population "
+                    "Structured data extraction was performed with reviewer oversight. "
+                    "Extracted fields include: study design, sample size, population "
                     "characteristics, intervention details, comparator details, outcome measures and results, "
                     "follow-up duration, and country of study."
                 ),
@@ -790,7 +790,7 @@ class ProtocolGenerator:
                 "",
                 "### Additional information",
                 (
-                    f"This systematic review was conducted using an automated pipeline (Literature Review Assistant). "
+                    f"This systematic review was conducted using the Literature Review Assistant workflow. "
                     f"Search conducted on: {run_date}. Full run artifacts are available in the run directory."
                 ),
                 "",
