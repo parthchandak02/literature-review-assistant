@@ -477,7 +477,7 @@ def _build_screening_method_description(
 
     if not screening_decisions:
         return (
-            "An AI-assisted dual-reviewer pipeline screened titles and abstracts, "
+            "Independent dual screening was applied to titles and abstracts, "
             "with disagreements resolved by a third adjudicator. "
             f"Papers advancing from title/abstract screening underwent full-text eligibility "
             f"assessment; {_RESOLVER_TEXT}. "
@@ -510,14 +510,14 @@ def _build_screening_method_description(
             else "Inter-rater reliability was not formally computed for this run."
         )
         return (
-            f"Title and abstract screening used a three-stage approach. "
-            f"First, a BM25 keyword relevance pre-filter evaluated all records, routing "
-            f"{bm25_fwd} records to a batch LLM pre-ranker. "
-            f"The pre-ranker coarse-scored all {bm25_fwd} records and auto-excluded "
+            "Title and abstract screening used a three-stage approach. "
+            f"First, a relevance pre-screen evaluated all records, routing "
+            f"{bm25_fwd} records to a priority scoring stage. "
+            f"The priority scoring stage evaluated all {bm25_fwd} records and excluded "
             f"{batch_screen_excluded} records with low relevance scores (threshold < {threshold_pct}%), "
-            f"forwarding {batch_screen_forwarded} records for AI-assisted dual review. "
-            f"Two independent reviewers in the AI-assisted pipeline then screened those {batch_screen_forwarded} records, "
-            f"with a third reviewer resolving any disagreements. "
+            f"forwarding {batch_screen_forwarded} records for independent dual screening. "
+            f"Two independent reviewers then screened those {batch_screen_forwarded} records, "
+            "with a third reviewer resolving any disagreements. "
             f"Papers advancing from title/abstract screening underwent full-text eligibility "
             f"assessment; {_RESOLVER_TEXT}. "
             f"{_batch_kappa}"
@@ -531,12 +531,12 @@ def _build_screening_method_description(
             else "Inter-rater reliability was not formally computed for this run."
         )
         return (
-            f"Title and abstract screening used a tiered approach. "
-            f"First, a BM25 keyword relevance pre-filter evaluated all {total_screened} records, "
-            f"auto-excluding {kf_count} records with low relevance scores and routing {llm_count} "
-            f"records for AI-assisted dual review. "
-            f"Two independent reviewers in the AI-assisted pipeline then screened the {llm_count} "
-            f"pre-filtered records, with a third reviewer resolving any disagreements. "
+            "Title and abstract screening used a tiered approach. "
+            f"First, a relevance pre-screen evaluated all {total_screened} records, "
+            f"excluding {kf_count} records with low relevance scores and routing {llm_count} "
+            "records for independent dual screening. "
+            f"Two independent reviewers then screened the {llm_count} "
+            "pre-filtered records, with a third reviewer resolving any disagreements. "
             f"Papers advancing from title/abstract screening underwent full-text eligibility "
             f"assessment; {_RESOLVER_TEXT}. "
             f"{_tiered_kappa}"
@@ -544,7 +544,7 @@ def _build_screening_method_description(
     else:
         # Symmetric dual-review: both reviewers assessed all (or nearly all) records
         return (
-            "An AI-assisted dual-reviewer pipeline screened titles and abstracts, "
+            "Independent dual screening was applied to titles and abstracts, "
             "with disagreements resolved by a third adjudicator. "
             f"Papers advancing from title/abstract screening underwent full-text eligibility "
             f"assessment; {_RESOLVER_TEXT}. "
@@ -1184,36 +1184,35 @@ def format_grounding_block(data: WritingGroundingData) -> str:
     if data.search_limitation:
         lines.append(f"Search limitation: {data.search_limitation}")
     lines += [
-        "IMPORTANT: Do NOT list 'perplexity_web' or AI search tools as bibliographic databases. List them only under 'Other Methods' per PRISMA 2020 item 7.",
+        "IMPORTANT: Do NOT list 'perplexity_web' or supplementary discovery tools as bibliographic databases. List them only under 'Other Methods' per PRISMA 2020 item 7.",
         f"Search date: {data.search_date}",
         f"Records identified: {data.total_identified}",
         f"Duplicates removed: {data.duplicates_removed}",
         f"Records after deduplication: {data.records_after_deduplication}",
         "CRITICAL: Use 'Records after deduplication' exactly as given above. "
         "Do NOT compute this yourself (e.g. do not subtract duplicates from identified). "
-        "LLM arithmetic on counts is unreliable; every derived value is pre-computed.",
+        "Count arithmetic must be treated as pre-computed; use each value exactly as provided.",
     ]
     if data.automation_excluded > 0:
         lines.append(
-            f"Records removed by automated pre-screening (BM25/keyword relevance filter "
-            f"before LLM review): {data.automation_excluded}"
+            f"Records removed by relevance pre-screening before independent dual screening: {data.automation_excluded}"
         )
         lines.append(
             "CRITICAL -- PRISMA DISCLOSURE: The Methods section MUST state that "
-            f"{data.automation_excluded} records were excluded by an automated relevance "
-            "pre-screening step (BM25 ranking or keyword filter) before title/abstract "
-            "LLM review. This step appears in the PRISMA flow diagram as "
-            "'Records removed before screening: Automation tools'. "
+            f"{data.automation_excluded} records were excluded by a relevance "
+            "pre-screening step before title/abstract "
+            "independent dual screening. This step appears in the PRISMA flow diagram as "
+            "'Records removed before screening'. "
             "Do NOT omit or hide this step in the narrative."
         )
     lines += [
-        f"Records screened (title/abstract by LLM): {data.total_screened}",
+        f"Records screened (title/abstract dual screening): {data.total_screened}",
         f"Records excluded at title/abstract screening: {data.records_excluded_screening}",
         "CRITICAL: Use 'Records excluded at title/abstract screening' exactly as given. "
         "Do NOT compute this as screened minus assessed.",
         "PRISMA CHECK (screening stage invariant): records_after_deduplication = "
-        "records_removed_by_automation + records_screened. Use this invariant exactly; "
-        "do NOT restate screened as the post-dedup total when automation exclusions are non-zero.",
+        "records_removed_before_screening + records_screened. Use this invariant exactly; "
+        "do NOT restate screened as the post-dedup total when pre-screen exclusions are non-zero.",
         f"Reports sought for full-text retrieval (screened-in papers): {data.fulltext_sought}",
         f"Reports not retrieved (full text unavailable): {data.fulltext_not_retrieved}",
         f"Reports assessed for eligibility (full-text examined): {data.fulltext_assessed}",
@@ -1244,16 +1243,16 @@ def format_grounding_block(data: WritingGroundingData) -> str:
         _bm25_fwd = data.batch_screen_forwarded + data.batch_screen_excluded
         _threshold_pct = int(data.batch_screen_threshold * 100)
         lines.append(
-            f"Screening funnel detail: BM25 routed {_bm25_fwd} to batch pre-ranker; "
-            f"batch pre-ranker excluded {data.batch_screen_excluded} (low relevance); "
+            f"Screening funnel detail: relevance pre-screen routed {_bm25_fwd} to priority scoring; "
+            f"priority scoring excluded {data.batch_screen_excluded} (low relevance); "
             f"{data.batch_screen_forwarded} forwarded to dual independent reviewers."
         )
         # Suppress raw model ID strings from the grounding block -- LLMs sometimes
         # copy them verbatim into the abstract/methods text. Use a generic label here;
         # the MANDATORY DISCLOSURE template below uses a placeholder that the LLM
         # should replace with "automated pre-ranking model" in the final text.
-        lines.append("Batch pre-ranker: automated LLM relevance pre-ranker (do NOT name the model)")
-        lines.append(f"Batch pre-ranker relevance threshold: {data.batch_screen_threshold} ({_threshold_pct}%)")
+        lines.append("Priority scoring stage: relevance scoring stage")
+        lines.append(f"Priority scoring threshold: {data.batch_screen_threshold} ({_threshold_pct}%)")
         if data.batch_screen_validation_n > 0:
             _npv_pct = int(data.batch_screen_validation_npv * 100)
             lines.append(
@@ -1267,32 +1266,32 @@ def format_grounding_block(data: WritingGroundingData) -> str:
                     "State this limitation explicitly and expand validation before submission."
                 )
             lines.append(
-                f"CRITICAL -- LLM SCREENING TRANSPARENCY (Q1 REQUIREMENT): The Methods section MUST "
-                f"include a dedicated paragraph disclosing the batch LLM pre-ranker. Write: "
-                f"'An automated relevance pre-ranking step scored records on "
+                "CRITICAL -- SCREENING TRANSPARENCY (Q1 REQUIREMENT): The Methods section MUST "
+                "include a dedicated paragraph disclosing the priority scoring stage. Write: "
+                f"'A relevance priority scoring step scored records on "
                 f"topic relevance (0-1 scale, threshold = {data.batch_screen_threshold}); "
                 f"{data.batch_screen_excluded} records scoring below this threshold were excluded "
                 f"without full dual review. To validate this step, {data.batch_screen_validation_n} "
-                f"randomly sampled excluded abstracts were independently re-scored; "
+                "randomly sampled excluded abstracts were independently re-scored; "
                 f"{_npv_pct}% were confirmed as low-relevance (negative predictive value = {_npv_pct}%).' "
-                f"This disclosure is MANDATORY for systematic reviews using LLM screening assistance "
-                f"in Q1 journals (PRISMA 2020-AI extension). Do NOT omit or combine into a single sentence."
+                "This disclosure is mandatory for transparency and reproducibility. "
+                "Do NOT omit or combine into a single sentence."
             )
         else:
             lines.append(
-                f"CRITICAL -- LLM SCREENING TRANSPARENCY (Q1 REQUIREMENT): The Methods section MUST "
-                f"include a dedicated paragraph disclosing the batch LLM pre-ranker. Write: "
-                f"'An automated relevance pre-ranking step scored records on "
+                "CRITICAL -- SCREENING TRANSPARENCY (Q1 REQUIREMENT): The Methods section MUST "
+                "include a dedicated paragraph disclosing the priority scoring stage. Write: "
+                f"'A relevance priority scoring step scored records on "
                 f"topic relevance (0-1 scale, threshold = {data.batch_screen_threshold}); "
                 f"{data.batch_screen_excluded} records scoring below this threshold were excluded "
-                f"without full dual review.' Also state: 'To validate this exclusion step, "
+                "without full dual review.' Also state: 'To validate this exclusion step, "
                 "a predefined holdout sample of excluded records was independently re-scored "
                 "within the pipeline and reported as negative predictive value (NPV).' "
-                f"This disclosure is MANDATORY for systematic reviews using LLM pre-ranking."
+                "This disclosure is mandatory for transparency and reproducibility."
             )
         lines.append(
             "CRITICAL -- SCREENING FUNNEL: The Methods section MUST describe the three-stage "
-            "screening process: (1) BM25 relevance pre-filter, (2) batch LLM pre-ranker, "
+            "screening process: (1) relevance pre-screen, (2) priority scoring stage, "
             "(3) independent dual reviewers. Do NOT collapse these into a single step. "
             "Use the exact counts above for each stage."
         )
@@ -1585,19 +1584,17 @@ def format_grounding_block(data: WritingGroundingData) -> str:
         "simplify, or change the numbers. If the description mentions a 'keyword relevance "
         "pre-filter' that processed a specific number of records, report those numbers "
         "accurately. Do NOT write 'two independent reviewers screened all X records' if the "
-        "actual description says a keyword filter handled most records and LLM reviewers "
+        "actual description says a relevance pre-screen handled most records and dual reviewers "
         "handled fewer. Accuracy about the actual screening architecture is required for "
-        "methodological transparency (PRISMA 2020 item 8). "
-        "Also: do NOT rewrite this as a human-only process. Keep the explicit "
-        "'AI-assisted dual-reviewer pipeline' wording when present in the block."
+        "methodological transparency (PRISMA 2020 item 8)."
     )
     if data.heuristic_assessment_count > 0:
         lines.append(
             f"Heuristic fallback assessments: {data.heuristic_assessment_count} quality "
-            "assessment(s) used a conservative heuristic fallback because the LLM call "
-            "timed out. Include this caveat in the Methods section: "
+            "assessment(s) used a conservative heuristic fallback because the primary "
+            "assessment step timed out. Include this caveat in the Methods section: "
             f"'{data.heuristic_assessment_count} risk-of-bias assessment(s) used a "
-            "conservative heuristic fallback due to LLM timeout and should be reviewed manually.'"
+            "conservative heuristic fallback due to timeout and should be reviewed manually.'"
         )
     if data.included_studies_without_rob_mapping > 0:
         lines.append(

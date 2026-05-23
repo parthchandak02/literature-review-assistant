@@ -80,8 +80,10 @@ _OPENALEX_CONTENT_BASE = "https://content.openalex.org/works"
 _CROSSREF_WORKS_URL = "https://api.crossref.org/works"
 _FT_TIMEOUT = _get_tier_timeout()
 _DOI_RE = re.compile(r"10\.\d{4,9}/[-._;()/:A-Z0-9]+", re.IGNORECASE)
+_PUBMED_PMID_RE = re.compile(r"/(\d{5,9})(?:/|$)")
+_IEEE_DOCUMENT_RE = re.compile(r"/document/(\d+)(?:/|$)")
 _TRANSIENT_HTTP_STATUSES = {408, 425, 429, 500, 502, 503, 504}
-_AUTH_OR_BOT_BLOCKED_STATUSES = {401, 403, 429}
+_AUTH_OR_BOT_BLOCKED_STATUSES = {401, 403, 418, 429}
 
 
 # ScienceDirect returns non-OA papers as <500 chars -- treat as miss.
@@ -993,6 +995,7 @@ _DOMAIN_POLICIES: dict[str, _DomainPolicy] = {
     # Common bot-protected hosts where repeated direct retries are usually futile.
     "bmj.com": _DomainPolicy(mode="likely_bot_blocked", max_attempts=1, retry_statuses=frozenset()),
     "mdpi.com": _DomainPolicy(mode="likely_bot_blocked", max_attempts=1, retry_statuses=frozenset()),
+    "ieeexplore.ieee.org": _DomainPolicy(mode="likely_bot_blocked", max_attempts=1, retry_statuses=frozenset()),
     # Prefer metadata extraction over direct PDF assumptions.
     "sciencedirect.com": _DomainPolicy(mode="landing_required", max_attempts=1, retry_statuses=frozenset()),
 }
@@ -1050,6 +1053,30 @@ def _extract_doi_from_text(value: str | None) -> str:
         return ""
     doi = m.group(0).strip().rstrip(".,);")
     return doi
+
+
+def _extract_pmid_from_pubmed_url(url: str | None) -> str | None:
+    """Extract PMID from pubmed.ncbi.nlm.nih.gov URLs."""
+    if not url:
+        return None
+    parsed = urlparse(url.strip())
+    if "pubmed.ncbi.nlm.nih.gov" not in parsed.netloc.lower():
+        return None
+    match = _PUBMED_PMID_RE.search(parsed.path)
+    return match.group(1) if match else None
+
+
+def _ieee_document_pdf_url(url: str | None) -> str | None:
+    """Build IEEE stamp PDF endpoint from document URLs."""
+    if not url:
+        return None
+    parsed = urlparse(url.strip())
+    if "ieeexplore.ieee.org" not in parsed.netloc.lower():
+        return None
+    match = _IEEE_DOCUMENT_RE.search(parsed.path)
+    if not match:
+        return None
+    return f"https://ieeexplore.ieee.org/stamp/stamp.jsp?tp=&arnumber={match.group(1)}"
 
 
 def _norm_url_for_match(url: str | None) -> str:
@@ -1688,6 +1715,7 @@ async def fetch_full_text(
         effective_doi = _extract_doi_from_text(url)
     if not effective_doi and url:
         effective_doi = await _resolve_doi_from_url_crossref(url, diagnostics=diagnostics)
+    effective_pmid = (pmid or "").strip() or _extract_pmid_from_pubmed_url(url)
     t = _get_tier_timeout()
 
     # -----------------------------------------------------------------------
@@ -1709,6 +1737,14 @@ async def fetch_full_text(
                 return result
         elif direct_pdf_url and diagnostics is not None:
             _append_diag(diagnostics, "Policy", f"skipped Group A direct PDF due to mode={policy.mode}")
+
+        ieee_pdf_url = _ieee_document_pdf_url(url)
+        if ieee_pdf_url:
+            result = await _fetch_url_direct(ieee_pdf_url, referer_url=url, diagnostics=diagnostics)
+            if result:
+                logger.info("fetch_full_text: Group A IEEE stamp success for url=%s", url[:60])
+                return result
+            _append_diag(diagnostics, "IEEE", "stamp PDF endpoint unavailable or blocked")
 
     # -----------------------------------------------------------------------
     # Group B: Race all open-access HTTP sources in parallel.
@@ -1762,8 +1798,8 @@ async def fetch_full_text(
         _append_diag(diagnostics, "OpenAlexContent", "SKIPPED: use_openalex_content=False")
 
     # Tier 2e: Europe PMC (OA subset, no auth)
-    if use_europepmc and (effective_doi or pmid):
-        oa_coros.append(_fetch_europepmc(effective_doi, pmid, diagnostics=diagnostics))
+    if use_europepmc and (effective_doi or effective_pmid):
+        oa_coros.append(_fetch_europepmc(effective_doi, effective_pmid, diagnostics=diagnostics))
 
     if oa_coros:
         result = await _race_first_success(oa_coros, timeout=float(t))
@@ -1796,8 +1832,8 @@ async def fetch_full_text(
                 return result
 
     # Tier 4: PMC (NCBI E-utilities; NIH-funded OA papers)
-    if use_pmc and (effective_doi or pmid):
-        result = await _fetch_pmc(effective_doi, pmid, diagnostics=diagnostics)
+    if use_pmc and (effective_doi or effective_pmid):
+        result = await _fetch_pmc(effective_doi, effective_pmid, diagnostics=diagnostics)
         if result:
             logger.info(
                 "fetch_full_text: tier 4 PMC success for doi=%s (%d chars)",

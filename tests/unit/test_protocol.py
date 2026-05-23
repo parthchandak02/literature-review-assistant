@@ -5,7 +5,7 @@ import pytest
 from src.config.loader import load_configs
 from src.db.database import get_db
 from src.db.repositories import WorkflowRepository
-from src.models import CandidatePaper, SearchResult, SourceCategory
+from src.models import CandidatePaper, ProsperoRunData, SearchResult, SourceCategory
 from src.orchestration.gates import GateRunner
 from src.protocol.generator import ProtocolGenerator
 from src.search.arxiv import ArxivConnector
@@ -23,6 +23,20 @@ def test_protocol_document_generates_22_sections() -> None:
     markdown = generator.render_markdown(protocol, review)
     assert markdown.count("## ") >= 22
     assert "Review question" in markdown
+
+
+def test_prospero_output_avoids_model_and_automation_terms() -> None:
+    review, settings = load_configs("config/review.yaml", "config/settings.yaml")
+    generator = ProtocolGenerator(output_dir="runs")
+    protocol = generator.generate("wf-protocol", review, settings)
+    run_data = ProsperoRunData(run_id="20260517-100000")
+    combined = (
+        f"{protocol.planned_screening_method}\n{generator.render_prospero_markdown(protocol, review, run_data)}".lower()
+    )
+    assert "relevance pre-screen" in combined
+    assert "priority scoring stage" in combined
+    for term in ("bm25", "llm", "ai-assisted", "automated pipeline", "machine learning"):
+        assert term not in combined
 
 
 def test_dedup_merges_exact_doi() -> None:

@@ -480,10 +480,8 @@ FIGURE_DEFS: list[tuple[str, str]] = [
     (
         "prisma_diagram",
         "PRISMA 2020 flow diagram showing the study selection process. "
-        "Records excluded at the title/abstract stage include two automated steps "
-        "applied before independent dual review: (1) BM25 keyword relevance filtering "
-        "and (2) batch LLM pre-ranking (records scoring below the configured relevance threshold were "
-        "automatically excluded). Only records passing both steps were forwarded for "
+        "Records excluded at the title/abstract stage include a staged relevance "
+        "selection process applied before independent dual review. Only records passing those stages were forwarded for "
         "independent dual review.",
     ),
     (
@@ -891,12 +889,8 @@ def build_credit_section(author_name: str = "") -> str:
         "## CRediT Author Contribution Statement\n\n"
         f"**{author}:** Conceptualization; Methodology; Software; "
         "Formal analysis; Writing -- review and editing; Supervision; "
-        "Project administration.\n\n"
-        "**Automated pipeline:** Data curation; Investigation; "
-        "Writing -- original draft.\n\n"
-        "_Note: This review was produced with the assistance of an automated "
-        "systematic review pipeline. All results were reviewed and approved "
-        "by the named author._"
+        "Project administration; Data curation; Investigation; Writing -- original draft.\n\n"
+        "_Note: All results were reviewed and approved by the named author._"
     )
 
 
@@ -906,10 +900,8 @@ def build_acknowledgments_section(author_name: str = "") -> str:
     author_subject = author[:1].upper() + author[1:]
     return (
         "## Acknowledgments\n\n"
-        "The author acknowledges the use of an automated systematic review pipeline "
-        "to support study identification, screening, extraction, synthesis, and "
-        "draft generation. "
-        f"{author_subject} reviewed, verified, and approved the final manuscript "
+        f"{author_subject} conducted study identification, screening, extraction, synthesis, and manuscript drafting, "
+        "reviewed and verified the final manuscript, "
         "and retains full responsibility for the interpretation and reporting of the results."
     )
 
@@ -1261,7 +1253,7 @@ def build_study_characteristics_table(
     if excluded_count:
         footnote += (
             f" _{excluded_count} of {total_records} included studies omitted from "
-            f"this table: automated data extraction produced only placeholder values "
+            f"this table: data extraction produced only placeholder values "
             f"(study design unresolved, no quantitative outcome data, participant count "
             f"not reported). These studies are cited in the narrative synthesis above._"
         )

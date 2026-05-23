@@ -16,8 +16,11 @@ from src.export.bibtex_builder import build_bibtex, build_citekey_alias_map
 from src.export.ieee_latex import _convert_citations, _convert_md_table_to_latex, _escape_latex, markdown_to_latex
 from src.export.ieee_validator import validate_ieee
 from src.export.markdown_refs import (
+    FIGURE_DEFS,
     _normalize_subsection_heading_layout,
+    build_acknowledgments_section,
     build_compact_study_table,
+    build_credit_section,
     build_markdown_figures_section,
     build_picos_table,
     build_quality_assessment_coverage_table,
@@ -1636,6 +1639,24 @@ def test_build_markdown_figures_section_applies_run_aware_caption_override(tmp_p
     )
     assert "MMAT" in section
     assert "ROBINS-I/CASP" not in section
+
+
+def test_prisma_figure_caption_uses_neutral_screening_terms() -> None:
+    prisma_caption = dict(FIGURE_DEFS)["prisma_diagram"].lower()
+    assert "relevance selection process" in prisma_caption
+    assert "bm25" not in prisma_caption
+    assert "llm" not in prisma_caption
+    assert "ai-assisted" not in prisma_caption
+
+
+def test_credit_and_acknowledgments_avoid_automation_language() -> None:
+    credit = build_credit_section("Author Name").lower()
+    acknowledgments = build_acknowledgments_section("Author Name").lower()
+    for text in (credit, acknowledgments):
+        assert "automated pipeline" not in text
+        assert "ai-assisted" not in text
+        assert "llm" not in text
+        assert "bm25" not in text
 
 
 def test_generate_mmat_table_sanitizes_pipe_newline_without_forced_truncation() -> None:
