@@ -1564,7 +1564,10 @@ async def test_fetch_pdfs_emits_reason_codes(
         done = next(p for p in payloads if p.get("type") == "done")
         assert done["failed"] == 1
         assert done["reason_counts"]["publisher_403"] == 1
+        assert done["reason_class_counts"]["paywall_or_auth"] == 1
+        assert done["host_rollups"]["example.org"]["failed"] == 1
         assert done["results"][0]["reason_code"] == "publisher_403"
+        assert done["results"][0]["reason_class"] == "paywall_or_auth"
     finally:
         _active_runs.pop(run_id, None)
 
@@ -2062,8 +2065,10 @@ async def test_generate_config_stream_includes_topic_routing_metadata(
     async def _fake_generate_config_yaml(
         research_question: str,
         progress_cb=None,
+        generation_profile: str = "standard",
     ) -> str:
         assert research_question
+        assert generation_profile == "standard"
         if progress_cb is not None:
             progress_cb({"step": "web_research"})
             progress_cb(
@@ -2108,8 +2113,10 @@ async def test_generate_config_stream_done_event_includes_quality_metrics(
     async def _fake_generate_config_yaml(
         research_question: str,
         progress_cb=None,
+        generation_profile: str = "standard",
     ) -> str:
         assert research_question
+        assert generation_profile == "standard"
         if progress_cb is not None:
             progress_cb({"step": "structuring"})
             progress_cb({"step": "finalizing"})
@@ -2178,6 +2185,43 @@ search_overrides:
     assert "total" in quality
     assert "keyword_quality" in quality
     assert "database_relevance" in quality
+
+
+@pytest.mark.asyncio
+async def test_generate_config_stream_passes_health_sdg_profile(
+    client: httpx.AsyncClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    seen_profile: str | None = None
+
+    async def _fake_generate_config_yaml(
+        research_question: str,
+        progress_cb=None,
+        generation_profile: str = "standard",
+    ) -> str:
+        nonlocal seen_profile
+        assert research_question
+        seen_profile = generation_profile
+        if progress_cb is not None:
+            progress_cb({"step": "structuring"})
+            progress_cb({"step": "finalizing"})
+        return 'research_question: "x"\nreview_type: "systematic"\n'
+
+    monkeypatch.setattr(
+        "src.web.config_generator.generate_config_yaml",
+        _fake_generate_config_yaml,
+    )
+
+    resp = await client.post(
+        "/api/config/generate/stream",
+        json={
+            "research_question": "test question",
+            "gemini_api_key": "test-key",
+            "generation_profile": "health_sdg",
+        },
+    )
+    assert resp.status_code == 200
+    assert seen_profile == "health_sdg"
 
 
 @pytest.mark.asyncio

@@ -31,13 +31,13 @@ import re
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 import yaml
 from pydantic import BaseModel, Field
 from pydantic_ai import Agent, NativeOutput, StructuredDict, WebFetchTool, WebSearchTool
 
-from src.models import DomainExpertConfig, ReviewConfig
+from src.models import DomainExpertConfig, ResearchEntryConfig, ReviewConfig
 
 logger = logging.getLogger(__name__)
 
@@ -442,6 +442,15 @@ class _GeneratedConfig(BaseModel):
     )
 
 
+class _GeneratedConfigHealthSdg(_GeneratedConfig):
+    research_entry: ResearchEntryConfig = Field(
+        description=(
+            "Hybrid framing block linking the topic to health impact pathways and "
+            "UN Sustainable Development Goal alignment."
+        )
+    )
+
+
 # ---------------------------------------------------------------------------
 # YAML serializer (mirrors frontend buildYaml() exactly)
 # ---------------------------------------------------------------------------
@@ -450,6 +459,62 @@ class _GeneratedConfig(BaseModel):
 def _yaml_str(s: str) -> str:
     """Wrap a string value in double quotes with escaping."""
     return '"' + s.replace("\\", "\\\\").replace('"', '\\"') + '"'
+
+
+def _append_research_entry_yaml(lines: list[str], research_entry: ResearchEntryConfig) -> None:
+    """Serialize optional research_entry metadata block."""
+    lines.append("research_entry:")
+    lines.append(f"  original_topic: {_yaml_str(research_entry.original_topic)}")
+    lines.append(f"  research_question: {_yaml_str(research_entry.research_question)}")
+    lines.append("  health_impact:")
+    lines.append(f"    primary_concern: {_yaml_str(research_entry.health_impact.primary_concern)}")
+    if research_entry.health_impact.affected_populations:
+        lines.append("    affected_populations:")
+        for item in research_entry.health_impact.affected_populations:
+            lines.append(f"      - {_yaml_str(item)}")
+    else:
+        lines.append("    affected_populations: []")
+    if research_entry.health_impact.health_outcomes_targeted:
+        lines.append("    health_outcomes_targeted:")
+        for item in research_entry.health_impact.health_outcomes_targeted:
+            lines.append(f"      - {_yaml_str(item)}")
+    else:
+        lines.append("    health_outcomes_targeted: []")
+    lines.append(f"    who_indicator: {_yaml_str(research_entry.health_impact.who_indicator)}")
+    lines.append(f"    estimated_impact_pathway: {_yaml_str(research_entry.health_impact.estimated_impact_pathway)}")
+    lines.append("  sdg_alignment:")
+    lines.append("    primary_sdg:")
+    lines.append(f"      goal: {research_entry.sdg_alignment.primary_sdg.goal}")
+    lines.append(f"      name: {_yaml_str(research_entry.sdg_alignment.primary_sdg.name)}")
+    lines.append(f"      target: {_yaml_str(research_entry.sdg_alignment.primary_sdg.target)}")
+    lines.append(f"      sub_target: {_yaml_str(research_entry.sdg_alignment.primary_sdg.sub_target)}")
+    if research_entry.sdg_alignment.secondary_sdgs:
+        lines.append("    secondary_sdgs:")
+        for sdg in research_entry.sdg_alignment.secondary_sdgs:
+            lines.append("      - goal: " + str(sdg.goal))
+            lines.append(f"        name: {_yaml_str(sdg.name)}")
+            lines.append(f"        relevance: {_yaml_str(sdg.relevance)}")
+            lines.append(f"        target: {_yaml_str(sdg.target)}")
+    else:
+        lines.append("    secondary_sdgs: []")
+    lines.append("  research_metadata:")
+    lines.append(f"    domain: {_yaml_str(research_entry.research_metadata.domain)}")
+    lines.append(f"    methodology_suggested: {_yaml_str(research_entry.research_metadata.methodology_suggested)}")
+    if research_entry.research_metadata.data_sources:
+        lines.append("    data_sources:")
+        for source in research_entry.research_metadata.data_sources:
+            lines.append(f"      - {_yaml_str(source)}")
+    else:
+        lines.append("    data_sources: []")
+    if research_entry.research_metadata.keywords:
+        lines.append("    keywords:")
+        for keyword in research_entry.research_metadata.keywords:
+            lines.append(f"      - {_yaml_str(keyword)}")
+    else:
+        lines.append("    keywords: []")
+    lines.append(f"    geographic_scope: {_yaml_str(research_entry.research_metadata.geographic_scope)}")
+    lines.append(f"    time_horizon: {_yaml_str(research_entry.research_metadata.time_horizon)}")
+    lines.append("")
 
 
 _BIOMEDICAL_HINTS = {
@@ -613,10 +678,12 @@ def _resolve_target_databases(
 
 
 def _build_yaml(
-    cfg: _GeneratedConfig,
+    cfg: _GeneratedConfig | _GeneratedConfigHealthSdg,
     defaults: _DefaultConfigDict | None = None,
     resolved_databases: list[str] | None = None,
     generation_mode: str = "web_grounded",
+    generation_profile: Literal["standard", "health_sdg"] = "standard",
+    fallback_reason: str | None = None,
 ) -> str:
     """Build YAML from LLM output, using defaults for structural settings when provided."""
     if defaults is not None:
@@ -641,8 +708,12 @@ def _build_yaml(
     lines: list[str] = []
     if generation_mode == "model_fallback":
         lines.append("# Config generation mode: model-knowledge fallback (web research unavailable).")
+        if fallback_reason:
+            lines.append(f"# Web research fallback reason: {fallback_reason}")
     else:
         lines.append("# Config generation mode: web-grounded brief with live web research.")
+    if generation_profile == "health_sdg":
+        lines.append("# Generation profile: health_sdg (hybrid health impact + UN SDG framing).")
     lines.append("# Review and edit this YAML before launching the workflow.")
     lines.append("")
     lines.append(f"research_question: {_yaml_str(cfg.research_question)}")
@@ -671,6 +742,9 @@ def _build_yaml(
     lines.append(f"domain: {_yaml_str(cfg.domain)}")
     lines.append(f"scope: {_yaml_str(cfg.scope)}")
     lines.append("")
+    if isinstance(cfg, _GeneratedConfigHealthSdg):
+        _append_research_entry_yaml(lines, cfg.research_entry)
+
     if defaults is not None and isinstance(defaults.get("domain_expert"), dict):
         merged_domain_expert = DomainExpertConfig.model_validate(
             {
@@ -818,6 +892,19 @@ _RESEARCH_PROMPT = (
     "Include real brand names, real domain terms, and real metric names. Do not generalize."
 )
 
+_HEALTH_SDG_RESEARCH_APPEND = (
+    "\n\nHEALTH + SDG HYBRID MODE:\n"
+    "Also investigate how this topic could affect public and environmental health outcomes.\n"
+    "Add explicit evidence notes for:\n"
+    "8. Exposure and risk pathways linking the intervention to health endpoints (air quality, injury risk,\n"
+    "   occupational hazards, access equity, or other plausible pathways).\n"
+    "9. Populations likely to be disproportionately affected (children, elderly, low-income, high-exposure groups).\n"
+    "10. UN SDG alignment opportunities with concrete goal/target references. Use UN SDG terminology;\n"
+    "    WHO indicator language is acceptable where relevant, but do not invent non-existent WHO-specific SDGs.\n"
+    "11. Quantitative indicators that could be used to evaluate impact (e.g., PM2.5, DALYs, mortality rate,\n"
+    "    energy efficiency metrics, urban exposure burden).\n"
+)
+
 # ---------------------------------------------------------------------------
 # Stage 2 -- Structuring prompt (NativeOutput, no web search)
 # ---------------------------------------------------------------------------
@@ -950,6 +1037,26 @@ _STRUCTURE_PROMPT = (
     "  verbatim in papers and will always return zero results.\n\n"
     "Return the response as a JSON object matching the schema exactly. All text fields\n"
     "must be in English. Do not truncate or omit any field."
+)
+
+_HEALTH_SDG_STRUCTURE_APPEND = (
+    "\n\nHEALTH + SDG HYBRID MODE REQUIREMENTS:\n"
+    "- Keep the core intervention anchored to the original topic. Do not replace an engineering topic\n"
+    "  with a purely clinical framing.\n"
+    "- Expand outcomes and criteria to include plausible health-impact pathways and sustainability relevance\n"
+    "  where evidence exists.\n"
+    "- Add a `research_entry` object that captures:\n"
+    "  * original_topic (verbatim user topic),\n"
+    "  * health_impact (primary concern, affected populations, targeted outcomes, WHO indicator if available,\n"
+    "    and causal pathway),\n"
+    "  * sdg_alignment (UN SDG primary goal+target and secondary goals),\n"
+    "  * research_metadata (domain, suggested methodology, candidate data sources, framing keywords,\n"
+    "    geographic scope, time horizon).\n"
+    "- The top-level `research_question` must be the health+SDG reframed question, not the raw technical phrasing.\n"
+    "- Even for non-clinical topics (e.g., sports, engineering, education), explicitly include a plausible\n"
+    "  human health or public health outcome pathway plus UN SDG alignment language.\n"
+    "- Keep the intervention anchor from the original topic while broadening to societal-health relevance.\n"
+    "- Use UN Sustainable Development Goal language and numeric targets. WHO may be cited as a health indicator source.\n"
 )
 
 _FALLBACK_RESEARCH_BRIEF = "(Web search unavailable -- rely on training knowledge only.)"
@@ -1163,6 +1270,38 @@ def _keywords_need_repair(keywords: list[str]) -> bool:
     return False
 
 
+def _coerce_health_sdg_question(
+    cfg: _GeneratedConfigHealthSdg,
+    original_topic: str,
+) -> _GeneratedConfigHealthSdg:
+    """Ensure health/SDG mode rewrites the top-level research question."""
+    base_question = (cfg.research_entry.research_question or cfg.research_question).strip()
+    if not base_question:
+        base_question = f"What is the impact of {original_topic} on public health outcomes and aligned UN SDG targets?"
+
+    normalized = base_question.rstrip("?. ").strip()
+    lowered = normalized.lower()
+    if "health" not in lowered:
+        normalized = f"{normalized} and public health outcomes"
+        lowered = normalized.lower()
+    if "sdg" not in lowered and "sustainable development goal" not in lowered:
+        normalized = f"{normalized} aligned with UN SDG targets"
+    reframed_question = normalized.rstrip("?. ").strip() + "?"
+
+    updated_research_entry = cfg.research_entry.model_copy(
+        update={
+            "original_topic": cfg.research_entry.original_topic or original_topic,
+            "research_question": reframed_question,
+        }
+    )
+    return cfg.model_copy(
+        update={
+            "research_question": reframed_question,
+            "research_entry": updated_research_entry,
+        }
+    )
+
+
 # ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
@@ -1171,6 +1310,7 @@ def _keywords_need_repair(keywords: list[str]) -> bool:
 async def generate_config_yaml(
     research_question: str,
     progress_cb: Callable[[dict[str, Any]], None] | None = None,
+    generation_profile: Literal["standard", "health_sdg"] = "standard",
 ) -> str:
     """Generate a complete review config YAML from a research question.
 
@@ -1203,11 +1343,14 @@ async def generate_config_yaml(
     emit("web_research")
     _model = _resolve_model()
     research_prompt = _RESEARCH_PROMPT.format(research_question=rq)
+    if generation_profile == "health_sdg":
+        research_prompt += _HEALTH_SDG_RESEARCH_APPEND
     research_agent: Agent[None, str] = Agent(
         _model,
         output_type=str,
         builtin_tools=[WebSearchTool(), WebFetchTool()],
     )
+    fallback_reason: str | None = None
     try:
         research_result = await research_agent.run(research_prompt)
         research_brief = research_result.output
@@ -1216,7 +1359,8 @@ async def generate_config_yaml(
         logger.warning("Config gen Stage 1 (web search+fetch) failed, falling back to model knowledge: %s", exc)
         # Graceful degradation: skip the research brief, rely on model knowledge.
         research_brief = _FALLBACK_RESEARCH_BRIEF
-        emit("web_research_fallback")
+        fallback_reason = " ".join(str(exc).split())[:240]
+        emit("web_research_fallback", reason=fallback_reason)
 
     emit("web_research_done")
 
@@ -1228,10 +1372,14 @@ async def generate_config_yaml(
         research_question=rq,
         research_brief=research_brief,
     )
+    if generation_profile == "health_sdg":
+        structure_prompt += _HEALTH_SDG_STRUCTURE_APPEND
     using_fallback = research_brief == _FALLBACK_RESEARCH_BRIEF
     if using_fallback:
         structure_prompt += _FALLBACK_STRUCTURE_INSTRUCTION
-    schema = _GeneratedConfig.model_json_schema()
+    target_model: type[_GeneratedConfig] | type[_GeneratedConfigHealthSdg]
+    target_model = _GeneratedConfigHealthSdg if generation_profile == "health_sdg" else _GeneratedConfig
+    schema = target_model.model_json_schema()
     output_type = NativeOutput(StructuredDict(schema))
     structure_agent: Agent = Agent(_model, output_type=output_type)  # type: ignore[arg-type]
 
@@ -1259,13 +1407,13 @@ async def generate_config_yaml(
     emit("finalizing")
 
     try:
-        parsed = _GeneratedConfig.model_validate_json(result_json)
+        parsed = target_model.model_validate_json(result_json)
     except Exception as exc:
         logger.warning("Config gen response failed validation; retrying once with repair instruction: %s", exc)
         emit("structuring_retry")
         try:
             result_json = await _run_structure(structure_prompt + repair_instruction)
-            parsed = _GeneratedConfig.model_validate_json(result_json)
+            parsed = target_model.model_validate_json(result_json)
         except Exception as retry_exc:
             logger.error(
                 "Config gen response failed validation after retry: %s\nRaw: %s",
@@ -1284,12 +1432,14 @@ async def generate_config_yaml(
         emit("structuring_retry")
         try:
             result_json = await _run_structure(structure_prompt + repair_instruction)
-            parsed_retry = _GeneratedConfig.model_validate_json(result_json)
+            parsed_retry = target_model.model_validate_json(result_json)
             enriched_keywords = _extract_root_terms(list(parsed_retry.keywords))
             sanitized_keywords = _sanitize_keywords(enriched_keywords)
         except Exception as retry_exc:
             logger.warning("Keyword repair retry failed; continuing with first pass: %s", retry_exc)
     parsed = parsed.model_copy(update={"keywords": sanitized_keywords})
+    if isinstance(parsed, _GeneratedConfigHealthSdg):
+        parsed = _coerce_health_sdg_question(parsed, rq)
 
     defaults = _load_default_config()
     resolved_databases, route = _resolve_target_databases(parsed, defaults)
@@ -1306,6 +1456,8 @@ async def generate_config_yaml(
         defaults,
         resolved_databases=resolved_databases,
         generation_mode="model_fallback" if using_fallback else "web_grounded",
+        generation_profile=generation_profile,
+        fallback_reason=fallback_reason if using_fallback else None,
     )
 
 

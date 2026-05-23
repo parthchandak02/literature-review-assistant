@@ -28,7 +28,8 @@ import uuid
 import zipfile
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
-from typing import Any
+from typing import Any, Literal
+from urllib.parse import urlparse
 
 import aiofiles
 import aiosqlite
@@ -1068,6 +1069,7 @@ async def get_env_keys() -> dict[str, str]:
 class _GenerateConfigRequest(BaseModel):
     research_question: str
     gemini_api_key: str = ""
+    generation_profile: Literal["standard", "health_sdg"] = "standard"
 
 
 @app.post("/api/config/generate/stream")
@@ -1106,7 +1108,11 @@ async def generate_config_stream(req: _GenerateConfigRequest) -> StreamingRespon
 
     async def run_generation() -> None:
         try:
-            yaml_content = await generate_config_yaml(req.research_question, progress_cb=progress_cb)
+            yaml_content = await generate_config_yaml(
+                req.research_question,
+                progress_cb=progress_cb,
+                generation_profile=req.generation_profile,
+            )
             quality = evaluate_config_quality_yaml(yaml_content)
             queue.put_nowait({"type": "done", "yaml": yaml_content, "quality": quality})
         except RuntimeError as exc:
@@ -3872,6 +3878,29 @@ async def fetch_pdfs_for_run(run_id: str) -> StreamingResponse:
     async def _pdf_fetch_stream() -> AsyncGenerator[str, None]:
         import asyncio as _asyncio
 
+        def _reason_class(reason_code: str | None) -> str:
+            if not reason_code:
+                return "unknown"
+            if reason_code == "oa_recovered":
+                return "success"
+            if reason_code in {"publisher_401", "publisher_403", "paywalled"}:
+                return "paywall_or_auth"
+            if reason_code in {"bot_blocked", "cookie_wall", "rate_limited"}:
+                return "bot_or_access_blocked"
+            if reason_code in {"metadata_only_endpoint", "pdf_link_missing", "no_pdf_signal"}:
+                return "metadata_or_no_pdf"
+            if reason_code in {"identifier_missing", "doi_unresolved", "no_identifier"}:
+                return "identifier_resolution"
+            if reason_code in {"timeout", "unexpected_error", "exception"}:
+                return "execution_error"
+            return "resolver_exhausted"
+
+        def _host_from_url(value: str | None) -> str:
+            if not value:
+                return "unknown"
+            host = urlparse(value).netloc.lower()
+            return host or "unknown"
+
         retriever = PDFRetriever()
         results: list[dict[str, Any]] = []
         succeeded = 0
@@ -3895,6 +3924,8 @@ async def fetch_pdfs_for_run(run_id: str) -> StreamingResponse:
                         "status": "skipped",
                         "source": existing.get("source"),
                         "reason_code": existing.get("reason_code"),
+                        "reason_class": _reason_class(existing.get("reason_code")),
+                        "host": _host_from_url(existing.get("url")),
                         "diagnostics": existing.get("diagnostics", []),
                     }
                 )
@@ -3983,6 +4014,8 @@ async def fetch_pdfs_for_run(run_id: str) -> StreamingResponse:
                         "status": result_status,
                         "source": source,
                         "reason_code": reason_code,
+                        "reason_class": _reason_class(reason_code),
+                        "host": _host_from_url(url),
                         "file_type": file_type,
                         "diagnostics": diagnostics[-6:] if diagnostics else [],
                         "error": error_msg,
@@ -3996,12 +4029,21 @@ async def fetch_pdfs_for_run(run_id: str) -> StreamingResponse:
         attempted = total - skipped
         failed = attempted - succeeded
         reason_counts: dict[str, int] = {}
+        reason_class_counts: dict[str, int] = {}
+        host_rollups: dict[str, dict[str, int]] = {}
         for r in results:
+            host = r.get("host") or "unknown"
+            host_bucket = host_rollups.setdefault(host, {"ok": 0, "failed": 0, "skipped": 0})
+            status = r.get("status")
+            if status in {"ok", "failed", "skipped"}:
+                host_bucket[status] += 1
             reason = r.get("reason_code")
             if not reason:
                 continue
             reason_counts[reason] = reason_counts.get(reason, 0) + 1
-        yield f"data: {_json.dumps({'type': 'done', 'attempted': attempted, 'succeeded': succeeded, 'failed': failed, 'skipped': skipped, 'reason_counts': reason_counts, 'results': results})}\n\n"
+            reason_class = r.get("reason_class") or "unknown"
+            reason_class_counts[reason_class] = reason_class_counts.get(reason_class, 0) + 1
+        yield f"data: {_json.dumps({'type': 'done', 'attempted': attempted, 'succeeded': succeeded, 'failed': failed, 'skipped': skipped, 'reason_counts': reason_counts, 'reason_class_counts': reason_class_counts, 'host_rollups': host_rollups, 'results': results})}\n\n"
 
     return StreamingResponse(
         _pdf_fetch_stream(),
@@ -5330,28 +5372,44 @@ async def _log_stream_generator(log_path: pathlib.Path, request: Request) -> Asy
 async def stream_logs(
     request: Request,
     run_id: str | None = None,
+    workflow_id: str | None = None,
+    run_root: str = "runs",
     process: str = "backend",
     log_type: str = "out",
 ) -> EventSourceResponse:
-    """Stream a run's app.jsonl log file (when run_id given) or a PM2 log file over SSE.
+    """Stream a run's app.jsonl log file or a PM2 log file over SSE.
 
-    When run_id is provided the per-run app.jsonl written by structured_log is
-    streamed, giving the user a log scoped to exactly that run.  This works for
-    both live and historically attached runs because _active_runs always carries
-    db_path for both cases.
+    Resolution priority:
+    1) run_id in _active_runs -> per-run app.jsonl
+    2) workflow_id in registry -> per-run app.jsonl
+    3) PM2 process logs (backward-compatible default)
 
-    Falls back to the global PM2 log when no run_id is given (backward-compat).
+    This keeps log streaming available for historical runs that only have a
+    workflow_id (e.g. after refresh) without requiring /api/history/attach.
 
     Args:
         run_id: Optional run identifier from _active_runs.
-        process: PM2 process name -- only used when run_id is absent.
-        log_type: 'out' / 'err' -- only used when run_id is absent.
+        workflow_id: Optional workflow identifier used to resolve runtime.db.
+        run_root: Registry root used when resolving workflow_id -> db_path.
+        process: PM2 process name -- only used when no run/workflow is resolved.
+        log_type: 'out' / 'err' -- only used when no run/workflow is resolved.
     """
     if run_id:
         record = _active_runs.get(run_id)
-        if not record or not record.db_path:
+        if record and record.db_path:
+            log_path = pathlib.Path(record.db_path).parent / "app.jsonl"
+        elif workflow_id:
+            db_path = await _resolve_db_path(run_root, workflow_id)
+            if not db_path:
+                raise HTTPException(status_code=404, detail="Workflow not found in registry")
+            log_path = pathlib.Path(db_path).parent / "app.jsonl"
+        else:
             raise HTTPException(status_code=404, detail="Run not found or log not yet available")
-        log_path = pathlib.Path(record.db_path).parent / "app.jsonl"
+    elif workflow_id:
+        db_path = await _resolve_db_path(run_root, workflow_id)
+        if not db_path:
+            raise HTTPException(status_code=404, detail="Workflow not found in registry")
+        log_path = pathlib.Path(db_path).parent / "app.jsonl"
     else:
         if log_type not in ("out", "err"):
             raise HTTPException(status_code=400, detail="log_type must be 'out' or 'err'")
