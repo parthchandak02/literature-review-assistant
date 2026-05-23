@@ -57,3 +57,21 @@ async def test_retrieve_batch_normalizes_unexpected_exception():
     assert summary.failed == 1
     assert results["p-1"].reason_code == "unexpected_error"
     assert "boom" in (results["p-1"].error or "")
+
+
+def test_infer_reason_code_cookie_wall() -> None:
+    reason = PDFRetriever._infer_reason_code(
+        "abstract",
+        diagnostics=["LandingPage: redirected to /action/cookieAbsent"],
+        error=None,
+    )
+    assert reason == "cookie_wall"
+
+
+def test_infer_reason_code_metadata_only_endpoint() -> None:
+    reason = PDFRetriever._infer_reason_code(
+        "abstract",
+        diagnostics=["Resolver: metadata-only endpoint for https://api.elsevier.com/content/abstract/scopus_id/1"],
+        error=None,
+    )
+    assert reason == "metadata_only_endpoint"

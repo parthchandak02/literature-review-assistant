@@ -105,6 +105,7 @@ class PubMedConnector:
                 year=year,
                 source_database="pubmed",
                 doi=doi,
+                pmid=pmid,
                 abstract=abstract,
                 url=url,
                 source_category=SourceCategory.DATABASE,

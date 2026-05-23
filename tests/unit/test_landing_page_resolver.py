@@ -22,6 +22,8 @@ from src.extraction.table_extraction import (
     FullTextResult,
     _domain_policy_for_url,
     _extract_jsonld_pdf_urls,
+    _extract_pmid_from_pubmed_url,
+    _ieee_document_pdf_url,
     _is_pdf_like_href,
     _PDFLinkParser,
     _publisher_direct_pdf_url,
@@ -164,6 +166,16 @@ def test_domain_policy_marks_known_blocked_publishers():
     mdpi = _domain_policy_for_url("https://www.mdpi.com/2313-7673/9/9/540")
     assert mdpi.mode == "likely_bot_blocked"
     assert mdpi.max_attempts == 1
+
+
+def test_extract_pmid_from_pubmed_url():
+    pmid = _extract_pmid_from_pubmed_url("https://pubmed.ncbi.nlm.nih.gov/39942445/")
+    assert pmid == "39942445"
+
+
+def test_ieee_document_pdf_url_builder():
+    pdf_url = _ieee_document_pdf_url("https://ieeexplore.ieee.org/document/10332277/")
+    assert pdf_url == "https://ieeexplore.ieee.org/stamp/stamp.jsp?tp=&arnumber=10332277"
 
 
 def test_url_match_tokens_normalize_query_order():
