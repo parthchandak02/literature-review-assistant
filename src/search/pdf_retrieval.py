@@ -7,7 +7,7 @@ import io
 import logging
 import os
 from collections.abc import Callable, Sequence
-from urllib.parse import quote
+from urllib.parse import quote, urlparse
 
 import aiohttp
 from pydantic import BaseModel, Field
@@ -108,6 +108,16 @@ class PDFRetriever:
         e = (error or "").lower()
         if "per-paper timeout" in e:
             return "timeout"
+        if "cookieabsent" in d or "cookie wall" in d:
+            return "cookie_wall"
+        if "status 418" in d or "bot_blocked" in d or "likely_bot_blocked" in d:
+            return "bot_blocked"
+        if "metadata-only endpoint" in d:
+            return "metadata_only_endpoint"
+        if "paywall" in d:
+            return "paywalled"
+        if "no pdf signals in html" in d:
+            return "pdf_link_missing"
         if "http 403" in d or "status 403" in d:
             return "publisher_403"
         if "http 401" in d or "status 401" in d:
@@ -116,11 +126,26 @@ class PDFRetriever:
             return "rate_limited"
         if "doiresolve" in d and "no url-matched doi" in d:
             return "doi_unresolved"
+        if "no paper url or doi resolver result available" in e:
+            return "identifier_missing"
+        if "metadata-only endpoint" in e:
+            return "metadata_only_endpoint"
         if "no pdf signals in html" in d:
             return "no_pdf_signal"
-        if "no paper url or doi resolver result available" in e:
-            return "no_identifier"
+        if "identifier_missing" in d:
+            return "identifier_missing"
         return "no_oa_path"
+
+    @staticmethod
+    def _looks_metadata_only_endpoint(url: str, content_type: str, body: bytes) -> bool:
+        host = urlparse(url).netloc.lower()
+        content_type_lower = content_type.lower()
+        if "api.elsevier.com" in host and "/content/abstract/" in url:
+            return True
+        if "xml" not in content_type_lower and "json" not in content_type_lower:
+            return False
+        sample = body[:1200].decode("utf-8", errors="ignore").lower()
+        return "<abstract" in sample or "<dc:" in sample or '"abstract"' in sample
 
     async def retrieve(self, paper: CandidatePaper) -> PDFRetrievalResult:
         # Primary: use unified fetch_full_text (Unpaywall, Semantic Scholar, CORE,
@@ -219,6 +244,7 @@ class PDFRetriever:
                 success=False,
                 error="No paper URL or DOI resolver result available.",
             )
+        fallback_diagnostics: list[str] = []
         for url in candidate_urls:
             try:
                 timeout = aiohttp.ClientTimeout(total=self.timeout_seconds)
@@ -271,8 +297,12 @@ class PDFRetriever:
                                 reason_code="oa_recovered",
                                 success=True,
                             )
+                    fallback_diagnostics.append(f"LandingPage: no PDF signals in HTML for {url[:80]}")
                     continue  # Skip -- raw HTML is not usable article text
                 # Plain-text or XML response (not HTML, not PDF).
+                if self._looks_metadata_only_endpoint(url, content_type, body):
+                    fallback_diagnostics.append(f"Resolver: metadata-only endpoint for {url[:80]}")
+                    continue
                 decoded = body[:_PDF_MAX_CHARS].decode("utf-8", errors="ignore")
                 if decoded.strip():
                     return PDFRetrievalResult(
@@ -285,13 +315,17 @@ class PDFRetriever:
                     )
             except Exception as exc:
                 logger.warning("PDFRetriever: legacy URL retrieval failed for %s via %s: %s", paper.paper_id, url, exc)
+                fallback_diagnostics.append(f"LegacyFetch: {str(exc)[:120]}")
                 continue
+        final_error = "Unable to resolve downloadable full text."
+        inferred_reason = self._infer_reason_code("abstract", fallback_diagnostics, final_error)
         return PDFRetrievalResult(
             paper_id=paper.paper_id,
             resolved_url=candidate_urls[0],
-            reason_code="no_oa_path",
+            reason_code=inferred_reason,
+            diagnostics=fallback_diagnostics[-8:],
             success=False,
-            error="Unable to resolve downloadable full text.",
+            error=final_error,
         )
 
     async def retrieve_batch(

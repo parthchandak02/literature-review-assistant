@@ -69,6 +69,7 @@ class EuropePmcConnector:
             year=year,
             source_database="europepmc",
             doi=str(doi) if doi else None,
+            pmid=str(pmid) if pmid else None,
             abstract=str(abstract) if abstract else None,
             url=resolved_url,
             journal=str(journal) if journal else None,
