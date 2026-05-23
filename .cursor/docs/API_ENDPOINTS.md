@@ -17,7 +17,7 @@ When API routes change in `src/web/app.py`, update this table in the same change
 | POST | /api/cancel/{run_id} | Cancel active run; sets cancellation event |
 | GET | /api/download | Download artifact file (query param `path`; restricted to runs/) |
 | GET | /api/config/review | Default review.yaml content (pre-fills Setup form) |
-| POST | /api/config/generate/stream | SSE-streamed version of config generation |
+| POST | /api/config/generate/stream | SSE-streamed config generation (`research_question`, `gemini_api_key`, optional `generation_profile=standard|health_sdg`) |
 | GET | /api/config/env-keys | API keys already set in server .env; used to pre-fill Setup form |
 | GET | /api/health | Health check; polled every 6s by useBackendHealth hook |
 | GET | /api/history | Past runs from workflows_registry.db |
@@ -68,7 +68,7 @@ When API routes change in `src/web/app.py`, update this table in the same change
 | GET | /api/run/{run_id}/manuscript-audit | Consolidated manuscript-audit payload resolved from run/workflow identifier |
 | GET | /api/run/{run_id}/readiness | Readiness scorecard for export and operational review (finalize, PRISMA, contracts, fallbacks, PDF) |
 | GET | /api/run/{run_id}/diagnostics | Step journal summary, recovery/fallback counts, writing manifests for run diagnostics |
-| GET | /api/logs/stream | SSE tail of per-run PM2 log file; filtered by run_id query param |
+| GET | /api/logs/stream | SSE tail of per-run `app.jsonl` (via `run_id` or `workflow_id`) or PM2 logs fallback |
 
 ### 10.1.1 Endpoint Parity Checklist
 
