@@ -20,7 +20,7 @@ async def test_prepare_research_diagram_briefs_falls_back_on_client_error(monkey
         included_studies=[{"paper_id": "p1", "title": "Paper 1", "year": 2024}],
         extraction_summaries=[],
         manifest_entries={"p1": {"file_path": "papers/p1.pdf", "file_type": "pdf"}},
-        model="google-gla:gemini-2.5-flash-lite",
+        model="google:gemini-2.5-flash-lite",
     )
 
     assert isinstance(pack, DiagramBriefPack)
@@ -67,7 +67,7 @@ async def test_prepare_research_diagram_briefs_normalizes_returned_pack(monkeypa
         included_studies=[{"paper_id": "p1"}, {"paper_id": "p2"}],
         extraction_summaries=[],
         manifest_entries={"p1": {"file_path": "papers/p1.pdf", "file_type": "pdf"}},
-        model="google-gla:gemini-2.5-flash-lite",
+        model="google:gemini-2.5-flash-lite",
     )
 
     assert pack.workflow_id == "wf-0083"

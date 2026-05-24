@@ -34,13 +34,13 @@ def _write_review_yaml(path: Path) -> None:
 def _write_settings_yaml(path: Path) -> None:
     payload = {
         "agents": {
-            "screening_reviewer_a": {"model": "google-gla:gemini-2.5-flash-lite", "temperature": 0.1},
-            "screening_reviewer_b": {"model": "google-gla:gemini-2.5-flash-lite", "temperature": 0.3},
-            "screening_adjudicator": {"model": "google-gla:gemini-2.5-pro", "temperature": 0.2},
-            "quality_assessment": {"model": "google-gla:gemini-2.5-pro", "temperature": 0.1},
-            "search": {"model": "google-gla:gemini-2.5-flash", "temperature": 0.1},
-            "extraction": {"model": "google-gla:gemini-2.5-pro", "temperature": 0.1},
-            "writing": {"model": "google-gla:gemini-2.5-pro", "temperature": 0.2},
+            "screening_reviewer_a": {"model": "google:gemini-2.5-flash-lite", "temperature": 0.1},
+            "screening_reviewer_b": {"model": "google:gemini-2.5-flash-lite", "temperature": 0.3},
+            "screening_adjudicator": {"model": "google:gemini-2.5-pro", "temperature": 0.2},
+            "quality_assessment": {"model": "google:gemini-2.5-pro", "temperature": 0.1},
+            "search": {"model": "google:gemini-2.5-flash", "temperature": 0.1},
+            "extraction": {"model": "google:gemini-2.5-pro", "temperature": 0.1},
+            "writing": {"model": "google:gemini-2.5-pro", "temperature": 0.2},
         },
         # warning mode so search_volume_gate doesn't hard-fail on 0 results
         # (unsupported_db connector returns 0 papers) -- lets all phases run.

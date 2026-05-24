@@ -187,9 +187,9 @@ def test_screening_prompt_includes_domain_brief_and_terms() -> None:
 def _settings() -> SettingsConfig:
     return SettingsConfig(
         agents={
-            "screening_reviewer_a": {"model": "google-gla:gemini-2.5-flash-lite", "temperature": 0.1},
-            "screening_reviewer_b": {"model": "google-gla:gemini-2.5-flash-lite", "temperature": 0.3},
-            "screening_adjudicator": {"model": "google-gla:gemini-2.5-pro", "temperature": 0.2},
+            "screening_reviewer_a": {"model": "google:gemini-2.5-flash-lite", "temperature": 0.1},
+            "screening_reviewer_b": {"model": "google:gemini-2.5-flash-lite", "temperature": 0.3},
+            "screening_adjudicator": {"model": "google:gemini-2.5-pro", "temperature": 0.2},
         },
         # Match production settings.yaml (insufficient_content_min_words=0 disables
         # the stub-abstract heuristic so test papers with short abstracts reach the LLM).
@@ -261,9 +261,9 @@ async def test_screen_batch_excludes_missing_fulltext_when_policy_enabled(tmp_pa
     paper = CandidatePaper(title="No PDF study", authors=["Y"], source_database="openalex", abstract="short abstract")
     settings = SettingsConfig(
         agents={
-            "screening_reviewer_a": {"model": "google-gla:gemini-2.5-flash-lite", "temperature": 0.1},
-            "screening_reviewer_b": {"model": "google-gla:gemini-2.5-flash-lite", "temperature": 0.3},
-            "screening_adjudicator": {"model": "google-gla:gemini-2.5-pro", "temperature": 0.2},
+            "screening_reviewer_a": {"model": "google:gemini-2.5-flash-lite", "temperature": 0.1},
+            "screening_reviewer_b": {"model": "google:gemini-2.5-flash-lite", "temperature": 0.3},
+            "screening_adjudicator": {"model": "google:gemini-2.5-pro", "temperature": 0.2},
         },
         screening=ScreeningConfig(
             insufficient_content_min_words=0,
@@ -301,9 +301,9 @@ def _batch_settings(batch_size: int = 5) -> SettingsConfig:
     """Settings with reviewer_batch_size > 0 to activate batch mode."""
     return SettingsConfig(
         agents={
-            "screening_reviewer_a": {"model": "google-gla:gemini-2.5-flash-lite", "temperature": 0.1},
-            "screening_reviewer_b": {"model": "google-gla:gemini-2.5-flash-lite", "temperature": 0.3},
-            "screening_adjudicator": {"model": "google-gla:gemini-2.5-pro", "temperature": 0.2},
+            "screening_reviewer_a": {"model": "google:gemini-2.5-flash-lite", "temperature": 0.1},
+            "screening_reviewer_b": {"model": "google:gemini-2.5-flash-lite", "temperature": 0.3},
+            "screening_adjudicator": {"model": "google:gemini-2.5-pro", "temperature": 0.2},
         },
         screening=ScreeningConfig(
             reviewer_batch_size=batch_size,

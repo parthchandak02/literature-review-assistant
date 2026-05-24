@@ -43,10 +43,10 @@ _MINIMAL_REVIEW = {
 
 _MINIMAL_SETTINGS = {
     "agents": {
-        "screening_reviewer_a": {"model": "google-gla:gemini-2.5-flash-lite", "temperature": 0.1},
-        "screening_reviewer_b": {"model": "google-gla:gemini-2.5-flash-lite", "temperature": 0.3},
-        "screening_adjudicator": {"model": "google-gla:gemini-2.5-pro", "temperature": 0.2},
-        "writing": {"model": "google-gla:gemini-2.5-pro", "temperature": 0.2},
+        "screening_reviewer_a": {"model": "google:gemini-2.5-flash-lite", "temperature": 0.1},
+        "screening_reviewer_b": {"model": "google:gemini-2.5-flash-lite", "temperature": 0.3},
+        "screening_adjudicator": {"model": "google:gemini-2.5-pro", "temperature": 0.2},
+        "writing": {"model": "google:gemini-2.5-pro", "temperature": 0.2},
     },
     "gates": {"profile": "warning"},
 }
@@ -118,7 +118,7 @@ def test_review_config_accepts_empty_research_question_known_gap() -> None:
 def test_settings_config_validates_from_dict() -> None:
     settings = SettingsConfig.model_validate(_MINIMAL_SETTINGS)
     assert "screening_reviewer_a" in settings.agents
-    assert settings.agents["screening_reviewer_a"].model.startswith("google-gla:")
+    assert settings.agents["screening_reviewer_a"].model.startswith("google:")
     assert settings.gates.profile == "warning"
 
 

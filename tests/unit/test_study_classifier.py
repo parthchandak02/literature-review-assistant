@@ -59,7 +59,7 @@ def _settings() -> SettingsConfig:
     return SettingsConfig(
         agents={
             "quality_assessment": {
-                "model": "google-gla:gemini-2.5-pro",
+                "model": "google:gemini-2.5-pro",
                 "temperature": 0.1,
             }
         }

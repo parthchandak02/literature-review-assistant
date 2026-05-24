@@ -3,6 +3,13 @@
 export interface RunRequest {
   review_yaml: string
   gemini_api_key: string
+  deepseek_api_key?: string
+  openrouter_api_key?: string
+  openai_api_key?: string
+  anthropic_api_key?: string
+  groq_api_key?: string
+  mistral_api_key?: string
+  cohere_api_key?: string
   openalex_api_key?: string
   ieee_api_key?: string
   pubmed_email?: string
@@ -266,6 +273,13 @@ export async function startRunWithMasterlist(
   form.append("csv_file", csvFile)
   form.append("review_yaml", reviewYaml)
   form.append("gemini_api_key", keys.gemini)
+  if (keys.deepseek) form.append("deepseek_api_key", keys.deepseek)
+  if (keys.openrouter) form.append("openrouter_api_key", keys.openrouter)
+  if (keys.openai) form.append("openai_api_key", keys.openai)
+  if (keys.anthropic) form.append("anthropic_api_key", keys.anthropic)
+  if (keys.groq) form.append("groq_api_key", keys.groq)
+  if (keys.mistral) form.append("mistral_api_key", keys.mistral)
+  if (keys.cohere) form.append("cohere_api_key", keys.cohere)
   if (keys.openalex) form.append("openalex_api_key", keys.openalex)
   if (keys.ieee) form.append("ieee_api_key", keys.ieee)
   if (keys.pubmedEmail) form.append("pubmed_email", keys.pubmedEmail)
@@ -301,6 +315,13 @@ export async function startRunWithSupplementaryCsv(
   form.append("csv_file", csvFile)
   form.append("review_yaml", reviewYaml)
   form.append("gemini_api_key", keys.gemini)
+  if (keys.deepseek) form.append("deepseek_api_key", keys.deepseek)
+  if (keys.openrouter) form.append("openrouter_api_key", keys.openrouter)
+  if (keys.openai) form.append("openai_api_key", keys.openai)
+  if (keys.anthropic) form.append("anthropic_api_key", keys.anthropic)
+  if (keys.groq) form.append("groq_api_key", keys.groq)
+  if (keys.mistral) form.append("mistral_api_key", keys.mistral)
+  if (keys.cohere) form.append("cohere_api_key", keys.cohere)
   if (keys.openalex) form.append("openalex_api_key", keys.openalex)
   if (keys.ieee) form.append("ieee_api_key", keys.ieee)
   if (keys.pubmedEmail) form.append("pubmed_email", keys.pubmedEmail)
@@ -347,12 +368,17 @@ export async function getDefaultReviewConfig(): Promise<string> {
 export async function generateConfigStream(
   researchQuestion: string,
   geminiApiKey: string,
+  generationProfile: "standard" | "health_sdg",
   onProgress: (step: string, metadata?: Record<string, unknown>) => void,
 ): Promise<string> {
   const res = await fetch(`${BASE}/config/generate/stream`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ research_question: researchQuestion, gemini_api_key: geminiApiKey }),
+    body: JSON.stringify({
+      research_question: researchQuestion,
+      gemini_api_key: geminiApiKey,
+      generation_profile: generationProfile,
+    }),
   })
   if (!res.ok) {
     let detail = `HTTP ${res.status}`
@@ -1003,6 +1029,31 @@ export async function fetchWorkflowEvents(workflowId: string): Promise<ReviewEve
   return data.events ?? []
 }
 
+export interface LogsStreamUrlParams {
+  runId?: string | null
+  workflowId?: string | null
+  runRoot?: string
+  process?: string
+  logType?: "out" | "err"
+}
+
+/** Build URL for /api/logs/stream with run/workflow scoping and PM2 fallback. */
+export function buildLogsStreamUrl({
+  runId,
+  workflowId,
+  runRoot = "runs",
+  process = "backend",
+  logType = "out",
+}: LogsStreamUrlParams): string {
+  const params = new URLSearchParams()
+  if (runId) params.set("run_id", runId)
+  if (workflowId) params.set("workflow_id", workflowId)
+  params.set("run_root", runRoot)
+  params.set("process", process)
+  params.set("log_type", logType)
+  return `${BASE}/logs/stream?${params.toString()}`
+}
+
 // ---------------------------------------------------------------------------
 // localStorage helpers -- persist the live run across page refreshes so SSE
 // can reconnect and the user does not lose progress tracking on reload.
@@ -1049,6 +1100,13 @@ export function clearLiveRun(): void {
 
 export interface StoredApiKeys {
   gemini: string
+  deepseek: string
+  openrouter: string
+  openai: string
+  anthropic: string
+  groq: string
+  mistral: string
+  cohere: string
   openalex: string
   ieee: string
   pubmedEmail: string
@@ -1094,8 +1152,23 @@ export function clearApiKeys(): void {
  */
 export async function fetchEnvKeys(): Promise<StoredApiKeys> {
   const empty: StoredApiKeys = {
-    gemini: "", openalex: "", ieee: "", pubmedEmail: "", pubmedApiKey: "",
-    perplexity: "", semanticScholar: "", crossrefEmail: "", wos: "", scopus: "",
+    gemini: "",
+    deepseek: "",
+    openrouter: "",
+    openai: "",
+    anthropic: "",
+    groq: "",
+    mistral: "",
+    cohere: "",
+    openalex: "",
+    ieee: "",
+    pubmedEmail: "",
+    pubmedApiKey: "",
+    perplexity: "",
+    semanticScholar: "",
+    crossrefEmail: "",
+    wos: "",
+    scopus: "",
   }
   try {
     const res = await fetch(`${BASE}/config/env-keys`)
@@ -1103,6 +1176,17 @@ export async function fetchEnvKeys(): Promise<StoredApiKeys> {
     return { ...empty, ...(await res.json() as Partial<StoredApiKeys>) }
   } catch {
     return empty
+  }
+}
+
+export async function fetchRequiredLlmUiKeys(): Promise<string[]> {
+  try {
+    const res = await fetch(`${BASE}/config/env-keys/required`)
+    if (!res.ok) return ["gemini"]
+    const payload = (await res.json()) as { ui_keys?: string[] }
+    return payload.ui_keys?.length ? payload.ui_keys : ["gemini"]
+  } catch {
+    return ["gemini"]
   }
 }
 

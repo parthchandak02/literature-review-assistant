@@ -12,6 +12,7 @@ from genai_prices.update_prices import UpdatePrices
 
 from src.db.repositories import WorkflowRepository
 from src.llm.rate_limiter import RateLimiter
+from src.llm.registry import parse_model_ref, rate_tier_for_model
 from src.models import CostRecord, SettingsConfig
 
 _log = logging.getLogger(__name__)
@@ -58,17 +59,6 @@ class LLMProvider:
             for model_ref, cfg in llm_cfg.price_fallback_per_mtok.items()
         }
 
-    # Maps pydantic-ai model-string prefix -> genai-prices provider_id.
-    _PROVIDER_ID_MAP: dict[str, str] = {
-        "google-gla:": "google",
-        "google-vertex:": "google",
-        "anthropic:": "anthropic",
-        "openai:": "openai",
-        "groq:": "groq",
-        "mistral:": "mistral",
-        "cohere:": "cohere",
-    }
-
     @classmethod
     def _parse_model_ref(cls, model: str) -> tuple[str, str | None]:
         """Split '<provider-prefix><model-ref>' -> ('<model-ref>', '<provider_id>').
@@ -76,10 +66,7 @@ class LLMProvider:
         Returns (model_ref, provider_id) where provider_id may be None for
         bare model strings with no recognized prefix.
         """
-        for prefix, provider_id in cls._PROVIDER_ID_MAP.items():
-            if model.startswith(prefix):
-                return model[len(prefix) :], provider_id
-        return model, None
+        return parse_model_ref(model)
 
     @classmethod
     def estimate_cost_usd(
@@ -136,14 +123,7 @@ class LLMProvider:
     @staticmethod
     def _tier_from_model(model: str) -> str:
         """Map a model string to a rate-limiter tier key (flash / flash-lite / pro)."""
-        lowered = model.lower()
-        if "flash-lite" in lowered:
-            return "flash-lite"
-        if "flash" in lowered:
-            return "flash"
-        # All non-Gemini models fall through to the pro (slowest) bucket so
-        # they are rate-limited conservatively by default.
-        return "pro"
+        return rate_tier_for_model(model)
 
     def get_agent_config(self, agent_name: str) -> AgentRuntimeConfig:
         agent = self.settings.agents[agent_name]

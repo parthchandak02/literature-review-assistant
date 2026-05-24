@@ -28,7 +28,7 @@ from src.orchestration.gates import GateRunner
 def _strict_settings() -> SettingsConfig:
     return SettingsConfig(
         agents={
-            "screening_reviewer_a": {"model": "google-gla:gemini-2.5-flash-lite", "temperature": 0.1},
+            "screening_reviewer_a": {"model": "google:gemini-2.5-flash-lite", "temperature": 0.1},
         },
         gates=GatesConfig(profile="strict"),
     )
@@ -37,7 +37,7 @@ def _strict_settings() -> SettingsConfig:
 def _warning_settings() -> SettingsConfig:
     return SettingsConfig(
         agents={
-            "screening_reviewer_a": {"model": "google-gla:gemini-2.5-flash-lite", "temperature": 0.1},
+            "screening_reviewer_a": {"model": "google:gemini-2.5-flash-lite", "temperature": 0.1},
         },
         gates=GatesConfig(profile="warning"),
     )

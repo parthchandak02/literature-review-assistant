@@ -38,8 +38,8 @@ from src.export.markdown_refs import (
 )
 from src.extraction import ExtractionService, StudyClassifier
 from src.extraction.extractor import detect_scope_mismatch
+from src.llm.factory import get_chat_client
 from src.llm.provider import LLMProvider
-from src.llm.pydantic_client import PydanticAIClient
 from src.manuscript.cohort import IncludedSetResolver
 from src.manuscript.contracts import ManuscriptContractResult, run_manuscript_contracts
 from src.manuscript.reviewer import run_manuscript_audit, serialize_audit_context, serialize_contract_summary
@@ -222,7 +222,16 @@ def _llm_available(settings: ReviewState | None = None, settings_cfg: SettingsCo
     elif settings is not None and hasattr(settings, "settings"):
         cfg = settings.settings  # type: ignore[union-attr]
     if cfg is None:
-        return bool(os.getenv("GEMINI_API_KEY"))
+        return any(
+            bool(os.getenv(key))
+            for key in (
+                "GEMINI_API_KEY",
+                "DEEPSEEK_API_KEY",
+                "OPENROUTER_API_KEY",
+                "OPENAI_API_KEY",
+                "ANTHROPIC_API_KEY",
+            )
+        )
     for env_key in get_required_env_keys(cfg):
         if os.getenv(env_key):
             return True
@@ -483,7 +492,9 @@ class ResumeStartNode(BaseNode[ReviewState]):
         | EmbeddingNode
         | SynthesisNode
         | KnowledgeGraphNode
+        | PreWritingGateNode
         | WritingNode
+        | ManuscriptAuditNode
         | FinalizeNode
     ):
         state = ctx.state
@@ -507,7 +518,7 @@ class ResumeStartNode(BaseNode[ReviewState]):
         if phase == "phase_6_writing":
             return WritingNode()
         if phase == "phase_7_audit":
-            return FinalizeNode()
+            return ManuscriptAuditNode()
         if phase == "finalize":
             return FinalizeNode()
         return SearchNode()
@@ -2219,7 +2230,7 @@ class ExtractionQualityNode(BaseNode[ReviewState]):
             )
             use_llm = _llm_available(settings_cfg=state.settings) and (rc is None or not rc.offline)
             _llm_timeout = float(getattr(getattr(state.settings, "llm", None), "request_timeout_seconds", 120))
-            llm_gemini = PydanticAIClient(timeout_seconds=_llm_timeout) if use_llm else None
+            llm_gemini = get_chat_client(timeout_seconds=_llm_timeout) if use_llm else None
             extractor = ExtractionService(
                 repository=repository,
                 llm_client=llm_gemini,
@@ -2666,7 +2677,12 @@ class ExtractionQualityNode(BaseNode[ReviewState]):
                                     merge_outcomes,
                                 )
 
-                                vision_model = extraction_cfg.pdf_vision_model.replace("google-gla:", "")
+                                vision_model = (
+                                    extraction_cfg.pdf_vision_model.replace("google:", "")
+                                    .replace("google-cloud:", "")
+                                    .replace("google-gla:", "")
+                                    .replace("google-vertex:", "")
+                                )
                                 vision_outcomes = await extract_tables_from_pdf(
                                     ft_result.pdf_bytes,
                                     model_name=vision_model,
@@ -3300,17 +3316,50 @@ class SynthesisNode(BaseNode[ReviewState]):
         feasibility = assess_meta_analysis_feasibility(state.extraction_records)
         _use_llm = _llm_available(settings_cfg=state.settings) and (rc is None or not rc.offline)
         _synth_timeout = float(getattr(getattr(state.settings, "llm", None), "request_timeout_seconds", 120))
-        _synth_llm = PydanticAIClient(timeout_seconds=_synth_timeout) if _use_llm else None
+        _synth_llm = get_chat_client(timeout_seconds=_synth_timeout) if _use_llm else None
         if rc:
             rc.log_status("Building narrative synthesis (LLM direction classification)...")
-        narrative = await build_narrative_synthesis(
-            "primary_outcome",
-            state.extraction_records,
-            llm_client=_synth_llm,
-            settings=state.settings,
-            review_question=state.review.research_question if state.review else "",
-            pico=state.review.pico if state.review else None,
-        )
+        if _use_llm:
+            async with get_db(state.db_path) as _synth_db:
+                _synth_repo = WorkflowRepository(_synth_db)
+                _synth_on_waiting = None
+                _synth_on_resolved = None
+                if rc:
+
+                    def _on_waiting(t: object, u: object, limit: object, waited: object = 0.0) -> None:
+                        rc.log_rate_limit_wait(t, u, limit, waited)  # type: ignore[union-attr]
+
+                    def _on_resolved(t: object, waited: object) -> None:
+                        rc.log_rate_limit_resolved(t, waited)  # type: ignore[union-attr]
+
+                    _synth_on_waiting = _on_waiting
+                    _synth_on_resolved = _on_resolved
+                _synth_provider = LLMProvider(
+                    state.settings,
+                    _synth_repo,
+                    on_waiting=_synth_on_waiting,
+                    on_resolved=_synth_on_resolved,
+                )
+                narrative = await build_narrative_synthesis(
+                    "primary_outcome",
+                    state.extraction_records,
+                    llm_client=_synth_llm,
+                    settings=state.settings,
+                    review_question=state.review.research_question if state.review else "",
+                    pico=state.review.pico if state.review else None,
+                    llm_provider=_synth_provider,
+                    workflow_id=state.workflow_id,
+                )
+        else:
+            narrative = await build_narrative_synthesis(
+                "primary_outcome",
+                state.extraction_records,
+                llm_client=_synth_llm,
+                settings=state.settings,
+                review_question=state.review.research_question if state.review else "",
+                pico=state.review.pico if state.review else None,
+                workflow_id=state.workflow_id,
+            )
 
         # Attempt quantitative meta-analysis for each feasible outcome group
         meta_result = None
@@ -4033,7 +4082,7 @@ class PreWritingGateNode(BaseNode[ReviewState]):
 class WritingNode(BaseNode[ReviewState]):
     """Write manuscript sections, validate citations, save drafts."""
 
-    async def run(self, ctx: GraphRunContext[ReviewState]) -> FinalizeNode:
+    async def run(self, ctx: GraphRunContext[ReviewState]) -> ManuscriptAuditNode:
         state = ctx.state
         rc = _rc(state)
         if rc:
@@ -5352,14 +5401,13 @@ class WritingNode(BaseNode[ReviewState]):
 
                 if flags:
                     _use_llm_contra = _llm_available(settings_cfg=state.settings) and (rc is None or not rc.offline)
-                    api_key = os.getenv("GEMINI_API_KEY", "")
                     _contra_model = state.settings.agents.get(
                         "contradiction_resolver", state.settings.agents["writing"]
                     ).model
                     contra_paragraph = await generate_contradiction_paragraph(
                         flags,
                         model_name=_contra_model,
-                        api_key=api_key if _use_llm_contra else None,
+                        api_key=None,
                         repository=repository,
                         workflow_id=state.workflow_id,
                     )
@@ -6158,7 +6206,7 @@ class WritingNode(BaseNode[ReviewState]):
         except Exception:
             _log.debug("writing manifest persistence failed (non-fatal)", exc_info=True)
 
-        return FinalizeNode()
+        return ManuscriptAuditNode()
 
 
 def _collect_manuscript_gate_failure_reasons(
@@ -6824,6 +6872,7 @@ RUN_GRAPH = Graph(
         KnowledgeGraphNode,
         PreWritingGateNode,
         WritingNode,
+        ManuscriptAuditNode,
         FinalizeNode,
     ],
     state_type=ReviewState,

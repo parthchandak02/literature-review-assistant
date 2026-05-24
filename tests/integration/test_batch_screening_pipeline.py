@@ -252,7 +252,7 @@ def _make_ranker(
     threshold: float = 0.35,
     batch_size: int = 15,
 ) -> BatchLLMRanker:
-    model = os.getenv("LITREVIEW_BATCH_MODEL", "google-gla:gemini-3.1-flash-lite-preview")
+    model = os.getenv("LITREVIEW_BATCH_MODEL", "google:gemini-3.1-flash-lite-preview")
     return BatchLLMRanker(
         screening=ScreeningConfig(
             batch_screen_enabled=True,

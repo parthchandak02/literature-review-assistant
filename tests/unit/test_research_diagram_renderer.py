@@ -64,7 +64,7 @@ async def test_log_usage_cost_persists_row_even_with_zero_tokens() -> None:
     await renderer._log_usage_cost(
         repository=repo,
         workflow_id="wf-0083",
-        model="google-gla:gemini-2.5-flash-lite",
+        model="google:gemini-2.5-flash-lite",
         phase="phase_6f_custom_diagram_drawing",
         usage={"tokens_in": 0, "tokens_out": 0, "cache_read_tokens": 0, "cache_write_tokens": 0},
         latency_ms=123,

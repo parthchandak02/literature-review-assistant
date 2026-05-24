@@ -7,7 +7,7 @@ from src.models.enums import ReviewType
 
 def _settings() -> SettingsConfig:
     return SettingsConfig(
-        agents={"writing": {"model": "google-gla:gemini-2.5-flash-lite", "temperature": 0.1}},
+        agents={"writing": {"model": "google:gemini-2.5-flash-lite", "temperature": 0.1}},
         manuscript_audit={"profile_activation": "domain_matched", "max_profiles_per_run": 3},
     )
 

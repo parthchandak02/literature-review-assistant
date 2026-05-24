@@ -7,7 +7,7 @@ import re
 
 from pydantic import BaseModel
 
-from src.llm.pydantic_client import PydanticAIClient
+from src.llm.factory import get_chat_client
 from src.models.diagrams import (
     DiagramBriefPack,
     DiagramPlacementDecision,
@@ -127,7 +127,7 @@ async def plan_inline_diagram_placements(
 
     usage = {"tokens_in": 0, "tokens_out": 0, "cache_write_tokens": 0, "cache_read_tokens": 0, "validation_retries": 0}
     try:
-        client = PydanticAIClient()
+        client = get_chat_client()
         parsed, tok_in, tok_out, cache_write, cache_read, retries_used = await client.complete_validated(
             prompt,
             model=model,

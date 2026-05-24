@@ -7,7 +7,7 @@ from src.writing.orchestration import _draft_fingerprint, compute_section_qualit
 
 
 def _settings() -> SettingsConfig:
-    return SettingsConfig(agents={"writing": AgentConfig(model="google-gla:gemini-2.5-flash", temperature=0.1)})
+    return SettingsConfig(agents={"writing": AgentConfig(model="google:gemini-2.5-flash", temperature=0.1)})
 
 
 def _grounding(**overrides) -> WritingGroundingData:

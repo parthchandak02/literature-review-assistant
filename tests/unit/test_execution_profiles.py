@@ -30,8 +30,8 @@ def _base_review(profile: Literal["balanced", "throughput", "max_quality"] = "ba
 def _base_settings() -> SettingsConfig:
     return SettingsConfig(
         agents={
-            "search_query_writer": {"model": "google-gla:test-model"},
-            "reviewer_a": {"model": "google-gla:test-model"},
+            "search_query_writer": {"model": "google:test-model"},
+            "reviewer_a": {"model": "google:test-model"},
         }
     )
 

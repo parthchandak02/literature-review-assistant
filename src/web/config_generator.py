@@ -25,7 +25,6 @@ no rate-limiter wrapping (single calls, not part of a pipeline batch).
 from __future__ import annotations
 
 import datetime
-import json
 import logging
 import re
 from collections.abc import Callable
@@ -35,8 +34,8 @@ from typing import Any, Literal
 
 import yaml
 from pydantic import BaseModel, Field
-from pydantic_ai import Agent, NativeOutput, StructuredDict, WebFetchTool, WebSearchTool
 
+from src.llm.factory import run_native_structured_json, run_text_with_web_tools
 from src.models import DomainExpertConfig, ResearchEntryConfig, ReviewConfig
 
 logger = logging.getLogger(__name__)
@@ -1345,15 +1344,13 @@ async def generate_config_yaml(
     research_prompt = _RESEARCH_PROMPT.format(research_question=rq)
     if generation_profile == "health_sdg":
         research_prompt += _HEALTH_SDG_RESEARCH_APPEND
-    research_agent: Agent[None, str] = Agent(
-        _model,
-        output_type=str,
-        builtin_tools=[WebSearchTool(), WebFetchTool()],
-    )
     fallback_reason: str | None = None
     try:
-        research_result = await research_agent.run(research_prompt)
-        research_brief = research_result.output
+        research_brief = await run_text_with_web_tools(
+            model=_model,
+            prompt=research_prompt,
+            temperature=_TEMPERATURE,
+        )
         logger.info("Config gen Stage 1 complete: brief length=%d chars", len(research_brief))
     except Exception as exc:
         logger.warning("Config gen Stage 1 (web search+fetch) failed, falling back to model knowledge: %s", exc)
@@ -1380,16 +1377,14 @@ async def generate_config_yaml(
     target_model: type[_GeneratedConfig] | type[_GeneratedConfigHealthSdg]
     target_model = _GeneratedConfigHealthSdg if generation_profile == "health_sdg" else _GeneratedConfig
     schema = target_model.model_json_schema()
-    output_type = NativeOutput(StructuredDict(schema))
-    structure_agent: Agent = Agent(_model, output_type=output_type)  # type: ignore[arg-type]
 
     async def _run_structure(prompt: str) -> str:
-        structure_result = await structure_agent.run(
-            prompt,
-            model_settings={"temperature": _TEMPERATURE},
+        return await run_native_structured_json(
+            model=_model,
+            prompt=prompt,
+            schema=schema,
+            temperature=_TEMPERATURE,
         )
-        output = structure_result.output
-        return json.dumps(output) if isinstance(output, dict) else str(output)
 
     repair_instruction = (
         "\\n\\nREPAIR INSTRUCTION:\\n"

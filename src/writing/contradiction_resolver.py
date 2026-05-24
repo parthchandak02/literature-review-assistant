@@ -11,12 +11,11 @@ from __future__ import annotations
 
 import logging
 import os
-from contextlib import contextmanager
 from time import monotonic
 
 from src.db.repositories import WorkflowRepository
+from src.llm.factory import get_chat_client
 from src.llm.provider import LLMProvider
-from src.llm.pydantic_client import PydanticAIClient
 from src.synthesis.contradiction_detector import ContradictionFlag
 
 logger = logging.getLogger(__name__)
@@ -61,21 +60,6 @@ def _format_contradiction_list(flags: list[ContradictionFlag]) -> str:
     return "\n".join(lines)
 
 
-@contextmanager
-def _with_api_key(api_key: str | None):
-    previous = os.environ.get("GEMINI_API_KEY")
-    if api_key:
-        os.environ["GEMINI_API_KEY"] = api_key
-    try:
-        yield
-    finally:
-        if api_key:
-            if previous is None:
-                os.environ.pop("GEMINI_API_KEY", None)
-            else:
-                os.environ["GEMINI_API_KEY"] = previous
-
-
 def _fallback_paragraph(flags: list[ContradictionFlag]) -> str:
     outcomes = list({f.outcome_name for f in flags[:3]})
     outcome_str = ", ".join(outcomes) if outcomes else "the primary outcomes"
@@ -105,7 +89,15 @@ async def generate_contradiction_paragraph(
 
     if model_name is None:
         model_name = _get_model_from_settings()
-    if not (api_key or os.environ.get("GEMINI_API_KEY")):
+    if api_key:
+        logger.warning(
+            "generate_contradiction_paragraph received api_key argument; explicit key injection is deprecated and ignored."
+        )
+    if (
+        not os.environ.get("GEMINI_API_KEY")
+        and not os.environ.get("DEEPSEEK_API_KEY")
+        and not os.environ.get("OPENROUTER_API_KEY")
+    ):
         return _fallback_paragraph(flags)
 
     prompt = _RESOLVER_PROMPT_TEMPLATE.format(contradiction_list=_format_contradiction_list(flags))
@@ -116,11 +108,10 @@ async def generate_contradiction_paragraph(
         provider = LLMProvider(settings=settings, repository=repository)
         reserve_agent = "contradiction_resolver" if "contradiction_resolver" in settings.agents else "writing"
         await provider.reserve_call_slot(reserve_agent)
-        with _with_api_key(api_key):
-            client = PydanticAIClient()
-            started = monotonic()
-            raw, tok_in, tok_out, cw, cr = await client.complete_with_usage(prompt, model=model_name, temperature=0.1)
-            latency_ms = int((monotonic() - started) * 1000)
+        client = get_chat_client()
+        started = monotonic()
+        raw, tok_in, tok_out, cw, cr = await client.complete_with_usage(prompt, model=model_name, temperature=0.1)
+        latency_ms = int((monotonic() - started) * 1000)
         text = str(raw or "").strip()
         if len(text) < 50:
             text = _fallback_paragraph(flags)

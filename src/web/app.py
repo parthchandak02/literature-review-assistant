@@ -42,6 +42,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from sse_starlette.sse import EventSourceResponse
 
+from src.config.loader import get_required_env_keys as _get_required_env_keys
 from src.config.loader import load_configs as _load_configs
 from src.db.domain_repositories import AuditRepository
 from src.db.source_of_truth import RUN_STATS_PRECEDENCE
@@ -54,6 +55,7 @@ from src.db.workflow_registry import update_heartbeat as _update_registry_heartb
 from src.db.workflow_registry import update_notes as _update_registry_notes
 from src.db.workflow_registry import update_status as _update_registry_status
 from src.export.submission_packager import package_submission
+from src.llm.registry import env_key_for_model as _env_key_for_model
 from src.manuscript.readiness import compute_readiness_scorecard
 from src.models import ManuscriptAuditFinding, ManuscriptAuditResult
 from src.orchestration.context import WebRunContext
@@ -261,7 +263,14 @@ app.add_middleware(
 
 class RunRequest(BaseModel):
     review_yaml: str
-    gemini_api_key: str
+    gemini_api_key: str = ""
+    deepseek_api_key: str | None = None
+    openrouter_api_key: str | None = None
+    openai_api_key: str | None = None
+    anthropic_api_key: str | None = None
+    groq_api_key: str | None = None
+    mistral_api_key: str | None = None
+    cohere_api_key: str | None = None
     openalex_api_key: str | None = None
     ieee_api_key: str | None = None
     pubmed_email: str | None = None
@@ -323,6 +332,20 @@ def _inject_env(req: RunRequest) -> None:
     # fall back to whatever load_dotenv() already set from .env.
     if req.gemini_api_key:
         os.environ["GEMINI_API_KEY"] = req.gemini_api_key
+    if req.deepseek_api_key:
+        os.environ["DEEPSEEK_API_KEY"] = req.deepseek_api_key
+    if req.openrouter_api_key:
+        os.environ["OPENROUTER_API_KEY"] = req.openrouter_api_key
+    if req.openai_api_key:
+        os.environ["OPENAI_API_KEY"] = req.openai_api_key
+    if req.anthropic_api_key:
+        os.environ["ANTHROPIC_API_KEY"] = req.anthropic_api_key
+    if req.groq_api_key:
+        os.environ["GROQ_API_KEY"] = req.groq_api_key
+    if req.mistral_api_key:
+        os.environ["MISTRAL_API_KEY"] = req.mistral_api_key
+    if req.cohere_api_key:
+        os.environ["CO_API_KEY"] = req.cohere_api_key
     if req.openalex_api_key:
         os.environ["OPENALEX_API_KEY"] = req.openalex_api_key
     if req.ieee_api_key:
@@ -342,6 +365,12 @@ def _inject_env(req: RunRequest) -> None:
         os.environ["WOS_API_KEY"] = req.wos_api_key
     if req.scopus_api_key:
         os.environ["SCOPUS_API_KEY"] = req.scopus_api_key
+
+
+def _missing_required_llm_keys() -> list[str]:
+    settings = _load_configs(settings_path="config/settings.yaml")[1]
+    required = _get_required_env_keys(settings)
+    return [key for key in required if not os.environ.get(key)]
 
 
 def _extract_topic(review_yaml: str) -> str:
@@ -781,6 +810,12 @@ async def _run_wrapper(record: _RunRecord, review_path: str, req: RunRequest) ->
 @app.post("/api/run", response_model=RunResponse)
 async def start_run(req: RunRequest) -> RunResponse:
     _inject_env(req)
+    missing_keys = _missing_required_llm_keys()
+    if missing_keys:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Missing required LLM API key(s): {', '.join(missing_keys)}",
+        )
     if req.parent_db_path is not None:
         _validate_db_path(req.parent_db_path, req.run_root)
     topic = _extract_topic(req.review_yaml)
@@ -810,7 +845,14 @@ async def start_run(req: RunRequest) -> RunResponse:
 async def start_run_with_masterlist(
     csv_file: UploadFile = File(...),
     review_yaml: str = Form(...),
-    gemini_api_key: str = Form(...),
+    gemini_api_key: str = Form(default=""),
+    deepseek_api_key: str | None = Form(default=None),
+    openrouter_api_key: str | None = Form(default=None),
+    openai_api_key: str | None = Form(default=None),
+    anthropic_api_key: str | None = Form(default=None),
+    groq_api_key: str | None = Form(default=None),
+    mistral_api_key: str | None = Form(default=None),
+    cohere_api_key: str | None = Form(default=None),
     openalex_api_key: str | None = Form(default=None),
     ieee_api_key: str | None = Form(default=None),
     pubmed_email: str | None = Form(default=None),
@@ -854,6 +896,13 @@ async def start_run_with_masterlist(
     req = RunRequest(
         review_yaml=modified_yaml,
         gemini_api_key=gemini_api_key,
+        deepseek_api_key=deepseek_api_key,
+        openrouter_api_key=openrouter_api_key,
+        openai_api_key=openai_api_key,
+        anthropic_api_key=anthropic_api_key,
+        groq_api_key=groq_api_key,
+        mistral_api_key=mistral_api_key,
+        cohere_api_key=cohere_api_key,
         openalex_api_key=openalex_api_key,
         ieee_api_key=ieee_api_key,
         pubmed_email=pubmed_email,
@@ -866,6 +915,12 @@ async def start_run_with_masterlist(
         run_root=run_root,
     )
     _inject_env(req)
+    missing_keys = _missing_required_llm_keys()
+    if missing_keys:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Missing required LLM API key(s): {', '.join(missing_keys)}",
+        )
 
     topic = _extract_topic(modified_yaml)
 
@@ -893,7 +948,14 @@ async def start_run_with_masterlist(
 async def start_run_with_supplementary_csv(
     csv_file: UploadFile = File(...),
     review_yaml: str = Form(...),
-    gemini_api_key: str = Form(...),
+    gemini_api_key: str = Form(default=""),
+    deepseek_api_key: str | None = Form(default=None),
+    openrouter_api_key: str | None = Form(default=None),
+    openai_api_key: str | None = Form(default=None),
+    anthropic_api_key: str | None = Form(default=None),
+    groq_api_key: str | None = Form(default=None),
+    mistral_api_key: str | None = Form(default=None),
+    cohere_api_key: str | None = Form(default=None),
     openalex_api_key: str | None = Form(default=None),
     ieee_api_key: str | None = Form(default=None),
     pubmed_email: str | None = Form(default=None),
@@ -930,6 +992,13 @@ async def start_run_with_supplementary_csv(
     req = RunRequest(
         review_yaml=modified_yaml,
         gemini_api_key=gemini_api_key,
+        deepseek_api_key=deepseek_api_key,
+        openrouter_api_key=openrouter_api_key,
+        openai_api_key=openai_api_key,
+        anthropic_api_key=anthropic_api_key,
+        groq_api_key=groq_api_key,
+        mistral_api_key=mistral_api_key,
+        cohere_api_key=cohere_api_key,
         openalex_api_key=openalex_api_key,
         ieee_api_key=ieee_api_key,
         pubmed_email=pubmed_email,
@@ -942,6 +1011,12 @@ async def start_run_with_supplementary_csv(
         run_root=run_root,
     )
     _inject_env(req)
+    missing_keys = _missing_required_llm_keys()
+    if missing_keys:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Missing required LLM API key(s): {', '.join(missing_keys)}",
+        )
 
     topic = _extract_topic(modified_yaml)
 
@@ -1054,6 +1129,13 @@ async def get_env_keys() -> dict[str, str]:
     """
     return {
         "gemini": os.environ.get("GEMINI_API_KEY", ""),
+        "deepseek": os.environ.get("DEEPSEEK_API_KEY", ""),
+        "openrouter": os.environ.get("OPENROUTER_API_KEY", ""),
+        "openai": os.environ.get("OPENAI_API_KEY", ""),
+        "anthropic": os.environ.get("ANTHROPIC_API_KEY", ""),
+        "groq": os.environ.get("GROQ_API_KEY", ""),
+        "mistral": os.environ.get("MISTRAL_API_KEY", ""),
+        "cohere": os.environ.get("CO_API_KEY", ""),
         "openalex": os.environ.get("OPENALEX_API_KEY", ""),
         "ieee": os.environ.get("IEEE_API_KEY", ""),
         "pubmedEmail": os.environ.get("PUBMED_EMAIL", "") or os.environ.get("NCBI_EMAIL", ""),
@@ -1064,6 +1146,25 @@ async def get_env_keys() -> dict[str, str]:
         "wos": os.environ.get("WOS_API_KEY", ""),
         "scopus": os.environ.get("SCOPUS_API_KEY", ""),
     }
+
+
+@app.get("/api/config/env-keys/required")
+async def get_required_env_keys() -> dict[str, list[str]]:
+    """Return required env keys inferred from configured model prefixes."""
+    cfg = _load_configs(settings_path="config/settings.yaml")[1]
+    env_keys = _get_required_env_keys(cfg)
+    env_to_ui_key = {
+        "GEMINI_API_KEY": "gemini",
+        "DEEPSEEK_API_KEY": "deepseek",
+        "OPENROUTER_API_KEY": "openrouter",
+        "OPENAI_API_KEY": "openai",
+        "ANTHROPIC_API_KEY": "anthropic",
+        "GROQ_API_KEY": "groq",
+        "MISTRAL_API_KEY": "mistral",
+        "CO_API_KEY": "cohere",
+    }
+    ui_keys = [env_to_ui_key[key] for key in env_keys if key in env_to_ui_key]
+    return {"env_keys": env_keys, "ui_keys": ui_keys}
 
 
 class _GenerateConfigRequest(BaseModel):
@@ -1091,9 +1192,15 @@ async def generate_config_stream(req: _GenerateConfigRequest) -> StreamingRespon
         raise HTTPException(status_code=422, detail="research_question must not be empty")
     if req.gemini_api_key.strip():
         os.environ["GEMINI_API_KEY"] = req.gemini_api_key.strip()
-    if not os.environ.get("GEMINI_API_KEY"):
+    cfg = _load_configs(settings_path="config/settings.yaml")[1]
+    agent_cfg = cfg.agents.get("config_generation") or cfg.agents.get("search")
+    required_env_key = _env_key_for_model(agent_cfg.model) if agent_cfg is not None else "GEMINI_API_KEY"
+    if required_env_key is None:
+        required_env_key = "GEMINI_API_KEY"
+    if not os.environ.get(required_env_key):
         raise HTTPException(
-            status_code=422, detail="Gemini API key is required to generate a config. Add it in the API Keys section."
+            status_code=422,
+            detail=(f"{required_env_key} is required to generate a config. Add it in the API Keys section or .env."),
         )
 
     queue: asyncio.Queue[dict[str, Any] | None] = asyncio.Queue()

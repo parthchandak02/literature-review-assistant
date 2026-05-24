@@ -10,8 +10,8 @@ from typing import Protocol
 from pydantic import BaseModel, Field, ValidationError
 
 from src.db.repositories import WorkflowRepository
+from src.llm.factory import get_chat_client
 from src.llm.provider import LLMProvider
-from src.llm.pydantic_client import PydanticAIClient
 from src.models import CandidatePaper, DecisionLogEntry, ReviewConfig, StudyDesign
 
 
@@ -50,7 +50,7 @@ class PydanticAIStudyClassificationClient:
     ) -> str:
         _ = agent_name
         schema = StudyClassificationResult.model_json_schema()
-        client = PydanticAIClient()
+        client = get_chat_client()
         return await client.complete(
             prompt,
             model=model,
@@ -69,7 +69,7 @@ class PydanticAIStudyClassificationClient:
         """Return (json_str, input_tokens, output_tokens, cache_write, cache_read)."""
         _ = agent_name
         schema = StudyClassificationResult.model_json_schema()
-        client = PydanticAIClient()
+        client = get_chat_client()
         return await client.complete_with_usage(
             prompt,
             model=model,
@@ -100,8 +100,7 @@ class StudyClassifier:
         self.llm_client = llm_client or PydanticAIStudyClassificationClient()
         self.low_confidence_threshold = low_confidence_threshold
         self.on_llm_call = on_llm_call
-        # Use quality_assessment profile for single Pro-tier behavior.
-        self.agent_name = "quality_assessment"
+        self.agent_name = "study_type_detection"
 
     def _build_prompt(self, paper: CandidatePaper, *, abstract_only: bool = False) -> str:
         lines = [

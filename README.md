@@ -131,7 +131,7 @@ EMBASE_API_KEY=your-key-here              # Optional -- Embase connector
 CORE_API_KEY=your-key-here                # Optional -- CORE full-text retrieval
 ```
 
-Note: the repo's default backend port in the web UI, PM2 config, and `Procfile.dev` is `8001`. If you copy `.env.example`, keep `PORT=8001` unless you intentionally want a different backend port.
+Note: the repo's default backend port in the web UI and PM2 config is `8001`. If you copy `.env.example`, keep `PORT=8001` unless you intentionally want a different backend port.
 
 **3. Configure your review**
 
@@ -374,15 +374,6 @@ pm2 status                    # show process status table
 cd frontend && pnpm build && cd ..
 pm2 restart litreview-api
 ```
-
-**Alternative -- Overmind (requires tmux):**
-
-```bash
-brew install overmind   # macOS
-overmind start          # reads Procfile.dev
-```
-
-This repo commits `.overmind.env`, which sets `OVERMIND_PROCFILE=Procfile.dev`. If that file is missing or overridden, Overmind falls back to `Procfile` instead, which only starts a single `web` process on `${PORT:-8000}`.
 
 **Alternative -- plain terminals:**
 

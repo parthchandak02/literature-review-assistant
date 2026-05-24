@@ -60,7 +60,7 @@ def _minimal_settings() -> SettingsConfig:
 
     return SettingsConfig(
         agents={
-            "writing": AgentConfig(model="google-gla:gemini-2.5-pro", temperature=0.2),
+            "writing": AgentConfig(model="google:gemini-2.5-pro", temperature=0.2),
         },
     )
 

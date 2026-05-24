@@ -1,2 +1,0 @@
-api: uv run uvicorn src.web.app:app --port ${PORT:-8001} --reload --reload-dir src --reload-dir config
-ui:  cd frontend && pnpm run dev -- --port ${UI_PORT:-5173}

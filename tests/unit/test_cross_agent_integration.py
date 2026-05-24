@@ -407,7 +407,7 @@ def test_phases_from_returns_suffix() -> None:
 
     result = _phases_from("phase_6_writing")
     assert result[0] == "phase_6_writing"
-    assert "phase_7_audit" not in result
+    assert "phase_7_audit" in result
     assert "finalize" in result
 
 

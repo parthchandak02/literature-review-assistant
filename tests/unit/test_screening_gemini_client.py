@@ -43,7 +43,7 @@ async def test_batch_schema_wrap_preserves_defs_for_ref_resolution(monkeypatch: 
     await client.complete_json_array_with_usage(
         "prompt",
         agent_name="screening_reviewer_a",
-        model="google-gla:gemini-2.5-flash-lite",
+        model="google:gemini-2.5-flash-lite",
         temperature=0.1,
         item_schema=item_schema,
     )
@@ -81,7 +81,7 @@ async def test_complete_batch_screening_with_usage_uses_validated_path(monkeypat
     payload, tok_in, tok_out, cache_write, cache_read = await client.complete_batch_screening_with_usage(
         "prompt",
         agent_name="screening_reviewer_a",
-        model="google-gla:gemini-2.5-flash-lite",
+        model="google:gemini-2.5-flash-lite",
         temperature=0.1,
         item_schema={
             "type": "object",

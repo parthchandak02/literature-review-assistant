@@ -19,11 +19,9 @@ import time
 from typing import TYPE_CHECKING
 
 from pydantic import BaseModel
-from pydantic_ai import Agent
-from pydantic_ai.settings import ModelSettings
 
+from src.llm.factory import get_chat_client
 from src.llm.provider import LLMProvider
-from src.llm.pydantic_client import _run_with_retry
 from src.models.additional import CostRecord
 
 if TYPE_CHECKING:
@@ -104,9 +102,13 @@ async def rerank_chunks(
 
     t0 = time.monotonic()
     try:
-        agent: Agent[None, str] = Agent(model, output_type=str)
-        result = await _run_with_retry(agent, prompt, model_settings=ModelSettings(temperature=0.0))
-        raw = result.output.strip()
+        client = get_chat_client()
+        raw, tokens_in, tokens_out, cache_write, cache_read = await client.complete_with_usage(
+            prompt,
+            model=model,
+            temperature=0.0,
+        )
+        raw = raw.strip()
 
         # Extract JSON array from the response (handle prose wrapping).
         start = raw.find("[")
@@ -140,10 +142,13 @@ async def rerank_chunks(
         )
 
         if repository:
-            usage = result.usage()
-            tokens_in = usage.input_tokens or 0
-            tokens_out = usage.output_tokens or 0
-            cost_usd = LLMProvider.estimate_cost_usd(model, tokens_in, tokens_out)
+            cost_usd = LLMProvider.estimate_cost_usd(
+                model,
+                tokens_in,
+                tokens_out,
+                cache_write=cache_write,
+                cache_read=cache_read,
+            )
             await repository.save_cost_record(
                 CostRecord(
                     workflow_id=workflow_id,
@@ -153,6 +158,8 @@ async def rerank_chunks(
                     cost_usd=cost_usd,
                     latency_ms=elapsed_ms,
                     phase="phase_6_rerank",
+                    cache_write_tokens=cache_write,
+                    cache_read_tokens=cache_read,
                 )
             )
 

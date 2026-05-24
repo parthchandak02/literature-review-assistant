@@ -316,7 +316,7 @@ def _find_model_id_leakage(md_text: str) -> list[str]:
     ref_start = md_text.find("## References")
     body = md_text[:ref_start] if ref_start > 0 else md_text
     model_re = re.compile(
-        r"\b(?:google-gla:[A-Za-z0-9._-]+|gemini-[A-Za-z0-9._-]+|models/[A-Za-z0-9._-]+)\b",
+        r"\b(?:google:[A-Za-z0-9._-]+|gemini-[A-Za-z0-9._-]+|models/[A-Za-z0-9._-]+)\b",
         re.IGNORECASE,
     )
     for line in body.splitlines():

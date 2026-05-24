@@ -37,7 +37,7 @@ def _review() -> ReviewConfig:
 
 def _settings(*, max_iterations: int = 2, cost_cap: float = 0.15) -> SettingsConfig:
     return SettingsConfig(
-        agents={"writing": AgentConfig(model="google-gla:gemini-2.5-flash", temperature=0.1)},
+        agents={"writing": AgentConfig(model="google:gemini-2.5-flash", temperature=0.1)},
         writing={
             "ratchet_max_iterations": max_iterations,
             "ratchet_cost_cap_per_section": cost_cap,
@@ -114,7 +114,7 @@ def _patch_writer(monkeypatch, responses: list[tuple[StructuredSectionDraft, flo
         calls["count"] += 1
         draft, cost_usd = responses[calls["count"] - 1]
         return draft, SectionWriteMetadata(
-            model="google-gla:gemini-2.5-flash",
+            model="google:gemini-2.5-flash",
             tokens_in=10,
             tokens_out=20,
             cost_usd=cost_usd,
