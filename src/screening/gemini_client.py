@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import TypeVar
 
-from src.llm.pydantic_client import PydanticAIClient
+from src.llm.factory import get_chat_client
 from src.models import BatchScreeningResponsePayload, ScreeningResponsePayload
 
 _T = TypeVar("_T", ScreeningResponsePayload, BatchScreeningResponsePayload)
@@ -29,7 +29,7 @@ class PydanticAIScreeningClient:
         """Return a JSON string matching ScreeningResponse schema."""
         _ = agent_name
         schema = ScreeningResponsePayload.model_json_schema()
-        client = PydanticAIClient()
+        client = get_chat_client()
         return await client.complete(
             prompt,
             model=model,
@@ -52,7 +52,7 @@ class PydanticAIScreeningClient:
         """
         _ = agent_name
         schema = ScreeningResponsePayload.model_json_schema()
-        client = PydanticAIClient()
+        client = get_chat_client()
         return await client.complete_with_usage(
             prompt,
             model=model,
@@ -91,7 +91,7 @@ class PydanticAIScreeningClient:
         }
         if isinstance(shared_defs, dict) and shared_defs:
             object_schema["$defs"] = shared_defs
-        client = PydanticAIClient()
+        client = get_chat_client()
         return await client.complete_with_usage(
             prompt,
             model=model,
@@ -111,7 +111,7 @@ class PydanticAIScreeningClient:
     ) -> tuple[_T, int, int, int, int]:
         """Return schema-validated payload with provider usage."""
         _ = agent_name
-        client = PydanticAIClient()
+        client = get_chat_client()
         parsed, tok_in, tok_out, cache_write, cache_read, _retries = await client.complete_validated(
             prompt,
             model=model,

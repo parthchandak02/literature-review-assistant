@@ -28,8 +28,8 @@ import aiohttp
 from pydantic import BaseModel
 
 from src.db.repositories import WorkflowRepository
+from src.llm.factory import get_chat_client
 from src.llm.provider import LLMProvider
-from src.llm.pydantic_client import PydanticAIClient
 from src.models import CostRecord
 from src.models.extraction import OutcomeRecord
 from src.utils.ssl_context import tcp_connector_with_certifi
@@ -1975,7 +1975,7 @@ async def extract_tables_from_pdf(
     try:
         t0 = time.monotonic()
         pdf_part = BinaryContent(data=pdf_bytes, media_type="application/pdf")
-        client = PydanticAIClient()
+        client = get_chat_client()
         (
             parsed,
             tokens_in,

@@ -24,7 +24,7 @@ from pathlib import Path
 
 import aiohttp
 
-from src.llm.pydantic_client import PydanticAIClient
+from src.llm.factory import get_chat_client
 from src.models.diagrams import (
     DiagramStyleProfile,
     FlowchartDiagramInput,
@@ -72,7 +72,7 @@ def _extract_code_block(text: str, language: str) -> str:
 
 
 async def _llm_generate(prompt: str, model: str = _LLM_MODEL) -> str:
-    client = PydanticAIClient()
+    client = get_chat_client()
     return await client.complete(prompt, model=model, temperature=_LLM_TEMPERATURE)
 
 

@@ -10,10 +10,11 @@ def test_no_runtime_model_literals_in_src() -> None:
     """
     src_root = Path(__file__).resolve().parents[2] / "src"
     forbidden_tokens = (
-        "google-gla:gemini-",
-        "google-vertex:gemini-",
+        "google:gemini-",
+        "google-cloud:gemini-",
         "anthropic:claude-",
         "openai:gpt-",
+        "generativelanguage.googleapis.com",
     )
 
     violations: list[str] = []

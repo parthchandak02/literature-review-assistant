@@ -12,6 +12,7 @@ import {
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { LogStream } from "@/components/LogStream"
+import { StructuredLogViewer } from "@/components/StructuredLogViewer"
 import type { LogStreamHandle } from "@/components/LogStream"
 import { eventToLogEntry } from "@/lib/logLine"
 import { FetchError } from "@/components/ui/feedback"
@@ -357,6 +358,7 @@ export function ActivityView({
   const [armedResumePhase, setArmedResumePhase] = useState<string | null>(null)
   const [resumeHint, setResumeHint] = useState<string | null>(null)
   const [isSubmittingResume, setIsSubmittingResume] = useState(false)
+  const [showStructuredLog, setShowStructuredLog] = useState(false)
   const logRef = useRef<LogStreamHandle>(null)
 
   const hasPrefetchedHistorical = shouldUsePrefetchedHistorical(prefetchedHistoricalEvents)
@@ -590,16 +592,29 @@ export function ActivityView({
           <div className="glass-toolbar flex items-center gap-2 px-4 h-11 border-b border-zinc-800/70 shrink-0 overflow-hidden">
             <span className="label-caps shrink-0">Activity Log</span>
 
-            {effectiveLoadingHistory ? (
+            {effectiveLoadingHistory && !showStructuredLog ? (
               <span className="flex items-center gap-1.5 text-xs text-zinc-500">
                 <Loader2 className="h-3 w-3 animate-spin" />
                 Loading...
               </span>
-            ) : eventCountLabel ? (
+            ) : eventCountLabel && !showStructuredLog ? (
               <span className="text-xs text-zinc-600 tabular-nums shrink-0">
                 {eventCountLabel}
               </span>
             ) : null}
+
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              className={cn(
+                "h-7 px-2 text-[11px] shrink-0 border-zinc-700",
+                showStructuredLog && "bg-violet-500/15 text-violet-300 border-violet-500/40",
+              )}
+              onClick={() => setShowStructuredLog((v) => !v)}
+            >
+              {showStructuredLog ? "Short logs" : "Verbose logs"}
+            </Button>
 
             <div className="relative flex-1 min-w-0">
               <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-zinc-500 pointer-events-none" />
@@ -614,7 +629,11 @@ export function ActivityView({
           </div>
 
           <div className="flex-1 overflow-y-auto min-h-0">
-            {fetchError && (
+            {showStructuredLog ? (
+              <StructuredLogViewer runId={runId} workflowId={workflowId} searchQuery={searchQuery} />
+            ) : null}
+
+            {fetchError && !showStructuredLog && (
               <div className="p-4">
                 <FetchError
                   message={fetchError}
@@ -623,7 +642,7 @@ export function ActivityView({
               </div>
             )}
 
-            {!effectiveLoadingHistory && filtered.length === 0 && !fetchError && (
+            {!showStructuredLog && !effectiveLoadingHistory && filtered.length === 0 && !fetchError && (
               <div className="py-12 flex items-center justify-center">
                 <p className="text-zinc-600 text-sm">
                   Events will appear here once the review starts.
@@ -631,7 +650,7 @@ export function ActivityView({
               </div>
             )}
 
-            {filtered.length > 0 && (
+            {!showStructuredLog && filtered.length > 0 && (
               <LogStream ref={logRef} events={filtered} autoScroll={!searchQuery.trim()} />
             )}
           </div>

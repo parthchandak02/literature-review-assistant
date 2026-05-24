@@ -304,7 +304,7 @@ export const LogStream = forwardRef<LogStreamHandle, LogStreamProps>(function Lo
   return (
     <div
       ref={scrollContainerRef}
-      className="h-[32rem] w-full rounded-xl border border-zinc-800 bg-background overflow-y-auto"
+      className="h-[clamp(22rem,calc(100dvh-20rem),40rem)] w-full rounded-xl border border-zinc-800 bg-background overflow-y-auto"
       role="log"
       aria-live="polite"
       aria-label="Event log"

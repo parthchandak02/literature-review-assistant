@@ -1,22 +1,18 @@
-"""Gemini-driven custom diagram rendering with iterative critique loops."""
+"""PydanticAI-driven custom diagram rendering with iterative critique loops."""
 
 from __future__ import annotations
 
 import asyncio
-import base64
-import json
 import logging
-import os
 from pathlib import Path
 from time import monotonic
 from typing import Any
 
-import aiohttp
 from pydantic import BaseModel
 from pydantic_ai.messages import BinaryContent
 
+from src.llm.factory import get_chat_client, get_image_client
 from src.llm.provider import LLMProvider
-from src.llm.pydantic_client import PydanticAIClient
 from src.models import CostRecord
 from src.models.diagrams import (
     DiagramBriefPack,
@@ -30,54 +26,9 @@ from src.models.diagrams import (
 
 logger = logging.getLogger(__name__)
 
-_GEMINI_GENERATE_CONTENT_URL = "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
-
 
 class _CritiqueEnvelope(BaseModel):
     critique: DiagramCritiqueResult
-
-
-def _strip_provider_prefix(model: str) -> str:
-    if ":" in model:
-        return model.split(":", 1)[1]
-    return model
-
-
-def _extract_inline_image_b64(payload: dict[str, Any]) -> str | None:
-    candidates = payload.get("candidates", [])
-    for candidate in candidates:
-        content = candidate.get("content", {})
-        for part in content.get("parts", []):
-            inline_data = part.get("inlineData") or part.get("inline_data")
-            if isinstance(inline_data, dict) and inline_data.get("data"):
-                return str(inline_data["data"])
-    return None
-
-
-def _extract_usage_tokens(payload: dict[str, Any]) -> dict[str, int]:
-    """Best-effort usage token extraction from Gemini payloads."""
-    usage = payload.get("usageMetadata") or payload.get("usage_metadata") or {}
-    if not isinstance(usage, dict):
-        return {"tokens_in": 0, "tokens_out": 0, "cache_read_tokens": 0, "cache_write_tokens": 0}
-
-    prompt = int(usage.get("promptTokenCount") or usage.get("prompt_token_count") or 0)
-    candidates = int(usage.get("candidatesTokenCount") or usage.get("candidates_token_count") or 0)
-    total = int(usage.get("totalTokenCount") or usage.get("total_token_count") or 0)
-    cache_read = int(
-        usage.get("cachedContentTokenCount")
-        or usage.get("cached_content_token_count")
-        or usage.get("cacheReadTokenCount")
-        or 0
-    )
-    cache_write = int(usage.get("cacheWriteTokenCount") or usage.get("cache_write_token_count") or 0)
-    if candidates <= 0 and total > 0:
-        candidates = max(0, total - prompt)
-    return {
-        "tokens_in": max(0, prompt),
-        "tokens_out": max(0, candidates),
-        "cache_read_tokens": max(0, cache_read),
-        "cache_write_tokens": max(0, cache_write),
-    }
 
 
 def _compose_style_block(style: DiagramStyleGuide) -> str:
@@ -143,29 +94,7 @@ def _build_generation_prompt(
     )
 
 
-def _read_reference_parts(reference_paths: list[str]) -> list[dict[str, Any]]:
-    parts: list[dict[str, Any]] = []
-    supported_mime_types = {
-        ".png": "image/png",
-        ".jpg": "image/jpeg",
-        ".jpeg": "image/jpeg",
-        ".webp": "image/webp",
-        ".gif": "image/gif",
-    }
-    for path in reference_paths:
-        p = Path(path)
-        if not p.exists():
-            continue
-        mime = supported_mime_types.get(p.suffix.lower())
-        if mime is None:
-            logger.warning("Skipping unsupported diagram reference image type: %s", p.suffix.lower() or "(none)")
-            continue
-        b64 = base64.b64encode(p.read_bytes()).decode("ascii")
-        parts.append({"inline_data": {"mime_type": mime, "data": b64}})
-    return parts
-
-
-async def _generate_image_via_gemini(
+async def _generate_image_via_pydantic(
     *,
     model: str,
     prompt: str,
@@ -174,32 +103,14 @@ async def _generate_image_via_gemini(
     image_size: str,
     timeout_seconds: int = 90,
 ) -> tuple[bytes, dict[str, int]]:
-    api_key = os.getenv("GEMINI_API_KEY", "").strip()
-    if not api_key:
-        raise RuntimeError("GEMINI_API_KEY is missing; cannot generate custom diagrams.")
-
-    model_ref = _strip_provider_prefix(model)
-    url = _GEMINI_GENERATE_CONTENT_URL.format(model=model_ref)
-    parts: list[dict[str, Any]] = [{"text": prompt}]
-    parts.extend(_read_reference_parts(reference_image_paths))
-    body = {
-        "contents": [{"parts": parts}],
-        "generationConfig": {
-            "responseModalities": ["IMAGE"],
-        },
-    }
-    params = {"key": api_key}
-    timeout = aiohttp.ClientTimeout(total=timeout_seconds)
-    async with aiohttp.ClientSession(timeout=timeout) as session:
-        async with session.post(url, params=params, json=body) as resp:
-            text = await resp.text()
-            if resp.status != 200:
-                raise RuntimeError(f"Gemini image generation failed {resp.status}: {text[:320]}")
-            payload = json.loads(text)
-    image_b64 = _extract_inline_image_b64(payload)
-    if not image_b64:
-        raise RuntimeError("Gemini image response did not contain image bytes.")
-    return base64.b64decode(image_b64), _extract_usage_tokens(payload)
+    client = get_image_client(timeout_seconds=timeout_seconds)
+    return await client.generate(
+        model=model,
+        prompt=prompt,
+        aspect_ratio=aspect_ratio,
+        size=image_size,
+        reference_image_paths=reference_image_paths,
+    )
 
 
 async def _critique_image(
@@ -226,7 +137,7 @@ async def _critique_image(
     )
     media_type = "image/png" if image_path.suffix.lower() == ".png" else "image/jpeg"
     image_part = BinaryContent(data=image_path.read_bytes(), media_type=media_type)
-    client = PydanticAIClient()
+    client = get_chat_client()
     parsed, tok_in, tok_out, cache_write, cache_read, retries = await client.complete_validated_parts(
         [image_part, prompt],
         model=model,
@@ -316,7 +227,7 @@ async def render_custom_research_diagrams(
             )
             started = monotonic()
             try:
-                image_bytes, drawing_usage = await _generate_image_via_gemini(
+                image_bytes, drawing_usage = await _generate_image_via_pydantic(
                     model=drawing_model,
                     prompt=prompt,
                     reference_image_paths=reference_paths,

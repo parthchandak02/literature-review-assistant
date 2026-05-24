@@ -13,11 +13,9 @@ Auth: GEMINI_API_KEY env var -- read automatically by PydanticAI, no manual wiri
 
 from __future__ import annotations
 
-import asyncio
 import logging
 
-from pydantic_ai.embeddings import Embedder
-
+from src.llm.factory import get_embedder
 from src.llm.model_fallback import get_fallback_model
 
 logger = logging.getLogger(__name__)
@@ -28,25 +26,12 @@ logger = logging.getLogger(__name__)
 _DEFAULT_EMBED_MODEL = ""
 _DEFAULT_EMBED_DIM = 768
 
-# Cache embedder instances by (model, dim) so we never recreate needlessly
-# within a single process lifetime.
-_embedder_cache: dict[tuple[str, int], Embedder] = {}
-
 
 def _resolve_embed_model(model: str) -> str:
     if model:
         return model
     # Keep model resolution centralized in settings.yaml.
     return get_fallback_model("lite")
-
-
-def _get_embedder(model: str = _DEFAULT_EMBED_MODEL, dim: int = _DEFAULT_EMBED_DIM) -> Embedder:
-    """Return a cached Embedder for the given model and output dimension."""
-    model = _resolve_embed_model(model)
-    key = (model, dim)
-    if key not in _embedder_cache:
-        _embedder_cache[key] = Embedder(model, settings={"dimensions": dim})
-    return _embedder_cache[key]
 
 
 async def embed_texts(
@@ -66,8 +51,10 @@ async def embed_texts(
     if not texts:
         return []
 
-    embedder = _get_embedder(model, dim)
+    embedder = get_embedder(_resolve_embed_model(model), dim)
     batches = [(i // batch_size, texts[i : i + batch_size]) for i in range(0, len(texts), batch_size)]
+    import asyncio
+
     sem = asyncio.Semaphore(concurrency)
 
     async def _embed_batch(batch_idx: int, batch: list[str]) -> tuple[int, list[list[float]]]:
@@ -100,7 +87,7 @@ async def embed_query(
     if not text.strip():
         return [0.0] * dim
 
-    embedder = _get_embedder(model, dim)
+    embedder = get_embedder(_resolve_embed_model(model), dim)
     try:
         result = await embedder.embed_query(text[:8000])
         return list(result.embeddings[0])

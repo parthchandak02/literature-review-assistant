@@ -15,6 +15,8 @@ interface YamlEditorProps {
   placeholder?: string
   rows?: number
   className?: string
+  isLoading?: boolean
+  loadingLabel?: string
 }
 
 /**
@@ -27,6 +29,8 @@ export function YamlEditor({
   placeholder = "Paste your review.yaml content here...",
   rows = 16,
   className = "",
+  isLoading = false,
+  loadingLabel = "Generating review YAML...",
 }: YamlEditorProps) {
   const [editMode, setEditMode] = useState(false)
   const previewTokenStyle = `
@@ -43,7 +47,7 @@ export function YamlEditor({
     }
   }, [value])
 
-  if (editMode) {
+  if (editMode && !isLoading) {
     return (
       <div className={`flex flex-col gap-2 ${className}`}>
         <style>{previewTokenStyle}</style>
@@ -75,20 +79,26 @@ export function YamlEditor({
     <div className={`flex flex-col gap-2 ${className}`}>
       <style>{previewTokenStyle}</style>
       <div className="flex justify-end">
-        <Button
-          type="button"
-          variant="ghost"
-          size="sm"
-          onClick={() => setEditMode(true)}
-          className="text-zinc-500 hover:text-zinc-300 text-xs gap-1.5"
-        >
-          <Pencil className="h-3.5 w-3.5" />
-          Edit
-        </Button>
+        {isLoading ? (
+          <span className="text-xs text-zinc-500">{loadingLabel}</span>
+        ) : (
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            onClick={() => setEditMode(true)}
+            className="text-zinc-500 hover:text-zinc-300 text-xs gap-1.5"
+          >
+            <Pencil className="h-3.5 w-3.5" />
+            Edit
+          </Button>
+        )}
       </div>
       <ScrollArea className="border border-zinc-800 rounded-md bg-zinc-950 h-[400px]">
         <pre className="hljs yaml-preview-pre text-xs p-4 font-mono leading-relaxed whitespace-pre-wrap min-h-full">
-          {value.trim() ? (
+          {isLoading ? (
+            <code className="text-zinc-500">{loadingLabel}</code>
+          ) : value.trim() ? (
             <code dangerouslySetInnerHTML={{ __html: highlighted }} />
           ) : (
             <code className="text-zinc-600">{placeholder}</code>

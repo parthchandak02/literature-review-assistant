@@ -61,7 +61,7 @@ async def test_complete_validated_success_on_first_try() -> None:
     ):
         result, tok_in, tok_out, cw, cr, retries = await client.complete_validated(
             "prompt",
-            model="google-gla:gemini-2.0-flash",
+            model="google:gemini-2.0-flash",
             temperature=0.1,
             response_model=_TestResponseModel,
         )
@@ -92,7 +92,7 @@ async def test_complete_validated_retries_on_validation_error() -> None:
     with patch.object(client, "complete_with_usage", mock):
         result, tok_in, tok_out, cw, cr, retries = await client.complete_validated(
             "prompt",
-            model="google-gla:gemini-2.0-flash",
+            model="google:gemini-2.0-flash",
             temperature=0.1,
             response_model=_TestResponseModel,
         )
@@ -119,7 +119,7 @@ async def test_complete_validated_raises_after_max_retries() -> None:
         with pytest.raises(Exception):
             await client.complete_validated(
                 "prompt",
-                model="google-gla:gemini-2.0-flash",
+                model="google:gemini-2.0-flash",
                 temperature=0.1,
                 response_model=_TestResponseModel,
                 max_validation_retries=2,
@@ -147,7 +147,7 @@ async def test_complete_validated_uses_provided_json_schema() -> None:
     with patch.object(client, "complete_with_usage", mock):
         result, _, _, _, _, retries = await client.complete_validated(
             "prompt",
-            model="google-gla:gemini-2.0-flash",
+            model="google:gemini-2.0-flash",
             temperature=0.1,
             response_model=_TestResponseModel,
             json_schema=custom_schema,
@@ -177,7 +177,7 @@ async def test_complete_validated_aggregates_tokens_across_retries() -> None:
     with patch.object(client, "complete_with_usage", mock):
         result, tok_in, tok_out, cw, cr, retries = await client.complete_validated(
             "prompt",
-            model="google-gla:gemini-2.0-flash",
+            model="google:gemini-2.0-flash",
             temperature=0.1,
             response_model=_TestResponseModelStrict,
             max_validation_retries=2,
@@ -209,7 +209,7 @@ async def test_complete_validated_handles_json_decode_error() -> None:
     with patch.object(client, "complete_with_usage", mock):
         result, _, _, _, _, retries = await client.complete_validated(
             "prompt",
-            model="google-gla:gemini-2.0-flash",
+            model="google:gemini-2.0-flash",
             temperature=0.1,
             response_model=_TestResponseModel,
         )

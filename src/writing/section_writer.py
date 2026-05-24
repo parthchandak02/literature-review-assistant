@@ -6,8 +6,8 @@ import logging
 import time
 from dataclasses import dataclass
 
+from src.llm.factory import get_chat_client
 from src.llm.provider import LLMProvider
-from src.llm.pydantic_client import PydanticAIClient
 from src.models import ReviewConfig, SettingsConfig
 from src.models.writing import SectionBlock, StructuredAbstractOutput, StructuredSectionDraft
 from src.writing.renderers import render_section_markdown
@@ -257,6 +257,8 @@ class SectionWriter:
     ) -> tuple[StructuredSectionDraft, SectionWriteMetadata]:
         """Generate a structured section IR using schema-constrained output."""
         if section == "abstract":
+            if agent_name == "writing" and "abstract_generation" in self.settings.agents:
+                agent_name = "abstract_generation"
             return await self._write_abstract_structured_async(
                 context=context,
                 agent_name=agent_name,
@@ -272,7 +274,7 @@ class SectionWriter:
         full_model = agent_cfg.model
 
         start = time.perf_counter()
-        client = PydanticAIClient(timeout_seconds=self._timeout_seconds)
+        client = get_chat_client(timeout_seconds=self._timeout_seconds)
         try:
             structured, tokens_in, tokens_out, cache_write, cache_read, retries = await client.complete_validated(
                 prompt,
@@ -334,7 +336,7 @@ class SectionWriter:
         total_cache_read = 0
         elapsed_ms = 0
 
-        client = PydanticAIClient(timeout_seconds=self._timeout_seconds)
+        client = get_chat_client(timeout_seconds=self._timeout_seconds)
         last_error: Exception | None = None
         for attempt in range(2):
             started = time.perf_counter()

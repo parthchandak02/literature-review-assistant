@@ -459,7 +459,7 @@ def test_audit_profile_selection_uses_domain_brief() -> None:
         target_databases=["openalex"],
     )
     settings = SettingsConfig(
-        agents={"writing": {"model": "google-gla:gemini-2.5-flash-lite", "temperature": 0.1}},
+        agents={"writing": {"model": "google:gemini-2.5-flash-lite", "temperature": 0.1}},
         manuscript_audit={"profile_activation": "domain_matched", "max_profiles_per_run": 3},
     )
     selection = select_audit_profiles(review, settings)

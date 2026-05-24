@@ -2,10 +2,10 @@
 
 Supports all providers that PydanticAI supports (Gemini, Anthropic, OpenAI, Groq,
 Mistral, Cohere, etc.). Provider is inferred from the model string prefix already
-used in config/settings.yaml (e.g. "google-gla:", "anthropic:", "openai:").
+used in config/settings.yaml (e.g. "google:", "anthropic:", "openai:").
 
 Structured output strategy per provider:
-- Gemini (google-gla:, google-vertex:): NativeOutput -- uses responseSchema
+- Gemini (google:, google-cloud:): NativeOutput -- uses responseSchema
   at the API level, equivalent to the previous responseJsonSchema behavior.
 - All other providers: default ToolOutput -- uses tool calling to enforce schema.
 
@@ -29,7 +29,13 @@ logger = logging.getLogger(__name__)
 
 _T = TypeVar("_T", bound=BaseModel)
 
-_GEMINI_PREFIXES = ("google-gla:", "google-vertex:")
+_GEMINI_PREFIXES = (
+    "google:",
+    "google-cloud:",
+    # Deprecated aliases retained for backward compatibility.
+    "google-gla:",
+    "google-vertex:",
+)
 
 # ---------------------------------------------------------------------------
 # Retry configuration
@@ -179,6 +185,21 @@ class PydanticAIClient:
             text_agent: Agent[None, str] = Agent(model, output_type=str)
             text_result = await _run_with_retry(text_agent, prompt, model_settings=settings)
             return text_result.output
+
+    async def complete_text(
+        self,
+        prompt: str,
+        *,
+        model: str,
+        temperature: float = 0.0,
+    ) -> str:
+        """Run plain-text completion with retry/backoff and return output text."""
+        return await self.complete(
+            prompt,
+            model=model,
+            temperature=temperature,
+            json_schema=None,
+        )
 
     async def complete_with_usage(
         self,

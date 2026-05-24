@@ -38,7 +38,7 @@ async def test_extract_tables_from_pdf_uses_validated_multimodal_client() -> Non
         "src.extraction.table_extraction.PydanticAIClient.complete_validated_parts",
         new=AsyncMock(return_value=(stub_response, 10, 5, 0, 0, 0)),
     ) as mocked:
-        results = await extract_tables_from_pdf(b"%PDF-1.4 fake bytes", model_name="google-gla:gemini-2.5-flash-lite")
+        results = await extract_tables_from_pdf(b"%PDF-1.4 fake bytes", model_name="google:gemini-2.5-flash-lite")
 
     assert mocked.await_count == 1
     assert len(results) == 1

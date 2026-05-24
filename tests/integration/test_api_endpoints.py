@@ -589,7 +589,7 @@ async def test_db_costs_aggregates_returns_grouped_payload(
                 (workflow_id, model, tokens_in, tokens_out, cost_usd, latency_ms, phase, cache_read_tokens, cache_write_tokens)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
-            (workflow_id, "google-gla:gemini-2.5-flash", 120, 80, 0.0123, 1200, "phase_3_screening", 0, 0),
+            (workflow_id, "google:gemini-2.5-flash", 120, 80, 0.0123, 1200, "phase_3_screening", 0, 0),
         )
         await db.execute(
             """
@@ -597,7 +597,7 @@ async def test_db_costs_aggregates_returns_grouped_payload(
                 (workflow_id, model, tokens_in, tokens_out, cost_usd, latency_ms, phase, cache_read_tokens, cache_write_tokens)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
-            (workflow_id, "google-gla:gemini-2.5-pro", 200, 140, 0.055, 1800, "phase_6_writing", 0, 0),
+            (workflow_id, "google:gemini-2.5-pro", 200, 140, 0.055, 1800, "phase_6_writing", 0, 0),
         )
         await db.commit()
 
@@ -645,7 +645,7 @@ async def test_db_costs_export_returns_csv(
                 (workflow_id, model, tokens_in, tokens_out, cost_usd, latency_ms, phase, cache_read_tokens, cache_write_tokens)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
-            (workflow_id, "google-gla:gemini-2.5-flash", 42, 28, 0.005, 900, "phase_4_extraction", 0, 0),
+            (workflow_id, "google:gemini-2.5-flash", 42, 28, 0.005, 900, "phase_4_extraction", 0, 0),
         )
         await db.commit()
 
@@ -729,8 +729,8 @@ async def test_history_costs_aggregates_returns_cross_run_payload(
         "wf-cost-a",
         "Topic A",
         [
-            ("2026-03-28 10:00:00", "google-gla:gemini-2.5-flash", 100, 50, 0.0100, "phase_3_screening"),
-            ("2026-03-29 11:00:00", "google-gla:gemini-2.5-pro", 120, 60, 0.0200, "phase_6_writing"),
+            ("2026-03-28 10:00:00", "google:gemini-2.5-flash", 100, 50, 0.0100, "phase_3_screening"),
+            ("2026-03-29 11:00:00", "google:gemini-2.5-pro", 120, 60, 0.0200, "phase_6_writing"),
         ],
     )
     await _seed_runtime_db(
@@ -738,7 +738,7 @@ async def test_history_costs_aggregates_returns_cross_run_payload(
         "wf-cost-b",
         "Topic B",
         [
-            ("2026-03-29 12:00:00", "google-gla:gemini-2.5-flash", 90, 40, 0.0300, "phase_4_extraction"),
+            ("2026-03-29 12:00:00", "google:gemini-2.5-flash", 90, 40, 0.0300, "phase_4_extraction"),
         ],
     )
 
@@ -803,7 +803,7 @@ async def test_history_costs_export_returns_csv(
             """,
             (
                 workflow_id,
-                "google-gla:gemini-2.5-flash",
+                "google:gemini-2.5-flash",
                 33,
                 22,
                 0.0042,

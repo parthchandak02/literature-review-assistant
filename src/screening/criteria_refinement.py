@@ -16,14 +16,13 @@ import json
 import logging
 import os
 import re
-from contextlib import contextmanager
 
 import aiosqlite
 from pydantic import BaseModel
 
 from src.db.repositories import WorkflowRepository
+from src.llm.factory import get_chat_client
 from src.llm.provider import LLMProvider
-from src.llm.pydantic_client import PydanticAIClient
 
 logger = logging.getLogger(__name__)
 
@@ -90,21 +89,6 @@ class _RefinementLLMResponse(BaseModel):
     criteria: list[_RefinementLLMItem] = []
 
 
-@contextmanager
-def _with_api_key(api_key: str | None):
-    previous = os.environ.get("GEMINI_API_KEY")
-    if api_key:
-        os.environ["GEMINI_API_KEY"] = api_key
-    try:
-        yield
-    finally:
-        if api_key:
-            if previous is None:
-                os.environ.pop("GEMINI_API_KEY", None)
-            else:
-                os.environ["GEMINI_API_KEY"] = previous
-
-
 def _sanitize_criterion(text: str) -> str:
     """Strip prompt injection patterns and enforce length limit."""
     cleaned = _INJECTION_PATTERNS.sub("[REMOVED]", text)
@@ -151,8 +135,15 @@ async def refine_criteria_from_corrections(
 
     if model_name is None:
         model_name = _get_model_from_settings()
-    key = api_key or os.environ.get("GEMINI_API_KEY", "")
-    if not key:
+    if api_key:
+        logger.warning(
+            "refine_criteria_from_corrections received api_key argument; explicit key injection is deprecated and ignored."
+        )
+    if (
+        not os.environ.get("GEMINI_API_KEY")
+        and not os.environ.get("DEEPSEEK_API_KEY")
+        and not os.environ.get("OPENROUTER_API_KEY")
+    ):
         return []
 
     prompt = _REFINEMENT_PROMPT_TEMPLATE.format(corrections=_format_corrections_for_prompt(corrections, papers))
@@ -163,14 +154,13 @@ async def refine_criteria_from_corrections(
         provider = LLMProvider(settings=settings, repository=repository)
         reserve_agent = "criteria_refinement" if "criteria_refinement" in settings.agents else "screening_adjudicator"
         await provider.reserve_call_slot(reserve_agent)
-        with _with_api_key(key):
-            client = PydanticAIClient()
-            parsed, tok_in, tok_out, cw, cr, _retries = await client.complete_validated(
-                prompt,
-                model=model_name,
-                temperature=0.1,
-                response_model=_RefinementLLMResponse,
-            )
+        client = get_chat_client()
+        parsed, tok_in, tok_out, cw, cr, _retries = await client.complete_validated(
+            prompt,
+            model=model_name,
+            temperature=0.1,
+            response_model=_RefinementLLMResponse,
+        )
         source_ids = [c.paper_id for c in corrections]
         learned: list[LearnedCriterion] = []
         for item in parsed.criteria:

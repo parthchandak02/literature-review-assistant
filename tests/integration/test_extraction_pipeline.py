@@ -51,11 +51,11 @@ def _review() -> ReviewConfig:
 def _settings() -> SettingsConfig:
     return SettingsConfig(
         agents={
-            "screening_reviewer_a": {"model": "google-gla:gemini-2.5-flash-lite", "temperature": 0.1},
-            "screening_reviewer_b": {"model": "google-gla:gemini-2.5-flash-lite", "temperature": 0.3},
-            "screening_adjudicator": {"model": "google-gla:gemini-2.5-pro", "temperature": 0.2},
-            "extraction": {"model": "google-gla:gemini-2.5-flash", "temperature": 0.1},
-            "quality_assessment": {"model": "google-gla:gemini-2.5-pro", "temperature": 0.1},
+            "screening_reviewer_a": {"model": "google:gemini-2.5-flash-lite", "temperature": 0.1},
+            "screening_reviewer_b": {"model": "google:gemini-2.5-flash-lite", "temperature": 0.3},
+            "screening_adjudicator": {"model": "google:gemini-2.5-pro", "temperature": 0.2},
+            "extraction": {"model": "google:gemini-2.5-flash", "temperature": 0.1},
+            "quality_assessment": {"model": "google:gemini-2.5-pro", "temperature": 0.1},
         }
     )
 

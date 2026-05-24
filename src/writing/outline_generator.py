@@ -7,7 +7,7 @@ import logging
 import re
 import time
 
-from src.llm.pydantic_client import PydanticAIClient
+from src.llm.factory import get_chat_client
 from src.models import OutlineNode, SectionOutline, SettingsConfig
 from src.writing.context_builder import WritingGroundingData
 from src.writing.evidence_assembler import build_results_evidence_pack
@@ -134,7 +134,7 @@ async def generate_section_outline(
     fallback = build_fallback_section_outline(section, grounding, citation_catalog)
     agent_cfg = settings.agents.get("writing") or next(iter(settings.agents.values()))
     prompt = build_outline_prompt(section, grounding, citation_catalog)
-    client = PydanticAIClient(
+    client = get_chat_client(
         timeout_seconds=float(getattr(getattr(settings, "llm", None), "request_timeout_seconds", 180))
     )
     if provider is not None:

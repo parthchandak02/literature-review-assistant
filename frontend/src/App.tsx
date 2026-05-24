@@ -21,6 +21,7 @@ import {
   fetchActiveRun,
   fetchArtifacts,
   fetchHistory,
+  generateConfigStream,
   getDefaultReviewConfig,
   resumeRun,
   restoreCompletedRun,
@@ -42,10 +43,11 @@ import {
 import type { HistoryEntry, RunRequest, RunResponse, StoredApiKeys } from "@/lib/api"
 import { RunView } from "@/views/RunView"
 import type { RunTab, SelectedRun } from "@/views/RunView"
+import type { ConfigGenerateRequest } from "@/views/SetupView"
 
 const SetupView = lazy(() => import("@/views/SetupView").then((m) => ({ default: m.SetupView })))
 
-const VALID_TABS = new Set<RunTab>(["activity", "results", "database", "cost", "config", "review-screening", "references"])
+const VALID_TABS = new Set<RunTab>(["activity", "results", "database", "cost", "config", "quality", "review-screening", "references"])
 
 // ---------------------------------------------------------------------------
 // Top-level error boundary: catches render-time crashes in any child view so
@@ -100,6 +102,17 @@ function parseRunUrl(pathname: string): { workflowId: string; tab: RunTab } | nu
   return { workflowId, tab }
 }
 
+interface DraftConfigState {
+  request: ConfigGenerateRequest | null
+  yaml: string
+  isGenerating: boolean
+  activeStep: string
+  stepMetadata: Record<string, unknown>
+  usedWebFallback: boolean
+  fallbackReason: string | null
+  generationError: string | null
+}
+
 function ViewLoader() {
   return (
     <div className="flex items-center justify-center h-48">
@@ -133,6 +146,7 @@ export default function App() {
   // --- Selected run (what is displayed in the main area) ---
   const [selectedRun, setSelectedRun] = useState<SelectedRun | null>(null)
   const [activeRunTab, setActiveRunTab] = useState<RunTab>("activity")
+  const [draftConfig, setDraftConfig] = useState<DraftConfigState | null>(null)
   const [submissionFocusTarget, setSubmissionFocusTarget] = useState<"reference-papers" | null>(null)
   const [submissionFocusToken, setSubmissionFocusToken] = useState(0)
   const [costOpsOpen, setCostOpsOpen] = useState(false)
@@ -327,6 +341,11 @@ export default function App() {
 
     const { workflowId: urlWfId, tab: urlTab } = parsed
     setActiveRunTab(urlTab)
+    if (urlWfId === "draft") {
+      // Draft routing is session-local state; refresh should return to setup.
+      navigate("/", { replace: true })
+      return
+    }
 
     if (stored?.workflowId === urlWfId) {
       // URL points to the currently-live run in localStorage. Probe backend
@@ -565,7 +584,101 @@ export default function App() {
   // Handlers
   // ---------------------------------------------------------------------------
 
+  function openDraftRunShell(topic: string) {
+    const now = new Date()
+    setSelectedRun({
+      runId: "draft",
+      workflowId: "draft",
+      topic,
+      dbPath: null,
+      isDone: false,
+      startedAt: now,
+      createdAt: now.toISOString(),
+    })
+    setActiveRunTab("config")
+    navigate("/run/draft/config", { replace: true })
+  }
+
+  async function handleStartDraftConfig(req: ConfigGenerateRequest) {
+    openDraftRunShell(req.question)
+    setDraftConfig({
+      request: req,
+      yaml: "",
+      isGenerating: true,
+      activeStep: "start",
+      stepMetadata: {},
+      usedWebFallback: false,
+      fallbackReason: null,
+      generationError: null,
+    })
+    try {
+      const yaml = await generateConfigStream(
+        req.question,
+        req.geminiKey,
+        req.generationProfile,
+        (step, metadata) => {
+          const normalizedStep = step === "structuring_retry" ? "structuring" : step
+          setDraftConfig((prev) => {
+            if (!prev) return prev
+            const reason = step === "web_research_fallback" && typeof metadata?.reason === "string"
+              ? metadata.reason
+              : prev.fallbackReason
+            return {
+              ...prev,
+              activeStep: normalizedStep,
+              stepMetadata: metadata ?? {},
+              usedWebFallback: prev.usedWebFallback || step === "web_research_fallback",
+              fallbackReason: reason,
+            }
+          })
+        },
+      )
+      setDraftConfig((prev) => (prev ? { ...prev, yaml, isGenerating: false, generationError: null } : prev))
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      setDraftConfig((prev) => (prev ? { ...prev, isGenerating: false, generationError: message } : prev))
+    }
+  }
+
+  function handleOpenDraftYaml(yaml: string) {
+    openDraftRunShell("Draft config")
+    setDraftConfig({
+      request: null,
+      yaml,
+      isGenerating: false,
+      activeStep: "finalizing",
+      stepMetadata: {},
+      usedWebFallback: false,
+      fallbackReason: null,
+      generationError: null,
+    })
+  }
+
+  async function handleRetryDraftConfigGeneration() {
+    if (!draftConfig?.request) return
+    await handleStartDraftConfig(draftConfig.request)
+  }
+
+  async function handleLaunchDraftConfig(yaml: string) {
+    if (!draftConfig?.request) return
+    const req: RunRequest = {
+      review_yaml: yaml,
+      gemini_api_key: draftConfig.request.geminiKey,
+    }
+    setDraftConfig(null)
+    if (draftConfig.request.csvFile && draftConfig.request.csvMode === "masterlist") {
+      await handleStartWithMasterlistCsv(draftConfig.request.csvFile, req)
+      return
+    }
+    if (draftConfig.request.csvFile) {
+      await handleStartWithSupplementaryCsv(draftConfig.request.csvFile, req)
+      return
+    }
+    await handleStart(req)
+  }
+
   async function handleStart(req: RunRequest) {
+    setDraftConfig(null)
     reset()
     wasStreamingRef.current = false
     liveRunNavigatedRef.current = null
@@ -591,12 +704,20 @@ export default function App() {
   }
 
   async function handleStartWithSupplementaryCsv(csvFile: File, req: RunRequest) {
+    setDraftConfig(null)
     reset()
     wasStreamingRef.current = false
     liveRunNavigatedRef.current = null
     const now = new Date()
     const keys: StoredApiKeys = {
       gemini: req.gemini_api_key,
+      deepseek: req.deepseek_api_key ?? "",
+      openrouter: req.openrouter_api_key ?? "",
+      openai: req.openai_api_key ?? "",
+      anthropic: req.anthropic_api_key ?? "",
+      groq: req.groq_api_key ?? "",
+      mistral: req.mistral_api_key ?? "",
+      cohere: req.cohere_api_key ?? "",
       openalex: req.openalex_api_key ?? "",
       ieee: req.ieee_api_key ?? "",
       pubmedEmail: req.pubmed_email ?? "",
@@ -627,12 +748,20 @@ export default function App() {
   }
 
   async function handleStartWithMasterlistCsv(csvFile: File, req: RunRequest) {
+    setDraftConfig(null)
     reset()
     wasStreamingRef.current = false
     liveRunNavigatedRef.current = null
     const now = new Date()
     const keys: StoredApiKeys = {
       gemini: req.gemini_api_key,
+      deepseek: req.deepseek_api_key ?? "",
+      openrouter: req.openrouter_api_key ?? "",
+      openai: req.openai_api_key ?? "",
+      anthropic: req.anthropic_api_key ?? "",
+      groq: req.groq_api_key ?? "",
+      mistral: req.mistral_api_key ?? "",
+      cohere: req.cohere_api_key ?? "",
       openalex: req.openalex_api_key ?? "",
       ieee: req.ieee_api_key ?? "",
       pubmedEmail: req.pubmed_email ?? "",
@@ -668,6 +797,7 @@ export default function App() {
   }
 
   function handleNewReview() {
+    setDraftConfig(null)
     setSelectedRun(null)
     setHistoryOutputs({})
     navigate("/")
@@ -675,6 +805,7 @@ export default function App() {
 
   function handleSelectLiveRun() {
     if (!liveRunId || !liveTopic) return
+    setDraftConfig(null)
     setSelectedRun({
       runId: liveRunId,
       workflowId: liveWorkflowId,
@@ -690,6 +821,7 @@ export default function App() {
   }
 
   async function handleSelectHistory(entry: HistoryEntry) {
+    setDraftConfig(null)
     const focusSelectedWorkflow = () => {
       setActiveRunTab("activity")
       navigate(`/run/${entry.workflow_id}/activity`, { replace: true })
@@ -795,11 +927,13 @@ export default function App() {
   }
 
   function handleGoHome() {
+    setDraftConfig(null)
     setSelectedRun(null)
     navigate("/")
   }
 
   function handleResumeRun(res: RunResponse, workflowId: string) {
+    setDraftConfig(null)
     const now = new Date()
     reset()
     wasStreamingRef.current = false
@@ -957,17 +1091,19 @@ export default function App() {
         <Suspense fallback={<ViewLoader />}>
           <SetupView
             defaultReviewYaml={defaultYaml}
-            onSubmit={handleStart}
-            onSubmitWithSupplementaryCsv={handleStartWithSupplementaryCsv}
-            onSubmitWithMasterlistCsv={handleStartWithMasterlistCsv}
+            onGenerateDraft={(req) => { void handleStartDraftConfig(req) }}
+            onOpenDraftWithYaml={handleOpenDraftYaml}
             disabled={isRunning}
           />
         </Suspense>
       )
     }
 
+    const isDraftRun = selectedRun.workflowId === "draft"
+    const draftStatus = draftConfig?.isGenerating ? "streaming" : "awaiting_review"
+
     // Map the registry's raw status string to an SSE-style status for historical runs.
-    const resolvedHistoricalStatus = (() => {
+    const resolvedHistoricalStatus = isDraftRun ? draftStatus : (() => {
       const s = (selectedRun.historicalStatus ?? "completed").toLowerCase()
       if (s === "completed" || s === "done") return "done"
       if (s === "running" || s === "streaming") return "streaming"
@@ -979,6 +1115,7 @@ export default function App() {
       return "done"
     })()
     const completedHistoricalRun =
+      !isDraftRun &&
       !isViewingLiveRun &&
       ["completed", "done"].includes((selectedRun.historicalStatus ?? "").toLowerCase())
     const resumeModeActive = completedHistoricalRun
@@ -998,10 +1135,13 @@ export default function App() {
         liveOutputs={isViewingLiveRun ? liveOutputs : {}}
         dbUnlocked={Boolean(dbUnlocked)}
         isLive={isViewingLiveRun && isRunning && Boolean(dbUnlocked)}
-        onResumeFromPhase={!isViewingLiveRun ? handleTimelineResumePhase : undefined}
+        onResumeFromPhase={!isViewingLiveRun && !isDraftRun ? handleTimelineResumePhase : undefined}
         resumeModeActive={resumeModeActive}
         submissionFocusTarget={submissionFocusTarget}
         submissionFocusToken={submissionFocusToken}
+        draftConfig={isDraftRun ? draftConfig : null}
+        onRetryDraftGeneration={() => { void handleRetryDraftConfigGeneration() }}
+        onLaunchDraft={(yaml) => { void handleLaunchDraftConfig(yaml) }}
       />
     )
   }

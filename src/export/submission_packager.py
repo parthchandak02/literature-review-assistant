@@ -493,9 +493,9 @@ async def llm_resolve_unmatched_citations(
         "additionalProperties": {"type": "string"},
     }
     try:
-        from src.llm.pydantic_client import PydanticAIClient
+        from src.llm.factory import get_chat_client
 
-        client = PydanticAIClient(timeout_seconds=60.0)
+        client = get_chat_client(timeout_seconds=60.0)
         raw_json, tokens_in, tokens_out, _, _ = await client.complete_with_usage(
             prompt,
             model=model_name,

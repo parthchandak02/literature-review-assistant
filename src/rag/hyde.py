@@ -15,11 +15,8 @@ import logging
 import time
 from typing import TYPE_CHECKING
 
-from pydantic_ai import Agent
-from pydantic_ai.settings import ModelSettings
-
+from src.llm.factory import get_chat_client
 from src.llm.provider import LLMProvider
-from src.llm.pydantic_client import _run_with_retry
 from src.models.additional import CostRecord
 
 if TYPE_CHECKING:
@@ -124,20 +121,27 @@ async def generate_hyde_document(
 
     try:
         t0 = time.monotonic()
-        agent: Agent[None, str] = Agent(model, output_type=str)
-        result = await _run_with_retry(agent, prompt, model_settings=ModelSettings(temperature=0.7))
+        client = get_chat_client()
+        text, tokens_in, tokens_out, cache_write, cache_read = await client.complete_with_usage(
+            prompt,
+            model=model,
+            temperature=0.7,
+        )
         elapsed_ms = int((time.monotonic() - t0) * 1000)
-        text = result.output.strip()
+        text = text.strip()
         if len(text) < 30:
             logger.warning("HyDE output too short for section '%s': %r", section, text)
             return ""
         logger.debug("HyDE generated %d chars for section '%s'", len(text), section)
 
         if repository:
-            usage = result.usage()
-            tokens_in = usage.input_tokens or 0
-            tokens_out = usage.output_tokens or 0
-            cost_usd = LLMProvider.estimate_cost_usd(model, tokens_in, tokens_out)
+            cost_usd = LLMProvider.estimate_cost_usd(
+                model,
+                tokens_in,
+                tokens_out,
+                cache_write=cache_write,
+                cache_read=cache_read,
+            )
             await repository.save_cost_record(
                 CostRecord(
                     workflow_id=workflow_id,
@@ -147,6 +151,8 @@ async def generate_hyde_document(
                     cost_usd=cost_usd,
                     latency_ms=elapsed_ms,
                     phase="phase_6_hyde",
+                    cache_write_tokens=cache_write,
+                    cache_read_tokens=cache_read,
                 )
             )
         return text

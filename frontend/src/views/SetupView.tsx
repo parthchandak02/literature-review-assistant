@@ -12,6 +12,8 @@ import {
   Sparkles,
   Wand2,
   FileCode2,
+  HeartPulse,
+  HelpCircle,
   Key,
   Upload,
   X,
@@ -23,13 +25,19 @@ import { PageSection } from "@/components/ui/section"
 import { YamlEditor } from "@/components/YamlEditor"
 import {
   fetchEnvKeys,
+  fetchRequiredLlmUiKeys,
   fetchHistory,
   fetchRunConfig,
-  generateConfigStream,
   loadApiKeys,
   saveApiKeys,
 } from "@/lib/api"
 import { FetchError } from "@/components/ui/feedback"
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip"
 import { formatShortDate } from "@/lib/format"
 import type { HistoryEntry, RunRequest, StoredApiKeys } from "@/lib/api"
 
@@ -39,19 +47,27 @@ import type { HistoryEntry, RunRequest, StoredApiKeys } from "@/lib/api"
 
 interface SetupViewProps {
   defaultReviewYaml: string
-  onSubmit: (req: RunRequest) => Promise<void>
-  onSubmitWithSupplementaryCsv?: (csvFile: File, req: RunRequest) => Promise<void>
-  onSubmitWithMasterlistCsv?: (csvFile: File, req: RunRequest) => Promise<void>
+  onGenerateDraft: (req: ConfigGenerateRequest) => void
+  onOpenDraftWithYaml: (yaml: string) => void
   disabled: boolean
 }
 
-type Stage = "question" | "review"
 type CsvMode = "supplementary" | "masterlist"
+type GenerationProfile = "standard" | "health_sdg"
+export interface ConfigGenerateRequest {
+  question: string
+  geminiKey: string
+  csvFile?: File
+  csvMode: CsvMode
+  generationProfile: GenerationProfile
+}
 
 // ---------------------------------------------------------------------------
 // Generation steps (driven by real SSE events from the backend)
 // ---------------------------------------------------------------------------
 
+// Stage 1 web research is powered by Gemini tools (WebSearchTool/WebFetchTool),
+// not the optional connector API keys entered before launch.
 const GEN_STEPS: { key: string; label: string; detail: string }[] = [
   { key: "start",            label: "Analyzing your research question", detail: "Understanding scope, domain, and intent" },
   { key: "web_research",     label: "Searching the web",                detail: "Discovering brand names, synonyms, and domain terminology" },
@@ -62,49 +78,43 @@ const GEN_STEPS: { key: string; label: string; detail: string }[] = [
   { key: "finalizing",       label: "Finalizing your config",           detail: "Validating and serializing to YAML" },
 ]
 
-const STEP_ALIASES: Record<string, string> = {
-  structuring_retry: "structuring",
-}
 const WEB_RESEARCH_FALLBACK_STEP = "web_research_fallback"
 const WEB_RESEARCH_DONE_INDEX = GEN_STEPS.findIndex((s) => s.key === "web_research_done")
 
-function GeneratingScreen({
+function buildTopicRoutingText(stepMetadata: Record<string, unknown>): string | null {
+  const domain = typeof stepMetadata.domain === "string" ? stepMetadata.domain : null
+  const confidence = typeof stepMetadata.confidence === "number" ? stepMetadata.confidence : null
+  const policy = typeof stepMetadata.policy === "string" ? stepMetadata.policy : null
+  if (!domain && !policy && confidence === null) return null
+  const confidenceTxt = confidence === null ? "n/a" : confidence.toFixed(2)
+  return `Domain=${domain ?? "unknown"}, confidence=${confidenceTxt}, policy=${policy ?? "unknown"}`
+}
+
+function getFallbackStepLabel(fallbackSkipped: boolean, fallbackDegraded: boolean): string {
+  if (fallbackSkipped) return "Web research backup skipped"
+  if (fallbackDegraded) return "Web search unavailable"
+  return "Web research backup (standby)"
+}
+
+function GenerationProgressCard({
   activeStepKey,
   stepMetadata,
   usedWebFallback,
+  fallbackReason,
 }: {
   activeStepKey: string
   stepMetadata: Record<string, unknown>
   usedWebFallback: boolean
+  fallbackReason: string | null
 }) {
   const activeIdx = GEN_STEPS.findIndex((s) => s.key === activeStepKey)
   const activeStep = activeIdx === -1 ? 0 : activeIdx
   const hasPassedWebSearch = activeStep > WEB_RESEARCH_DONE_INDEX
-  const routeDetail = (() => {
-    const domain = typeof stepMetadata.domain === "string" ? stepMetadata.domain : null
-    const confidence = typeof stepMetadata.confidence === "number" ? stepMetadata.confidence : null
-    const policy = typeof stepMetadata.policy === "string" ? stepMetadata.policy : null
-    if (!domain && !policy && confidence === null) return null
-    const confidenceTxt = confidence === null ? "n/a" : confidence.toFixed(2)
-    return `Domain=${domain ?? "unknown"}, confidence=${confidenceTxt}, policy=${policy ?? "unknown"}`
-  })()
+  const routeDetail = buildTopicRoutingText(stepMetadata)
 
   return (
-    <div className="flex flex-col items-center py-8 gap-6 max-w-md mx-auto w-full">
-      <div className="relative flex items-center justify-center">
-        <div className="absolute w-16 h-16 rounded-full bg-violet-500/10 animate-ping" />
-        <div className="absolute w-12 h-12 rounded-full bg-violet-500/15 animate-pulse" />
-        <div className="relative w-10 h-10 rounded-xl bg-violet-600/30 border border-violet-500/40 flex items-center justify-center">
-          <Wand2 className="h-5 w-5 text-violet-400" />
-        </div>
-      </div>
-
-      <div className="text-center">
-        <p className="text-sm font-semibold text-zinc-200 mb-0.5">Generating your review config</p>
-        <p className="text-xs text-zinc-500">Usually 20-30 seconds</p>
-      </div>
-
-      <div className="w-full flex flex-col gap-1.5">
+    <PageSection icon={Sparkles} title="Config Generation Summary" description="Live generation progress">
+      <div className="space-y-1.5">
         {GEN_STEPS.map((step, i) => {
           const fallbackSkipped =
             step.key === WEB_RESEARCH_FALLBACK_STEP && !usedWebFallback && hasPassedWebSearch
@@ -146,62 +156,27 @@ function GeneratingScreen({
             : "text-zinc-500"
           const detailText = fallbackSkipped
             ? "Skipped because web research succeeded."
+            : fallbackDegraded && fallbackReason
+            ? `Falling back to model knowledge: ${fallbackReason}`
             : step.key === "topic_routing" && routeDetail
             ? routeDetail
             : step.detail
+          const titleText =
+            step.key === WEB_RESEARCH_FALLBACK_STEP
+              ? getFallbackStepLabel(fallbackSkipped, fallbackDegraded)
+              : step.label
 
           return (
-            <div
-              key={step.key}
-              className={`flex items-start gap-3 px-3 py-2.5 rounded-xl border transition-all duration-500 ${rowCls}`}
-            >
-              <div className="flex-shrink-0 mt-0.5">
-                {fallbackDegraded ? (
-                  <div className="w-4 h-4 rounded-full bg-amber-500/20 border border-amber-400/60 flex items-center justify-center">
-                    <div className="w-1.5 h-1.5 rounded-full bg-amber-300" />
-                  </div>
-                ) : fallbackSkipped ? (
-                  <div className="w-4 h-4 rounded-full bg-sky-500/15 border border-sky-400/45 flex items-center justify-center">
-                    <div className="w-1.5 h-1.5 rounded-full bg-sky-300/80" />
-                  </div>
-                ) : done ? (
-                  <div className="w-4 h-4 rounded-full bg-emerald-500/30 border border-emerald-400/50 flex items-center justify-center">
-                    <div className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
-                  </div>
-                ) : active ? (
-                  <div className="w-4 h-4 rounded-full border border-violet-400/60 flex items-center justify-center">
-                    <div className="w-1.5 h-1.5 rounded-full bg-violet-400 animate-pulse" />
-                  </div>
-                ) : (
-                  <div className="w-4 h-4 rounded-full border border-zinc-700" />
-                )}
-              </div>
-              <div className="flex-1 min-w-0">
-                <p className={`text-xs font-medium leading-snug ${titleCls}`}>
-                  {step.label}
-                </p>
-                {showDetail && (
-                  <p className={`text-xs mt-0.5 leading-snug ${detailCls}`}>
-                    {detailText}
-                  </p>
-                )}
-              </div>
-              {active && (
-                <div className="flex gap-0.5 mt-1 flex-shrink-0">
-                  {[0, 1, 2].map((d) => (
-                    <div
-                      key={d}
-                      className="w-1 h-1 rounded-full bg-violet-400/60 animate-bounce"
-                      style={{ animationDelay: `${d * 150}ms` }}
-                    />
-                  ))}
-                </div>
+            <div key={step.key} className={`rounded-lg border px-2.5 py-2 ${rowCls}`}>
+              <p className={`text-xs font-medium leading-snug ${titleCls}`}>{titleText}</p>
+              {showDetail && (
+                <p className={`text-[11px] mt-1 leading-snug ${detailCls}`}>{detailText}</p>
               )}
             </div>
           )
         })}
       </div>
-    </div>
+    </PageSection>
   )
 }
 
@@ -222,6 +197,13 @@ function ApiKeysSection({ keys, onChange, embedded }: ApiKeysProps) {
 
   const fields: { id: keyof StoredApiKeys; label: string; placeholder: string; required?: boolean }[] = [
     { id: "gemini", label: "Gemini API Key", placeholder: "AIza...", required: true },
+    { id: "deepseek", label: "DeepSeek API Key", placeholder: "optional -- sk-..." },
+    { id: "openrouter", label: "OpenRouter API Key", placeholder: "optional -- sk-or-v1-..." },
+    { id: "openai", label: "OpenAI API Key", placeholder: "optional -- sk-..." },
+    { id: "anthropic", label: "Anthropic API Key", placeholder: "optional -- sk-ant-..." },
+    { id: "groq", label: "Groq API Key", placeholder: "optional -- gsk_..." },
+    { id: "mistral", label: "Mistral API Key", placeholder: "optional -- ..." },
+    { id: "cohere", label: "Cohere API Key", placeholder: "optional -- ..." },
     { id: "scopus", label: "Scopus API Key", placeholder: "optional -- Elsevier Scopus search" },
     { id: "wos", label: "Web of Science API Key", placeholder: "optional -- Clarivate WoS Starter API" },
     { id: "openalex", label: "OpenAlex API Key", placeholder: "optional -- register free at openalex.org/sign-up" },
@@ -300,7 +282,7 @@ function ApiKeysSection({ keys, onChange, embedded }: ApiKeysProps) {
         <Key className="h-3.5 w-3.5 text-zinc-500 shrink-0" />
         <span className="text-xs font-semibold text-zinc-300 flex-1">API Keys</span>
         {!keys.gemini && (
-          <span className="text-xs text-red-400 font-medium">Gemini key required</span>
+          <span className="text-xs text-red-400 font-medium">At least one LLM key required</span>
         )}
       </div>
       {formContent}
@@ -313,13 +295,17 @@ function ApiKeysSection({ keys, onChange, embedded }: ApiKeysProps) {
 // ---------------------------------------------------------------------------
 
 interface Stage1Props {
-  onGenerated: (yaml: string, question: string, csvFile?: File, csvMode?: CsvMode) => void
+  onGenerateRequested: (req: ConfigGenerateRequest) => void
   onPasteYaml: () => void
   history: HistoryEntry[]
   onLoadFromHistory: (entry: HistoryEntry) => void
   loadingHistoryId: string | null
   loadError: string | null
   onClearError: () => void
+  initialQuestion: string
+  initialGeminiKey: string
+  initialCsvFile: File | null
+  initialCsvMode: CsvMode
 }
 
 // ---------------------------------------------------------------------------
@@ -452,37 +438,112 @@ function CsvDropZone({ file, onFile, mode, onModeChange }: CsvDropZoneProps) {
     if (f) onFile(f)
   }
 
-  return (
-    <div>
-      <label className="block text-xs font-semibold text-zinc-400 mb-2 uppercase tracking-wide">
-        CSV Import <span className="text-zinc-600">(optional)</span>
-      </label>
-      <div className="flex items-center gap-2 mb-2">
-        <button
-          type="button"
-          onClick={() => onModeChange("supplementary")}
-          className={`px-2.5 py-1 rounded-lg text-xs border transition-colors ${
-            mode === "supplementary"
-              ? "border-violet-500/50 bg-violet-500/10 text-violet-200"
-              : "border-zinc-700 bg-zinc-900/50 text-zinc-500 hover:text-zinc-300"
-          }`}
-        >
-          Merge with search
-        </button>
-        <button
-          type="button"
-          onClick={() => onModeChange("masterlist")}
-          className={`px-2.5 py-1 rounded-lg text-xs border transition-colors ${
-            mode === "masterlist"
-              ? "border-violet-500/50 bg-violet-500/10 text-violet-200"
-              : "border-zinc-700 bg-zinc-900/50 text-zinc-500 hover:text-zinc-300"
-          }`}
-        >
-          Use as master list
-        </button>
-      </div>
+  const mergeTooltip = (
+    <>
+      <p className="font-semibold text-zinc-100 mb-1.5">Merge with search</p>
+      <p className="text-zinc-300/90 mb-1.5">
+        Connector search runs first (OpenAlex, PubMed, etc.). Rows from your CSV are combined with those hits before screening.
+      </p>
+      <p className="text-zinc-400">
+        Example: you have 80 hand-picked Scopus exports and still want automated search to add newer papers—duplicates drop out when merged.
+      </p>
+    </>
+  )
 
-      {/* Drop zone / file picker */}
+  const masterTooltip = (
+    <>
+      <p className="font-semibold text-zinc-100 mb-1.5">Use as master list</p>
+      <p className="text-zinc-300/90 mb-1.5">
+        Your CSV is the canonical study set; the workflow treats it as the primary input instead of expanding via connector search.
+      </p>
+      <p className="text-zinc-400">
+        Example: you already locked a PRISMA table of 42 included studies and want screening and extraction on exactly those rows.
+      </p>
+    </>
+  )
+
+  return (
+    <TooltipProvider delayDuration={250}>
+      <div>
+        <div className="flex items-center gap-1.5 mb-2">
+          <label className="text-xs font-semibold text-zinc-400 uppercase tracking-wide cursor-default">
+            CSV Import <span className="text-zinc-600">(optional)</span>
+          </label>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                type="button"
+                className="text-zinc-600 hover:text-blue-400/90 transition-colors rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-500/40"
+                aria-label="About optional CSV import"
+              >
+                <HelpCircle className="h-3.5 w-3.5" />
+              </button>
+            </TooltipTrigger>
+            <TooltipContent
+              side="top"
+              align="start"
+              className="max-w-[280px] border-zinc-700 bg-zinc-950 text-xs text-zinc-300 leading-relaxed px-3 py-2.5 shadow-lg"
+            >
+              <p className="font-semibold text-zinc-100 mb-1">Optional CSV</p>
+              <p>Add a Scopus-style spreadsheet to either enrich automated search or replace it with your fixed list.</p>
+            </TooltipContent>
+          </Tooltip>
+        </div>
+
+        <div
+          className="inline-flex rounded-lg border border-zinc-700 bg-zinc-900/70 p-0.5 gap-0.5 mb-2"
+          role="radiogroup"
+          aria-label="How to use the CSV"
+        >
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                type="button"
+                role="radio"
+                aria-checked={mode === "supplementary"}
+                onClick={() => onModeChange("supplementary")}
+                className={`px-2.5 py-1 rounded-md text-xs font-medium transition-colors min-w-0 ${
+                  mode === "supplementary"
+                    ? "bg-violet-500/15 text-violet-200 shadow-sm ring-1 ring-violet-500/35"
+                    : "text-zinc-500 hover:text-zinc-300"
+                }`}
+              >
+                Merge with search
+              </button>
+            </TooltipTrigger>
+            <TooltipContent
+              side="bottom"
+              className="max-w-[280px] border-zinc-700 bg-zinc-950 text-xs leading-relaxed px-3 py-2.5 shadow-lg"
+            >
+              {mergeTooltip}
+            </TooltipContent>
+          </Tooltip>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                type="button"
+                role="radio"
+                aria-checked={mode === "masterlist"}
+                onClick={() => onModeChange("masterlist")}
+                className={`px-2.5 py-1 rounded-md text-xs font-medium transition-colors min-w-0 ${
+                  mode === "masterlist"
+                    ? "bg-violet-500/15 text-violet-200 shadow-sm ring-1 ring-violet-500/35"
+                    : "text-zinc-500 hover:text-zinc-300"
+                }`}
+              >
+                Use as master list
+              </button>
+            </TooltipTrigger>
+            <TooltipContent
+              side="bottom"
+              className="max-w-[280px] border-zinc-700 bg-zinc-950 text-xs leading-relaxed px-3 py-2.5 shadow-lg"
+            >
+              {masterTooltip}
+            </TooltipContent>
+          </Tooltip>
+        </div>
+
+        {/* Drop zone / file picker */}
       {!file ? (
         <div
           onDragOver={(e) => { e.preventDefault(); setDragging(true) }}
@@ -622,7 +683,8 @@ function CsvDropZone({ file, onFile, mode, onModeChange }: CsvDropZoneProps) {
         className="hidden"
         onChange={(e) => handleAccept(e.target.files?.[0])}
       />
-    </div>
+      </div>
+    </TooltipProvider>
   )
 }
 
@@ -631,16 +693,22 @@ function CsvDropZone({ file, onFile, mode, onModeChange }: CsvDropZoneProps) {
 // ---------------------------------------------------------------------------
 
 function QuestionStage({
-  onGenerated,
+  onGenerateRequested,
   onPasteYaml,
   history,
   onLoadFromHistory,
   loadingHistoryId,
   loadError,
   onClearError,
+  initialQuestion,
+  initialGeminiKey,
+  initialCsvFile,
+  initialCsvMode,
 }: Stage1Props) {
-  const [question, setQuestion] = useState("")
-  const [geminiKey, setGeminiKey] = useState(() => loadApiKeys()?.gemini ?? "")
+  const [question, setQuestion] = useState(initialQuestion)
+  const [geminiKey, setGeminiKey] = useState(
+    () => initialGeminiKey || (loadApiKeys()?.gemini ?? "")
+  )
 
   // Backfill Gemini key from .env if not already in localStorage
   useEffect(() => {
@@ -648,14 +716,9 @@ function QuestionStage({
     fetchEnvKeys().then((env) => { if (env.gemini) setGeminiKey(env.gemini) })
   }, [geminiKey])
   const [showKey, setShowKey] = useState(false)
-  const [generating, setGenerating] = useState(false)
-  const [activeGenStep, setActiveGenStep] = useState("start")
-  const [activeStepMetadata, setActiveStepMetadata] = useState<Record<string, unknown>>({})
-  const [usedWebFallback, setUsedWebFallback] = useState(false)
-  const [error, setError] = useState<string | null>(null)
   const [showHistory, setShowHistory] = useState(false)
-  const [csvFile, setCsvFile] = useState<File | null>(null)
-  const [csvMode, setCsvMode] = useState<CsvMode>("supplementary")
+  const [csvFile, setCsvFile] = useState<File | null>(initialCsvFile)
+  const [csvMode, setCsvMode] = useState<CsvMode>(initialCsvMode)
   const dropdownRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
@@ -668,39 +731,15 @@ function QuestionStage({
     return () => document.removeEventListener("mousedown", handler)
   }, [showHistory])
 
-  async function handleGenerate() {
+  async function handleGenerate(generationProfile: GenerationProfile = "standard") {
     if (!question.trim() || !geminiKey.trim()) return
-    setError(null)
-    setActiveGenStep("start")
-    setActiveStepMetadata({})
-    setUsedWebFallback(false)
-    setGenerating(true)
-    try {
-      const yaml = await generateConfigStream(
-        question.trim(),
-        geminiKey.trim(),
-        (step, metadata) => {
-          const normalizedStep = STEP_ALIASES[step] ?? step
-          if (step === WEB_RESEARCH_FALLBACK_STEP) setUsedWebFallback(true)
-          setActiveGenStep(normalizedStep)
-          setActiveStepMetadata(metadata ?? {})
-        },
-      )
-      onGenerated(yaml, question.trim(), csvFile ?? undefined, csvMode)
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err))
-      setGenerating(false)
-    }
-  }
-
-  if (generating) {
-    return (
-      <GeneratingScreen
-        activeStepKey={activeGenStep}
-        stepMetadata={activeStepMetadata}
-        usedWebFallback={usedWebFallback}
-      />
-    )
+    onGenerateRequested({
+      question: question.trim(),
+      geminiKey: geminiKey.trim(),
+      csvFile: csvFile ?? undefined,
+      csvMode,
+      generationProfile,
+    })
   }
 
   const completedRuns = history.filter((h) => h.status === "completed").slice(0, 10)
@@ -720,13 +759,6 @@ function QuestionStage({
         </p>
       </div>
 
-      <div className="flex items-start gap-2.5 px-3 py-2.5 bg-blue-500/8 border border-blue-500/20 rounded-xl text-xs text-blue-400/80 leading-relaxed">
-        <Upload className="h-3.5 w-3.5 text-blue-400 shrink-0 mt-0.5" />
-        <span>
-          Optional: attach a CSV to either merge with connector search results or use as a master list.
-        </span>
-      </div>
-
       <CsvDropZone file={csvFile} onFile={setCsvFile} mode={csvMode} onModeChange={setCsvMode} />
 
       {/* Research question */}
@@ -741,7 +773,7 @@ function QuestionStage({
           placeholder="e.g. What is the effect of [intervention] on [outcome] in [population]? Describe your research question in plain language."
           className="resize-none text-sm bg-zinc-900 border-zinc-800 text-zinc-200 placeholder:text-zinc-600 focus-visible:ring-violet-500/50 leading-relaxed"
           onKeyDown={(e) => {
-            if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) void handleGenerate()
+            if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) void handleGenerate("standard")
           }}
         />
         <p className="text-xs text-zinc-600 mt-1.5">Cmd+Enter to generate</p>
@@ -774,10 +806,6 @@ function QuestionStage({
         </p>
       </div>
 
-      {/* Error */}
-      {error && (
-        <FetchError message={error} onRetry={() => setError(null)} />
-      )}
       {loadError && (
         <FetchError message={loadError} onRetry={onClearError} />
       )}
@@ -792,6 +820,18 @@ function QuestionStage({
         <Sparkles className="h-4 w-4" />
         Generate Review Config
       </Button>
+      <Button
+        type="button"
+        onClick={() => void handleGenerate("health_sdg")}
+        disabled={!canGenerate}
+        className="w-full h-12 bg-emerald-600/90 hover:bg-emerald-500 disabled:opacity-40 text-white font-semibold gap-2.5 transition-colors border border-emerald-400/30"
+      >
+        <HeartPulse className="h-5 w-5" />
+        Generate Health + SDG Config
+      </Button>
+      <p className="text-xs text-zinc-500 -mt-2 leading-relaxed">
+        Hybrid framing mode: keeps your core topic while adding health-impact pathways and UN SDG alignment.
+      </p>
 
       {/* Secondary actions */}
       <div className="flex items-center justify-between pt-1">
@@ -866,9 +906,17 @@ interface Stage2Props {
   csvMode?: CsvMode
   disabled: boolean
   defaultYaml: string
+  isGeneratingConfig: boolean
+  activeGenStep: string
+  activeStepMetadata: Record<string, unknown>
+  usedWebFallback: boolean
+  fallbackReason: string | null
+  generationError: string | null
+  onRetryGeneration: () => void
+  showGenerationSummary: boolean
 }
 
-function ConfigReviewStage({
+export function ConfigReviewStage({
   yaml,
   onYamlChange,
   question,
@@ -880,10 +928,25 @@ function ConfigReviewStage({
   csvMode = "supplementary",
   disabled,
   defaultYaml,
+  isGeneratingConfig,
+  activeGenStep,
+  activeStepMetadata,
+  usedWebFallback,
+  fallbackReason,
+  generationError,
+  onRetryGeneration,
+  showGenerationSummary,
 }: Stage2Props) {
   const [keys, setKeys] = useState<StoredApiKeys>(() => {
     const defaults: StoredApiKeys = {
       gemini: "",
+      deepseek: "",
+      openrouter: "",
+      openai: "",
+      anthropic: "",
+      groq: "",
+      mistral: "",
+      cohere: "",
       openalex: "",
       ieee: "",
       pubmedEmail: "",
@@ -902,6 +965,7 @@ function ConfigReviewStage({
   })
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [requiredLlmUiKeys, setRequiredLlmUiKeys] = useState<string[]>(["gemini"])
 
   // On mount, backfill any empty fields with values from the server's .env.
   // localStorage always wins; env fills in blanks the user hasn't set yet.
@@ -919,11 +983,22 @@ function ConfigReviewStage({
         return merged
       })
     })
+    fetchRequiredLlmUiKeys().then((keys) => {
+      if (keys.length > 0) {
+        setRequiredLlmUiKeys(keys)
+      }
+    })
   }, [])
 
+  const keysByName = keys as unknown as Record<string, string>
+  const missingRequiredLlmKeys = requiredLlmUiKeys.filter((key) => !String(keysByName[key] ?? "").trim())
+  const hasAllRequiredLlmKeys = missingRequiredLlmKeys.length === 0
+
   async function handleLaunch() {
-    if (!keys.gemini.trim()) {
-      setError("Gemini API key is required to start a review.")
+    if (!hasAllRequiredLlmKeys) {
+      setError(
+        `Missing required LLM API key(s): ${missingRequiredLlmKeys.join(", ")}. Required keys are inferred from model prefixes in settings.yaml.`,
+      )
       return
     }
     setError(null)
@@ -933,6 +1008,13 @@ function ConfigReviewStage({
       const req: RunRequest = {
         review_yaml: yaml || defaultYaml,
         gemini_api_key: keys.gemini,
+        deepseek_api_key: keys.deepseek || undefined,
+        openrouter_api_key: keys.openrouter || undefined,
+        openai_api_key: keys.openai || undefined,
+        anthropic_api_key: keys.anthropic || undefined,
+        groq_api_key: keys.groq || undefined,
+        mistral_api_key: keys.mistral || undefined,
+        cohere_api_key: keys.cohere || undefined,
         openalex_api_key: keys.openalex || undefined,
         ieee_api_key: keys.ieee || undefined,
         pubmed_email: keys.pubmedEmail || undefined,
@@ -966,6 +1048,7 @@ function ConfigReviewStage({
             variant="ghost"
             size="sm"
             onClick={onBack}
+            disabled={isGeneratingConfig}
             className="text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800/50 shrink-0 -ml-2"
           >
             <ChevronLeft className="h-3.5 w-3.5" />
@@ -1006,45 +1089,61 @@ function ConfigReviewStage({
         <div className="flex items-start gap-2.5 px-3 py-2.5 bg-emerald-500/10 border border-emerald-500/20 rounded-xl text-xs text-emerald-400">
           <Sparkles className="h-3.5 w-3.5 flex-shrink-0 mt-0.5" />
           <span className="leading-relaxed">
-            Config generated from your research question. Edit the YAML below if needed, add your API keys, then launch.
+            {isGeneratingConfig
+              ? "Building config from your research question. Progress is shown live below."
+              : "Config generated from your research question. Edit the YAML below if needed, add your API keys, then launch."}
           </span>
         </div>
       )}
 
-      {/* YAML editor */}
-      <PageSection
-        icon={FileCode2}
-        title="Review Config (YAML)"
-        description="Edit any field before launching"
-      >
-        <YamlEditor
-          value={yaml}
-          onChange={onYamlChange}
-          placeholder="Paste your review.yaml content here..."
-          rows={16}
-        />
-        <p className="label-muted mt-1.5">
-          The YAML drives all phases of the review.
-        </p>
-      </PageSection>
+      <div className={`grid gap-4 items-start ${showGenerationSummary ? "grid-cols-1 xl:grid-cols-[360px_minmax(0,1fr)]" : "grid-cols-1"}`}>
+        {showGenerationSummary && (
+          <GenerationProgressCard
+            activeStepKey={activeGenStep}
+            stepMetadata={activeStepMetadata}
+            usedWebFallback={usedWebFallback}
+            fallbackReason={fallbackReason}
+          />
+        )}
+        <PageSection
+          icon={FileCode2}
+          title="Review Config (YAML)"
+          description={isGeneratingConfig ? "Generating YAML..." : "Edit any field before launching"}
+        >
+          <YamlEditor
+            value={yaml}
+            onChange={onYamlChange}
+            placeholder="Paste your review.yaml content here..."
+            rows={16}
+            isLoading={isGeneratingConfig && !yaml.trim()}
+            loadingLabel="Generating review YAML..."
+          />
+          <p className="label-muted mt-1.5">
+            The YAML drives all phases of the review.
+          </p>
+        </PageSection>
+      </div>
 
       {/* API Keys */}
       <PageSection
         icon={Key}
         title="API Keys"
-        description={!keys.gemini ? "Gemini key required" : undefined}
+        description={!hasAllRequiredLlmKeys ? `Required: ${requiredLlmUiKeys.join(", ")}` : undefined}
       >
         <ApiKeysSection keys={keys} onChange={setKeys} embedded />
       </PageSection>
 
       {/* Error */}
       {error && <FetchError message={error} onRetry={() => setError(null)} />}
+      {generationError && (
+        <FetchError message={generationError} onRetry={onRetryGeneration} />
+      )}
 
       {/* Launch */}
       <Button
         type="button"
         onClick={() => void handleLaunch()}
-        disabled={disabled || submitting || !keys.gemini.trim()}
+        disabled={disabled || submitting || isGeneratingConfig || !yaml.trim() || !hasAllRequiredLlmKeys}
         className="w-full h-11 bg-violet-600 hover:bg-violet-500 disabled:opacity-40 text-white font-semibold gap-2 transition-colors"
       >
         {submitting ? (
@@ -1069,14 +1168,12 @@ function ConfigReviewStage({
 
 export function SetupView({
   defaultReviewYaml,
-  onSubmit,
-  onSubmitWithSupplementaryCsv,
-  onSubmitWithMasterlistCsv,
+  onGenerateDraft,
+  onOpenDraftWithYaml,
   disabled,
 }: SetupViewProps) {
-  const [stage, setStage] = useState<Stage>("question")
-  const [generatedYaml, setGeneratedYaml] = useState("")
-  const [researchQuestion, setResearchQuestion] = useState<string | null>(null)
+  const [researchQuestion, setResearchQuestion] = useState<string>("")
+  const [pendingGeminiKey, setPendingGeminiKey] = useState("")
   const [pendingCsvFile, setPendingCsvFile] = useState<File | null>(null)
   const [pendingCsvMode, setPendingCsvMode] = useState<CsvMode>("supplementary")
   const [history, setHistory] = useState<HistoryEntry[]>([])
@@ -1087,20 +1184,8 @@ export function SetupView({
     fetchHistory().then(setHistory).catch(() => setHistory([]))
   }, [])
 
-  function handleGenerated(yaml: string, question: string, csvFile?: File, csvMode: CsvMode = "supplementary") {
-    setGeneratedYaml(yaml)
-    setResearchQuestion(question)
-    setPendingCsvFile(csvFile ?? null)
-    setPendingCsvMode(csvMode)
-    setStage("review")
-  }
-
   function handlePasteYaml() {
-    setGeneratedYaml(defaultReviewYaml)
-    setResearchQuestion(null)
-    setPendingCsvFile(null)
-    setPendingCsvMode("supplementary")
-    setStage("review")
+    onOpenDraftWithYaml(defaultReviewYaml)
   }
 
   async function handleLoadFromHistory(entry: HistoryEntry) {
@@ -1114,11 +1199,7 @@ export function SetupView({
         )
         return
       }
-      setGeneratedYaml(yaml)
-      setResearchQuestion(entry.topic)
-      setPendingCsvFile(null)
-      setPendingCsvMode("supplementary")
-      setStage("review")
+      onOpenDraftWithYaml(yaml)
     } catch {
       setLoadError("Failed to load config for that run.")
     } finally {
@@ -1127,35 +1208,26 @@ export function SetupView({
   }
 
   return (
-    <div className="max-w-xl mx-auto pt-6 pb-16 px-4">
-      {stage === "question" ? (
-        <QuestionStage
-          onGenerated={handleGenerated}
-          onPasteYaml={handlePasteYaml}
-          history={history}
-          onLoadFromHistory={(entry) => void handleLoadFromHistory(entry)}
-          loadingHistoryId={loadingHistoryId}
-          loadError={loadError}
-          onClearError={() => setLoadError(null)}
-        />
-      ) : (
-        <ConfigReviewStage
-          yaml={generatedYaml}
-          onYamlChange={setGeneratedYaml}
-          question={researchQuestion}
-          onBack={() => {
-            setStage("question")
-            setLoadError(null)
-          }}
-          onSubmit={onSubmit}
-          onSubmitWithSupplementaryCsv={onSubmitWithSupplementaryCsv}
-          onSubmitWithMasterlistCsv={onSubmitWithMasterlistCsv}
-          csvFile={pendingCsvFile}
-          csvMode={pendingCsvMode}
-          disabled={disabled}
-          defaultYaml={defaultReviewYaml}
-        />
-      )}
+    <div className="max-w-xl mx-auto pt-6 pb-16 px-4" aria-disabled={disabled}>
+      <QuestionStage
+        onGenerateRequested={(req) => {
+          setResearchQuestion(req.question)
+          setPendingGeminiKey(req.geminiKey)
+          setPendingCsvFile(req.csvFile ?? null)
+          setPendingCsvMode(req.csvMode)
+          onGenerateDraft(req)
+        }}
+        onPasteYaml={handlePasteYaml}
+        history={history}
+        onLoadFromHistory={(entry) => void handleLoadFromHistory(entry)}
+        loadingHistoryId={loadingHistoryId}
+        loadError={loadError}
+        onClearError={() => setLoadError(null)}
+        initialQuestion={researchQuestion}
+        initialGeminiKey={pendingGeminiKey}
+        initialCsvFile={pendingCsvFile}
+        initialCsvMode={pendingCsvMode}
+      />
     </div>
   )
 }

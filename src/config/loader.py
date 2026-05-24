@@ -9,18 +9,8 @@ import yaml
 from dotenv import load_dotenv
 
 from src.config.execution_profiles import apply_execution_profile
+from src.llm.registry import required_env_keys_from_settings
 from src.models import ReviewConfig, SettingsConfig
-
-# Map model string prefixes to the env var that must be set for that provider.
-_PREFIX_TO_ENV: dict[str, str] = {
-    "google-gla:": "GEMINI_API_KEY",
-    "google-vertex:": "GEMINI_API_KEY",
-    "anthropic:": "ANTHROPIC_API_KEY",
-    "openai:": "OPENAI_API_KEY",
-    "groq:": "GROQ_API_KEY",
-    "mistral:": "MISTRAL_API_KEY",
-    "cohere:": "CO_API_KEY",
-}
 
 
 def _read_yaml(path: str) -> dict:
@@ -38,18 +28,10 @@ def get_required_env_keys(settings: SettingsConfig) -> list[str]:
     """Derive which API key env vars are required based on configured model prefixes.
 
     Returns a list of env var names that must be set. If all agents use
-    google-gla: prefix (the default), only GEMINI_API_KEY is required.
+    google: prefix (the default), only GEMINI_API_KEY is required.
     Switching any agent to anthropic: adds ANTHROPIC_API_KEY to the list.
     """
-    required: set[str] = set()
-    for agent_cfg in settings.agents.values():
-        for prefix, env_key in _PREFIX_TO_ENV.items():
-            if agent_cfg.model.startswith(prefix):
-                required.add(env_key)
-    # Fallback: if no prefix matched, require GEMINI_API_KEY (safe default).
-    if not required:
-        required.add("GEMINI_API_KEY")
-    return sorted(required)
+    return required_env_keys_from_settings(settings)
 
 
 def _validate_model_configuration(settings: SettingsConfig, raw_settings: dict) -> None:
@@ -69,8 +51,8 @@ def _validate_model_configuration(settings: SettingsConfig, raw_settings: dict) 
     rag_raw = raw_settings.get("rag") if isinstance(raw_settings.get("rag"), dict) else {}
     extraction_raw = raw_settings.get("extraction") if isinstance(raw_settings.get("extraction"), dict) else {}
 
-    # Validate explicit YAML entries (avoid breaking minimal test configs that omit sections).
-    if "embed_model" in rag_raw and not (settings.rag.embed_model or "").strip():
+    # RAG embeddings are always required when RAG is enabled in the runtime graph.
+    if not (settings.rag.embed_model or "").strip():
         missing.append("rag.embed_model")
     if "hyde_model" in rag_raw and settings.rag.use_hyde and not (settings.rag.hyde_model or "").strip():
         missing.append("rag.hyde_model")

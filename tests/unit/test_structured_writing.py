@@ -242,7 +242,7 @@ async def test_section_writer_write_section_structured_async_fails_fast_after_va
         (),
         {
             "llm": type("LLM", (), {"request_timeout_seconds": 60})(),
-            "agents": {"writing": type("Agent", (), {"model": "google-gla:gemini-2.5-flash", "temperature": 0.1})()},
+            "agents": {"writing": type("Agent", (), {"model": "google:gemini-2.5-flash", "temperature": 0.1})()},
         },
     )()
     writer = SectionWriter(review=review, settings=settings)
@@ -298,7 +298,7 @@ async def test_section_writer_abstract_uses_structured_output_contract(
         (),
         {
             "llm": type("LLM", (), {"request_timeout_seconds": 60})(),
-            "agents": {"writing": type("Agent", (), {"model": "google-gla:gemini-2.5-flash", "temperature": 0.1})()},
+            "agents": {"writing": type("Agent", (), {"model": "google:gemini-2.5-flash", "temperature": 0.1})()},
             "writing": type("Writing", (), {"abstract_trim_floor_words": 50})(),
             "ieee_export": type("IEEE", (), {"max_abstract_words": 250})(),
         },

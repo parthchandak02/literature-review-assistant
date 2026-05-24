@@ -12,7 +12,7 @@ from src.writing.prompts.outline import fallback_outline_headings
 
 
 def _settings() -> SettingsConfig:
-    return SettingsConfig(agents={"writing": AgentConfig(model="google-gla:gemini-2.5-flash", temperature=0.1)})
+    return SettingsConfig(agents={"writing": AgentConfig(model="google:gemini-2.5-flash", temperature=0.1)})
 
 
 def _grounding() -> WritingGroundingData:

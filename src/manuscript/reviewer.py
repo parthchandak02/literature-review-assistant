@@ -12,6 +12,7 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
+from src.llm.factory import get_chat_client
 from src.llm.provider import LLMProvider
 from src.llm.pydantic_client import PydanticAIClient
 from src.models import (
@@ -440,7 +441,7 @@ async def run_manuscript_audit(
     provider: LLMProvider,
 ) -> tuple[ManuscriptAuditResult, list[ManuscriptAuditFinding]]:
     """Run bounded profile-based manuscript audit with explicit cost cap."""
-    client = PydanticAIClient(timeout_seconds=float(settings.llm.request_timeout_seconds))
+    client = get_chat_client(timeout_seconds=float(settings.llm.request_timeout_seconds))
     selection, routing_cost = await _route_audit_profiles_with_llm(
         workflow_id=workflow_id,
         review=review,

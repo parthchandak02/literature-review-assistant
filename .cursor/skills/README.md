@@ -16,6 +16,7 @@ Use one canonical skill per workflow area. Adjacent skills should point back to 
 | External research grounding | `research` | `grill-with-docs` | `research` owns source-backed discovery; `grill-with-docs` owns plan pressure-testing. |
 | Plan pressure-testing | `grill-with-docs` | `research` | Use code/docs contradiction checks and decision-tree questioning here. |
 | Session transfer/handoff | `handoff` | `general-rules` | Handoff format and next-step packaging live only in `handoff`. |
+| Runtime review operations | `lit-review` | `run-database-audit`, `general-rules` | `lit-review` owns operator workflow for running/resuming/monitoring reviews with low token burn. |
 | Response compression mode | `caveman` | none | Style mode only; never owns process workflows. |
 
 ## Default Skills (Use First)
@@ -36,6 +37,7 @@ Use one canonical skill per workflow area. Adjacent skills should point back to 
 
 ## Specialist / Optional Skills
 
+- `lit-review` (runtime operator playbook; lives at `skills/lit-review` and is linked into `.cursor/skills/lit-review`)
 - `protocol-generator`
 - `search-connector`
 - `prototype`

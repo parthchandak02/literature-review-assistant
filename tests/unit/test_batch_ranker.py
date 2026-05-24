@@ -70,7 +70,7 @@ def _make_ranker(
 ) -> BatchLLMRanker:
     return BatchLLMRanker(
         screening=_screening_config(threshold=threshold, batch_size=batch_size),
-        model="google-gla:gemini-test",
+        model="google:gemini-test",
         temperature=0.1,
         research_question="What is the effect of the intervention on the primary outcome?",
         population="adult participants",

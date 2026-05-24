@@ -20,70 +20,70 @@ llm:
 
 agents:
   screening_reviewer_a:
-    model: "google-gla:gemini-2.5-flash-lite"
+    model: "google:gemini-2.5-flash-lite"
     temperature: 0.1
   screening_reviewer_b:
-    model: "google-gla:gemini-2.5-flash-lite"
+    model: "google:gemini-2.5-flash-lite"
     temperature: 0.1
   screening_adjudicator:
-    model: "google-gla:gemini-2.5-flash-lite"
+    model: "google:gemini-2.5-flash-lite"
     temperature: 0.2
   search:
-    model: "google-gla:gemini-2.5-flash-lite"
+    model: "google:gemini-2.5-flash-lite"
     temperature: 0.1
   extraction:
-    model: "google-gla:gemini-2.5-flash"
+    model: "google:gemini-2.5-flash"
     temperature: 0.1
   quality_assessment:
-    model: "google-gla:gemini-2.5-flash"
+    model: "google:gemini-2.5-flash"
     temperature: 0.2
   study_type_detection:
-    model: "google-gla:gemini-2.5-flash-lite"
+    model: "google:gemini-2.5-flash-lite"
     temperature: 0.2
   writing:
-    model: "google-gla:gemini-2.5-flash"
+    model: "google:gemini-2.5-flash"
     temperature: 0.2
   abstract_generation:
-    model: "google-gla:gemini-2.5-flash-lite"
+    model: "google:gemini-2.5-flash-lite"
     temperature: 0.2
   humanizer:
-    model: "google-gla:gemini-2.5-flash"
+    model: "google:gemini-2.5-flash"
     temperature: 0.3
   contradiction_resolver:
-    model: "google-gla:gemini-2.5-flash"
+    model: "google:gemini-2.5-flash"
     temperature: 0.2
   criteria_refinement:
-    model: "google-gla:gemini-2.5-flash"
+    model: "google:gemini-2.5-flash"
     temperature: 0.2
   table_extraction:
-    model: "google-gla:gemini-2.5-flash-lite"
+    model: "google:gemini-2.5-flash-lite"
     temperature: 0.1
   config_generation:
-    model: "google-gla:gemini-2.5-flash-lite"
+    model: "google:gemini-2.5-flash-lite"
     temperature: 0.3
   batch_screener:
-    model: "google-gla:gemini-2.5-flash-lite"
+    model: "google:gemini-2.5-flash-lite"
     temperature: 0.1
   concept_diagrams:
-    model: "google-gla:gemini-2.5-flash-lite"
+    model: "google:gemini-2.5-flash-lite"
     temperature: 0.3
   research_diagram_preparer:
-    model: "google-gla:gemini-2.5-flash-lite"
+    model: "google:gemini-2.5-flash-lite"
     temperature: 0.2
   research_diagram_placement:
-    model: "google-gla:gemini-2.5-flash-lite"
+    model: "google:gemini-2.5-flash-lite"
     temperature: 0.1
   research_diagram_drawing:
-    model: "google-gla:gemini-3.1-flash-image-preview"
+    model: "google:gemini-3.1-flash-image-preview"
     temperature: 0.2
   research_diagram_critic:
-    model: "google-gla:gemini-2.5-flash"
+    model: "google:gemini-2.5-flash"
     temperature: 0.1
   narrative:
-    model: "google-gla:gemini-2.5-flash-lite"
+    model: "google:gemini-2.5-flash-lite"
     temperature: 0.2
   citation_matching:
-    model: "google-gla:gemini-2.5-flash-lite"
+    model: "google:gemini-2.5-flash-lite"
     temperature: 0.0
 
 diagram_generation:
@@ -235,7 +235,7 @@ writing:
   citation_cluster_chunk_size: 8
 
 rag:
-  embed_model: "google-gla:gemini-embedding-001"
+  embed_model: "google:gemini-embedding-001"
   embed_dim: 768       # MRL output dimension; changing requires wiping paper_chunks_meta and re-embedding
   embed_batch_size: 20
   # Number of embedding API batch calls sent concurrently. Each batch is embed_batch_size texts.
@@ -243,9 +243,9 @@ rag:
   chunk_max_words: 400
   chunk_overlap_sentences: 2
   use_hyde: true
-  hyde_model: "google-gla:gemini-2.5-flash-lite"
+  hyde_model: "google:gemini-2.5-flash-lite"
   rerank: true
-  reranker_model: "google-gla:gemini-2.5-flash-lite"
+  reranker_model: "google:gemini-2.5-flash-lite"
   candidate_k: 20      # Retrieved per section before reranking
   final_k: 8           # Final context chunks injected into writing prompt
   min_chunks_per_section: 1
@@ -314,7 +314,7 @@ extraction:
   openalex_content_full_text: true  # enabled; requires OPENALEX_API_KEY in .env
   crossref_links_full_text: true
   use_pdf_vision: true
-  pdf_vision_model: "google-gla:gemini-2.5-flash-lite"
+  pdf_vision_model: "google:gemini-2.5-flash-lite"
   full_text_min_chars: 500
   # Papers extracted concurrently; each paper's classify+extract+RoB steps run sequentially within it.
   # 4 concurrent with flash_rpm=20 gives safe throughput (each extraction ~20-40s).

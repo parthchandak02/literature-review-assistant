@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import logging
 import re
+import time
 from collections.abc import Sequence
 from typing import Literal
 
@@ -127,8 +128,11 @@ async def _classify_direction_llm(
     outcome_name: str,
     llm_client: object,
     settings: object,
+    llm_provider: object | None = None,
+    workflow_id: str = "",
 ) -> Literal["positive", "negative", "mixed", "null"]:
     """Call LLM to classify effect direction for a single study summary."""
+    from src.llm.provider import LLMProvider
     from src.llm.pydantic_client import PydanticAIClient
     from src.models.config import SettingsConfig
 
@@ -147,8 +151,30 @@ async def _classify_direction_llm(
     prompt = _build_direction_prompt(results_summary, outcome_name)
     schema = _DirectionLLMResponse.model_json_schema()
     try:
-        raw = await llm_client.complete(prompt, model=model, temperature=temperature, json_schema=schema)
+        _provider = llm_provider if isinstance(llm_provider, LLMProvider) else None
+        if _provider is not None:
+            await _provider.reserve_call_slot("narrative")
+        started = time.perf_counter()
+        raw, tok_in, tok_out, cache_write, cache_read = await llm_client.complete_with_usage(
+            prompt,
+            model=model,
+            temperature=temperature,
+            json_schema=schema,
+        )
         parsed = _DirectionLLMResponse.model_validate_json(raw)
+        if _provider is not None:
+            cost_usd = _provider.estimate_cost(model, tok_in, tok_out, cache_write, cache_read)
+            await _provider.log_cost(
+                model=model,
+                tokens_in=tok_in,
+                tokens_out=tok_out,
+                cost_usd=cost_usd,
+                latency_ms=int((time.perf_counter() - started) * 1000),
+                phase="phase_5_narrative_direction",
+                workflow_id=workflow_id,
+                cache_read_tokens=cache_read,
+                cache_write_tokens=cache_write,
+            )
         return parsed.direction
     except Exception as exc:
         logger.warning("LLM direction classification failed (%s); using keyword fallback.", exc)
@@ -187,6 +213,8 @@ async def build_narrative_synthesis(
     settings: object | None = None,
     review_question: str = "",
     pico: object | None = None,
+    llm_provider: object | None = None,
+    workflow_id: str = "",
 ) -> NarrativeSynthesis:
     """Build a narrative synthesis from extraction records.
 
@@ -209,7 +237,14 @@ async def build_narrative_synthesis(
         summary = (record.results_summary.get("summary") or "").strip()
 
         if use_llm:
-            direction = await _classify_direction_llm(summary, outcome_name, llm_client, settings)
+            direction = await _classify_direction_llm(
+                summary,
+                outcome_name,
+                llm_client,
+                settings,
+                llm_provider=llm_provider,
+                workflow_id=workflow_id,
+            )
         else:
             direction = _keyword_direction(summary)
 

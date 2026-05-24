@@ -26,6 +26,7 @@ PHASE_ORDER = [
     "phase_5b_knowledge_graph",
     "phase_5c_pre_writing_gate",
     "phase_6_writing",
+    "phase_7_audit",
     "finalize",
 ]
 
@@ -242,7 +243,7 @@ async def load_resume_state(
             # If the file is absent, clear the stale checkpoint so WritingNode
             # re-runs and produces the manuscript; section_drafts already hold all
             # completed LLM outputs so only the assembly step is repeated.
-            if next_phase == "finalize" and "phase_6_writing" in checkpoints:
+            if next_phase in {"phase_7_audit", "finalize"} and "phase_6_writing" in checkpoints:
                 manuscript_md_path = run_dir / "doc_manuscript.md"
                 if not manuscript_md_path.exists():
                     logger.warning(

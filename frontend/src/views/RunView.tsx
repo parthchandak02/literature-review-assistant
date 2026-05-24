@@ -1,5 +1,5 @@
 import { Suspense, lazy, useEffect, useMemo, useState } from "react"
-import { Activity, BarChart3, BookOpen, Database, FileText, FileCode2, ClipboardCheck } from "lucide-react"
+import { Activity, BarChart3, BookOpen, Database, FileText, FileCode2, ClipboardCheck, ShieldCheck } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { formatRunDate, formatWorkflowId } from "@/lib/format"
 import { Spinner } from "@/components/ui/feedback"
@@ -10,6 +10,7 @@ import { fetchRunEvents, fetchWorkflowEvents } from "@/lib/api"
 import { shouldFallbackToWorkflowEvents } from "@/lib/runSelection"
 import type { CostStats } from "@/hooks/useCostStats"
 import { computeFunnelStages } from "@/lib/funnelStages"
+import type { DraftConfigContext } from "@/views/ConfigView"
 
 const CostView = lazy(() => import("@/views/CostView").then((m) => ({ default: m.CostView })))
 const DatabaseView = lazy(() =>
@@ -27,12 +28,15 @@ const ScreeningReviewView = lazy(() =>
 const ReferencesView = lazy(() =>
   import("@/views/ReferencesView").then((m) => ({ default: m.ReferencesView })),
 )
+const QualityView = lazy(() =>
+  import("@/views/QualityView").then((m) => ({ default: m.QualityView })),
+)
 
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
 
-export type RunTab = "activity" | "results" | "database" | "cost" | "config" | "review-screening" | "references"
+export type RunTab = "activity" | "results" | "database" | "cost" | "config" | "quality" | "review-screening" | "references"
 
 /** A run that is currently being viewed (live or historical). */
 export interface SelectedRun {
@@ -53,13 +57,14 @@ export interface SelectedRun {
   historicalStatus?: string | null
 }
 
-/** Tab order follows the review workflow: Config (YAML) -> Activity -> Data -> Cost -> Results -> References */
+/** Tab order follows the review workflow: Config (YAML) -> Activity -> Data -> Cost -> Results -> Quality -> References */
 const TAB_ITEMS: { id: RunTab; label: string; icon: React.ElementType }[] = [
   { id: "config", label: "Config", icon: FileCode2 },
   { id: "activity", label: "Activity", icon: Activity },
   { id: "database", label: "Data", icon: Database },
   { id: "cost", label: "Cost", icon: BarChart3 },
   { id: "results", label: "Results", icon: FileText },
+  { id: "quality", label: "Quality", icon: ShieldCheck },
   { id: "references", label: "References", icon: BookOpen },
 ]
 
@@ -121,6 +126,9 @@ interface RunViewProps {
   /** Highlight target used by Results/Artifacts submission download hub. */
   submissionFocusTarget?: "reference-papers" | null
   submissionFocusToken?: number
+  draftConfig?: DraftConfigContext | null
+  onRetryDraftGeneration?: () => void
+  onLaunchDraft?: (yaml: string) => void
 }
 
 export function RunView({
@@ -141,6 +149,9 @@ export function RunView({
   onGoToSubmissionReferencePapers,
   submissionFocusTarget = null,
   submissionFocusToken = 0,
+  draftConfig = null,
+  onRetryDraftGeneration,
+  onLaunchDraft,
 }: RunViewProps) {
   const [wfIdCopied, setWfIdCopied] = useState(false)
   // For historical runs, fetch stored events so the funnel can be computed.
@@ -434,6 +445,9 @@ export function RunView({
               workflowId={run.workflowId}
               topic={run.topic}
               createdAt={run.createdAt}
+              draftConfig={draftConfig}
+              onRetryDraftGeneration={onRetryDraftGeneration}
+              onLaunchDraft={onLaunchDraft}
             />
           )}
 
@@ -447,6 +461,13 @@ export function RunView({
               workflowId={run.workflowId}
               isDone={isDone}
               onGoToSubmissionReferencePapers={onGoToSubmissionReferencePapers}
+            />
+          )}
+
+          {activeTab === "quality" && (
+            <QualityView
+              exportRunId={isDone ? run.runId : null}
+              workflowId={run.workflowId}
             />
           )}
         </Suspense>

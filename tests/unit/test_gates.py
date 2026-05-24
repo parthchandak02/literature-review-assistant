@@ -8,7 +8,7 @@ from src.orchestration.gates import GateRunner
 
 def _settings(profile: str) -> SettingsConfig:
     return SettingsConfig(
-        agents={"search": AgentConfig(model="google-gla:gemini-2.5-flash", temperature=0.1)},
+        agents={"search": AgentConfig(model="google:gemini-2.5-flash", temperature=0.1)},
         gates={"profile": profile},
     )
 
@@ -50,7 +50,7 @@ async def test_search_volume_sparse_continuation_returns_warning(tmp_path) -> No
         repo = WorkflowRepository(db)
         await repo.create_workflow("wf", "topic", "hash")
         settings = SettingsConfig(
-            agents={"search": AgentConfig(model="google-gla:gemini-2.5-flash", temperature=0.1)},
+            agents={"search": AgentConfig(model="google:gemini-2.5-flash", temperature=0.1)},
             search={"low_recall_warning_threshold": 10},
             gates={
                 "profile": "strict",
@@ -70,7 +70,7 @@ async def test_search_volume_below_sparse_min_fails(tmp_path) -> None:
         repo = WorkflowRepository(db)
         await repo.create_workflow("wf", "topic", "hash")
         settings = SettingsConfig(
-            agents={"search": AgentConfig(model="google-gla:gemini-2.5-flash", temperature=0.1)},
+            agents={"search": AgentConfig(model="google:gemini-2.5-flash", temperature=0.1)},
             search={"low_recall_warning_threshold": 10},
             gates={
                 "profile": "strict",
@@ -89,7 +89,7 @@ async def test_screening_safeguard_sparse_continuation_returns_warning(tmp_path)
         repo = WorkflowRepository(db)
         await repo.create_workflow("wf", "topic", "hash")
         settings = SettingsConfig(
-            agents={"search": AgentConfig(model="google-gla:gemini-2.5-flash", temperature=0.1)},
+            agents={"search": AgentConfig(model="google:gemini-2.5-flash", temperature=0.1)},
             gates={
                 "profile": "strict",
                 "screening_minimum": 5,
@@ -110,7 +110,7 @@ async def test_screening_safeguard_below_sparse_min_still_warns_with_continuatio
         repo = WorkflowRepository(db)
         await repo.create_workflow("wf", "topic", "hash")
         settings = SettingsConfig(
-            agents={"search": AgentConfig(model="google-gla:gemini-2.5-flash", temperature=0.1)},
+            agents={"search": AgentConfig(model="google:gemini-2.5-flash", temperature=0.1)},
             gates={
                 "profile": "strict",
                 "screening_minimum": 5,
@@ -131,7 +131,7 @@ async def test_screening_safeguard_zero_evidence_warns_with_continuation(tmp_pat
         repo = WorkflowRepository(db)
         await repo.create_workflow("wf", "topic", "hash")
         settings = SettingsConfig(
-            agents={"search": AgentConfig(model="google-gla:gemini-2.5-flash", temperature=0.1)},
+            agents={"search": AgentConfig(model="google:gemini-2.5-flash", temperature=0.1)},
             gates={
                 "profile": "strict",
                 "screening_minimum": 5,

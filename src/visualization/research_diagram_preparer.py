@@ -6,7 +6,7 @@ import json
 import logging
 from typing import Any
 
-from src.llm.pydantic_client import PydanticAIClient
+from src.llm.factory import get_chat_client
 from src.models.diagrams import (
     DiagramBriefPack,
     DiagramEvidenceClaim,
@@ -220,7 +220,7 @@ async def prepare_research_diagram_briefs(
         "cache_read_tokens": 0,
         "validation_retries": 0,
     }
-    client = PydanticAIClient()
+    client = get_chat_client()
     try:
         parsed, tok_in, tok_out, cache_write, cache_read, retries_used = await client.complete_validated(
             prompt,

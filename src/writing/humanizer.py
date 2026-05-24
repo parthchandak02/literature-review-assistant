@@ -6,7 +6,7 @@ import logging
 import time
 from typing import TYPE_CHECKING
 
-from src.llm.pydantic_client import PydanticAIClient
+from src.llm.factory import get_chat_client
 from src.writing.humanizer_guardrails import extract_citation_blocks, extract_numeric_tokens
 
 if TYPE_CHECKING:
@@ -104,7 +104,7 @@ async def humanize_async(
             timeout_seconds = 180.0
     truncated = text[:cut]
     prompt = _HUMANIZE_PROMPT_TEMPLATE.format(text=truncated)
-    client = PydanticAIClient(timeout_seconds=timeout_seconds)
+    client = get_chat_client(timeout_seconds=timeout_seconds)
     try:
         t0 = time.monotonic()
         refined, tok_in, tok_out, cw, cr = await client.complete_with_usage(

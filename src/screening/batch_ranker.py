@@ -135,9 +135,9 @@ class PydanticAIBatchRankerClient:
         model: str,
         temperature: float,
     ) -> tuple[str, int, int, int, int]:
-        from src.llm.pydantic_client import PydanticAIClient
+        from src.llm.factory import get_chat_client
 
-        client = PydanticAIClient()
+        client = get_chat_client()
         return await client.complete_with_usage(prompt, model=model, temperature=temperature)
 
 
