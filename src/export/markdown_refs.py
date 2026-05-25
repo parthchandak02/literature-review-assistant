@@ -5,11 +5,16 @@ from __future__ import annotations
 import json
 import logging
 import re
-import unicodedata
 from pathlib import Path
 from typing import Any
 
 from src.export.bibtex_builder import build_citekey_alias_map
+from src.export.markdown_utils import ascii_citekey as _ascii_citekey_helper
+from src.export.markdown_utils import clip_table_text as _clip_table_text_helper
+from src.export.markdown_utils import missing_result_display as _missing_result_display_helper
+from src.export.markdown_utils import normalize_doi as _normalize_doi_helper
+from src.export.markdown_utils import sanitize_summary_text as _sanitize_summary_text_helper
+from src.export.markdown_utils import validate_doi_year as _validate_doi_year_helper
 from src.extraction.inference_utils import infer_country_from_text
 from src.quality.grade import build_sof_table, cluster_grade_assessments_by_theme, sof_table_to_markdown
 from src.writing.date_windows import format_search_eligibility_window, normalize_criteria_date_windows
@@ -68,37 +73,16 @@ _TITLE_COUNTRY_HINTS = {
 
 def _sanitize_summary_text(raw_text: str) -> str:
     """Return cleaned summary text or 'NR' when content is artifact-like."""
-    summary = (raw_text or "").strip()
-    if not summary:
-        return "NR"
-    summary_lower = summary.lower().lstrip()
-    is_boilerplate = any(marker in summary_lower for marker in _SUMMARY_HTML_BOILERPLATE_MARKERS)
-    is_pdf_metadata = any(summary_lower.startswith(pfx) for pfx in _SUMMARY_PDF_METADATA_PREFIXES)
-    is_llm_explanation = any(phrase in summary_lower for phrase in _SUMMARY_LLM_EXPLANATION_PHRASES)
-    if "doi.org/" in summary_lower or re.search(r"\bdoi:\s*10\.\S+", summary_lower):
-        return "NR"
-    if is_boilerplate or is_pdf_metadata or is_llm_explanation:
-        return "NR"
-    return summary
+    return _sanitize_summary_text_helper(raw_text)
 
 
 def _clip_table_text(text: str, max_chars: int) -> str:
     """Clip long table cell text at sentence boundary with ellipsis."""
-    cleaned = (text or "").strip()
-    if len(cleaned) <= max_chars:
-        return cleaned
-    window = cleaned[:max_chars].rstrip()
-    sentence_break = max(window.rfind(". "), window.rfind("; "), window.rfind(": "))
-    if sentence_break > int(max_chars * 0.6):
-        window = window[: sentence_break + 1].rstrip()
-    return window + "..."
+    return _clip_table_text_helper(text, max_chars)
 
 
 def _missing_result_display(rec: Any) -> str:
-    source = getattr(rec, "extraction_source", None)
-    if source in _ABSTRACT_ONLY_SOURCES:
-        return "No extractable result reported (abstract/metadata only)."
-    return "No extractable result reported in available text."
+    return _missing_result_display_helper(rec)
 
 
 def _ascii_citekey(key: str) -> str:
@@ -109,7 +93,7 @@ def _ascii_citekey(key: str) -> str:
     diacritics. The citation ledger stores the ASCII-normalized form, so lookup must
     also normalize before matching.
     """
-    return "".join(c for c in unicodedata.normalize("NFD", key) if unicodedata.category(c) != "Mn")
+    return _ascii_citekey_helper(key)
 
 
 def _validate_doi_year(doi: str | None, cited_year: int | None) -> str | None:
@@ -120,20 +104,7 @@ def _validate_doi_year(doi: str | None, cited_year: int | None) -> str | None:
     A discrepancy of more than 1 year is flagged -- this catches cases like
     citing a paper as 2023 when the DOI contains 2025 (ahead-of-print issue).
     """
-    import re as _re
-
-    if not doi or not cited_year:
-        return None
-    # Elsevier: 10.1016/j.ABBREV.YEAR.ARTICLE_ID
-    m = _re.search(r"10\.1016/\S+?\.(\d{4})\.\d", doi)
-    if m:
-        doi_year = int(m.group(1))
-        if abs(doi_year - cited_year) > 1:
-            return (
-                f"DOI year mismatch: DOI encodes {doi_year} but citation year is {cited_year}. "
-                f"Verify publication year for DOI {doi[:60]}."
-            )
-    return None
+    return _validate_doi_year_helper(doi, cited_year)
 
 
 def _normalize_doi(doi: str | None) -> str:
@@ -142,25 +113,7 @@ def _normalize_doi(doi: str | None) -> str:
     Handles bare DOIs (10.X...), doi.org URLs (with or without https://),
     and already-normalized URLs. Returns empty string for None or empty input.
     """
-    if not doi:
-        return ""
-    doi = doi.strip()
-    if not doi:
-        return ""
-    # Already a full URL
-    if doi.lower().startswith("https://doi.org/") or doi.lower().startswith("http://doi.org/"):
-        return f"https://doi.org/{doi.split('doi.org/', 1)[-1]}"
-    # doi.org URL without scheme
-    if doi.lower().startswith("doi.org/"):
-        return f"https://{doi}"
-    # doi: prefix (e.g. "doi:10.1000/xyz")
-    if doi.lower().startswith("doi:"):
-        return f"https://doi.org/{doi[4:].lstrip('/')}"
-    # Bare DOI (starts with 10.)
-    if doi.startswith("10."):
-        return f"https://doi.org/{doi}"
-    # Unknown format -- return as-is
-    return doi
+    return _normalize_doi_helper(doi)
 
 
 def _capitalize_name_part(name: str) -> str:

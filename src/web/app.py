@@ -44,7 +44,7 @@ from sse_starlette.sse import EventSourceResponse
 
 from src.config.loader import get_required_env_keys as _get_required_env_keys
 from src.config.loader import load_configs as _load_configs
-from src.db.domain_repositories import AuditRepository
+from src.db.domain_repositories import AuditRepository, ValidationRepository
 from src.db.source_of_truth import RUN_STATS_PRECEDENCE
 from src.db.workflow_registry import _open_registry as _open_registry_db
 from src.db.workflow_registry import archive_workflow as _archive_registry_workflow
@@ -62,6 +62,8 @@ from src.orchestration.context import WebRunContext
 from src.search.csv_import import validate_csv_file
 from src.web.diagnostics_utils import summarize_phase_performance
 from src.web.orchestration_facade import resume_workflow_run, start_workflow_run
+from src.web.routers import config_router, system_router
+from src.web.state import NotesBroadcaster, RunRegistry
 
 _logger = logging.getLogger(__name__)
 
@@ -106,6 +108,7 @@ class _RunRecord:
 
 
 _active_runs: dict[str, _RunRecord] = {}
+_run_registry = RunRegistry(_active_runs)
 
 # ---------------------------------------------------------------------------
 # Notes SSE: global broadcast channel for per-workflow note updates.
@@ -113,6 +116,7 @@ _active_runs: dict[str, _RunRecord] = {}
 # to all queues so every open browser tab sees the update in real time.
 # ---------------------------------------------------------------------------
 _notes_subscribers: set[asyncio.Queue[dict[str, Any] | None]] = set()
+_notes_broadcaster = NotesBroadcaster(_notes_subscribers)
 
 # Evict completed run records older than run_ttl_seconds (from settings.yaml web.run_ttl_seconds).
 _RUN_TTL_SECONDS = _web_cfg.run_ttl_seconds
@@ -207,6 +211,8 @@ async def _eviction_loop() -> None:
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI) -> AsyncGenerator[None, None]:
+    _app.state.run_registry = _run_registry
+    _app.state.notes_broadcaster = _notes_broadcaster
     await _refresh_allowed_roots()
     # On startup, mark any registry entries still showing "running" as "interrupted".
     # Those workflows cannot be running in a fresh process -- they were orphaned by a
@@ -247,6 +253,8 @@ async def lifespan(_app: FastAPI) -> AsyncGenerator[None, None]:
 # ---------------------------------------------------------------------------
 
 app = FastAPI(title="LitReview API", version="1.0.0", lifespan=lifespan)
+app.include_router(system_router)
+app.include_router(config_router)
 
 app.add_middleware(
     CORSMiddleware,
@@ -1103,68 +1111,6 @@ async def download_file(path: str) -> FileResponse:
     if not resolved.exists():
         raise HTTPException(status_code=404, detail="File not found")
     return FileResponse(path=resolved_str, filename=resolved.name)
-
-
-@app.get("/api/health")
-async def health_check() -> dict[str, str]:
-    return {"status": "ok"}
-
-
-@app.get("/api/config/review")
-async def get_review_config() -> dict[str, str]:
-    try:
-        content = pathlib.Path("config/review.yaml").read_text()
-    except Exception:
-        content = ""
-    return {"content": content}
-
-
-@app.get("/api/config/env-keys")
-async def get_env_keys() -> dict[str, str]:
-    """Return API keys that are already set in the server environment (from .env).
-
-    Empty string for any key that is not set.  This lets the frontend pre-fill
-    the API-key form without the user having to retype values that are already
-    configured on the server.
-    """
-    return {
-        "gemini": os.environ.get("GEMINI_API_KEY", ""),
-        "deepseek": os.environ.get("DEEPSEEK_API_KEY", ""),
-        "openrouter": os.environ.get("OPENROUTER_API_KEY", ""),
-        "openai": os.environ.get("OPENAI_API_KEY", ""),
-        "anthropic": os.environ.get("ANTHROPIC_API_KEY", ""),
-        "groq": os.environ.get("GROQ_API_KEY", ""),
-        "mistral": os.environ.get("MISTRAL_API_KEY", ""),
-        "cohere": os.environ.get("CO_API_KEY", ""),
-        "openalex": os.environ.get("OPENALEX_API_KEY", ""),
-        "ieee": os.environ.get("IEEE_API_KEY", ""),
-        "pubmedEmail": os.environ.get("PUBMED_EMAIL", "") or os.environ.get("NCBI_EMAIL", ""),
-        "pubmedApiKey": os.environ.get("PUBMED_API_KEY", ""),
-        "perplexity": os.environ.get("PERPLEXITY_SEARCH_API_KEY", ""),
-        "semanticScholar": os.environ.get("SEMANTIC_SCHOLAR_API_KEY", ""),
-        "crossrefEmail": os.environ.get("CROSSREF_EMAIL", ""),
-        "wos": os.environ.get("WOS_API_KEY", ""),
-        "scopus": os.environ.get("SCOPUS_API_KEY", ""),
-    }
-
-
-@app.get("/api/config/env-keys/required")
-async def get_required_env_keys() -> dict[str, list[str]]:
-    """Return required env keys inferred from configured model prefixes."""
-    cfg = _load_configs(settings_path="config/settings.yaml")[1]
-    env_keys = _get_required_env_keys(cfg)
-    env_to_ui_key = {
-        "GEMINI_API_KEY": "gemini",
-        "DEEPSEEK_API_KEY": "deepseek",
-        "OPENROUTER_API_KEY": "openrouter",
-        "OPENAI_API_KEY": "openai",
-        "ANTHROPIC_API_KEY": "anthropic",
-        "GROQ_API_KEY": "groq",
-        "MISTRAL_API_KEY": "mistral",
-        "CO_API_KEY": "cohere",
-    }
-    ui_keys = [env_to_ui_key[key] for key in env_keys if key in env_to_ui_key]
-    return {"env_keys": env_keys, "ui_keys": ui_keys}
 
 
 class _GenerateConfigRequest(BaseModel):
@@ -3273,53 +3219,36 @@ async def get_workflow_validation_summary(workflow_id: str) -> dict[str, Any]:
     """Return latest validation-run summary for a workflow."""
     db_path = await _resolve_db_path_from_run_or_workflow(workflow_id)
     try:
+        from src.db.repositories import WorkflowRepository as _WorkflowRepository
+
         async with aiosqlite.connect(db_path) as db:
             db.row_factory = aiosqlite.Row
-            run_row = await (
-                await db.execute(
-                    """
-                    SELECT validation_run_id, profile, status, tool_version, summary_json, started_at, completed_at
-                    FROM validation_runs
-                    WHERE workflow_id = ?
-                    ORDER BY started_at DESC
-                    LIMIT 1
-                    """,
-                    (workflow_id,),
-                )
-            ).fetchone()
-            if not run_row:
+            validation_repo = ValidationRepository(_WorkflowRepository(db))
+            latest_run = await validation_repo.get_latest_run(workflow_id)
+            if latest_run is None:
                 return {"workflow_id": workflow_id, "latest_run": None}
-
-            check_counts = await (
-                await db.execute(
-                    """
-                    SELECT
-                        SUM(CASE WHEN status = 'fail' AND severity = 'error' THEN 1 ELSE 0 END) AS error_count,
-                        SUM(CASE WHEN severity = 'warn' AND status IN ('warn', 'fail') THEN 1 ELSE 0 END) AS warn_count,
-                        COUNT(*) AS total_checks
-                    FROM validation_checks
-                    WHERE validation_run_id = ?
-                    """,
-                    (str(run_row["validation_run_id"]),),
-                )
-            ).fetchone()
+            checks = await validation_repo.get_checks(str(latest_run.validation_run_id))
+            error_count = len([c for c in checks if c.status == "fail" and c.severity == "error"])
+            warn_count = len([c for c in checks if c.severity == "warn" and c.status in {"warn", "fail"}])
             try:
-                summary_payload = _json.loads(str(run_row["summary_json"] or "{}"))
+                summary_payload = _json.loads(str(latest_run.summary_json or "{}"))
             except Exception:
                 summary_payload = {}
-            latest_run = {
-                "validation_run_id": str(run_row["validation_run_id"]),
-                "profile": str(run_row["profile"]),
-                "status": str(run_row["status"]),
-                "tool_version": str(run_row["tool_version"]),
-                "summary": summary_payload,
-                "started_at": str(run_row["started_at"] or ""),
-                "completed_at": str(run_row["completed_at"] or ""),
-                "error_count": int((check_counts[0] or 0) if check_counts else 0),
-                "warn_count": int((check_counts[1] or 0) if check_counts else 0),
-                "total_checks": int((check_counts[2] or 0) if check_counts else 0),
+            return {
+                "workflow_id": workflow_id,
+                "latest_run": {
+                    "validation_run_id": str(latest_run.validation_run_id),
+                    "profile": str(latest_run.profile),
+                    "status": str(latest_run.status),
+                    "tool_version": str(latest_run.tool_version),
+                    "summary": summary_payload if isinstance(summary_payload, dict) else {},
+                    "started_at": str(latest_run.started_at or ""),
+                    "completed_at": str(latest_run.completed_at or ""),
+                    "error_count": error_count,
+                    "warn_count": warn_count,
+                    "total_checks": len(checks),
+                },
             }
-            return {"workflow_id": workflow_id, "latest_run": latest_run}
     except HTTPException:
         raise
     except Exception as exc:
@@ -3331,54 +3260,35 @@ async def get_workflow_validation_checks(workflow_id: str, validation_run_id: st
     """Return ordered checks for a validation run (latest when omitted)."""
     db_path = await _resolve_db_path_from_run_or_workflow(workflow_id)
     try:
+        from src.db.repositories import WorkflowRepository as _WorkflowRepository
+
         async with aiosqlite.connect(db_path) as db:
             db.row_factory = aiosqlite.Row
+            validation_repo = ValidationRepository(_WorkflowRepository(db))
             run_id = validation_run_id
             if not run_id:
-                run_row = await (
-                    await db.execute(
-                        """
-                        SELECT validation_run_id
-                        FROM validation_runs
-                        WHERE workflow_id = ?
-                        ORDER BY started_at DESC
-                        LIMIT 1
-                        """,
-                        (workflow_id,),
-                    )
-                ).fetchone()
-                if not run_row:
+                latest_run = await validation_repo.get_latest_run(workflow_id)
+                if latest_run is None:
                     return {"workflow_id": workflow_id, "validation_run_id": None, "checks": []}
-                run_id = str(run_row["validation_run_id"])
-
-            rows = await (
-                await db.execute(
-                    """
-                    SELECT phase, check_name, status, severity, metric_value, details_json, source_module, paper_id, created_at
-                    FROM validation_checks
-                    WHERE validation_run_id = ?
-                    ORDER BY id ASC
-                    """,
-                    (run_id,),
-                )
-            ).fetchall()
+                run_id = str(latest_run.validation_run_id)
+            rows = await validation_repo.get_checks(str(run_id))
             checks: list[dict[str, Any]] = []
             for row in rows:
                 try:
-                    details = _json.loads(str(row["details_json"] or "{}"))
+                    details = _json.loads(str(row.details_json or "{}"))
                 except Exception:
                     details = {}
                 checks.append(
                     {
-                        "phase": str(row["phase"]),
-                        "check_name": str(row["check_name"]),
-                        "status": str(row["status"]),
-                        "severity": str(row["severity"]),
-                        "metric_value": float(row["metric_value"]) if row["metric_value"] is not None else None,
-                        "details": details,
-                        "source_module": str(row["source_module"]) if row["source_module"] else None,
-                        "paper_id": str(row["paper_id"]) if row["paper_id"] else None,
-                        "created_at": str(row["created_at"] or ""),
+                        "phase": str(row.phase),
+                        "check_name": str(row.check_name),
+                        "status": str(row.status),
+                        "severity": str(row.severity),
+                        "metric_value": float(row.metric_value) if row.metric_value is not None else None,
+                        "details": details if isinstance(details, dict) else {},
+                        "source_module": str(row.source_module) if row.source_module else None,
+                        "paper_id": str(row.paper_id) if row.paper_id else None,
+                        "created_at": str(row.created_at or ""),
                     }
                 )
             return {"workflow_id": workflow_id, "validation_run_id": run_id, "checks": checks}
@@ -4482,10 +4392,14 @@ async def _build_extraction_diagnostics(
     workflow_id: str,
     db_path: str,
 ) -> dict[str, Any]:
-    from src.orchestration.workflow import (
-        _ABSTRACT_ONLY_EXTRACTION_SOURCES,
-        _compute_extraction_quality_metrics,
-        _load_fulltext_artifact_paper_ids,
+    from src.orchestration.helpers.extraction_metrics import (
+        ABSTRACT_ONLY_EXTRACTION_SOURCES as _ABSTRACT_ONLY_EXTRACTION_SOURCES,
+    )
+    from src.orchestration.helpers.extraction_metrics import (
+        compute_extraction_quality_metrics as _compute_extraction_quality_metrics,
+    )
+    from src.orchestration.helpers.extraction_metrics import (
+        load_fulltext_artifact_paper_ids as _load_fulltext_artifact_paper_ids,
     )
     from src.writing.context_builder import sanitize_summary_text_for_writing
 

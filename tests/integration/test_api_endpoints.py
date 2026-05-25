@@ -627,6 +627,62 @@ async def test_db_costs_aggregates_unknown_run_404(client: httpx.AsyncClient) ->
 
 
 @pytest.mark.asyncio
+async def test_db_costs_returns_records_and_screening_diagnostics(
+    client: httpx.AsyncClient,
+    tmp_path: Path,
+) -> None:
+    run_id = "cost-records-run"
+    workflow_id = "wf-cost-records"
+    db_path = tmp_path / "runtime_cost_records.db"
+    async with get_db(str(db_path)) as db:
+        await db.execute(
+            "INSERT INTO workflows (workflow_id, topic, config_hash, status) VALUES (?, ?, ?, ?)",
+            (workflow_id, "Cost records topic", "hash", "completed"),
+        )
+        await db.execute(
+            """
+            INSERT INTO cost_records
+                (workflow_id, model, tokens_in, tokens_out, cost_usd, latency_ms, phase, cache_read_tokens, cache_write_tokens)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (workflow_id, "google:gemini-2.5-flash", 80, 40, 0.01, 1000, "phase_3_screening", 0, 0),
+        )
+        await db.execute(
+            """
+            INSERT INTO decision_log
+                (workflow_id, paper_id, phase, decision_type, decision, actor, rationale)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                workflow_id,
+                "paper-1",
+                "phase_3_screening",
+                "screening_metric",
+                "record_metric",
+                "system",
+                json.dumps({"metric": "batch_parse_degraded", "value": 2}),
+            ),
+        )
+        await db.commit()
+
+    record = _RunRecord(run_id, "Cost records topic")
+    record.db_path = str(db_path)
+    record.workflow_id = workflow_id
+    record.done = True
+    _active_runs[run_id] = record
+    try:
+        response = await client.get(f"/api/db/{run_id}/costs")
+        assert response.status_code == 200
+        payload = response.json()
+        assert payload["total_cost"] == pytest.approx(0.01)
+        assert len(payload["records"]) == 1
+        assert payload["records"][0]["model"] == "google:gemini-2.5-flash"
+        assert payload["screening_diagnostics"]["batch_parse_degraded"] == 2
+    finally:
+        _active_runs.pop(run_id, None)
+
+
+@pytest.mark.asyncio
 async def test_db_costs_export_returns_csv(
     client: httpx.AsyncClient,
     tmp_path: Path,
@@ -1476,7 +1532,7 @@ async def test_resume_does_not_flip_registry_failed_when_runtime_completed(
         run_summary.write_text(json.dumps({"status": "done", "artifacts": {"dummy": "ok"}}), encoding="utf-8")
         raise RuntimeError("post-finalize logging failure")
 
-    monkeypatch.setattr("src.web.app.run_workflow_resume", _fake_run_workflow_resume)
+    monkeypatch.setattr("src.web.app.resume_workflow_run", _fake_run_workflow_resume)
 
     resp = await client.post(
         "/api/history/resume",
@@ -1504,6 +1560,44 @@ async def test_resume_does_not_flip_registry_failed_when_runtime_completed(
             row = await cur.fetchone()
     assert row is not None
     assert row[0] == "completed"
+
+
+@pytest.mark.asyncio
+async def test_history_config_returns_review_yaml_from_registry_path(
+    client: httpx.AsyncClient,
+    tmp_path: Path,
+) -> None:
+    run_root = tmp_path / "runs"
+    run_dir = run_root / "2026-05-24" / "wf-config-topic" / "run_01-00-00PM"
+    db_path = run_dir / "runtime.db"
+    run_dir.mkdir(parents=True, exist_ok=True)
+
+    review_yaml = "research_question: registry path config\n"
+    (run_dir / "review.yaml").write_text(review_yaml, encoding="utf-8")
+
+    async with get_db(str(db_path)) as db:
+        await db.execute(
+            "INSERT INTO workflows (workflow_id, topic, config_hash, status) VALUES (?, ?, ?, ?)",
+            ("wf-config", "Config topic", "hash", "completed"),
+        )
+        await db.commit()
+
+    registry_path = run_root / "workflows_registry.db"
+    async with aiosqlite.connect(str(registry_path)) as reg_db:
+        await reg_db.executescript(REGISTRY_SCHEMA)
+        await reg_db.execute(
+            """
+            INSERT INTO workflows_registry
+                (workflow_id, topic, config_hash, db_path, status, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, datetime('now'), datetime('now'))
+            """,
+            ("wf-config", "Config topic", "hash", str(db_path), "completed"),
+        )
+        await reg_db.commit()
+
+    response = await client.get("/api/history/wf-config/config", params={"run_root": str(run_root)})
+    assert response.status_code == 200
+    assert response.json() == {"content": review_yaml}
 
 
 @pytest.mark.asyncio

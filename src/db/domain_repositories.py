@@ -10,6 +10,8 @@ from src.models import (
     ManuscriptAuditResult,
     RagRetrievalDiagnostic,
     ScreeningDecision,
+    ValidationCheckRecord,
+    ValidationRunRecord,
 )
 
 
@@ -66,3 +68,14 @@ class WorkflowDiagnosticsRepository:
 
     async def get_rag_diagnostics(self, workflow_id: str) -> list[RagRetrievalDiagnostic]:
         return await self._repo.get_rag_retrieval_diagnostics(workflow_id)
+
+
+class ValidationRepository:
+    def __init__(self, repo: WorkflowRepository) -> None:
+        self._repo = repo
+
+    async def get_latest_run(self, workflow_id: str) -> ValidationRunRecord | None:
+        return await self._repo.get_latest_validation_run(workflow_id)
+
+    async def get_checks(self, validation_run_id: str) -> list[ValidationCheckRecord]:
+        return await self._repo.get_validation_checks(validation_run_id)
