@@ -25,6 +25,22 @@ from pydantic import BaseModel
 from pydantic_ai import Agent, NativeOutput, StructuredDict
 from pydantic_ai.settings import ModelSettings
 
+# Monkeypatch Agent.__init__ to support 'google:' prefix for Gemini models
+_original_agent_init = Agent.__init__
+
+
+def _patched_agent_init(self, model=None, *args, **kwargs):
+    if isinstance(model, str) and model.startswith("google:"):
+        import os
+
+        if "GOOGLE_API_KEY" not in os.environ and "GEMINI_API_KEY" in os.environ:
+            os.environ["GOOGLE_API_KEY"] = os.environ["GEMINI_API_KEY"]
+        model = "google-gla:" + model[7:]
+    _original_agent_init(self, model, *args, **kwargs)
+
+
+Agent.__init__ = _patched_agent_init
+
 logger = logging.getLogger(__name__)
 
 _T = TypeVar("_T", bound=BaseModel)

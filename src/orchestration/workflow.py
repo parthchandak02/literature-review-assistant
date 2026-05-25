@@ -9,15 +9,13 @@ import logging
 import os
 import re
 import signal
-from datetime import UTC, datetime
 from pathlib import Path
-from uuid import uuid4
 
 from pydantic_graph import BaseNode, End, Graph, GraphRunContext
 from rich.table import Table
 
 from src.citation.ledger import CitationLedger
-from src.config.loader import get_required_env_keys, load_configs
+from src.config.loader import load_configs
 from src.db.database import get_db
 from src.db.repositories import CitationRepository, WorkflowRepository
 from src.db.workflow_registry import (
@@ -55,7 +53,6 @@ from src.models import (
     ManuscriptAssembly,
     ManuscriptAsset,
     ManuscriptAuditResult,
-    PreWritingGateCheck,
     PreWritingGateReport,
     PrimaryStudyStatus,
     RagRetrievalDiagnostic,
@@ -65,8 +62,6 @@ from src.models import (
     SectionOutline,
     StepStatus,
     StudyDesign,
-    ValidationCheckRecord,
-    ValidationRunRecord,
     WorkflowStepRecord,
     WritingManifestRecord,
 )
@@ -82,10 +77,80 @@ from src.models.diagrams import (
 from src.orchestration.context import RunContext
 from src.orchestration.embedding_node import EmbeddingNode
 from src.orchestration.gates import GateRunner
+from src.orchestration.helpers.extraction_metrics import (
+    ABSTRACT_ONLY_EXTRACTION_SOURCES as HELPER_ABSTRACT_ONLY_EXTRACTION_SOURCES,
+)
+from src.orchestration.helpers.extraction_metrics import (
+    compute_extraction_quality_metrics as helper_compute_extraction_quality_metrics,
+)
+from src.orchestration.helpers.extraction_metrics import (
+    has_participant_evidence as helper_has_participant_evidence,
+)
+from src.orchestration.helpers.extraction_metrics import (
+    load_fulltext_artifact_paper_ids as helper_load_fulltext_artifact_paper_ids,
+)
+from src.orchestration.helpers.manuscript_gate import (
+    collect_manuscript_gate_failure_reasons as helper_collect_manuscript_gate_failure_reasons,
+)
+from src.orchestration.helpers.manuscript_gate import (
+    manuscript_gate_blocks_workflow as helper_manuscript_gate_blocks_workflow,
+)
+from src.orchestration.helpers.manuscript_gate import (
+    resolve_manuscript_gate_action as helper_resolve_manuscript_gate_action,
+)
+from src.orchestration.helpers.pre_writing_gate import (
+    PRE_WRITING_PHASE_ORDER as HELPER_PRE_WRITING_PHASE_ORDER,
+)
+from src.orchestration.helpers.pre_writing_gate import (
+    compute_pre_writing_gate_report as helper_compute_pre_writing_gate_report,
+)
+from src.orchestration.helpers.pre_writing_gate import (
+    count_prior_pre_writing_failures as helper_count_prior_pre_writing_failures,
+)
+from src.orchestration.helpers.pre_writing_gate import (
+    persist_pre_writing_gate_validation as helper_persist_pre_writing_gate_validation,
+)
+from src.orchestration.helpers.pre_writing_gate import (
+    pre_writing_phases_from as helper_pre_writing_phases_from,
+)
+from src.orchestration.helpers.pre_writing_gate import (
+    rewind_pre_writing_phase as helper_rewind_pre_writing_phase,
+)
+from src.orchestration.helpers.pre_writing_gate import (
+    select_pre_writing_rewind_phase as helper_select_pre_writing_rewind_phase,
+)
+from src.orchestration.helpers.runtime import evaluate_rag_health as helper_evaluate_rag_health
+from src.orchestration.helpers.runtime import hash_config as helper_hash_config
+from src.orchestration.helpers.runtime import llm_available as helper_llm_available
+from src.orchestration.helpers.runtime import now_utc as helper_now_utc
+from src.orchestration.helpers.runtime import rc as helper_rc
+from src.orchestration.helpers.runtime import rc_print as helper_rc_print
+from src.orchestration.helpers.search_connectors import build_connectors as helper_build_connectors
+from src.orchestration.helpers.step_journal import journal_step_complete as helper_journal_step_complete
+from src.orchestration.helpers.step_journal import journal_step_start as helper_journal_step_start
+from src.orchestration.helpers.writing_manuscript import (
+    build_citation_coverage_patch as helper_build_citation_coverage_patch,
+)
+from src.orchestration.helpers.writing_manuscript import (
+    build_minimal_sections_for_zero_papers as helper_build_minimal_sections_for_zero_papers,
+)
+from src.orchestration.helpers.writing_manuscript import (
+    refresh_manuscript_export_artifacts as helper_refresh_manuscript_export_artifacts,
+)
+from src.orchestration.helpers.writing_manuscript import (
+    replace_template_tokens as helper_replace_template_tokens,
+)
+from src.orchestration.helpers.writing_manuscript import (
+    trim_abstract_to_limit as helper_trim_abstract_to_limit,
+)
+from src.orchestration.helpers.writing_manuscript import (
+    validate_writing_persistence_invariant as helper_validate_writing_persistence_invariant,
+)
 from src.orchestration.knowledge_graph_node import KnowledgeGraphNode
+from src.orchestration.nodes.human_review import HumanReviewCheckpointNode
+from src.orchestration.nodes.start import StartNode
 from src.orchestration.resume import load_resume_state
-from src.orchestration.runners.hitl_runner import run_human_review_checkpoint
-from src.orchestration.runners.start_runner import resolve_resume_next_phase, run_start_node
+from src.orchestration.runners.start_runner import resolve_resume_next_phase
 from src.orchestration.state import ReviewState
 from src.prisma import build_prisma_counts, render_prisma_diagram
 from src.protocol.generator import ProtocolGenerator
@@ -106,27 +171,13 @@ from src.screening.dual_screener import DualReviewerScreener
 from src.screening.gemini_client import PydanticAIScreeningClient
 from src.screening.keyword_filter import bm25_rank_and_cap, keyword_prefilter, metadata_prefilter
 from src.screening.reliability import compute_cohens_kappa, log_reliability_to_decision_log
-from src.search.arxiv import ArxivConnector
 from src.search.base import SearchConnector
 from src.search.citation_chasing import CitationChaser
-from src.search.clinicaltrials import ClinicalTrialsConnector
-from src.search.core import CoreConnector
-from src.search.crossref import CrossrefConnector
 from src.search.csv_import import parse_masterlist_csv, parse_supplementary_csvs
-from src.search.dblp import DblpConnector
 from src.search.deduplication import deduplicate_papers
-from src.search.embase import EmbaseConnector
-from src.search.europepmc import EuropePmcConnector
-from src.search.ieee_xplore import IEEEXploreConnector
-from src.search.openalex import OpenAlexConnector
 from src.search.pdf_retrieval import PDFRetriever
-from src.search.perplexity_search import PerplexitySearchConnector
-from src.search.pubmed import PubMedConnector
-from src.search.scopus import ScopusConnector
-from src.search.semantic_scholar import SemanticScholarConnector
 from src.search.source_quality import quality_priority_score
 from src.search.strategy import SearchStrategyCoordinator
-from src.search.web_of_science import WebOfScienceConnector
 from src.synthesis import assess_meta_analysis_feasibility, build_narrative_synthesis
 from src.synthesis.contradiction_detector import detect_contradictions
 from src.synthesis.meta_analysis import pool_effects
@@ -144,7 +195,6 @@ from src.visualization.research_diagram_placement import plan_inline_diagram_pla
 from src.visualization.research_diagram_preparer import prepare_research_diagram_briefs
 from src.visualization.research_diagram_renderer import render_custom_research_diagrams
 from src.writing.citation_grounding import (
-    extract_numeric_citation_refs,
     extract_used_citekeys,
     verify_citation_grounding,
 )
@@ -182,11 +232,11 @@ logger = logging.getLogger(__name__)
 
 
 def _now_utc() -> str:
-    return datetime.now(UTC).strftime("%Y%m%d-%H%M%S")
+    return helper_now_utc()
 
 
 def _hash_config(path: str) -> str:
-    return hashlib.sha256(Path(path).read_bytes()).hexdigest()[:16]
+    return helper_hash_config(path)
 
 
 def _evaluate_rag_health(
@@ -196,15 +246,11 @@ def _evaluate_rag_health(
     max_empty_sections: int,
 ) -> tuple[bool, str]:
     """Return (breached, message) for run-level RAG health gate."""
-    failures = max(0, int(empty_sections)) + max(0, int(error_sections))
-    limit = max(0, int(max_empty_sections))
-    breached = failures > limit
-    message = (
-        "RAG health threshold "
-        + ("violated" if breached else "ok")
-        + f": empty+error sections={failures}, max_empty_sections={limit}"
+    return helper_evaluate_rag_health(
+        empty_sections=empty_sections,
+        error_sections=error_sections,
+        max_empty_sections=max_empty_sections,
     )
-    return breached, message
 
 
 def _llm_available(settings: ReviewState | None = None, settings_cfg: SettingsConfig | None = None) -> bool:  # noqa: F821
@@ -214,90 +260,20 @@ def _llm_available(settings: ReviewState | None = None, settings_cfg: SettingsCo
     SettingsConfig directly. Falls back to checking GEMINI_API_KEY for backward
     compatibility when no settings are provided.
     """
-    from src.models import SettingsConfig as SC
-
-    cfg: SC | None = None
-    if settings_cfg is not None:
-        cfg = settings_cfg
-    elif settings is not None and hasattr(settings, "settings"):
-        cfg = settings.settings  # type: ignore[union-attr]
-    if cfg is None:
-        return any(
-            bool(os.getenv(key))
-            for key in (
-                "GEMINI_API_KEY",
-                "DEEPSEEK_API_KEY",
-                "OPENROUTER_API_KEY",
-                "OPENAI_API_KEY",
-                "ANTHROPIC_API_KEY",
-            )
-        )
-    for env_key in get_required_env_keys(cfg):
-        if os.getenv(env_key):
-            return True
-    return False
+    return helper_llm_available(settings=settings, settings_cfg=settings_cfg)
 
 
 def _build_connectors(workflow_id: str, target_databases: list[str]) -> tuple[list[SearchConnector], dict[str, str]]:
-    connectors: list[SearchConnector] = []
-    failures: dict[str, str] = {}
-    for name in target_databases:
-        normalized = name.lower()
-        try:
-            if normalized == "openalex":
-                connectors.append(OpenAlexConnector(workflow_id))
-            elif normalized == "pubmed":
-                connectors.append(PubMedConnector(workflow_id))
-            elif normalized == "arxiv":
-                connectors.append(ArxivConnector(workflow_id))
-            elif normalized == "ieee_xplore":
-                connectors.append(IEEEXploreConnector(workflow_id))
-            elif normalized == "semantic_scholar":
-                connectors.append(SemanticScholarConnector(workflow_id))
-            elif normalized == "crossref":
-                connectors.append(CrossrefConnector(workflow_id))
-            elif normalized == "perplexity_search":
-                connectors.append(PerplexitySearchConnector(workflow_id))
-            elif normalized == "scopus":
-                connectors.append(ScopusConnector(workflow_id))
-            elif normalized in {"web_of_science", "wos"}:
-                connectors.append(WebOfScienceConnector(workflow_id))
-            elif normalized in {"clinicaltrials", "clinicaltrials_gov"}:
-                connectors.append(ClinicalTrialsConnector(workflow_id))
-            elif normalized == "dblp":
-                connectors.append(DblpConnector(workflow_id))
-            elif normalized == "core":
-                connectors.append(CoreConnector(workflow_id))
-            elif normalized == "europepmc":
-                connectors.append(EuropePmcConnector(workflow_id))
-            elif normalized == "embase":
-                connectors.append(EmbaseConnector(workflow_id))
-            else:
-                failures[normalized] = "unsupported_connector"
-        except Exception as exc:
-            failures[normalized] = f"{type(exc).__name__}: {exc}"
-    return connectors, failures
+    return helper_build_connectors(workflow_id, target_databases)
 
 
 def _rc(state: ReviewState) -> RunContext | None:
-    return state.run_context
+    return helper_rc(state)
 
 
 def _rc_print(rc: RunContext | None, message: object) -> None:
     """Safely print for CLI contexts; no-op safe for web contexts."""
-    if rc is None:
-        return
-    if hasattr(rc, "console"):
-        try:
-            rc.console.print(message)  # type: ignore[union-attr]
-            return
-        except Exception:
-            pass
-    if isinstance(message, str) and hasattr(rc, "log_status"):
-        try:
-            rc.log_status(message)  # type: ignore[union-attr]
-        except Exception:
-            pass
+    helper_rc_print(rc, message)
 
 
 async def _journal_step_start(
@@ -311,27 +287,15 @@ async def _journal_step_start(
     max_attempts: int = 1,
 ) -> WorkflowStepRecord:
     """Record a step execution start in the workflow journal."""
-    record = WorkflowStepRecord(
-        step_id=str(uuid4()),
-        workflow_id=workflow_id,
-        phase=phase,
-        step_name=step_name,
-        status=StepStatus.RUNNING,
-        max_attempts=max_attempts,
+    return await helper_journal_step_start(
+        repo,
+        workflow_id,
+        phase,
+        step_name,
         paper_id=paper_id,
         parent_step_id=parent_step_id,
+        max_attempts=max_attempts,
     )
-    try:
-        await repo.reconcile_stale_running_steps(
-            workflow_id,
-            phase,
-            step_name,
-            replacement_step_id=record.step_id,
-        )
-        await repo.save_workflow_step(record)
-    except Exception:
-        _log.debug("step journal write failed for %s/%s", phase, step_name, exc_info=True)
-    return record
 
 
 async def _journal_step_complete(
@@ -349,28 +313,14 @@ async def _journal_step_complete(
     ``FailureCategory.GATE_FAILURE`` are caught immediately with a clear
     message instead of silently corrupting control-plane state.
     """
-    if not isinstance(status, StepStatus):
-        raise ValueError(f"Invalid StepStatus '{status}'. Valid values: {[m.value for m in StepStatus]}")
-    if failure_category is not None and not isinstance(failure_category, FailureCategory):
-        raise ValueError(
-            f"Invalid FailureCategory '{failure_category}'. Valid values: {[m.value for m in FailureCategory]}"
-        )
-    if recovery_action is not None and not isinstance(recovery_action, RecoveryAction):
-        raise ValueError(
-            f"Invalid RecoveryAction '{recovery_action}'. Valid values: {[m.value for m in RecoveryAction]}"
-        )
-    now = datetime.now(UTC)
-    record.status = status
-    record.error_message = error_message
-    record.failure_category = failure_category
-    record.recovery_action = recovery_action
-    record.completed_at = now
-    if record.started_at:
-        record.duration_ms = int((now - record.started_at).total_seconds() * 1000)
-    try:
-        await repo.save_workflow_step(record)
-    except Exception:
-        _log.warning("step journal complete failed for %s", record.step_id, exc_info=True)
+    await helper_journal_step_complete(
+        repo,
+        record,
+        status=status,
+        error_message=error_message,
+        failure_category=failure_category,
+        recovery_action=recovery_action,
+    )
 
 
 def _should_exclude_low_quality_record(
@@ -390,14 +340,11 @@ def _should_exclude_low_quality_record(
     return sanitize_summary_text_for_writing(summary_text) == "NR"
 
 
-_ABSTRACT_ONLY_EXTRACTION_SOURCES = frozenset({"text", "heuristic", "", None})
+_ABSTRACT_ONLY_EXTRACTION_SOURCES = HELPER_ABSTRACT_ONLY_EXTRACTION_SOURCES
 
 
 def _has_participant_evidence(record: ExtractionRecord) -> bool:
-    if bool(record.participant_count and record.participant_count > 0):
-        return True
-    demographics_text = sanitize_summary_text_for_writing(record.participant_demographics or "")
-    return demographics_text != "NR"
+    return helper_has_participant_evidence(record)
 
 
 def _compute_extraction_quality_metrics(
@@ -406,76 +353,12 @@ def _compute_extraction_quality_metrics(
     fulltext_paper_ids: set[str] | None = None,
 ) -> tuple[float, float, str]:
     """Return composite extraction quality, weak-evidence rate, and metric details."""
-    if not records:
-        return 1.0, 0.0, "included_records=0"
-
-    included_ids = {paper.paper_id for paper in included_papers if paper.paper_id}
-    relevant_records = [record for record in records if record.paper_id in included_ids] if included_ids else records
-    if not relevant_records:
-        relevant_records = records
-
-    total = len(relevant_records)
-    summary_present = 0
-    participant_present = 0
-    fulltext_backed = 0
-    weak_evidence_records = 0
-
-    for record in relevant_records:
-        summary_text = sanitize_summary_text_for_writing((record.results_summary or {}).get("summary", ""))
-        has_summary = summary_text != "NR"
-        has_participants = _has_participant_evidence(record)
-        if fulltext_paper_ids is not None:
-            has_fulltext = record.paper_id in fulltext_paper_ids
-        else:
-            has_fulltext = (record.extraction_source or "text") not in _ABSTRACT_ONLY_EXTRACTION_SOURCES
-        summary_present += int(has_summary)
-        participant_present += int(has_participants)
-        fulltext_backed += int(has_fulltext)
-        if not (has_summary and has_participants and has_fulltext):
-            weak_evidence_records += 1
-
-    summary_ratio = summary_present / total
-    participant_ratio = participant_present / total
-    fulltext_ratio = fulltext_backed / total
-    completeness_ratio = (summary_ratio + participant_ratio + fulltext_ratio) / 3.0
-    weak_evidence_rate = weak_evidence_records / total
-    details = (
-        f"included_records={total}, summary_ratio={summary_ratio:.2f}, "
-        f"participant_ratio={participant_ratio:.2f}, fulltext_ratio={fulltext_ratio:.2f}"
-    )
-    return completeness_ratio, weak_evidence_rate, details
+    return helper_compute_extraction_quality_metrics(records, included_papers, fulltext_paper_ids)
 
 
 def _load_fulltext_artifact_paper_ids(run_artifacts: dict[str, str], db_path: str) -> set[str]:
     """Return paper IDs with saved PDF/TXT artifacts for the current run."""
-    fulltext_paper_ids: set[str] = set()
-    manifest_path = Path(run_artifacts.get("papers_manifest", ""))
-    if manifest_path.exists():
-        try:
-            manifest_data = json.loads(manifest_path.read_text(encoding="utf-8"))
-            if isinstance(manifest_data, dict):
-                for paper_id, entry in manifest_data.items():
-                    if isinstance(entry, dict) and entry.get("file_path"):
-                        fulltext_paper_ids.add(str(paper_id))
-            elif isinstance(manifest_data, list):
-                for entry in manifest_data:
-                    if isinstance(entry, dict) and entry.get("paper_id") and entry.get("file_path"):
-                        fulltext_paper_ids.add(str(entry["paper_id"]))
-        except Exception as exc:
-            logger.warning("Could not read papers manifest for extraction metrics: %s", exc)
-    if fulltext_paper_ids:
-        return fulltext_paper_ids
-
-    papers_dir = (
-        Path(run_artifacts.get("papers_dir", ""))
-        if run_artifacts.get("papers_dir")
-        else Path(db_path).parent / "papers"
-    )
-    if papers_dir.exists():
-        for paper_file in papers_dir.iterdir():
-            if paper_file.is_file() and paper_file.suffix.lower() in {".pdf", ".txt"}:
-                fulltext_paper_ids.add(paper_file.stem)
-    return fulltext_paper_ids
+    return helper_load_fulltext_artifact_paper_ids(run_artifacts, db_path)
 
 
 class ResumeStartNode(BaseNode[ReviewState]):
@@ -521,13 +404,6 @@ class ResumeStartNode(BaseNode[ReviewState]):
             return ManuscriptAuditNode()
         if phase == "finalize":
             return FinalizeNode()
-        return SearchNode()
-
-
-class StartNode(BaseNode[ReviewState]):
-    async def run(self, ctx: GraphRunContext[ReviewState]) -> SearchNode:
-        state = ctx.state
-        await run_start_node(state)
         return SearchNode()
 
 
@@ -2139,22 +2015,6 @@ class ScreeningNode(BaseNode[ReviewState]):
         return HumanReviewCheckpointNode()
 
 
-class HumanReviewCheckpointNode(BaseNode[ReviewState]):
-    """Optional pause between screening and extraction for human review.
-
-    When settings.human_in_the_loop.enabled is True, this node sets run
-    status to 'awaiting_review', emits a SSE event, and polls until the
-    /api/run/{run_id}/approve-screening endpoint is called.
-
-    When disabled (default), this node is a no-op.
-    """
-
-    async def run(self, ctx: GraphRunContext[ReviewState]) -> ExtractionQualityNode:
-        state = ctx.state
-        await run_human_review_checkpoint(state)
-        return ExtractionQualityNode()
-
-
 class ExtractionQualityNode(BaseNode[ReviewState]):
     async def run(self, ctx: GraphRunContext[ReviewState]) -> EmbeddingNode:
         state = ctx.state
@@ -3482,173 +3342,17 @@ def _build_citation_coverage_patch(
     citekey_to_design: dict[str, str] | None = None,
     chunk_size: int = 8,
 ) -> str:
-    """Build a Study Characteristics paragraph citing all uncited included-study keys.
-
-    When citekey_to_design is provided, groups keys by study design to produce
-    natural prose (e.g. 'Randomized trials include [A2021, B2022].'). Falls back
-    to simple chunking when no design mapping is available.
-
-    This is a programmatic safety net: the LLM prompt already instructs comprehensive
-    citation coverage, but if the model omits any keys this ensures the final
-    manuscript is complete.
-    """
-    if not uncited_keys:
-        return ""
-    chunk_size = max(1, int(chunk_size))
-
-    if citekey_to_design:
-        # Group by study design label for natural prose output.
-        _design_buckets: dict[str, list[str]] = {}
-        _ungrouped: list[str] = []
-        for key in uncited_keys:
-            design = citekey_to_design.get(key, "")
-            # Normalize design labels to broad human-readable categories.
-            d_lower = design.lower().replace("_", " ").strip()
-            if "randomized" in d_lower or "rct" in d_lower or "controlled trial" in d_lower:
-                bucket = "Randomized controlled trials"
-            elif "non-randomized" in d_lower or "quasi" in d_lower or "non randomized" in d_lower:
-                bucket = "Non-randomized studies"
-            elif "pre" in d_lower and "post" in d_lower:
-                bucket = "Pre-post studies"
-            elif "qualitative" in d_lower:
-                bucket = "Qualitative studies"
-            elif "cross" in d_lower and "section" in d_lower:
-                bucket = "Cross-sectional studies"
-            elif "case" in d_lower:
-                bucket = "Case reports and case series"
-            elif "development" in d_lower or "feasibility" in d_lower or "usability" in d_lower:
-                bucket = "Developmental and feasibility studies"
-            elif "review" in d_lower and "system" not in d_lower:
-                bucket = "Narrative reviews"
-            elif design:
-                bucket = f"{design.capitalize()} studies"
-            else:
-                _ungrouped.append(key)
-                continue
-            _design_buckets.setdefault(bucket, []).append(key)
-        if _ungrouped:
-            _design_buckets.setdefault("Additional included studies", []).extend(_ungrouped)
-
-        sentences = []
-        for label, keys in _design_buckets.items():
-            groups = [keys[i : i + chunk_size] for i in range(0, len(keys), chunk_size)]
-            clusters = "; ".join("[" + ", ".join(g) + "]" for g in groups)
-            sentences.append(f"{label} in this review also include {clusters}.")
-        return " ".join(sentences)
-
-    # Fallback: simple chunking with improved prose
-    groups = [uncited_keys[i : i + chunk_size] for i in range(0, len(uncited_keys), chunk_size)]
-    sentences = [f"Studies contributing to the evidence base include [{', '.join(groups[0])}]."]
-    for g in groups[1:]:
-        sentences.append(f"Further included studies are [{', '.join(g)}].")
-    return " ".join(sentences)
-
-
-_TEMPLATE_TOKEN_REGEX = re.compile(
-    r"\[(INTERVENTION|OUTCOME|OUTCOME MEASURE|POPULATION|COMPARATOR)\]",
-    flags=re.IGNORECASE,
-)
-_UUID_LIKE_BRACKET_REGEX = re.compile(r"\[(?:[0-9a-f]{7,}(?:-[0-9a-f]{2,})+)\]", flags=re.IGNORECASE)
+    return helper_build_citation_coverage_patch(
+        uncited_keys, citekey_to_design=citekey_to_design, chunk_size=chunk_size
+    )
 
 
 def _replace_template_tokens(text: str, review: ReviewConfig | None) -> str:
-    """Replace scaffold placeholders with concrete review-config values."""
-    if not text:
-        return text
-    if review is None or getattr(review, "pico", None) is None:
-        cleaned = _TEMPLATE_TOKEN_REGEX.sub("", text)
-        cleaned = _UUID_LIKE_BRACKET_REGEX.sub("", cleaned)
-        cleaned = re.sub(r"[ \t]{2,}", " ", cleaned)
-        return re.sub(r"\s+([,.;:])", r"\1", cleaned)
-    pico = review.pico
-    mapping = {
-        "INTERVENTION": str(getattr(pico, "intervention", "") or "the intervention"),
-        "OUTCOME": str(getattr(pico, "outcome", "") or "the outcome"),
-        "OUTCOME MEASURE": str(getattr(pico, "outcome", "") or "the outcome"),
-        "POPULATION": str(getattr(pico, "population", "") or "the study population"),
-        "COMPARATOR": str(getattr(pico, "comparison", "") or "the comparator"),
-    }
-
-    def _repl(match: re.Match[str]) -> str:
-        return mapping.get(match.group(1).upper(), "")
-
-    cleaned = _TEMPLATE_TOKEN_REGEX.sub(_repl, text)
-    cleaned = _UUID_LIKE_BRACKET_REGEX.sub("", cleaned)
-    cleaned = re.sub(r"[ \t]{2,}", " ", cleaned)
-    return re.sub(r"\s+([,.;:])", r"\1", cleaned)
+    return helper_replace_template_tokens(text, review)
 
 
 def _trim_abstract_to_limit(abstract: str, limit: int | None = None) -> str:
-    """Trim abstract body to at most `limit` words, excluding the Keywords line.
-
-    Counts words in the labelled fields (Background through Conclusion) and,
-    if over limit, shortens the longest field by removing words from its end
-    until the total fits. The Keywords line is never trimmed or counted.
-
-    This is a formatting safeguard only; semantic issues are validated by
-    manuscript contracts rather than rewritten here.
-    """
-    if limit is None:
-        from src.models.config import IEEEExportConfig
-
-        limit = int(IEEEExportConfig().max_abstract_words)
-
-    # Separate Keywords line from the rest (always last)
-    lines = abstract.split("\n")
-    kw_line = ""
-    body_lines: list[str] = []
-    for line in lines:
-        stripped = line.lstrip("*").lstrip().lower()
-        if stripped.startswith("keywords:") or stripped.startswith("**keywords"):
-            kw_line = line
-        else:
-            body_lines.append(line)
-    body = "\n".join(body_lines).strip()
-
-    # Count words in body only
-    body_words = body.split()
-    if len(body_words) <= limit:
-        return abstract  # Already within limit; no trimming needed.
-
-    # Identify the field that contributes the most words and trim it.
-    # Fields are separated by **Label:** markers in bold.
-    import re as _re
-
-    field_re = _re.compile(r"(\*\*[A-Za-z ]+:\*\*[^\n]*(?:\n(?!\*\*)[^\n]*)*)", _re.MULTILINE)
-    fields = field_re.findall(body)
-    if not fields:
-        # No bold fields found: just truncate at word limit
-        trimmed = " ".join(body_words[:limit])
-        return (trimmed + ("\n\n" + kw_line if kw_line else "")).strip()
-
-    # Iteratively trim longest fields until we are within the limit.
-    # Using a loop avoids off-by-one cases caused by sentence-boundary backtracking.
-    while len(body.split()) > limit:
-        fields = field_re.findall(body)
-        if not fields:
-            body = " ".join(body.split()[:limit])
-            break
-        excess = len(body.split()) - limit
-        longest_idx = max(range(len(fields)), key=lambda i: len(fields[i].split()))
-        field_text = fields[longest_idx]
-        field_words = field_text.split()
-        trim_target = max(1, len(field_words) - excess)
-        candidate = " ".join(field_words[:trim_target])
-        # Walk back to the last sentence-ending punctuation so the field is complete.
-        last_sentence_end = max(
-            candidate.rfind(". "),
-            candidate.rfind("? "),
-            candidate.rfind("! "),
-            candidate.rfind(".\n"),
-        )
-        if last_sentence_end > len(candidate) // 2:
-            # Keep up to and including the punctuation mark itself.
-            trimmed_field = candidate[: last_sentence_end + 1].rstrip()
-        else:
-            trimmed_field = candidate
-        body = body.replace(field_text, trimmed_field, 1)
-
-    return (body.strip() + ("\n\n" + kw_line if kw_line else "")).strip()
+    return helper_trim_abstract_to_limit(abstract, limit=limit)
 
 
 def _build_minimal_sections_for_zero_papers(
@@ -3656,47 +3360,7 @@ def _build_minimal_sections_for_zero_papers(
     minimal_paragraph: str,
     sections: list[str],
 ) -> list[str]:
-    """Build minimal section content when no studies were included.
-
-    Avoids LLM calls; produces factual, non-hallucinated manuscript.
-    """
-    rq = research_question or "the research question"
-    result: list[str] = []
-    for s in sections:
-        if s == "abstract":
-            content = (
-                f"**Background:** This review examines the available evidence for {rq}. "
-                f"**Objectives:** This systematic review addressed {rq}. "
-                "**Methods:** Bibliographic databases were searched per protocol. "
-                "**Results:** The search identified records as reported; 0 studies "
-                "met the eligibility criteria. **Conclusion:** No synthesis was "
-                "performed. **Keywords:** systematic review, empty result, evidence gap."
-            )
-        elif s == "introduction":
-            content = (
-                f"This systematic review aimed to address {rq}. "
-                "No studies met the eligibility criteria after screening."
-            )
-        elif s == "methods":
-            content = (
-                "Searches were conducted in bibliographic databases per the "
-                "registered protocol. Eligibility criteria were applied by "
-                "independent reviewers. No studies were included."
-            )
-        elif s == "results":
-            content = minimal_paragraph
-        elif s == "discussion":
-            content = (
-                "With no studies meeting eligibility criteria, no synthesis or "
-                "findings can be reported. This may reflect a narrow search scope, "
-                "restrictive eligibility criteria, or a genuine evidence gap."
-            )
-        elif s == "conclusion":
-            content = "No conclusions can be drawn from this review. No studies met the eligibility criteria."
-        else:
-            content = minimal_paragraph
-        result.append(content)
-    return result
+    return helper_build_minimal_sections_for_zero_papers(research_question, minimal_paragraph, sections)
 
 
 def _validate_writing_persistence_invariant(
@@ -3704,57 +3368,22 @@ def _validate_writing_persistence_invariant(
     persisted_sections: set[str],
     failed_sections: list[str],
 ) -> tuple[bool, list[str]]:
-    """Return (violated, missing_sections) for writing completion invariant.
-
-    A section failure is tolerated only when that same section was later persisted
-    successfully (for example, after bounded retries or deterministic fallback).
-    """
-    missing_sections = sorted(set(required_sections) - persisted_sections)
-    unrecovered_failed = sorted(set(failed_sections) - persisted_sections)
-    violated = bool(unrecovered_failed or missing_sections)
-    return violated, missing_sections
+    return helper_validate_writing_persistence_invariant(required_sections, persisted_sections, failed_sections)
 
 
-_PRE_WRITING_PHASE_ORDER = (
-    "phase_4_extraction_quality",
-    "phase_4b_embedding",
-    "phase_5_synthesis",
-    "phase_5b_knowledge_graph",
-    "phase_5c_pre_writing_gate",
-    "phase_6_writing",
-    "finalize",
-)
+_PRE_WRITING_PHASE_ORDER = HELPER_PRE_WRITING_PHASE_ORDER
 
 
 def _pre_writing_phases_from(start_phase: str) -> list[str]:
-    try:
-        idx = _PRE_WRITING_PHASE_ORDER.index(start_phase)
-    except ValueError:
-        return []
-    return list(_PRE_WRITING_PHASE_ORDER[idx:])
+    return helper_pre_writing_phases_from(start_phase)
 
 
 def _select_pre_writing_rewind_phase(phases: list[str]) -> str | None:
-    phase_set = set(phases)
-    for phase in _PRE_WRITING_PHASE_ORDER:
-        if phase in phase_set:
-            return phase
-    return None
+    return helper_select_pre_writing_rewind_phase(phases)
 
 
 async def _count_prior_pre_writing_failures(db, workflow_id: str) -> int:
-    cursor = await db.execute(
-        """
-        SELECT COUNT(*)
-        FROM validation_runs
-        WHERE workflow_id = ?
-          AND profile = 'pre_writing_gate'
-          AND status = 'failed'
-        """,
-        (workflow_id,),
-    )
-    row = await cursor.fetchone()
-    return int(row[0]) if row and row[0] is not None else 0
+    return await helper_count_prior_pre_writing_failures(db, workflow_id)
 
 
 async def _compute_pre_writing_gate_report(
@@ -3764,128 +3393,10 @@ async def _compute_pre_writing_gate_report(
     db,
     attempt_number: int,
 ) -> PreWritingGateReport:
-    included_ids = await repository.get_synthesis_included_paper_ids(state.workflow_id)
-    if not included_ids:
-        included_ids = await repository.get_included_paper_ids(state.workflow_id)
-
-    included_papers = state.included_papers
-    if not included_papers and included_ids:
-        included_papers = await repository.get_papers_by_ids(included_ids)
-
-    records = state.extraction_records or await repository.load_extraction_records(state.workflow_id)
-    extraction_records = [record for record in records if not is_extraction_failed(record)]
-    extraction_ids = {str(record.paper_id) for record in extraction_records if record.paper_id}
-
-    rob2_rows, robins_i_rows = await repository.load_rob_assessments(state.workflow_id)
-    casp_rows = await repository.load_casp_assessments(state.workflow_id)
-    mmat_rows = await repository.load_mmat_assessments(state.workflow_id)
-    quality_ids = {
-        str(assessment.paper_id)
-        for assessment in [*rob2_rows, *robins_i_rows, *casp_rows, *mmat_rows]
-        if getattr(assessment, "paper_id", None)
-    }
-
-    chunk_cursor = await db.execute(
-        """
-        SELECT DISTINCT paper_id
-        FROM paper_chunks_meta
-        WHERE workflow_id = ?
-        """,
-        (state.workflow_id,),
-    )
-    chunk_rows = await chunk_cursor.fetchall()
-    chunk_ids = {str(row[0]) for row in chunk_rows if row and row[0]}
-
-    dedup_count = state.dedup_count
-    if dedup_count <= 0:
-        dedup_count = int(await repository.get_dedup_count(state.workflow_id) or 0)
-    prisma = await build_prisma_counts(
-        repository,
-        state.workflow_id,
-        dedup_count,
-        included_qualitative=0,
-        included_quantitative=len(included_ids),
-    )
-
-    citation_entries = _citation_entries_from_papers(included_papers)
-    citekeys = [citekey for citekey, _paper in citation_entries]
-    placeholder_citekeys = [citekey for citekey in citekeys if citekey.startswith("Ref")]
-
-    missing_extraction = sorted(included_ids - extraction_ids)
-    missing_quality = sorted(extraction_ids - quality_ids)
-    missing_chunks = sorted(extraction_ids - chunk_ids)
-    citation_catalog_ok = len(citekeys) == len(included_papers) and len(set(citekeys)) == len(citekeys)
-
-    checks: list[PreWritingGateCheck] = []
-    blocking_reasons: list[str] = []
-    rewind_candidates: list[str] = []
-
-    checks.append(
-        PreWritingGateCheck(
-            name="prisma_arithmetic_valid",
-            ok=bool(prisma.arithmetic_valid),
-            detail="valid" if prisma.arithmetic_valid else "invalid",
-            rewind_phase=None if prisma.arithmetic_valid else "phase_4_extraction_quality",
-        )
-    )
-    if not prisma.arithmetic_valid:
-        blocking_reasons.append("PRISMA arithmetic is inconsistent before writing")
-        rewind_candidates.append("phase_4_extraction_quality")
-
-    checks.append(
-        PreWritingGateCheck(
-            name="extraction_coverage",
-            ok=not missing_extraction,
-            detail=f"missing={len(missing_extraction)}",
-            rewind_phase=None if not missing_extraction else "phase_4_extraction_quality",
-        )
-    )
-    if missing_extraction:
-        blocking_reasons.append(f"missing extraction records for {len(missing_extraction)} included papers")
-        rewind_candidates.append("phase_4_extraction_quality")
-
-    checks.append(
-        PreWritingGateCheck(
-            name="quality_coverage",
-            ok=not missing_quality,
-            detail=f"missing={len(missing_quality)}",
-            rewind_phase=None if not missing_quality else "phase_4_extraction_quality",
-        )
-    )
-    if missing_quality:
-        blocking_reasons.append(f"missing quality assessments for {len(missing_quality)} extracted papers")
-        rewind_candidates.append("phase_4_extraction_quality")
-
-    checks.append(
-        PreWritingGateCheck(
-            name="rag_chunk_coverage",
-            ok=not missing_chunks,
-            detail=f"missing={len(missing_chunks)}",
-            rewind_phase=None if not missing_chunks else "phase_4b_embedding",
-        )
-    )
-    if missing_chunks:
-        blocking_reasons.append(f"missing RAG chunks for {len(missing_chunks)} extracted papers")
-        rewind_candidates.append("phase_4b_embedding")
-
-    checks.append(
-        PreWritingGateCheck(
-            name="citation_catalog_integrity",
-            ok=citation_catalog_ok,
-            detail=f"generated={len(citekeys)} placeholder_keys={len(placeholder_citekeys)}",
-            rewind_phase=None if citation_catalog_ok else "phase_4_extraction_quality",
-        )
-    )
-    if not citation_catalog_ok:
-        blocking_reasons.append("citation catalog generation is not one-to-one with included papers")
-        rewind_candidates.append("phase_4_extraction_quality")
-
-    return PreWritingGateReport(
-        workflow_id=state.workflow_id,
-        ready=not blocking_reasons,
-        checks=checks,
-        blocking_reasons=blocking_reasons,
-        rewind_phase=_select_pre_writing_rewind_phase(rewind_candidates),
+    return await helper_compute_pre_writing_gate_report(
+        state=state,
+        repository=repository,
+        db=db,
         attempt_number=attempt_number,
     )
 
@@ -3895,46 +3406,7 @@ async def _persist_pre_writing_gate_validation(
     repository: WorkflowRepository,
     report: PreWritingGateReport,
 ) -> None:
-    now = datetime.now(UTC)
-    validation_run_id = f"prewrite-{uuid4().hex}"
-    await repository.save_validation_run(
-        ValidationRunRecord(
-            validation_run_id=validation_run_id,
-            workflow_id=report.workflow_id,
-            profile="pre_writing_gate",
-            status="passed" if report.ready else "failed",
-            tool_version="pre_writing_gate_v1",
-            summary_json=json.dumps(
-                {
-                    "ready": report.ready,
-                    "rewind_phase": report.rewind_phase,
-                    "blocking_reasons": report.blocking_reasons,
-                    "attempt_number": report.attempt_number,
-                },
-                sort_keys=True,
-            ),
-            started_at=now,
-            completed_at=now,
-        )
-    )
-    for check in report.checks:
-        await repository.save_validation_check(
-            ValidationCheckRecord(
-                validation_run_id=validation_run_id,
-                workflow_id=report.workflow_id,
-                phase="phase_5c_pre_writing_gate",
-                check_name=check.name,
-                status="pass" if check.ok else "fail",
-                severity="error" if check.blocking else "warn",
-                metric_value=None,
-                details_json=json.dumps(
-                    {"detail": check.detail, "rewind_phase": check.rewind_phase},
-                    sort_keys=True,
-                ),
-                source_module="orchestration.workflow",
-                paper_id=None,
-            )
-        )
+    await helper_persist_pre_writing_gate_validation(repository=repository, report=report)
 
 
 async def _rewind_pre_writing_phase(
@@ -3943,10 +3415,7 @@ async def _rewind_pre_writing_phase(
     workflow_id: str,
     rewind_phase: str,
 ) -> None:
-    phases_to_clear = _pre_writing_phases_from(rewind_phase)
-    if phases_to_clear:
-        await repository.delete_checkpoints_for_phases(workflow_id, phases_to_clear)
-    await repository.rollback_phase_data(workflow_id, rewind_phase)
+    await helper_rewind_pre_writing_phase(repository=repository, workflow_id=workflow_id, rewind_phase=rewind_phase)
 
 
 class PreWritingGateNode(BaseNode[ReviewState]):
@@ -5227,6 +4696,40 @@ class WritingNode(BaseNode[ReviewState]):
                 # Do not apply post-hoc semantic prose rewrites to abstract/methods/results.
                 # Prompt-grounded generation plus manuscript contracts own these guarantees.
 
+                # Sections can fail LLM validation yet still receive deterministic fallback
+                # text above. Persist those recoveries so the completion invariant matches DB state.
+                if _failed_sections:
+                    _recovered_sections: list[str] = []
+                    for _sec in list(_failed_sections):
+                        if _sec not in SECTIONS:
+                            continue
+                        _sec_idx = SECTIONS.index(_sec)
+                        if _sec_idx >= len(sections_written):
+                            continue
+                        _recovered_content = str(sections_written[_sec_idx] or "").strip()
+                        if not _recovered_content:
+                            continue
+                        _recovered_draft = SectionDraft(
+                            workflow_id=state.workflow_id,
+                            section=_sec,
+                            version=1,
+                            content=_recovered_content,
+                            claims_used=[],
+                            citations_used=[],
+                            word_count=len(_recovered_content.split()),
+                        )
+                        await repository.save_section_artifacts_from_draft(
+                            _recovered_draft,
+                            section_order=_sec_idx,
+                        )
+                        _recovered_sections.append(_sec)
+                    if _recovered_sections:
+                        logger.warning(
+                            "WritingNode: persisted deterministic fallback for recovered section(s): %s",
+                            ", ".join(_recovered_sections),
+                        )
+                        _failed_sections = [s for s in _failed_sections if s not in _recovered_sections]
+
                 if _failed_sections and rc and hasattr(rc, "_emit"):
                     rc._emit(
                         {
@@ -6213,29 +5716,15 @@ def _collect_manuscript_gate_failure_reasons(
     contract_result: ManuscriptContractResult,
     audit_result: ManuscriptAuditResult,
 ) -> list[str]:
-    reasons: list[str] = []
-    if not contract_result.passed:
-        reasons.append(
-            f"contract gate failed in mode={contract_result.mode} with {len(contract_result.violations)} violation(s)"
-        )
-    if not audit_result.passed:
-        reasons.append(
-            f"audit gate failed in mode={audit_result.mode} "
-            f"(verdict={audit_result.verdict}, blocking={audit_result.blocking_count})"
-        )
-    return reasons
+    return helper_collect_manuscript_gate_failure_reasons(contract_result, audit_result)
 
 
 def _resolve_manuscript_gate_action(audit_gate_mode: str, gate_blocked: bool) -> str:
-    if not gate_blocked:
-        return "pass"
-    if audit_gate_mode == "advisory":
-        return "advisory_only"
-    return "strict_block"
+    return helper_resolve_manuscript_gate_action(audit_gate_mode, gate_blocked)
 
 
 def _manuscript_gate_blocks_workflow(audit_gate_mode: str, gate_blocked: bool) -> bool:
-    return gate_blocked and audit_gate_mode == "strict"
+    return helper_manuscript_gate_blocks_workflow(audit_gate_mode, gate_blocked)
 
 
 async def _refresh_manuscript_export_artifacts(
@@ -6244,127 +5733,11 @@ async def _refresh_manuscript_export_artifacts(
     strict_export: bool,
     persist_assembly: bool = False,
 ) -> str | None:
-    """Render current markdown manuscript into fresh TeX/Bib artifacts."""
-    manuscript_md_path = state.artifacts.get("manuscript_md", "")
-    if not manuscript_md_path or not os.path.isfile(manuscript_md_path):
-        return None
-
-    from src.export.bibtex_builder import _sanitize_citekey as _sanitize_bib_citekey
-    from src.export.bibtex_builder import build_bibtex as _build_bibtex
-    from src.export.bibtex_builder import build_citekey_alias_map as _build_citekey_alias_map
-    from src.export.ieee_latex import markdown_to_latex as _md_to_latex
-    from src.export.markdown_refs import extract_inline_figure_artifact_keys, get_latex_figure_paths
-    from src.export.submission_packager import (
-        _build_number_to_citekey,
-        llm_resolve_unmatched_citations,
+    return await helper_refresh_manuscript_export_artifacts(
+        state,
+        strict_export=strict_export,
+        persist_assembly=persist_assembly,
     )
-
-    manuscript_path = Path(manuscript_md_path)
-    tex_path = manuscript_path.parent / "doc_manuscript.tex"
-    bib_path = manuscript_path.parent / "references.bib"
-
-    async with get_db(state.db_path) as db:
-        citations = await CitationRepository(db).get_all_citations_for_export()
-
-    used_keys: set[str] = set()
-    key_map: dict[str, str] = {}
-    normalized_citations: list[tuple] = []
-    for idx, row in enumerate(citations):
-        cid, citekey, doi, title, authors_json, year, journal, bibtex = row[:8]
-        url = row[8] if len(row) > 8 else None
-        safe_key = _sanitize_bib_citekey(citekey, title, authors_json, year, idx)
-        unique_key = safe_key
-        suffix = 2
-        while unique_key in used_keys:
-            unique_key = f"{safe_key}_{suffix}"
-            suffix += 1
-        used_keys.add(unique_key)
-        key_map[str(citekey)] = unique_key
-        normalized_citations.append((cid, unique_key, doi, title, authors_json, year, journal, bibtex, url))
-
-    md_text = manuscript_path.read_text(encoding="utf-8")
-    citekeys = {c[1] for c in normalized_citations}
-    citekey_aliases = _build_citekey_alias_map(normalized_citations)
-    num_map = _build_number_to_citekey(md_text, normalized_citations)
-    if not strict_export:
-        num_map = await llm_resolve_unmatched_citations(
-            md_text,
-            normalized_citations,
-            num_map,
-            db_path=state.db_path,
-            workflow_id=state.workflow_id,
-        )
-    cited_citekeys = set(num_map.values())
-    for old_key, new_key in key_map.items():
-        num_map.setdefault(old_key, new_key)
-
-    author_name = str(getattr(getattr(state, "review", None), "author_name", "") or "")
-    inline_artifact_keys = extract_inline_figure_artifact_keys(md_text, state.artifacts)
-    figure_paths = get_latex_figure_paths(
-        manuscript_path,
-        state.artifacts,
-        exclude_artifact_keys=inline_artifact_keys,
-    )
-    tex_content = _md_to_latex(
-        md_text,
-        citekeys=citekeys,
-        figure_paths=figure_paths,
-        num_to_citekey=num_map,
-        citekey_aliases=citekey_aliases,
-        author_name=author_name,
-    )
-    has_md_figures = bool(re.search(r"!\[[^\]]*\]\([^)]+\)", md_text))
-    has_tex_figures = "\\includegraphics" in tex_content
-    if has_md_figures and not has_tex_figures:
-        raise RuntimeError(
-            "LaTeX conversion emitted zero figures despite markdown figure references. "
-            "Check figure artifact paths and markdown_to_latex figure_paths handling."
-        )
-    if strict_export:
-        unresolved_alpha = extract_used_citekeys(tex_content)
-        unresolved_numeric = extract_numeric_citation_refs(tex_content)
-        if unresolved_alpha or unresolved_numeric:
-            unresolved_tokens = unresolved_alpha[:10] + unresolved_numeric[:10]
-            raise RuntimeError(
-                "strict export blocked: unresolved citations remain after deterministic conversion: "
-                + ", ".join(unresolved_tokens[:10])
-            )
-
-    tex_path.write_text(tex_content, encoding="utf-8")
-    bib_path.write_text(
-        _build_bibtex(normalized_citations, cited_citekeys=cited_citekeys),
-        encoding="utf-8",
-    )
-    state.artifacts["manuscript_tex"] = str(tex_path)
-    state.artifacts["references_bib"] = str(bib_path)
-
-    if persist_assembly:
-        try:
-            async with get_db(state.db_path) as asm_db:
-                asm_repo = WorkflowRepository(asm_db)
-                latest_sections = await asm_repo.load_latest_manuscript_sections(state.workflow_id)
-                manifest = {
-                    "sections": [
-                        {
-                            "section_key": s.section_key,
-                            "version": s.version,
-                            "order": s.section_order,
-                        }
-                        for s in latest_sections
-                    ]
-                }
-                await asm_repo.save_manuscript_assembly(
-                    ManuscriptAssembly(
-                        workflow_id=state.workflow_id,
-                        assembly_id="latest",
-                        target_format="tex",
-                        content=tex_content,
-                        manifest_json=json.dumps(manifest, ensure_ascii=True),
-                    )
-                )
-        except Exception as asm_err:
-            logger.debug("Failed to persist tex assembly (non-fatal): %s", asm_err)
-    return str(tex_path)
 
 
 class ManuscriptAuditNode(BaseNode[ReviewState]):

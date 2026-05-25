@@ -1,4 +1,5 @@
 // Typed API wrappers for the FastAPI backend
+import { downloadUrl, studyFilesZipUrl, submissionZipUrl } from "./api/urls"
 
 export interface RunRequest {
   review_yaml: string
@@ -442,17 +443,7 @@ export async function fetchRunConfig(workflowId: string, runRoot = "runs"): Prom
   return data.content ?? null
 }
 
-export function downloadUrl(path: string): string {
-  return `${BASE}/download?path=${encodeURIComponent(path)}`
-}
-
-export function submissionZipUrl(runId: string): string {
-  return `${BASE}/run/${runId}/submission.zip`
-}
-
-export function studyFilesZipUrl(runId: string): string {
-  return `${BASE}/run/${runId}/studies-files.zip`
-}
+export { downloadUrl, studyFilesZipUrl, submissionZipUrl }
 
 // Database explorer fetchers
 

@@ -47,11 +47,23 @@ def get_chat_client(timeout_seconds: float | None = None) -> PydanticAIClient:
     return client
 
 
+def _normalize_embed_model(model: str) -> str:
+    """Map settings.yaml ``google:`` aliases to PydanticAI's ``google-gla:`` embedder prefix."""
+    import os
+
+    if model.startswith("google:"):
+        if "GOOGLE_API_KEY" not in os.environ and "GEMINI_API_KEY" in os.environ:
+            os.environ["GOOGLE_API_KEY"] = os.environ["GEMINI_API_KEY"]
+        return "google-gla:" + model[7:]
+    return model
+
+
 def get_embedder(model: str, dim: int) -> Embedder:
-    key = (model, dim)
+    normalized = _normalize_embed_model(model)
+    key = (normalized, dim)
     embedder = _embedder_cache.get(key)
     if embedder is None:
-        embedder = Embedder(model, settings={"dimensions": dim})
+        embedder = Embedder(normalized, settings={"dimensions": dim})
         _embedder_cache[key] = embedder
     return embedder
 
