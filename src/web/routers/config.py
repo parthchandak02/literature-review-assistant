@@ -12,6 +12,35 @@ from src.config.loader import load_configs as _load_configs
 
 router = APIRouter(prefix="/api/config", tags=["config"])
 
+_UI_KEY_TO_ENV: dict[str, str] = {
+    "gemini": "GEMINI_API_KEY",
+    "deepseek": "DEEPSEEK_API_KEY",
+    "openrouter": "OPENROUTER_API_KEY",
+    "openai": "OPENAI_API_KEY",
+    "anthropic": "ANTHROPIC_API_KEY",
+    "groq": "GROQ_API_KEY",
+    "mistral": "MISTRAL_API_KEY",
+    "cohere": "CO_API_KEY",
+    "openalex": "OPENALEX_API_KEY",
+    "ieee": "IEEE_API_KEY",
+    "pubmedEmail": "PUBMED_EMAIL",
+    "pubmedApiKey": "PUBMED_API_KEY",
+    "perplexity": "PERPLEXITY_SEARCH_API_KEY",
+    "semanticScholar": "SEMANTIC_SCHOLAR_API_KEY",
+    "crossrefEmail": "CROSSREF_EMAIL",
+    "wos": "WOS_API_KEY",
+    "scopus": "SCOPUS_API_KEY",
+}
+
+
+def _mask_secret(value: str) -> str:
+    trimmed = (value or "").strip()
+    if not trimmed or trimmed.lower() in {"undefined", "your-deepseek-api-key", "your-gemini-api-key"}:
+        return ""
+    if len(trimmed) <= 8:
+        return "••••"
+    return f"{trimmed[:4]}…{trimmed[-4:]}"
+
 
 @router.get("/review")
 async def get_review_config() -> dict[str, str]:
@@ -49,15 +78,34 @@ async def get_env_keys() -> dict[str, str]:
 async def get_required_env_keys() -> dict[str, list[str]]:
     cfg = _load_configs(settings_path="config/settings.yaml")[1]
     env_keys = _get_required_env_keys(cfg)
-    env_to_ui_key = {
-        "GEMINI_API_KEY": "gemini",
-        "DEEPSEEK_API_KEY": "deepseek",
-        "OPENROUTER_API_KEY": "openrouter",
-        "OPENAI_API_KEY": "openai",
-        "ANTHROPIC_API_KEY": "anthropic",
-        "GROQ_API_KEY": "groq",
-        "MISTRAL_API_KEY": "mistral",
-        "CO_API_KEY": "cohere",
-    }
+    env_to_ui_key = {v: k for k, v in _UI_KEY_TO_ENV.items()}
     ui_keys = [env_to_ui_key[key] for key in env_keys if key in env_to_ui_key]
     return {"env_keys": env_keys, "ui_keys": ui_keys}
+
+
+@router.get("/env-keys/status")
+async def get_env_keys_status() -> dict[str, object]:
+    """Return which credentials are configured on the server (.env), without exposing secrets."""
+    cfg = _load_configs(settings_path="config/settings.yaml")[1]
+    required_env = _get_required_env_keys(cfg)
+    env_to_ui_key = {v: k for k, v in _UI_KEY_TO_ENV.items()}
+    required_ui = [env_to_ui_key[key] for key in required_env if key in env_to_ui_key]
+
+    providers: dict[str, dict[str, object]] = {}
+    for ui_key, env_name in _UI_KEY_TO_ENV.items():
+        raw = os.environ.get(env_name, "")
+        if env_name == "PUBMED_EMAIL" and not raw:
+            raw = os.environ.get("NCBI_EMAIL", "")
+        masked = _mask_secret(raw)
+        providers[ui_key] = {
+            "configured": bool(masked),
+            "masked": masked,
+            "source": "env" if masked else None,
+            "required": ui_key in required_ui,
+        }
+
+    return {
+        "required_ui_keys": required_ui,
+        "providers": providers,
+        "server_ready": all(providers.get(k, {}).get("configured") for k in required_ui),
+    }
