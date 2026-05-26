@@ -1,7 +1,7 @@
 # Config generation mode: web-grounded brief with live web research.
 # Review and edit this YAML before launching the workflow.
 
-research_question: "What is the impact of artificial intelligence and machine learning technologies on the quality of care and operational efficiency in residential care settings for older adults?"
+research_question: "What is the impact of AI-powered household robots on human individual health and the nature of domestic labor?"
 review_type: "systematic"
 
 # Living review settings (optional)
@@ -11,85 +11,88 @@ living_review: false
 last_search_date: null
 
 pico:
-  population: "Older adults residing in residential care settings (e.g., nursing homes, assisted living facilities)"
-  intervention: "Artificial intelligence (AI) and machine learning (ML) technologies, including predictive analytics, clinical decision support systems, NLP, computer vision, and AI-powered geriatric care platforms"
-  comparison: "Standard care practices without AI/ML integration, or pre-implementation baseline measurements"
-  outcome: "Measures of quality of care (e.g., fall detection accuracy, reduction in fall incidence, medication adherence, vital sign stability, early detection of health deterioration, quality of life scores) and operational efficiency (e.g., reduction in hospital readmission rates, length of stay, staff efficiency, workflow optimization, adoption rates)"
+  population: "Individuals and households"
+  intervention: "AI-powered household robots designed for domestic chores"
+  comparison: "Pre-robotization of domestic chores or manual performance of chores"
+  outcome: "Human individual health (physical and cognitive), time spent on chores, physical strain, user satisfaction, and task completion efficiency"
 
 keywords:
-  - "artificial intelligence"
-  - "AI"
-  - "machine learning"
-  - "ML"
-  - "deep learning"
-  - "clinical decision support"
-  - "predictive analytics"
-  - "natural language processing"
-  - "NLP"
-  - "computer vision"
-  - "geriatric care"
-  - "elder care"
-  - "senior care"
-  - "long-term care"
-  - "nursing homes"
-  - "assisted living"
-  - "residential care"
-  - "skilled nursing facilities"
-  - "SNF"
-  - "AgeTech"
-  - "fall detection"
+  - "AI robotics"
+  - "artificial intelligence robotics"
+  - "household robots"
+  - "domestic robots"
+  - "service robots"
+  - "intelligent home robots"
+  - "cobots home"
+  - "human-robot interaction"
+  - "HRI domestic"
+  - "smart home robots"
+  - "assistive robotics"
+  - "automation domestic labor"
+  - "iRobot"
+  - "Roomba"
+  - "Amazon Astro"
+  - "Samsung Bot Handy"
+  - "LG CLOi"
+  - "elderly assistance"
+  - "disability support"
+  - "task completion rate"
+  - "time saved"
+  - "physical strain reduction"
+  - "user satisfaction"
   - "fall prevention"
-  - "medication adherence"
-  - "hospital readmission"
 
-domain: "Artificial Intelligence applications in geriatric residential care settings."
-scope: "This systematic review will examine the effects of artificial intelligence (AI) and machine learning (ML) technologies on the quality of care and operational efficiency within residential care settings for older adults. It will focus on interventions such as AI-powered clinical decision support, predictive analytics for health risks, and monitoring systems. The review will consider outcomes including fall detection, health deterioration prediction, medication adherence, hospital readmissions, and staff workflow efficiency, comparing AI-integrated approaches to standard care practices."
+domain: "AI and Robotics in Domestic Settings"
+scope: "This systematic review will examine the impact of artificial intelligence (AI)-powered robots designed to perform daily household chores. It will focus on populations within general households, including elderly individuals and those with disabilities, and assess outcomes related to human individual health, including physical and cognitive aspects, as well as measures of task efficiency and user satisfaction. The review will consider robots that assist with or automate domestic labor, comparing their effects to scenarios without such automation or with manual chore performance."
 
 domain_expert:
-  expert_role: "Geriatric Care Technology Researcher"
-  domain_summary: "Expertise in the application of digital health technologies, including AI and ML, to improve care delivery and resident well-being in long-term care facilities for the elderly."
+  expert_role: "Robotics Engineer specializing in Human-Robot Interaction"
+  domain_summary: "The field of AI-powered household robotics is rapidly evolving, moving beyond simple automation to intelligent task execution and human collaboration within the home environment. Key challenges include robust navigation, object manipulation, and ensuring user acceptance and safety. The impact on human well-being, particularly for vulnerable populations, is a critical area of research."
   canonical_terms:
-    - "AI in elder care"
-    - "ML for geriatrics"
-    - "digital health for seniors"
-    - "smart senior living"
+    - "AI household robots"
+    - "domestic service robots"
+    - "human-robot interaction"
+    - "assistive robotics"
+    - "automation of domestic work"
   related_terms:
-    - "ambient assisted living"
-    - "remote patient monitoring"
-    - "wearable sensors"
-    - "health informatics"
+    - "smart home technology"
+    - "cobots"
+    - "ubiquitous computing"
+    - "personal robots"
   excluded_terms:
-    - "AI in acute care hospitals"
-    - "AI in pediatrics"
-    - "consumer fitness trackers"
-    - "basic telehealth"
+    - "industrial robots"
+    - "autonomous vehicles"
+    - "drones"
+    - "telepresence robots"
+    - "surgical robots"
   methodological_focus:
-    - "effectiveness studies"
-    - "implementation science"
-    - "comparative effectiveness"
+    - "human-robot interaction studies"
+    - "usability testing"
+    - "longitudinal impact studies"
+    - "field trials"
   outcome_focus:
-    - "patient safety"
-    - "care quality"
-    - "operational efficiency"
-    - "resident well-being"
+    - "human health metrics"
+    - "task efficiency"
+    - "user experience"
+    - "adoption and acceptance"
 
 inclusion_criteria:
-  - "Studies evaluating the use of artificial intelligence (AI) or machine learning (ML) technologies in residential care settings for older adults."
-  - "Studies must report on at least one measurable outcome related to quality of care or operational efficiency."
-  - "Interventions must involve AI/ML components such as predictive analytics, decision support, or automated monitoring."
-  - "The primary population studied must be older adults residing in nursing homes, assisted living facilities, or similar long-term care environments."
-  - "Studies must include a comparison group (e.g., standard care, pre-intervention baseline) or provide quantitative data allowing for such comparison."
+  - "Studies must evaluate artificial intelligence (AI)-powered robots designed for performing domestic household chores."
+  - "The study population must include individuals or households, with specific attention to elderly populations or individuals with disabilities where applicable."
+  - "Outcomes must report on human individual health (physical or cognitive), time savings, physical strain, user satisfaction, or task completion efficiency related to robot use."
+  - "Studies must compare the use of AI-powered household robots against a baseline of manual chore performance or no automation."
+  - "Research must be published in English."
+  - "Included study designs are empirical research, including experimental, quasi-experimental, observational studies, and field trials."
   - "Publications must be peer-reviewed journal articles or conference proceedings."
-  - "Studies must be published in English."
 
 exclusion_criteria:
-  - "Studies focusing solely on AI applications in acute hospital settings, community health, or primary care without a residential care component."
-  - "Studies that use technologies without significant AI/ML components, such as basic sensor networks, non-AI-enabled telehealth, or simple communication platforms."
-  - "Studies where the primary population is not older adults."
-  - "Studies that do not report specific, measurable outcomes related to care quality or operational efficiency."
-  - "Studies focusing exclusively on the technical development of AI algorithms without evaluating their impact in a care setting."
-  - "Opinion pieces, editorials, reviews, or theoretical papers without empirical data."
-  - "Studies published in languages other than English."
+  - "Studies focusing solely on industrial robots, manufacturing automation, or non-domestic service robots."
+  - "Research on autonomous vehicles, drones, or other aerial robotics not intended for indoor household tasks."
+  - "Studies exclusively examining smart home hubs, voice assistants, or software-based home automation without physical robotic embodiment."
+  - "Research focusing on telepresence robots or robots designed primarily for remote communication."
+  - "Studies on surgical robots or highly specialized medical robotics."
+  - "Publications not available in English."
+  - "Literature reviews, opinion pieces, editorials, and theoretical papers without empirical data."
 
 date_range_start: 2000
 date_range_end: 2026
@@ -106,7 +109,6 @@ target_databases:
   - scopus
   - web_of_science
   - ieee_xplore
-  - clinicaltrials_gov
 
 target_sections:
   - abstract
@@ -131,11 +133,10 @@ conflicts_of_interest: "The authors declare no conflicts of interest."
 
 # Optional: override auto-generated queries per database. Omit a database to use default.
 search_overrides:
-  pubmed: "(Artificial Intelligence[MeSH Terms] OR \"machine learning\"[Title/Abstract] OR \"predictive analytics\"[Title/Abstract] OR \"clinical decision support\"[Title/Abstract] OR \"computer vision\"[Title/Abstract] OR \"natural language processing\"[Title/Abstract]) AND (geriatric[Title/Abstract] OR elder[Title/Abstract] OR senior[Title/Abstract] OR \"nursing home\"[Title/Abstract] OR \"assisted living\"[Title/Abstract] OR \"long term care\"[Title/Abstract] OR \"residential care\"[Title/Abstract]) AND (quality[Title/Abstract] OR safety[Title/Abstract] OR efficiency[Title/Abstract] OR outcome[Title/Abstract] OR fall[Title/Abstract] OR adherence[Title/Abstract] OR readmission[Title/Abstract] OR workflow[Title/Abstract])"
-  scopus: "TITLE-ABS-KEY(\"artificial intelligence\" OR \"machine learning\" OR \"deep learning\" OR \"predictive analytics\" OR \"clinical decision support\" OR \"computer vision\" OR \"natural language processing\") AND TITLE-ABS-KEY(\"geriatric care\" OR \"elder care\" OR \"senior care\" OR \"nursing home\" OR \"assisted living\" OR \"long term care\" OR \"residential care\" OR \"skilled nursing facility\") AND PUBYEAR > 2009 AND PUBYEAR < 2027"
-  web_of_science: "(TS=\"artificial intelligence\" OR TS=\"machine learning\" OR TS=\"deep learning\" OR TS=\"predictive analytics\" OR TS=\"clinical decision support\" OR TS=\"computer vision\" OR TS=\"natural language processing\") AND (TS=\"geriatric care\" OR TS=\"elder care\" OR TS=\"senior care\" OR TS=\"nursing home\" OR TS=\"assisted living\" OR TS=\"long term care\" OR TS=\"residential care\" OR TS=\"skilled nursing facility\") AND PY=2010-2026"
-  ieee_xplore: "(\"artificial intelligence\" OR \"machine learning\" OR \"deep learning\" OR \"predictive analytics\" OR \"clinical decision support\" OR \"computer vision\" OR \"natural language processing\") AND (\"geriatric care\" OR \"elder care\" OR \"senior care\" OR \"nursing home\" OR \"assisted living\" OR \"long term care\" OR \"residential care\")"
-  semantic_scholar: "artificial intelligence machine learning geriatric elder nursing home quality efficiency fall workflow"
-  openalex: "artificial intelligence machine learning geriatric elder nursing home quality efficiency fall workflow"
-  core: "AI machine learning geriatric care nursing home quality efficiency fall detection"
-  clinicaltrials_gov: "\"artificial intelligence\" OR \"machine learning\" OR \"predictive analytics\" OR \"geriatric care\" OR \"elder care\" OR \"nursing home\" OR \"assisted living\" OR \"long term care\" OR \"fall detection\" OR \"medication adherence\" OR \"staff efficiency\""
+  pubmed: "((\"Robotics\"[MeSH Terms] OR \"Artificial Intelligence\"[MeSH Terms]) AND \"Household\"[MeSH Terms]) OR (\"household robot\"[Title/Abstract] OR \"domestic robot\"[Title/Abstract] OR \"AI robot\"[Title/Abstract] OR \"service robot\"[Title/Abstract] OR \"assistive robot\"[Title/Abstract] OR \"cobot\"[Title/Abstract]) AND (\"health\"[Title/Abstract] OR \"wellbeing\"[Title/Abstract] OR \"strain\"[Title/Abstract] OR \"satisfaction\"[Title/Abstract] OR \"efficiency\"[Title/Abstract] OR \"time\"[Title/Abstract] OR \"elderly\"[Title/Abstract] OR \"disability\"[Title/Abstract])"
+  scopus: "TITLE-ABS-KEY(\"AI robot\" OR \"artificial intelligence robot\" OR \"household robot\" OR \"domestic robot\" OR \"service robot\" OR \"assistive robot\" OR \"cobot\") AND TITLE-ABS-KEY(\"human health\" OR \"physical health\" OR \"cognitive health\" OR \"physical strain\" OR \"user satisfaction\" OR \"task completion\" OR \"time saving\" OR \"domestic labor\" OR \"elderly\" OR \"disability\") AND PUBYEAR > 2009 AND PUBYEAR < 2027"
+  web_of_science: "(TS=\"AI robot\" OR TS=\"artificial intelligence robot\" OR TS=\"household robot\" OR TS=\"domestic robot\" OR TS=\"service robot\" OR TS=\"assistive robot\" OR TS=\"cobot\") AND (TS=\"human health\" OR TS=\"physical health\" OR TS=\"cognitive health\" OR TS=\"physical strain\" OR TS=\"user satisfaction\" OR TS=\"task completion\" OR TS=\"time saving\" OR TS=\"domestic labor\" OR TS=\"elderly\" OR TS=\"disability\") AND PY=2010-2026"
+  ieee_xplore: "(\"AI robot\" OR \"artificial intelligence robot\" OR \"household robot\" OR \"domestic robot\" OR \"service robot\" OR \"assistive robot\" OR \"cobot\") AND (\"human health\" OR \"physical health\" OR \"cognitive health\" OR \"physical strain\" OR \"user satisfaction\" OR \"task completion\" OR \"time saving\" OR \"domestic labor\" OR \"elderly\" OR \"disability\")"
+  semantic_scholar: "AI household robot human health domestic labor user satisfaction elderly disability"
+  openalex: "AI household robot human health domestic labor user satisfaction elderly disability"
+  core: "AI household robot human health domestic labor user satisfaction elderly disability"

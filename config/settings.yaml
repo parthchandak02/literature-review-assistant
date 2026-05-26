@@ -1,89 +1,92 @@
 llm:
-  # Stable model routing (Gemini 2.5 family):
-  # - flash-lite: bulk/high-throughput stages
-  # - flash: balanced quality stages (extraction/writing/humanizer)
-  # - pro: reserved for optional premium-quality stages
-  # Values are conservative relative to paid-tier limits in AI Studio.
+  # DeepSeek V4 routing:
+  # - deepseek-v4-flash: bulk/high-throughput stages
+  # - deepseek-v4-pro: higher-quality extraction/writing/quality stages
+  # Values are conservative relative to provider rate limits.
   flash_rpm: 60
   flash_lite_rpm: 120
   pro_rpm: 20
-  # Per-request HTTP timeout in seconds. Pro-tier writing/quality calls can take
-  # 60-120s for large outputs; 504 DEADLINE_EXCEEDED errors indicate this needs raising.
+  # Per-request HTTP timeout in seconds. Writing/quality calls can take 60-120s.
   request_timeout_seconds: 180
   # Pricing fallback for models that may not yet exist in genai-prices.
   # Key is bare model ref (without provider prefix).
   price_fallback_per_mtok:
-    gemini-3.1-flash-lite-preview:
-      input_per_mtok: 0.25
-      output_per_mtok: 1.50
-      cache_read_input_multiplier: 0.10
+    deepseek-v4-flash:
+      input_per_mtok: 0.14
+      output_per_mtok: 0.28
+    deepseek-v4-pro:
+      input_per_mtok: 0.435
+      output_per_mtok: 0.87
 
 agents:
   screening_reviewer_a:
-    model: "google:gemini-2.5-flash-lite"
+    model: "deepseek:deepseek-v4-flash"
     temperature: 0.1
   screening_reviewer_b:
-    model: "google:gemini-2.5-flash-lite"
+    model: "deepseek:deepseek-v4-flash"
     temperature: 0.1
   screening_adjudicator:
-    model: "google:gemini-2.5-flash-lite"
+    model: "deepseek:deepseek-v4-flash"
     temperature: 0.2
   search:
-    model: "google:gemini-2.5-flash-lite"
+    model: "deepseek:deepseek-v4-flash"
     temperature: 0.1
   extraction:
-    model: "google:gemini-2.5-flash"
+    model: "deepseek:deepseek-v4-pro"
     temperature: 0.1
   quality_assessment:
-    model: "google:gemini-2.5-flash"
+    model: "deepseek:deepseek-v4-pro"
     temperature: 0.2
   study_type_detection:
-    model: "google:gemini-2.5-flash-lite"
+    model: "deepseek:deepseek-v4-flash"
     temperature: 0.2
   writing:
-    model: "google:gemini-2.5-flash"
+    model: "deepseek:deepseek-v4-pro"
     temperature: 0.2
   abstract_generation:
-    model: "google:gemini-2.5-flash-lite"
+    model: "deepseek:deepseek-v4-flash"
     temperature: 0.2
   humanizer:
-    model: "google:gemini-2.5-flash"
+    model: "deepseek:deepseek-v4-pro"
     temperature: 0.3
   contradiction_resolver:
-    model: "google:gemini-2.5-flash"
+    model: "deepseek:deepseek-v4-pro"
     temperature: 0.2
   criteria_refinement:
-    model: "google:gemini-2.5-flash"
+    model: "deepseek:deepseek-v4-pro"
     temperature: 0.2
   table_extraction:
-    model: "google:gemini-2.5-flash-lite"
+    model: "deepseek:deepseek-v4-flash"
     temperature: 0.1
   config_generation:
-    model: "google:gemini-2.5-flash-lite"
+    model: "deepseek:deepseek-v4-flash"
     temperature: 0.3
   batch_screener:
-    model: "google:gemini-2.5-flash-lite"
+    model: "deepseek:deepseek-v4-flash"
     temperature: 0.1
   concept_diagrams:
-    model: "google:gemini-2.5-flash-lite"
+    model: "deepseek:deepseek-v4-flash"
     temperature: 0.3
   research_diagram_preparer:
-    model: "google:gemini-2.5-flash-lite"
+    model: "deepseek:deepseek-v4-flash"
     temperature: 0.2
   research_diagram_placement:
-    model: "google:gemini-2.5-flash-lite"
+    model: "deepseek:deepseek-v4-flash"
     temperature: 0.1
+  # ImageGenerationTool requires a provider with native image output; DeepSeek chat
+  # models are used here for brief/critic text only. Custom diagram PNG rendering may
+  # be skipped when the provider does not support image generation.
   research_diagram_drawing:
-    model: "google:gemini-3.1-flash-image-preview"
+    model: "deepseek:deepseek-v4-flash"
     temperature: 0.2
   research_diagram_critic:
-    model: "google:gemini-2.5-flash"
+    model: "deepseek:deepseek-v4-pro"
     temperature: 0.1
   narrative:
-    model: "google:gemini-2.5-flash-lite"
+    model: "deepseek:deepseek-v4-flash"
     temperature: 0.2
   citation_matching:
-    model: "google:gemini-2.5-flash-lite"
+    model: "deepseek:deepseek-v4-flash"
     temperature: 0.0
 
 diagram_generation:
@@ -186,8 +189,7 @@ dual_review:
   enabled: true
   kappa_warning_threshold: 0.4
   # reviewer_b_model: overridden via agents.screening_reviewer_b.model above.
-  # Reviewer A/B and adjudicator use gemini-2.5-flash-lite for high-throughput
-  # low-cost screening. Keep prompt-role diversity across reviewers for coverage.
+  # Reviewer A/B and adjudicator use deepseek-v4-flash for high-throughput screening.
 
 gates:
   profile: "strict"
@@ -222,7 +224,6 @@ writing:
   ratchet_cost_cap_per_section: 0.15
   ratchet_outline_enabled: true
   # 3 concurrent sections: abstract/intro/methods kick off together, results/discussion/conclusion next.
-  # Pro-tier RPM is typically 10 RPM; 3 concurrent keeps us safely under that at 45-60s per call.
   writing_concurrency: 3
   background_sr_max_results: 8
   background_sr_query_keyword_limit: 6
@@ -235,17 +236,18 @@ writing:
   citation_cluster_chunk_size: 8
 
 rag:
-  embed_model: "google:gemini-embedding-001"
+  # DeepSeek has no embedding API; local sentence-transformers (no extra API key).
+  embed_model: "sentence-transformers:lightonai/DenseOn"
   embed_dim: 768       # MRL output dimension; changing requires wiping paper_chunks_meta and re-embedding
   embed_batch_size: 20
-  # Number of embedding API batch calls sent concurrently. Each batch is embed_batch_size texts.
+  # Number of embedding batch calls sent concurrently. Each batch is embed_batch_size texts.
   embed_concurrency: 4
   chunk_max_words: 400
   chunk_overlap_sentences: 2
   use_hyde: true
-  hyde_model: "google:gemini-2.5-flash-lite"
+  hyde_model: "deepseek:deepseek-v4-flash"
   rerank: true
-  reranker_model: "google:gemini-2.5-flash-lite"
+  reranker_model: "deepseek:deepseek-v4-flash"
   candidate_k: 20      # Retrieved per section before reranking
   final_k: 8           # Final context chunks injected into writing prompt
   min_chunks_per_section: 1
@@ -314,10 +316,9 @@ extraction:
   openalex_content_full_text: true  # enabled; requires OPENALEX_API_KEY in .env
   crossref_links_full_text: true
   use_pdf_vision: true
-  pdf_vision_model: "google:gemini-2.5-flash-lite"
+  pdf_vision_model: "deepseek:deepseek-v4-pro"
   full_text_min_chars: 500
   # Papers extracted concurrently; each paper's classify+extract+RoB steps run sequentially within it.
-  # 4 concurrent with flash_rpm=20 gives safe throughput (each extraction ~20-40s).
   extraction_concurrency: 4
 
 # Search depth: how many records to fetch per database connector.
