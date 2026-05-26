@@ -27,6 +27,11 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip"
 import { DeleteConfirmDialog } from "@/components/DeleteConfirmDialog"
+import { ThemeToggle } from "@/components/ThemeToggle"
+import {
+  FRONTEND_BUILD_STAMP,
+  shouldShowFrontendBuildStamp,
+} from "@/lib/buildStamp"
 import {
   type RunStatus,
   STATUS_LABEL,
@@ -440,29 +445,44 @@ export function Sidebar({
           }}
         />
 
-        {/* Logo row - clickable to go home */}
-        <button
-          type="button"
-          onClick={() => { onGoHome?.(); if (isMobile) onToggle() }}
+        {/* Logo row — home link + theme toggle (separate buttons; no nested interactive elements) */}
+        <div
           className={cn(
-            "relative z-10 flex items-center h-14 glass-toolbar border-b border-zinc-800/70 shrink-0 px-3.5 gap-2 w-full text-left",
-            "hover:bg-zinc-800/50 transition-colors cursor-pointer",
+            "relative z-10 flex items-center h-14 glass-toolbar border-b border-zinc-800/70 shrink-0 px-3.5 gap-2 w-full",
           )}
         >
-          <div className="flex items-center justify-center w-7 h-7 rounded-lg bg-violet-600 shrink-0">
-            <BookMarked className="h-3.5 w-3.5 text-white" />
-          </div>
-          <div
+          <button
+            type="button"
+            onClick={() => { onGoHome?.(); if (isMobile) onToggle() }}
             className={cn(
-              "flex items-center gap-2 overflow-hidden transition-all duration-200",
-              collapsed ? "w-0 opacity-0" : "w-auto opacity-100",
+              "flex flex-1 items-center gap-2 min-w-0 text-left",
+              "hover:opacity-90 transition-opacity cursor-pointer",
             )}
           >
-            <span className="font-semibold text-sm text-white tracking-tight whitespace-nowrap">
-              LitReview
+            <div className="flex items-center justify-center w-7 h-7 rounded-lg bg-violet-600 shrink-0">
+              <BookMarked className="h-3.5 w-3.5 text-white" />
+            </div>
+            <span
+              className={cn(
+                "flex items-baseline gap-1.5 min-w-0 transition-all duration-200",
+                collapsed ? "w-0 opacity-0 overflow-hidden" : "w-auto opacity-100",
+              )}
+            >
+              <span className="font-semibold text-sm text-zinc-100 tracking-tight whitespace-nowrap">
+                LitReview
+              </span>
+              {shouldShowFrontendBuildStamp() && (
+                <span
+                  className="text-[10px] font-mono text-zinc-500 tabular-nums whitespace-nowrap"
+                  title={`Frontend build ${FRONTEND_BUILD_STAMP}`}
+                >
+                  {FRONTEND_BUILD_STAMP}
+                </span>
+              )}
             </span>
-          </div>
-        </button>
+          </button>
+          {!collapsed && <ThemeToggle className="shrink-0" />}
+        </div>
 
         {/* New Review button */}
         <div className={cn("relative z-10 px-2.5 pt-3 pb-2 shrink-0", collapsed && "px-2")}>
@@ -1043,7 +1063,7 @@ export function Sidebar({
                         <div
                           className={cn(
                             "sidebar-card sidebar-card-hover relative min-h-[120px]",
-                            "opacity-85 bg-zinc-900/55 border-zinc-800/80",
+                            "sidebar-card-archived opacity-85",
                             isSelected && "sidebar-card-selected opacity-100",
                           )}
                         >

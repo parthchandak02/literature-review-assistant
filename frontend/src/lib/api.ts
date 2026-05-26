@@ -3,8 +3,8 @@ import { downloadUrl, studyFilesZipUrl, submissionZipUrl } from "./api/urls"
 
 export interface RunRequest {
   review_yaml: string
-  gemini_api_key: string
-  deepseek_api_key?: string
+  deepseek_api_key: string
+  gemini_api_key?: string
   openrouter_api_key?: string
   openai_api_key?: string
   anthropic_api_key?: string
@@ -273,8 +273,8 @@ export async function startRunWithMasterlist(
   const form = new FormData()
   form.append("csv_file", csvFile)
   form.append("review_yaml", reviewYaml)
-  form.append("gemini_api_key", keys.gemini)
-  if (keys.deepseek) form.append("deepseek_api_key", keys.deepseek)
+  form.append("deepseek_api_key", keys.deepseek)
+  if (keys.gemini) form.append("gemini_api_key", keys.gemini)
   if (keys.openrouter) form.append("openrouter_api_key", keys.openrouter)
   if (keys.openai) form.append("openai_api_key", keys.openai)
   if (keys.anthropic) form.append("anthropic_api_key", keys.anthropic)
@@ -315,8 +315,8 @@ export async function startRunWithSupplementaryCsv(
   const form = new FormData()
   form.append("csv_file", csvFile)
   form.append("review_yaml", reviewYaml)
-  form.append("gemini_api_key", keys.gemini)
-  if (keys.deepseek) form.append("deepseek_api_key", keys.deepseek)
+  form.append("deepseek_api_key", keys.deepseek)
+  if (keys.gemini) form.append("gemini_api_key", keys.gemini)
   if (keys.openrouter) form.append("openrouter_api_key", keys.openrouter)
   if (keys.openai) form.append("openai_api_key", keys.openai)
   if (keys.anthropic) form.append("anthropic_api_key", keys.anthropic)
@@ -368,7 +368,7 @@ export async function getDefaultReviewConfig(): Promise<string> {
  */
 export async function generateConfigStream(
   researchQuestion: string,
-  geminiApiKey: string,
+  deepseekApiKey: string,
   generationProfile: "standard" | "health_sdg",
   onProgress: (step: string, metadata?: Record<string, unknown>) => void,
 ): Promise<string> {
@@ -377,7 +377,7 @@ export async function generateConfigStream(
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       research_question: researchQuestion,
-      gemini_api_key: geminiApiKey,
+      deepseek_api_key: deepseekApiKey,
       generation_profile: generationProfile,
     }),
   })
@@ -1089,6 +1089,63 @@ export function clearLiveRun(): void {
 // other than the user's own local backend).
 // ---------------------------------------------------------------------------
 
+export function emptyStoredApiKeys(): StoredApiKeys {
+  return {
+    gemini: "",
+    deepseek: "",
+    openrouter: "",
+    openai: "",
+    anthropic: "",
+    groq: "",
+    mistral: "",
+    cohere: "",
+    openalex: "",
+    ieee: "",
+    pubmedEmail: "",
+    pubmedApiKey: "",
+    perplexity: "",
+    semanticScholar: "",
+    crossrefEmail: "",
+    wos: "",
+    scopus: "",
+  }
+}
+
+/** Merge persisted keys with defaults; optional overrides (e.g. Stage-1 DeepSeek key). */
+export function resolveStoredApiKeys(overrides?: Partial<StoredApiKeys>): StoredApiKeys {
+  const saved = loadApiKeys()
+  return { ...emptyStoredApiKeys(), ...(saved ?? {}), ...(overrides ?? {}) }
+}
+
+/** Build a run request from stored keys + review YAML (single source for launch payloads). */
+export function buildRunRequest(
+  reviewYaml: string,
+  keys: StoredApiKeys,
+  runRoot?: string,
+): RunRequest {
+  return {
+    review_yaml: reviewYaml,
+    deepseek_api_key: keys.deepseek,
+    gemini_api_key: keys.gemini || undefined,
+    openrouter_api_key: keys.openrouter || undefined,
+    openai_api_key: keys.openai || undefined,
+    anthropic_api_key: keys.anthropic || undefined,
+    groq_api_key: keys.groq || undefined,
+    mistral_api_key: keys.mistral || undefined,
+    cohere_api_key: keys.cohere || undefined,
+    openalex_api_key: keys.openalex || undefined,
+    ieee_api_key: keys.ieee || undefined,
+    pubmed_email: keys.pubmedEmail || undefined,
+    pubmed_api_key: keys.pubmedApiKey || undefined,
+    perplexity_api_key: keys.perplexity || undefined,
+    semantic_scholar_api_key: keys.semanticScholar || undefined,
+    crossref_email: keys.crossrefEmail || undefined,
+    wos_api_key: keys.wos || undefined,
+    scopus_api_key: keys.scopus || undefined,
+    run_root: runRoot,
+  }
+}
+
 export interface StoredApiKeys {
   gemini: string
   deepseek: string
@@ -1173,12 +1230,51 @@ export async function fetchEnvKeys(): Promise<StoredApiKeys> {
 export async function fetchRequiredLlmUiKeys(): Promise<string[]> {
   try {
     const res = await fetch(`${BASE}/config/env-keys/required`)
-    if (!res.ok) return ["gemini"]
+    if (!res.ok) return ["deepseek"]
     const payload = (await res.json()) as { ui_keys?: string[] }
-    return payload.ui_keys?.length ? payload.ui_keys : ["gemini"]
+    return payload.ui_keys?.length ? payload.ui_keys : ["deepseek"]
   } catch {
-    return ["gemini"]
+    return ["deepseek"]
   }
+}
+
+export interface EnvKeyProviderStatus {
+  configured: boolean
+  masked: string
+  source: string | null
+  required: boolean
+}
+
+export interface EnvKeysStatus {
+  required_ui_keys: string[]
+  providers: Record<string, EnvKeyProviderStatus>
+  server_ready: boolean
+}
+
+/** Masked credential status from server .env (no raw secrets). */
+export async function fetchEnvKeysStatus(): Promise<EnvKeysStatus | null> {
+  try {
+    const res = await fetch(`${BASE}/config/env-keys/status`)
+    if (!res.ok) return null
+    return (await res.json()) as EnvKeysStatus
+  } catch {
+    return null
+  }
+}
+
+const LLM_UI_LABELS: Record<string, string> = {
+  deepseek: "DeepSeek",
+  gemini: "Gemini",
+  openrouter: "OpenRouter",
+  openai: "OpenAI",
+  anthropic: "Anthropic",
+  groq: "Groq",
+  mistral: "Mistral",
+  cohere: "Cohere",
+}
+
+export function llmProviderLabel(uiKey: string): string {
+  return LLM_UI_LABELS[uiKey] ?? uiKey
 }
 
 // Human-in-the-loop screening endpoints
