@@ -28,8 +28,9 @@ def get_required_env_keys(settings: SettingsConfig) -> list[str]:
     """Derive which API key env vars are required based on configured model prefixes.
 
     Returns a list of env var names that must be set. If all agents use
-    google: prefix (the default), only GEMINI_API_KEY is required.
-    Switching any agent to anthropic: adds ANTHROPIC_API_KEY to the list.
+    deepseek: prefix (the default), only DEEPSEEK_API_KEY is required for chat agents.
+    Local sentence-transformers embeddings require no API key. Switching any agent to
+    anthropic: adds ANTHROPIC_API_KEY to the list.
     """
     return required_env_keys_from_settings(settings)
 
@@ -87,11 +88,11 @@ def validate_secret_env(settings: SettingsConfig | None = None) -> list[str]:
     """Return list of missing required env var names.
 
     If settings is provided, derives required keys dynamically from model
-    prefixes. Otherwise falls back to requiring GEMINI_API_KEY only.
+    prefixes. Otherwise falls back to requiring DEEPSEEK_API_KEY only.
     """
     load_dotenv()
     if settings is not None:
         required = get_required_env_keys(settings)
     else:
-        required = ["GEMINI_API_KEY"]
+        required = ["DEEPSEEK_API_KEY"]
     return [key for key in required if not os.getenv(key)]

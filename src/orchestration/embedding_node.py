@@ -2,8 +2,8 @@
 
 Runs after ExtractionQualityNode, before SynthesisNode.
 Idempotent on resume: skips papers already in paper_chunks_meta.
-Embedding calls go through pydantic_ai.embeddings.Embedder (Gemini gemini-embedding-001).
-Auth is handled by PydanticAI via the GEMINI_API_KEY environment variable.
+Embedding calls go through pydantic_ai.embeddings.Embedder (see rag.embed_model in settings.yaml).
+Auth is handled by PydanticAI per provider (local models need no API key).
 """
 
 from __future__ import annotations

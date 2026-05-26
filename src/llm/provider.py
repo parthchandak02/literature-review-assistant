@@ -17,6 +17,39 @@ from src.models import CostRecord, SettingsConfig
 
 _log = logging.getLogger(__name__)
 
+# Cached YAML fallbacks so classmethod callers always get settings-backed pricing.
+_PRICE_FALLBACK_CACHE: dict[str, tuple[float, float, float]] | None = None
+
+
+def _load_price_fallback_per_mtok() -> dict[str, tuple[float, float, float]]:
+    """Load llm.price_fallback_per_mtok from settings.yaml (cached)."""
+    global _PRICE_FALLBACK_CACHE
+    if _PRICE_FALLBACK_CACHE is not None:
+        return _PRICE_FALLBACK_CACHE
+    try:
+        from src.config.loader import load_configs
+
+        _, settings = load_configs(settings_path="config/settings.yaml")
+        _PRICE_FALLBACK_CACHE = {
+            model_ref: (
+                cfg.input_per_mtok,
+                cfg.output_per_mtok,
+                cfg.cache_read_input_multiplier,
+            )
+            for model_ref, cfg in settings.llm.price_fallback_per_mtok.items()
+        }
+    except Exception as exc:
+        _log.debug("Unable to load price_fallback_per_mtok from settings: %s", exc)
+        _PRICE_FALLBACK_CACHE = {}
+    return _PRICE_FALLBACK_CACHE
+
+
+def clear_price_fallback_cache() -> None:
+    """Invalidate cached pricing fallbacks (tests or hot reload)."""
+    global _PRICE_FALLBACK_CACHE
+    _PRICE_FALLBACK_CACHE = None
+
+
 # Start a background thread that refreshes the genai-prices snapshot from GitHub
 # every hour. This ensures newly-launched models (e.g. Gemini 3.1 Flash-Lite
 # released the same day) get accurate pricing as soon as the library's data.json
@@ -50,14 +83,8 @@ class LLMProvider:
             on_waiting=on_waiting,
             on_resolved=on_resolved,
         )
-        self._price_fallback_per_mtok: dict[str, tuple[float, float, float]] = {
-            model_ref: (
-                cfg.input_per_mtok,
-                cfg.output_per_mtok,
-                cfg.cache_read_input_multiplier,
-            )
-            for model_ref, cfg in llm_cfg.price_fallback_per_mtok.items()
-        }
+        # Instance uses same cached table as the classmethod (settings.yaml).
+        self._price_fallback_per_mtok = _load_price_fallback_per_mtok()
 
     @classmethod
     def _parse_model_ref(cls, model: str) -> tuple[str, str | None]:
@@ -88,6 +115,8 @@ class LLMProvider:
         Cache tokens are passed through to genai-prices when non-zero.
         """
         model_ref, provider_id = cls._parse_model_ref(model)
+        if price_fallback_per_mtok is None:
+            price_fallback_per_mtok = _load_price_fallback_per_mtok()
         try:
             price = calc_price(
                 GPUsage(
@@ -102,7 +131,7 @@ class LLMProvider:
             return float(price.total_price)
         except LookupError:
             # Model not yet in genai-prices; try YAML-configured fallback table.
-            fallback = price_fallback_per_mtok or {}
+            fallback = price_fallback_per_mtok
             if model_ref in fallback:
                 in_rate, out_rate, cache_read_multiplier = fallback[model_ref]
                 cost = (tokens_in * in_rate + tokens_out * out_rate) / 1_000_000

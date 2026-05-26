@@ -79,7 +79,7 @@ def required_env_keys_from_settings(settings: SettingsConfig) -> list[str]:
                 required.add(env_key)
 
     if not required:
-        required.add("GEMINI_API_KEY")
+        required.add("DEEPSEEK_API_KEY")
     return sorted(required)
 
 
@@ -88,6 +88,8 @@ def rate_tier_for_model(model: str) -> str:
     lowered = model.lower()
     if any(token in lowered for token in ("flash-lite", "lite", "mini")):
         return "flash-lite"
+    if "deepseek-v4-pro" in lowered or ("-pro" in lowered and "deepseek" in lowered):
+        return "pro"
     if any(token in lowered for token in ("flash", "haiku", "sonnet", "deepseek-v4-flash")):
         return "flash"
     return "pro"

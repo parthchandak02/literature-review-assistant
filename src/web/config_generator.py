@@ -35,7 +35,8 @@ from typing import Any, Literal
 import yaml
 from pydantic import BaseModel, Field
 
-from src.llm.factory import run_native_structured_json, run_text_with_web_tools
+from src.llm.factory import get_chat_client, run_native_structured_json, run_text_with_web_tools
+from src.llm.pydantic_client import PydanticAIClient
 from src.models import DomainExpertConfig, ResearchEntryConfig, ReviewConfig
 
 logger = logging.getLogger(__name__)
@@ -45,6 +46,11 @@ logger = logging.getLogger(__name__)
 _DefaultConfigDict = dict[str, Any]
 
 _TEMPERATURE = 0.3
+
+
+def _supports_gemini_web_tools(model: str) -> bool:
+    """Gemini built-in WebSearch/WebFetch tools are only available on Google models."""
+    return model.startswith(("google:", "google-cloud:", "google-gla:", "google-vertex:"))
 
 
 def _resolve_model() -> str:
@@ -1346,14 +1352,22 @@ async def generate_config_yaml(
         research_prompt += _HEALTH_SDG_RESEARCH_APPEND
     fallback_reason: str | None = None
     try:
-        research_brief = await run_text_with_web_tools(
-            model=_model,
-            prompt=research_prompt,
-            temperature=_TEMPERATURE,
-        )
+        if _supports_gemini_web_tools(_model):
+            research_brief = await run_text_with_web_tools(
+                model=_model,
+                prompt=research_prompt,
+                temperature=_TEMPERATURE,
+            )
+        else:
+            client = get_chat_client()
+            research_brief, *_ = await client.complete_with_usage(
+                research_prompt,
+                model=_model,
+                temperature=_TEMPERATURE,
+            )
         logger.info("Config gen Stage 1 complete: brief length=%d chars", len(research_brief))
     except Exception as exc:
-        logger.warning("Config gen Stage 1 (web search+fetch) failed, falling back to model knowledge: %s", exc)
+        logger.warning("Config gen Stage 1 research failed, falling back to model knowledge: %s", exc)
         # Graceful degradation: skip the research brief, rely on model knowledge.
         research_brief = _FALLBACK_RESEARCH_BRIEF
         fallback_reason = " ".join(str(exc).split())[:240]
@@ -1379,11 +1393,19 @@ async def generate_config_yaml(
     schema = target_model.model_json_schema()
 
     async def _run_structure(prompt: str) -> str:
-        return await run_native_structured_json(
+        if _supports_gemini_web_tools(_model):
+            return await run_native_structured_json(
+                model=_model,
+                prompt=prompt,
+                schema=schema,
+                temperature=_TEMPERATURE,
+            )
+        client: PydanticAIClient = get_chat_client()
+        return await client.complete(
+            prompt,
             model=_model,
-            prompt=prompt,
-            schema=schema,
             temperature=_TEMPERATURE,
+            json_schema=schema,
         )
 
     repair_instruction = (

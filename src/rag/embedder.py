@@ -1,14 +1,11 @@
-"""Embedding service: uses PydanticAI Embedder (Gemini) for batch text embedding.
-
-Replaces the previous google-generativeai direct SDK calls with the
-pydantic_ai.embeddings.Embedder abstraction, which is natively async and
-consistent with the rest of the PydanticAI agent stack.
+"""Embedding service: uses PydanticAI Embedder for batch text embedding.
 
 Default model and dimension are defined in config/settings.yaml under rag.embed_model
 and rag.embed_dim. Pass model/dim explicitly when calling from orchestration so
 the live settings are always used rather than the module-level fallback.
 
-Auth: GEMINI_API_KEY env var -- read automatically by PydanticAI, no manual wiring.
+Local sentence-transformers models require no API key; cloud embedders use their
+provider env vars automatically via PydanticAI.
 """
 
 from __future__ import annotations
