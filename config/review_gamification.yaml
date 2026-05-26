@@ -1,7 +1,7 @@
 # Config generation mode: web-grounded brief with live web research.
 # Review and edit this YAML before launching the workflow.
 
-research_question: "What is the impact of AI-powered household robots on human individual health and the nature of domestic labor?"
+research_question: "What is the effectiveness of gamification in improving student engagement and learning outcomes in higher education STEM courses?"
 review_type: "systematic"
 
 # Living review settings (optional)
