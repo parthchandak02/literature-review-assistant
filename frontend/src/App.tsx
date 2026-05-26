@@ -21,8 +21,10 @@ import {
   fetchActiveRun,
   fetchArtifacts,
   fetchHistory,
+  buildRunRequest,
   generateConfigStream,
   getDefaultReviewConfig,
+  resolveStoredApiKeys,
   resumeRun,
   restoreCompletedRun,
   restoreRun,
@@ -614,7 +616,7 @@ export default function App() {
     try {
       const yaml = await generateConfigStream(
         req.question,
-        req.geminiKey,
+        req.deepseekKey,
         req.generationProfile,
         (step, metadata) => {
           const normalizedStep = step === "structuring_retry" ? "structuring" : step
@@ -661,10 +663,10 @@ export default function App() {
 
   async function handleLaunchDraftConfig(yaml: string) {
     if (!draftConfig?.request) return
-    const req: RunRequest = {
-      review_yaml: yaml,
-      gemini_api_key: draftConfig.request.geminiKey,
-    }
+    const req = buildRunRequest(
+      yaml,
+      resolveStoredApiKeys({ deepseek: draftConfig.request.deepseekKey }),
+    )
     setDraftConfig(null)
     if (draftConfig.request.csvFile && draftConfig.request.csvMode === "masterlist") {
       await handleStartWithMasterlistCsv(draftConfig.request.csvFile, req)
@@ -710,8 +712,8 @@ export default function App() {
     liveRunNavigatedRef.current = null
     const now = new Date()
     const keys: StoredApiKeys = {
-      gemini: req.gemini_api_key,
-      deepseek: req.deepseek_api_key ?? "",
+      gemini: req.gemini_api_key ?? "",
+      deepseek: req.deepseek_api_key,
       openrouter: req.openrouter_api_key ?? "",
       openai: req.openai_api_key ?? "",
       anthropic: req.anthropic_api_key ?? "",
@@ -754,8 +756,8 @@ export default function App() {
     liveRunNavigatedRef.current = null
     const now = new Date()
     const keys: StoredApiKeys = {
-      gemini: req.gemini_api_key,
-      deepseek: req.deepseek_api_key ?? "",
+      gemini: req.gemini_api_key ?? "",
+      deepseek: req.deepseek_api_key,
       openrouter: req.openrouter_api_key ?? "",
       openai: req.openai_api_key ?? "",
       anthropic: req.anthropic_api_key ?? "",

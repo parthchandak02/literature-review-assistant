@@ -25,9 +25,13 @@ import { PageSection } from "@/components/ui/section"
 import { YamlEditor } from "@/components/YamlEditor"
 import {
   fetchEnvKeys,
+  fetchEnvKeysStatus,
   fetchRequiredLlmUiKeys,
+  llmProviderLabel,
   fetchHistory,
   fetchRunConfig,
+  buildRunRequest,
+  emptyStoredApiKeys,
   loadApiKeys,
   saveApiKeys,
 } from "@/lib/api"
@@ -56,7 +60,7 @@ type CsvMode = "supplementary" | "masterlist"
 type GenerationProfile = "standard" | "health_sdg"
 export interface ConfigGenerateRequest {
   question: string
-  geminiKey: string
+  deepseekKey: string
   csvFile?: File
   csvMode: CsvMode
   generationProfile: GenerationProfile
@@ -66,8 +70,8 @@ export interface ConfigGenerateRequest {
 // Generation steps (driven by real SSE events from the backend)
 // ---------------------------------------------------------------------------
 
-// Stage 1 web research is powered by Gemini tools (WebSearchTool/WebFetchTool),
-// not the optional connector API keys entered before launch.
+// Stage 1 config research uses the configured LLM (DeepSeek by default); optional
+// connector API keys are entered before launch in Stage 2.
 const GEN_STEPS: { key: string; label: string; detail: string }[] = [
   { key: "start",            label: "Analyzing your research question", detail: "Understanding scope, domain, and intent" },
   { key: "web_research",     label: "Searching the web",                detail: "Discovering brand names, synonyms, and domain terminology" },
@@ -193,11 +197,11 @@ interface ApiKeysProps {
 
 function ApiKeysSection({ keys, onChange, embedded }: ApiKeysProps) {
   const [expanded, setExpanded] = useState(false)
-  const [showGemini, setShowGemini] = useState(false)
+  const [showDeepseek, setShowDeepseek] = useState(false)
 
   const fields: { id: keyof StoredApiKeys; label: string; placeholder: string; required?: boolean }[] = [
-    { id: "gemini", label: "Gemini API Key", placeholder: "AIza...", required: true },
-    { id: "deepseek", label: "DeepSeek API Key", placeholder: "optional -- sk-..." },
+    { id: "deepseek", label: "DeepSeek API Key", placeholder: "sk-...", required: true },
+    { id: "gemini", label: "Gemini API Key", placeholder: "optional -- AIza..." },
     { id: "openrouter", label: "OpenRouter API Key", placeholder: "optional -- sk-or-v1-..." },
     { id: "openai", label: "OpenAI API Key", placeholder: "optional -- sk-..." },
     { id: "anthropic", label: "Anthropic API Key", placeholder: "optional -- sk-ant-..." },
@@ -220,26 +224,26 @@ function ApiKeysSection({ keys, onChange, embedded }: ApiKeysProps) {
 
   const formContent = (
     <div className={embedded ? "space-y-3" : "px-4 py-4 space-y-3"}>
-      {/* Gemini key -- always shown */}
+      {/* DeepSeek key -- always shown */}
       <div>
         <label className="block text-xs font-medium text-zinc-400 mb-1.5">
           {primaryField.label} <span className="text-red-500">*</span>
         </label>
         <div className="relative">
           <Input
-            type={showGemini ? "text" : "password"}
-            value={keys.gemini}
-            onChange={(e) => onChange({ ...keys, gemini: e.target.value })}
+            type={showDeepseek ? "text" : "password"}
+            value={keys.deepseek}
+            onChange={(e) => onChange({ ...keys, deepseek: e.target.value })}
             placeholder={primaryField.placeholder}
             autoComplete="off"
             className="pr-9 h-9 text-xs bg-zinc-950 border-zinc-700 text-zinc-200 placeholder:text-zinc-600 focus-visible:ring-violet-500/50"
           />
           <button
             type="button"
-            onClick={() => setShowGemini((v) => !v)}
+            onClick={() => setShowDeepseek((v) => !v)}
             className="absolute right-2.5 top-1/2 -translate-y-1/2 text-zinc-500 hover:text-zinc-300 transition-colors"
           >
-            {showGemini ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
+            {showDeepseek ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
           </button>
         </div>
       </div>
@@ -281,7 +285,7 @@ function ApiKeysSection({ keys, onChange, embedded }: ApiKeysProps) {
       <div className="flex items-center gap-2 px-4 py-3 border-b border-zinc-800">
         <Key className="h-3.5 w-3.5 text-zinc-500 shrink-0" />
         <span className="text-xs font-semibold text-zinc-300 flex-1">API Keys</span>
-        {!keys.gemini && (
+        {!keys.deepseek && (
           <span className="text-xs text-red-400 font-medium">At least one LLM key required</span>
         )}
       </div>
@@ -303,7 +307,7 @@ interface Stage1Props {
   loadError: string | null
   onClearError: () => void
   initialQuestion: string
-  initialGeminiKey: string
+  initialDeepseekKey: string
   initialCsvFile: File | null
   initialCsvMode: CsvMode
 }
@@ -701,20 +705,33 @@ function QuestionStage({
   loadError,
   onClearError,
   initialQuestion,
-  initialGeminiKey,
+  initialDeepseekKey,
   initialCsvFile,
   initialCsvMode,
 }: Stage1Props) {
   const [question, setQuestion] = useState(initialQuestion)
-  const [geminiKey, setGeminiKey] = useState(
-    () => initialGeminiKey || (loadApiKeys()?.gemini ?? "")
-  )
+  const [credentialMode, setCredentialMode] = useState<"server" | "override">("server")
+  const [serverReady, setServerReady] = useState(false)
+  const [serverMasked, setServerMasked] = useState("")
+  const [deepseekKey, setDeepseekKey] = useState(() => {
+    const saved = loadApiKeys()
+    return initialDeepseekKey || saved?.deepseek || ""
+  })
 
-  // Backfill Gemini key from .env if not already in localStorage
   useEffect(() => {
-    if (geminiKey) return
-    fetchEnvKeys().then((env) => { if (env.gemini) setGeminiKey(env.gemini) })
-  }, [geminiKey])
+    fetchEnvKeysStatus().then((status) => {
+      if (!status) return
+      setServerReady(status.server_ready)
+      const deepseek = status.providers.deepseek
+      if (deepseek?.configured && deepseek.masked) {
+        setServerMasked(deepseek.masked)
+        if (!initialDeepseekKey && !loadApiKeys()?.deepseek) {
+          setCredentialMode("server")
+        }
+      }
+    })
+  }, [initialDeepseekKey])
+
   const [showKey, setShowKey] = useState(false)
   const [showHistory, setShowHistory] = useState(false)
   const [csvFile, setCsvFile] = useState<File | null>(initialCsvFile)
@@ -731,11 +748,14 @@ function QuestionStage({
     return () => document.removeEventListener("mousedown", handler)
   }, [showHistory])
 
+  const useServerCredentials = credentialMode === "server" && serverReady
+  const hasCredentials = useServerCredentials || !!deepseekKey.trim()
+
   async function handleGenerate(generationProfile: GenerationProfile = "standard") {
-    if (!question.trim() || !geminiKey.trim()) return
+    if (!question.trim() || !hasCredentials) return
     onGenerateRequested({
       question: question.trim(),
-      geminiKey: geminiKey.trim(),
+      deepseekKey: useServerCredentials ? "" : deepseekKey.trim(),
       csvFile: csvFile ?? undefined,
       csvMode,
       generationProfile,
@@ -743,7 +763,7 @@ function QuestionStage({
   }
 
   const completedRuns = history.filter((h) => h.status === "completed").slice(0, 10)
-  const canGenerate = !!question.trim() && !!geminiKey.trim()
+  const canGenerate = !!question.trim() && hasCredentials
 
   return (
     <div className="flex flex-col gap-5">
@@ -779,30 +799,70 @@ function QuestionStage({
         <p className="text-xs text-zinc-600 mt-1.5">Cmd+Enter to generate</p>
       </div>
 
-      {/* Gemini key */}
+      {/* LLM credentials: prefer server .env; optional browser override */}
       <div>
-        <label className="block label-caps font-semibold mb-2">
-          Gemini API Key <span className="text-red-500">*</span>
-        </label>
-        <div className="relative">
-          <Input
-            type={showKey ? "text" : "password"}
-            value={geminiKey}
-            onChange={(e) => setGeminiKey(e.target.value)}
-            placeholder="AIza..."
-            autoComplete="off"
-            className="pr-9 h-10 text-sm bg-zinc-900 border-zinc-800 text-zinc-200 placeholder:text-zinc-600 focus-visible:ring-violet-500/50"
-          />
+        <label className="block label-caps font-semibold mb-2">LLM credentials</label>
+        {serverReady ? (
+          <div className="rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-3 py-2.5 text-sm text-emerald-200/90">
+            Using <span className="font-medium">{llmProviderLabel("deepseek")}</span> from server{" "}
+            <code className="text-xs text-emerald-300/80">.env</code>
+            {serverMasked ? (
+              <span className="text-emerald-300/70"> ({serverMasked})</span>
+            ) : null}
+          </div>
+        ) : (
+          <p className="text-xs text-amber-400/90 mb-2">
+            Add <code className="text-amber-200/80">DEEPSEEK_API_KEY</code> to project{" "}
+            <code className="text-amber-200/80">.env</code> or enter an override below.
+          </p>
+        )}
+        <div className="flex gap-2 mt-2">
           <button
             type="button"
-            onClick={() => setShowKey((v) => !v)}
-            className="absolute right-2.5 top-1/2 -translate-y-1/2 text-zinc-500 hover:text-zinc-300 transition-colors"
+            disabled={!serverReady}
+            onClick={() => setCredentialMode("server")}
+            className={`flex-1 h-8 text-xs rounded-md border transition-colors ${
+              credentialMode === "server"
+                ? "border-violet-500/50 bg-violet-500/15 text-violet-200"
+                : "border-zinc-700 text-zinc-500 hover:text-zinc-300"
+            } ${!serverReady ? "opacity-40 cursor-not-allowed" : ""}`}
           >
-            {showKey ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
+            Server .env
+          </button>
+          <button
+            type="button"
+            onClick={() => setCredentialMode("override")}
+            className={`flex-1 h-8 text-xs rounded-md border transition-colors ${
+              credentialMode === "override"
+                ? "border-violet-500/50 bg-violet-500/15 text-violet-200"
+                : "border-zinc-700 text-zinc-500 hover:text-zinc-300"
+            }`}
+          >
+            Browser override
           </button>
         </div>
+        {credentialMode === "override" && (
+          <div className="relative mt-2">
+            <Input
+              type={showKey ? "text" : "password"}
+              value={deepseekKey}
+              onChange={(e) => setDeepseekKey(e.target.value)}
+              placeholder="sk-..."
+              autoComplete="off"
+              className="pr-9 h-10 text-sm bg-zinc-900 border-zinc-800 text-zinc-200 placeholder:text-zinc-600 focus-visible:ring-violet-500/50"
+            />
+            <button
+              type="button"
+              onClick={() => setShowKey((v) => !v)}
+              className="absolute right-2.5 top-1/2 -translate-y-1/2 text-zinc-500 hover:text-zinc-300 transition-colors"
+            >
+              {showKey ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
+            </button>
+          </div>
+        )}
         <p className="text-xs text-zinc-600 mt-1.5">
-          Used to generate the config. You will confirm this key again before launching.
+          Keys in <code className="text-zinc-500">.env</code> are the source of truth. Browser overrides apply
+          only to this session and are not written back to disk.
         </p>
       </div>
 
@@ -938,34 +998,15 @@ export function ConfigReviewStage({
   showGenerationSummary,
 }: Stage2Props) {
   const [keys, setKeys] = useState<StoredApiKeys>(() => {
-    const defaults: StoredApiKeys = {
-      gemini: "",
-      deepseek: "",
-      openrouter: "",
-      openai: "",
-      anthropic: "",
-      groq: "",
-      mistral: "",
-      cohere: "",
-      openalex: "",
-      ieee: "",
-      pubmedEmail: "",
-      pubmedApiKey: "",
-      perplexity: "",
-      semanticScholar: "",
-      crossrefEmail: "",
-      wos: "",
-      scopus: "",
-    }
     const saved = loadApiKeys()
     // Merge saved keys with defaults so that newly-added fields get empty-string
     // values even when the persisted object predates them (avoids undefined ->
     // uncontrolled input problem in React).
-    return saved ? { ...defaults, ...saved } : defaults
+    return saved ? { ...emptyStoredApiKeys(), ...saved } : emptyStoredApiKeys()
   })
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [requiredLlmUiKeys, setRequiredLlmUiKeys] = useState<string[]>(["gemini"])
+  const [requiredLlmUiKeys, setRequiredLlmUiKeys] = useState<string[]>(["deepseek"])
 
   // On mount, backfill any empty fields with values from the server's .env.
   // localStorage always wins; env fills in blanks the user hasn't set yet.
@@ -1005,26 +1046,7 @@ export function ConfigReviewStage({
     setSubmitting(true)
     try {
       saveApiKeys(keys)
-      const req: RunRequest = {
-        review_yaml: yaml || defaultYaml,
-        gemini_api_key: keys.gemini,
-        deepseek_api_key: keys.deepseek || undefined,
-        openrouter_api_key: keys.openrouter || undefined,
-        openai_api_key: keys.openai || undefined,
-        anthropic_api_key: keys.anthropic || undefined,
-        groq_api_key: keys.groq || undefined,
-        mistral_api_key: keys.mistral || undefined,
-        cohere_api_key: keys.cohere || undefined,
-        openalex_api_key: keys.openalex || undefined,
-        ieee_api_key: keys.ieee || undefined,
-        pubmed_email: keys.pubmedEmail || undefined,
-        pubmed_api_key: keys.pubmedApiKey || undefined,
-        perplexity_api_key: keys.perplexity || undefined,
-        semantic_scholar_api_key: keys.semanticScholar || undefined,
-        crossref_email: keys.crossrefEmail || undefined,
-        wos_api_key: keys.wos || undefined,
-        scopus_api_key: keys.scopus || undefined,
-      }
+      const req = buildRunRequest(yaml || defaultYaml, keys)
       if (csvFile && csvMode === "masterlist" && onSubmitWithMasterlistCsv) {
         await onSubmitWithMasterlistCsv(csvFile, req)
       } else if (csvFile && onSubmitWithSupplementaryCsv) {
@@ -1173,7 +1195,7 @@ export function SetupView({
   disabled,
 }: SetupViewProps) {
   const [researchQuestion, setResearchQuestion] = useState<string>("")
-  const [pendingGeminiKey, setPendingGeminiKey] = useState("")
+  const [pendingDeepseekKey, setPendingDeepseekKey] = useState("")
   const [pendingCsvFile, setPendingCsvFile] = useState<File | null>(null)
   const [pendingCsvMode, setPendingCsvMode] = useState<CsvMode>("supplementary")
   const [history, setHistory] = useState<HistoryEntry[]>([])
@@ -1212,7 +1234,7 @@ export function SetupView({
       <QuestionStage
         onGenerateRequested={(req) => {
           setResearchQuestion(req.question)
-          setPendingGeminiKey(req.geminiKey)
+          setPendingDeepseekKey(req.deepseekKey)
           setPendingCsvFile(req.csvFile ?? null)
           setPendingCsvMode(req.csvMode)
           onGenerateDraft(req)
@@ -1224,7 +1246,7 @@ export function SetupView({
         loadError={loadError}
         onClearError={() => setLoadError(null)}
         initialQuestion={researchQuestion}
-        initialGeminiKey={pendingGeminiKey}
+        initialDeepseekKey={pendingDeepseekKey}
         initialCsvFile={pendingCsvFile}
         initialCsvMode={pendingCsvMode}
       />

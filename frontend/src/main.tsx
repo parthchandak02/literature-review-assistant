@@ -3,16 +3,20 @@ import { createRoot } from 'react-dom/client'
 import { BrowserRouter } from 'react-router-dom'
 import './index.css'
 import App, { AppErrorBoundary } from './App.tsx'
+import { ThemeProvider } from './context/ThemeContext.tsx'
+import { getPreferredTheme } from './lib/theme'
+import { setTheme } from './lib/themeStore'
 
-// Force dark mode always
-document.documentElement.classList.add('dark')
+setTheme(getPreferredTheme())
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <AppErrorBoundary>
-      <BrowserRouter>
-        <App />
-      </BrowserRouter>
+      <ThemeProvider>
+        <BrowserRouter>
+          <App />
+        </BrowserRouter>
+      </ThemeProvider>
     </AppErrorBoundary>
   </StrictMode>,
 )
