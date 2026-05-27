@@ -55,3 +55,11 @@ def test_guardrails_idempotent() -> None:
     once = apply_deterministic_guardrails(text)
     twice = apply_deterministic_guardrails(once)
     assert once == twice
+
+
+def test_guardrails_replace_blacklist_terms_without_protected_drift() -> None:
+    text = "This state-of-the-art method reduced risk by 12.4% [Smith2023]."
+    out = apply_deterministic_guardrails(text)
+    assert "state-of-the-art" not in out.lower()
+    assert extract_citation_blocks(out) == extract_citation_blocks(text)
+    assert extract_numeric_tokens(out) == extract_numeric_tokens(text)
