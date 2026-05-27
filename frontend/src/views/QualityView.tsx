@@ -40,16 +40,16 @@ function formatLabel(value: string): string {
 }
 
 function PrismaStatusIcon({ status }: { status: string }) {
-  if (status === "REPORTED") return <CheckCircle className="h-3.5 w-3.5 text-emerald-400 shrink-0" />
-  if (status === "PARTIAL") return <AlertTriangle className="h-3.5 w-3.5 text-amber-400 shrink-0" />
+  if (status === "REPORTED") return <CheckCircle className="h-3.5 w-3.5 text-intent-success shrink-0" />
+  if (status === "PARTIAL") return <AlertTriangle className="h-3.5 w-3.5 text-intent-warning shrink-0" />
   if (status === "NOT_APPLICABLE") return <BookOpen className="h-3.5 w-3.5 text-zinc-500 shrink-0" />
-  return <XCircle className="h-3.5 w-3.5 text-red-400 shrink-0" />
+  return <XCircle className="h-3.5 w-3.5 text-intent-danger shrink-0" />
 }
 
 function auditStatusBadgeClass(status: string): string {
-  if (status === "passed") return "text-emerald-400 border-emerald-800 bg-emerald-900/20"
-  if (status === "blocked") return "text-red-300 border-red-800 bg-red-900/20"
-  if (status === "completed_with_findings") return "text-amber-300 border-amber-800 bg-amber-900/20"
+  if (status === "passed") return "text-intent-success border-intent-success-border bg-intent-success-subtle"
+  if (status === "blocked") return "text-intent-danger border-intent-danger-border bg-intent-danger-subtle"
+  if (status === "completed_with_findings") return "text-intent-warning border-intent-warning-border bg-intent-warning-subtle"
   return "text-zinc-300 border-zinc-700 bg-zinc-900/40"
 }
 
@@ -102,7 +102,7 @@ function ReadinessCard({ runId, workflowId }: { runId: string; workflowId?: stri
         ) : data ? (
           <div className="space-y-3">
             <div
-              className={`rounded-xl border px-3 py-3 text-sm ${exportReady ? "border-emerald-500/30 bg-emerald-500/8 text-emerald-200" : "border-amber-500/30 bg-amber-500/8 text-amber-200"}`}
+              className={`rounded-xl border px-3 py-3 text-sm ${exportReady ? "border-intent-success-border bg-intent-success-subtle text-intent-success" : "border-intent-warning-border bg-intent-warning-subtle text-intent-warning"}`}
             >
               <div className="font-medium">{exportReady ? "Ready for manuscript export." : "Export blocked by readiness checks."}</div>
               <div className="mt-1 text-xs opacity-80">
@@ -111,13 +111,13 @@ function ReadinessCard({ runId, workflowId }: { runId: string; workflowId?: stri
                   : "No fallback events recorded."}
               </div>
               <div className="mt-2 flex flex-wrap gap-2 text-[11px]">
-                <span className={cn("rounded-full border px-2 py-0.5", contractReady ? "border-emerald-800 bg-emerald-900/20 text-emerald-300" : "border-amber-800 bg-amber-900/20 text-amber-300")}>
+                <span className={cn("rounded-full border px-2 py-0.5", contractReady ? "border-intent-success-border bg-intent-success-subtle text-intent-success" : "border-intent-warning-border bg-intent-warning-subtle text-intent-warning")}>
                   Contract {contractReady ? "ready" : "blocked"}
                 </span>
-                <span className={cn("rounded-full border px-2 py-0.5", auditReady ? "border-emerald-800 bg-emerald-900/20 text-emerald-300" : "border-amber-800 bg-amber-900/20 text-amber-300")}>
+                <span className={cn("rounded-full border px-2 py-0.5", auditReady ? "border-intent-success-border bg-intent-success-subtle text-intent-success" : "border-intent-warning-border bg-intent-warning-subtle text-intent-warning")}>
                   Audit {auditReady ? "ready" : "blocked"}
                 </span>
-                <span className={cn("rounded-full border px-2 py-0.5", exportReady ? "border-emerald-800 bg-emerald-900/20 text-emerald-300" : "border-amber-800 bg-amber-900/20 text-amber-300")}>
+                <span className={cn("rounded-full border px-2 py-0.5", exportReady ? "border-intent-success-border bg-intent-success-subtle text-intent-success" : "border-intent-warning-border bg-intent-warning-subtle text-intent-warning")}>
                   Submission {exportReady ? "ready" : "blocked"}
                 </span>
               </div>
@@ -127,9 +127,9 @@ function ReadinessCard({ runId, workflowId }: { runId: string; workflowId?: stri
                 <div key={check.name} className="rounded-lg border border-zinc-800 bg-zinc-950/60 px-3 py-2">
                   <div className="flex items-start gap-2">
                     {check.ok ? (
-                      <CheckCircle className="mt-0.5 h-4 w-4 text-emerald-400 shrink-0" />
+                      <CheckCircle className="mt-0.5 h-4 w-4 text-intent-success shrink-0" />
                     ) : (
-                      <AlertTriangle className="mt-0.5 h-4 w-4 text-amber-400 shrink-0" />
+                      <AlertTriangle className="mt-0.5 h-4 w-4 text-intent-warning shrink-0" />
                     )}
                     <div className="min-w-0">
                       <div className="text-sm text-zinc-200">{formatLabel(check.name)}</div>
@@ -140,11 +140,11 @@ function ReadinessCard({ runId, workflowId }: { runId: string; workflowId?: stri
               ))}
             </div>
             {!exportReady && data.blocking_reasons.length > 0 && (
-              <div className="rounded-xl border border-red-500/20 bg-red-500/5 px-3 py-3">
-                <div className="text-xs font-semibold text-red-300">Blocking reasons</div>
+              <div className="rounded-xl border border-intent-danger-border bg-intent-danger-subtle px-3 py-3">
+                <div className="text-xs font-semibold text-intent-danger">Blocking reasons</div>
                 <div className="mt-1 space-y-1">
                   {data.blocking_reasons.map((reason, idx) => (
-                    <div key={`${idx}-${reason}`} className="text-xs text-red-200/80">
+                    <div key={`${idx}-${reason}`} className="text-xs text-intent-danger">
                       {reason}
                     </div>
                   ))}
@@ -209,8 +209,8 @@ function PrismaCard({ runId }: { runId: string }) {
         className={cn(
           "text-[10px] font-mono px-1.5 py-0.5 rounded border shrink-0",
           data.passed
-            ? "text-emerald-400 border-emerald-800 bg-emerald-900/20"
-            : "text-amber-400 border-amber-800 bg-amber-900/20",
+            ? "text-intent-success border-intent-success-border bg-intent-success-subtle"
+            : "text-intent-warning border-intent-warning-border bg-intent-warning-subtle",
         )}
       >
         {data.reported_count}/{data.total} {data.passed ? "PASS" : "review"}
@@ -245,9 +245,9 @@ function PrismaCard({ runId }: { runId: string }) {
         {data && data.source_state !== "artifact_missing" && (
           <>
             <div className="flex items-center gap-4 text-xs flex-wrap p-3 rounded-lg glass-panel">
-              <span className="text-emerald-400 font-semibold">{data.reported_count} Reported</span>
-              <span className="text-amber-400 font-semibold">{data.partial_count} Partial</span>
-              <span className="text-red-400 font-semibold">{data.missing_count} Missing</span>
+              <span className="text-intent-success font-semibold">{data.reported_count} Reported</span>
+              <span className="text-intent-warning font-semibold">{data.partial_count} Partial</span>
+              <span className="text-intent-danger font-semibold">{data.missing_count} Missing</span>
               <span className="text-zinc-400 font-semibold">{data.not_applicable_count} N/A</span>
             </div>
 
@@ -259,7 +259,7 @@ function PrismaCard({ runId }: { runId: string }) {
                   className={cn(
                     "px-2.5 py-1 rounded-full text-xs border transition-colors",
                     sectionFilter === section
-                      ? "border-violet-600 bg-violet-900/40 text-violet-300"
+                      ? "border-intent-primary-border bg-intent-primary-subtle text-intent-primary"
                       : "border-zinc-700 text-zinc-500 hover:text-zinc-300",
                   )}
                 >
@@ -275,12 +275,12 @@ function PrismaCard({ runId }: { runId: string }) {
                   className={cn(
                     "flex items-start gap-2.5 px-3 py-2 rounded-lg text-xs",
                     item.status === "REPORTED"
-                      ? "bg-emerald-900/10"
+                      ? "bg-intent-success-subtle"
                       : item.status === "PARTIAL"
-                        ? "bg-amber-900/10"
+                        ? "bg-intent-warning-subtle"
                         : item.status === "NOT_APPLICABLE"
                           ? "bg-zinc-900/40"
-                          : "bg-red-900/10",
+                          : "bg-intent-danger-subtle",
                   )}
                 >
                   <PrismaStatusIcon status={item.status} />
@@ -435,7 +435,7 @@ function ManuscriptAuditCard({ runId }: { runId: string }) {
                   className={cn(
                     "text-[10px] font-mono px-2 py-1 rounded border",
                     selectedAuditRunId === run.audit_run_id
-                      ? "border-violet-700 bg-violet-900/30 text-violet-200"
+                      ? "border-intent-primary-border bg-intent-primary-subtle text-intent-primary"
                       : "border-zinc-800 bg-zinc-900/40 text-zinc-400 hover:text-zinc-200",
                   )}
                   onClick={() => {
@@ -454,10 +454,10 @@ function ManuscriptAuditCard({ runId }: { runId: string }) {
               className={cn(
                 "rounded-xl border px-3 py-3 text-sm",
                 auditStatus === "passed"
-                  ? "border-emerald-500/30 bg-emerald-500/8 text-emerald-200"
+                  ? "border-intent-success-border bg-intent-success-subtle text-intent-success"
                   : auditStatus === "blocked"
-                    ? "border-red-500/30 bg-red-500/8 text-red-100"
-                    : "border-amber-500/30 bg-amber-500/8 text-amber-100",
+                    ? "border-intent-danger-border bg-intent-danger-subtle text-intent-danger"
+                    : "border-intent-warning-border bg-intent-warning-subtle text-intent-warning",
               )}
             >
               <div className="font-medium">
@@ -475,10 +475,10 @@ function ManuscriptAuditCard({ runId }: { runId: string }) {
             </div>
             <div className="flex items-center gap-3 text-xs flex-wrap p-3 rounded-lg glass-panel">
               <span className="text-zinc-300">Findings: {selectedRun.total_findings}</span>
-              <span className="text-red-400">Major: {selectedRun.major_count}</span>
-              <span className="text-amber-400">Minor: {selectedRun.minor_count}</span>
+              <span className="text-intent-danger">Major: {selectedRun.major_count}</span>
+              <span className="text-intent-warning">Minor: {selectedRun.minor_count}</span>
               <span className="text-zinc-400">Notes: {selectedRun.note_count}</span>
-              <span className="text-violet-400">Blocking: {selectedRun.blocking_count}</span>
+              <span className="text-intent-primary">Blocking: {selectedRun.blocking_count}</span>
             </div>
             {selectedRun.top_recommendations && selectedRun.top_recommendations.length > 0 && (
               <div className="rounded-lg border border-zinc-800 bg-zinc-950/60 px-3 py-3">
@@ -498,7 +498,7 @@ function ManuscriptAuditCard({ runId }: { runId: string }) {
               {selectedRun.gate_failure_reasons.length > 0 && (
                 <div className="space-y-1 pt-1">
                   {selectedRun.gate_failure_reasons.map((reason) => (
-                    <div key={reason} className="text-amber-300">
+                    <div key={reason} className="text-intent-warning">
                       {reason}
                     </div>
                   ))}
@@ -522,9 +522,9 @@ function ManuscriptAuditCard({ runId }: { runId: string }) {
                       className={cn(
                         "uppercase text-[10px] font-semibold",
                         finding.severity === "major"
-                          ? "text-red-400"
+                          ? "text-intent-danger"
                           : finding.severity === "minor"
-                            ? "text-amber-400"
+                            ? "text-intent-warning"
                             : "text-zinc-400",
                       )}
                     >
@@ -739,14 +739,14 @@ function RagDiagnosticsCard({ runId, workflowId }: { runId: string; workflowId?:
                 <div key={`${row.section}-${row.created_at}-${idx}`} className="rounded-lg border border-zinc-800 bg-zinc-950/60 px-3 py-3 text-xs">
                   <div className="flex items-center justify-between gap-3">
                     <span className="font-mono text-zinc-300">{row.section}</span>
-                    <span className={cn("uppercase tracking-wide", row.status === "ok" ? "text-emerald-400" : "text-amber-400")}>
+                    <span className={cn("uppercase tracking-wide", row.status === "ok" ? "text-intent-success" : "text-intent-warning")}>
                       {row.status}
                     </span>
                   </div>
                   <div className="mt-1 text-zinc-500">
                     {row.query_type} | retrieved={row.retrieved_count} | candidate_k={row.candidate_k} | final_k={row.final_k} | latency={row.latency_ms}ms | rerank={row.rerank_enabled ? "yes" : "no"}
                   </div>
-                  {row.error_message && <div className="mt-1 text-red-300">{row.error_message}</div>}
+                  {row.error_message && <div className="mt-1 text-intent-danger">{row.error_message}</div>}
                   {row.selected_chunks.length > 0 && (
                     <div className="mt-2 text-zinc-500">
                       Top chunks: {row.selected_chunks.slice(0, 3).map((chunk) => chunk.citekey || chunk.paper_id || chunk.chunk_id || "chunk").join(", ")}

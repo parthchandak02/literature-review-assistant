@@ -98,12 +98,12 @@ interface SidebarProps {
 
 const PROGRESS_BAR_COLOR: Record<RunStatus, string> = {
   idle: "bg-zinc-600",
-  connecting: "bg-violet-500",
-  streaming: "bg-violet-500",
-  done: "bg-emerald-500",
-  error: "bg-red-500",
-  cancelled: "bg-amber-500",
-  stale: "bg-amber-600",
+  connecting: "bg-intent-active",
+  streaming: "bg-intent-active",
+  done: "bg-intent-success",
+  error: "bg-intent-danger",
+  cancelled: "bg-intent-warning",
+  stale: "bg-intent-warning",
 }
 
 export function Sidebar({
@@ -205,16 +205,18 @@ export function Sidebar({
     return () => es.close()
   }, [])
 
-  // Fetch history on mount, poll every 15s (picks up in-progress CLI runs),
+  // Fetch history on mount, poll every 30s (picks up in-progress CLI runs),
   // and whenever the live run finishes. Pause polling when tab is hidden.
   useEffect(() => {
     void loadHistory()
     const id = setInterval(() => {
       if (document.visibilityState === "visible") void loadHistory()
-    }, 15_000)
+    }, 30_000)
     return () => clearInterval(id)
   }, [loadHistory])
 
+  // When a live run reaches terminal state, refresh history after a short
+  // delay to pick up the final persisted status from the registry.
   useEffect(() => {
     if (
       liveRun?.status === "done" ||
@@ -222,34 +224,10 @@ export function Sidebar({
       liveRun?.status === "cancelled"
     ) {
       void loadHistory()
-      // Second refresh after 3s: the registry write lags behind the SSE "done"
-      // event, so the first call may still see the old status. The delayed
-      // call catches the final persisted status (e.g. "completed").
       const timer = setTimeout(() => void loadHistory(), 3000)
       return () => clearTimeout(timer)
     }
   }, [liveRun?.status, loadHistory])
-
-  // Some runs persist terminal status to workflows_registry with slight delay.
-  // Keep a short retry window so the sidebar card transitions without manual refresh.
-  useEffect(() => {
-    if (
-      !liveRun?.workflowId ||
-      (liveRun?.status !== "done" &&
-        liveRun?.status !== "error" &&
-        liveRun?.status !== "cancelled")
-    ) {
-      return
-    }
-    let attempts = 0
-    const maxAttempts = 8
-    const timer = setInterval(() => {
-      attempts += 1
-      void loadHistory()
-      if (attempts >= maxAttempts) clearInterval(timer)
-    }, 2000)
-    return () => clearInterval(timer)
-  }, [liveRun?.status, liveRun?.workflowId, loadHistory])
 
   // Drag-to-resize the sidebar
   useEffect(() => {
@@ -320,11 +298,19 @@ export function Sidebar({
   async function handleArchiveConfirm(workflowId: string) {
     if (!onArchive) return
     setArchivingId(workflowId)
+    // Optimistic: move to archived immediately
+    setHistory((prev) =>
+      prev.map((e) =>
+        e.workflow_id === workflowId
+          ? { ...e, is_archived: true, archived_at: new Date().toISOString() }
+          : e,
+      ),
+    )
     try {
       await onArchive(workflowId)
-      await loadHistory()
     } finally {
       setArchivingId(null)
+      void loadHistory()
     }
   }
 
@@ -337,12 +323,20 @@ export function Sidebar({
   async function handleRestoreConfirm(workflowId: string) {
     if (!onRestore) return
     setRestoringId(workflowId)
+    // Optimistic: move out of archived immediately
+    setHistory((prev) =>
+      prev.map((e) =>
+        e.workflow_id === workflowId
+          ? { ...e, is_archived: false, archived_at: null }
+          : e,
+      ),
+    )
+    setOpenArchivedMenuId((prev) => (prev === workflowId ? null : prev))
     try {
       await onRestore(workflowId)
-      setOpenArchivedMenuId((prev) => (prev === workflowId ? null : prev))
-      await loadHistory()
     } finally {
       setRestoringId(null)
+      void loadHistory()
     }
   }
 
@@ -355,11 +349,19 @@ export function Sidebar({
   async function handleCompleteConfirm(workflowId: string) {
     if (!onHideCompleted) return
     setCompletingId(workflowId)
+    // Optimistic: move to completed section immediately
+    setHistory((prev) =>
+      prev.map((e) =>
+        e.workflow_id === workflowId
+          ? { ...e, is_completed_hidden: true, completed_hidden_at: new Date().toISOString() }
+          : e,
+      ),
+    )
     try {
       await onHideCompleted(workflowId)
-      await loadHistory()
     } finally {
       setCompletingId(null)
+      void loadHistory()
     }
   }
 
@@ -372,11 +374,19 @@ export function Sidebar({
   async function handleRestoreCompletedConfirm(workflowId: string) {
     if (!onRestoreCompleted) return
     setRestoringCompletedId(workflowId)
+    // Optimistic: move out of completed section immediately
+    setHistory((prev) =>
+      prev.map((e) =>
+        e.workflow_id === workflowId
+          ? { ...e, is_completed_hidden: false, completed_hidden_at: null }
+          : e,
+      ),
+    )
     try {
       await onRestoreCompleted(workflowId)
-      await loadHistory()
     } finally {
       setRestoringCompletedId(null)
+      void loadHistory()
     }
   }
 
@@ -389,11 +399,13 @@ export function Sidebar({
   async function handleDeleteConfirm(workflowId: string) {
     if (!onDelete) return
     setDeletingId(workflowId)
+    // Optimistic: remove from list immediately
+    setHistory((prev) => prev.filter((e) => e.workflow_id !== workflowId))
     try {
       await onDelete(workflowId)
-      await loadHistory()
     } finally {
       setDeletingId(null)
+      void loadHistory()
     }
   }
 
@@ -459,8 +471,8 @@ export function Sidebar({
               "hover:opacity-90 transition-opacity cursor-pointer",
             )}
           >
-            <div className="flex items-center justify-center w-7 h-7 rounded-lg bg-violet-600 shrink-0">
-              <BookMarked className="h-3.5 w-3.5 text-white" />
+            <div className="sidebar-brand-chip flex items-center justify-center w-7 h-7 rounded-lg shrink-0">
+              <BookMarked className="h-3.5 w-3.5 text-current" />
             </div>
             <span
               className={cn(
@@ -490,8 +502,7 @@ export function Sidebar({
             <button
               onClick={() => { onNewReview(); if (isMobile) onToggle() }}
               className={cn(
-                "flex items-center gap-2 rounded-lg transition-colors text-sm font-medium w-full",
-                "bg-violet-600 hover:bg-violet-500 text-white",
+                "sidebar-new-review-button flex items-center gap-2 rounded-lg transition-colors text-sm font-medium w-full",
                 collapsed
                   ? "justify-center h-9 w-9 mx-auto"
                   : "px-3 py-2",
@@ -510,7 +521,7 @@ export function Sidebar({
             {!collapsed && (
               <div className="flex items-center justify-between px-1 mb-1.5">
                 <span className="label-caps font-semibold text-zinc-500 flex items-center gap-1.5">
-                  <span className="flex h-3.5 w-3.5 items-center justify-center rounded-[3px] border border-violet-400/50 bg-violet-500/10 text-violet-300">
+                  <span className="flex h-3.5 w-3.5 items-center justify-center rounded-[3px] border border-intent-primary-border bg-intent-primary-subtle text-intent-primary">
                     <Clock className="h-2.5 w-2.5" />
                   </span>
                   In Progress
@@ -529,7 +540,7 @@ export function Sidebar({
             )}
 
             {historyError && !collapsed && (
-              <div className="px-2 py-1.5 mb-2 rounded-md bg-red-500/10 border border-red-500/20 text-[11px] text-red-400">
+              <div className="px-2 py-1.5 mb-2 rounded-md bg-intent-danger-subtle border border-intent-danger-border text-[11px] text-intent-danger">
                 {historyError}
               </div>
             )}
@@ -620,7 +631,7 @@ export function Sidebar({
                           }}
                           aria-label="Stop run"
                           title="Stop run"
-                          className="absolute top-0 right-0 flex items-center justify-center h-8 w-8 rounded-bl-md bg-red-600 hover:bg-red-500 text-white transition-colors"
+                          className="absolute top-0 right-0 flex items-center justify-center h-8 w-8 rounded-bl-md bg-intent-danger hover:bg-intent-danger-fg text-white transition-colors"
                         >
                           <Square className="h-2.5 w-2.5 fill-white" />
                         </button>
@@ -633,7 +644,7 @@ export function Sidebar({
                           title="Archive run"
                           className={cn(
                             "absolute top-0 right-0 flex items-center justify-center h-8 w-8 rounded-bl-md",
-                            "text-zinc-500 hover:text-amber-300 hover:bg-amber-500/10 transition-colors",
+                            "text-zinc-500 hover:text-intent-warning hover:bg-intent-warning-subtle transition-colors",
                             archivingId === liveRun.workflowId && "opacity-50 cursor-wait",
                           )}
                         >
@@ -794,7 +805,7 @@ export function Sidebar({
                                 aria-label="Stop run"
                                 title="Stop run"
                                 className={cn(
-                                  "flex items-center justify-center h-7 w-7 rounded-md bg-red-600 hover:bg-red-500 text-white transition-colors",
+                                  "flex items-center justify-center h-7 w-7 rounded-md bg-intent-danger hover:bg-intent-danger-fg text-white transition-colors",
                                 )}
                               >
                                 <Square className="h-2.5 w-2.5 fill-white" />
@@ -808,7 +819,7 @@ export function Sidebar({
                                 title="Archive run"
                                 className={cn(
                                   "flex items-center justify-center h-7 w-7 rounded-md",
-                                  "text-zinc-500 hover:text-amber-300 hover:bg-amber-500/10 transition-colors",
+                                  "text-zinc-500 hover:text-intent-warning hover:bg-intent-warning-subtle transition-colors",
                                   archivingId === entry.workflow_id && "opacity-50 cursor-wait",
                                 )}
                               >
@@ -827,12 +838,12 @@ export function Sidebar({
                                 title="Move to completed"
                                 className={cn(
                                   "flex items-center justify-center h-7 w-7 rounded-md",
-                                  "text-emerald-500 hover:text-emerald-300 hover:bg-emerald-500/10 transition-colors",
+                                  "text-intent-success hover:text-intent-success-fg hover:bg-intent-success-subtle transition-colors",
                                   completingId === entry.workflow_id && "opacity-50 cursor-wait",
                                 )}
                               >
                                 {completingId === entry.workflow_id ? (
-                                  <div className="h-2.5 w-2.5 border border-emerald-500 border-t-emerald-300 rounded-full animate-spin" />
+                                  <div className="h-2.5 w-2.5 border border-intent-success border-t-intent-success-fg rounded-full animate-spin" />
                                 ) : (
                                   <div className="flex h-3.5 w-3.5 items-center justify-center rounded-[3px] border border-current">
                                     <Check className="h-2.5 w-2.5" />
@@ -847,13 +858,13 @@ export function Sidebar({
                                 aria-label="Resume from last checkpoint"
                                 title="Resume from last checkpoint"
                                 className={cn(
-                                  "flex items-center justify-center h-7 w-7 rounded-md border border-violet-500/40 bg-violet-500/10 text-violet-300",
-                                  "hover:border-violet-400/60 hover:bg-violet-500/15 hover:text-violet-200 transition-colors",
+                                  "flex items-center justify-center h-7 w-7 rounded-md border border-intent-primary-border bg-intent-primary-subtle text-intent-primary",
+                                  "hover:border-intent-primary-border hover:bg-intent-primary-subtle hover:text-intent-primary-fg transition-colors",
                                   isResuming && "opacity-80 cursor-wait",
                                 )}
                               >
                                 {isResuming ? (
-                                  <div className="h-2.5 w-2.5 border border-violet-300/50 border-t-violet-200 rounded-full animate-spin" />
+                                  <div className="h-2.5 w-2.5 border border-intent-primary/50 border-t-intent-primary-fg rounded-full animate-spin" />
                                 ) : (
                                   <Play className="h-2.5 w-2.5 fill-current" />
                                 )}
@@ -898,10 +909,10 @@ export function Sidebar({
             <button
               type="button"
               onClick={() => setCompletedExpanded((prev) => !prev)}
-              className="mb-1 w-full flex items-center justify-between px-1.5 py-1 rounded-md text-emerald-300/80 hover:text-emerald-200 hover:bg-emerald-500/10 transition-colors"
+              className="mb-1 w-full flex items-center justify-between px-1.5 py-1 rounded-md text-intent-success hover:text-intent-success-fg hover:bg-intent-success-subtle transition-colors"
             >
               <span className="label-caps font-semibold flex items-center gap-1.5">
-                <span className="flex h-3.5 w-3.5 items-center justify-center rounded-[3px] border border-emerald-400/50 bg-emerald-500/10 text-emerald-300">
+                <span className="flex h-3.5 w-3.5 items-center justify-center rounded-[3px] border border-intent-success-border bg-intent-success-subtle text-intent-success">
                   <Check className="h-2.5 w-2.5" />
                 </span>
                 Completed ({completedHistory.length})
@@ -916,7 +927,7 @@ export function Sidebar({
             {completedExpanded && (
               <div className="mb-2 mt-1 max-h-48 overflow-y-auto space-y-1.5 pr-0.5">
                 {completedHistory.length === 0 ? (
-                  <p className="px-2 py-1.5 text-[11px] text-emerald-400/55">
+                  <p className="px-2 py-1.5 text-[11px] text-intent-success/55">
                     No runs in completed.
                   </p>
                 ) : (
@@ -933,7 +944,7 @@ export function Sidebar({
                         <div
                           className={cn(
                             "sidebar-card sidebar-card-hover relative min-h-[120px]",
-                            "opacity-90 bg-emerald-950/25 border-emerald-900/60",
+                            "opacity-90 bg-intent-success-subtle border-intent-success-border",
                             isSelected && "sidebar-card-selected opacity-100",
                           )}
                         >
@@ -972,7 +983,7 @@ export function Sidebar({
                                   </span>
                                 </div>
                                 {entry.created_at && (
-                                  <span className="text-emerald-200/60 font-medium tabular-nums shrink-0">
+                                  <span className="text-intent-success-fg/60 font-medium tabular-nums shrink-0">
                                     {formatRunDate(entry.created_at)}
                                   </span>
                                 )}
@@ -988,7 +999,7 @@ export function Sidebar({
                                 aria-label="Move run to archived"
                                 title="Move run to archived"
                                 className={cn(
-                                  "h-7 w-7 flex items-center justify-center rounded-md text-zinc-400 hover:text-amber-300 hover:bg-amber-500/10 transition-colors",
+                                  "h-7 w-7 flex items-center justify-center rounded-md text-zinc-400 hover:text-intent-warning hover:bg-intent-warning-subtle transition-colors",
                                   archivingId === entry.workflow_id && "opacity-50 cursor-wait",
                                 )}
                               >
@@ -1006,12 +1017,12 @@ export function Sidebar({
                                 aria-label="Restore completed run"
                                 title="Restore completed run"
                                 className={cn(
-                                  "h-7 w-7 flex items-center justify-center rounded-md text-emerald-300/70 hover:text-emerald-200 hover:bg-emerald-500/10 transition-colors",
+                                  "h-7 w-7 flex items-center justify-center rounded-md text-intent-success/70 hover:text-intent-success-fg hover:bg-intent-success-subtle transition-colors",
                                   restoringCompletedId === entry.workflow_id && "opacity-50 cursor-wait",
                                 )}
                               >
                                 {restoringCompletedId === entry.workflow_id ? (
-                                  <div className="h-2.5 w-2.5 border border-emerald-400/70 border-t-emerald-200 rounded-full animate-spin" />
+                                  <div className="h-2.5 w-2.5 border border-intent-success/70 border-t-intent-success-fg rounded-full animate-spin" />
                                 ) : (
                                   <RotateCcw className="h-3 w-3" />
                                 )}
@@ -1031,7 +1042,7 @@ export function Sidebar({
               className="w-full flex items-center justify-between px-1.5 py-1 rounded-md text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800/60 transition-colors"
             >
               <span className="label-caps font-semibold flex items-center gap-1.5">
-                <span className="flex h-3.5 w-3.5 items-center justify-center rounded-[3px] border border-amber-400/40 bg-amber-500/10 text-amber-300">
+                <span className="flex h-3.5 w-3.5 items-center justify-center rounded-[3px] border border-intent-warning-border bg-intent-warning-subtle text-intent-warning">
                   <Archive className="h-2.5 w-2.5" />
                 </span>
                 Archived ({archivedHistory.length})
@@ -1118,12 +1129,12 @@ export function Sidebar({
                                 aria-label="Move run to completed"
                                 title="Move run to completed"
                                 className={cn(
-                                  "h-7 w-7 flex items-center justify-center rounded-md text-emerald-400/80 hover:text-emerald-300 hover:bg-emerald-500/10 transition-colors",
+                                  "h-7 w-7 flex items-center justify-center rounded-md text-intent-success/80 hover:text-intent-success hover:bg-intent-success-subtle transition-colors",
                                   completingId === entry.workflow_id && "opacity-50 cursor-wait",
                                 )}
                               >
                                 {completingId === entry.workflow_id ? (
-                                  <div className="h-2.5 w-2.5 border border-emerald-500 border-t-emerald-300 rounded-full animate-spin" />
+                                  <div className="h-2.5 w-2.5 border border-intent-success border-t-intent-success-fg rounded-full animate-spin" />
                                 ) : (
                                   <div className="flex h-3.5 w-3.5 items-center justify-center rounded-[3px] border border-current">
                                     <Check className="h-2.5 w-2.5" />
@@ -1138,7 +1149,7 @@ export function Sidebar({
                                 aria-label="Restore run"
                                 title="Restore run"
                                 className={cn(
-                                  "h-7 w-7 flex items-center justify-center rounded-md text-zinc-500 hover:text-emerald-300 hover:bg-emerald-500/10 transition-colors",
+                                  "h-7 w-7 flex items-center justify-center rounded-md text-zinc-500 hover:text-intent-success hover:bg-intent-success-subtle transition-colors",
                                   restoringId === entry.workflow_id && "opacity-50 cursor-wait",
                                 )}
                               >
@@ -1172,7 +1183,7 @@ export function Sidebar({
                                         setOpenArchivedMenuId(null)
                                         handleDeleteClick(e, entry.workflow_id)
                                       }}
-                                      className="w-full text-left px-2.5 py-2 text-xs font-medium rounded-md transition-colors text-red-300 hover:text-red-200 hover:bg-red-500/10 flex items-center gap-2"
+                                      className="w-full text-left px-2.5 py-2 text-xs font-medium rounded-md transition-colors text-intent-danger hover:text-intent-danger-fg hover:bg-intent-danger-subtle flex items-center gap-2"
                                     >
                                       <Trash2 className="h-3.5 w-3.5 shrink-0" />
                                       Delete permanently
@@ -1214,8 +1225,8 @@ export function Sidebar({
             onMouseDown={handleDragHandleMouseDown}
             className={cn(
               "absolute top-0 right-0 w-1 h-full cursor-col-resize z-30",
-              "hover:bg-violet-500/40 transition-colors duration-150",
-              isDragging && "bg-violet-500/60",
+              "hover:bg-intent-primary/40 transition-colors duration-150",
+              isDragging && "bg-intent-primary/60",
             )}
           />
         )}
@@ -1285,13 +1296,13 @@ function RunCardMetrics({
           <>
             {papersFound != null && (
               <span className="flex items-baseline gap-1 leading-none">
-                <span className="font-semibold tabular-nums text-blue-400">{fmtNum(papersFound)}</span>
+                <span className="font-semibold tabular-nums text-intent-info">{fmtNum(papersFound)}</span>
                 <span className="text-zinc-600 font-normal">found</span>
               </span>
             )}
             {papersIncluded != null && (
               <span className="flex items-baseline gap-1 leading-none">
-                <span className="font-semibold tabular-nums text-emerald-400">{fmtNum(papersIncluded)}</span>
+                <span className="font-semibold tabular-nums text-intent-success">{fmtNum(papersIncluded)}</span>
                 <span className="text-zinc-600 font-normal">included</span>
               </span>
             )}
@@ -1302,7 +1313,7 @@ function RunCardMetrics({
       {/* Right column: cost + wf ID, right-aligned */}
       <div className="flex flex-col items-end gap-y-0.5 shrink-0">
         {cost != null && cost > 0 && (
-          <span className="font-semibold text-amber-400 whitespace-nowrap">
+          <span className="font-semibold text-intent-warning whitespace-nowrap">
             ${cost.toFixed(3)}
           </span>
         )}
@@ -1358,7 +1369,7 @@ function CardProgressBar({
   if (isIndeterminate) {
     return (
       <div className="h-0.5 overflow-hidden bg-zinc-700/40">
-        <div className="h-full w-1/3 rounded-full bg-violet-500/70 animate-pulse" />
+        <div className="h-full w-1/3 rounded-full bg-intent-active/70 animate-pulse" />
       </div>
     )
   }
@@ -1389,7 +1400,7 @@ function CollapsedWorkflowBadge({
   if (!badge) {
     return (
       <span
-        className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-red-500/70 bg-red-500/20 text-[10px] font-bold text-red-300"
+        className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-intent-danger-border bg-intent-danger-subtle text-[10px] font-bold text-intent-danger"
         title={workflowId ?? "Invalid workflow id"}
       >
         ERR
@@ -1398,7 +1409,7 @@ function CollapsedWorkflowBadge({
   }
   return (
     <span
-      className="inline-flex h-7 w-7 items-center justify-center rounded-md bg-zinc-800/80 text-[15px] font-bold text-zinc-100 tabular-nums"
+      className="sidebar-wf-badge-collapsed inline-flex h-7 w-7 items-center justify-center rounded-md text-[15px] font-bold tabular-nums"
       title={workflowId ?? undefined}
     >
       #{badge}
@@ -1415,7 +1426,7 @@ function ExpandedWorkflowBadge({
   if (!badge) return null
   return (
     <span
-      className="inline-flex h-6 min-w-8 items-center justify-center rounded-[7px] border border-zinc-600/90 bg-zinc-900 px-1.5 text-xs font-bold text-zinc-100 tabular-nums shrink-0 shadow-[inset_0_1px_0_rgba(255,255,255,0.08),0_1px_4px_rgba(0,0,0,0.35)]"
+      className="sidebar-wf-badge inline-flex h-6 min-w-8 items-center justify-center rounded-[7px] px-1.5 text-xs font-bold tabular-nums shrink-0"
       title={workflowId ?? undefined}
     >
       #{badge}
@@ -1532,7 +1543,7 @@ function NoteField({
         placeholder="Add a note..."
         className={cn(
           "w-full bg-transparent resize-none text-[11px] leading-relaxed",
-          "text-amber-300/90 placeholder-zinc-600",
+          "text-intent-warning/90 placeholder-zinc-600",
           "border-none outline-none focus:outline-none",
           "scrollbar-none block",
         )}

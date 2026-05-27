@@ -45,19 +45,18 @@ function MetricTile({ icon: Icon, label, value, sub, iconClass }: MetricTileProp
         <Icon className={cn("h-4 w-4", iconClass ?? "text-zinc-500")} />
         <span className="label-caps">{label}</span>
       </div>
-      <div className="text-2xl font-bold text-white tabular-nums font-mono">{value}</div>
+      <div className="text-2xl font-bold text-zinc-100 tabular-nums font-mono">{value}</div>
       {sub && <div className="label-muted mt-1">{sub}</div>}
     </div>
   )
 }
 
-// Custom dark tooltip for recharts
-function DarkTooltip({ active, payload, label }: { active?: boolean; payload?: Array<{ value: number }>; label?: string }) {
+function CostChartTooltip({ active, payload, label }: { active?: boolean; payload?: Array<{ value: number }>; label?: string }) {
   if (!active || !payload?.length) return null
   return (
-    <div className="bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 shadow-xl text-xs">
-      <div className="text-zinc-400 mb-1">{label}</div>
-      <div className="text-white font-mono font-semibold">${payload[0].value.toFixed(4)}</div>
+    <div className="rounded-lg border border-border bg-popover px-3 py-2 text-xs text-popover-foreground shadow-xl">
+      <div className="text-zinc-500 mb-1">{label}</div>
+      <div className="text-zinc-100 font-mono font-semibold">${payload[0].value.toFixed(4)}</div>
     </div>
   )
 }
@@ -284,28 +283,28 @@ export function CostView({ costStats, dbRunId, workflowId, isLive }: CostViewPro
           label="Total Cost"
           value={`$${total_cost.toFixed(4)}`}
           sub="across all agents"
-          iconClass="text-emerald-400"
+          iconClass="text-intent-success"
         />
         <MetricTile
           icon={Activity}
           label="LLM Calls"
           value={String(total_calls)}
           sub="successful completions"
-          iconClass="text-violet-400"
+          iconClass="text-intent-primary"
         />
         <MetricTile
           icon={Zap}
           label="Tokens In"
           value={total_tokens_in.toLocaleString()}
           sub="prompt tokens"
-          iconClass="text-blue-400"
+          iconClass="text-intent-info"
         />
         <MetricTile
           icon={ArrowUpDown}
           label="Tokens Out"
           value={total_tokens_out.toLocaleString()}
           sub="completion tokens"
-          iconClass="text-amber-400"
+          iconClass="text-intent-warning"
         />
       </div>
 
@@ -323,7 +322,7 @@ export function CostView({ costStats, dbRunId, workflowId, isLive }: CostViewPro
               <XAxis
                 type="number"
                 tickFormatter={(v: number) => `$${v.toFixed(3)}`}
-                tick={{ fill: "#71717a", fontSize: 10 }}
+                tick={{ fill: "var(--color-muted)", fontSize: 10 }}
                 axisLine={false}
                 tickLine={false}
               />
@@ -331,12 +330,12 @@ export function CostView({ costStats, dbRunId, workflowId, isLive }: CostViewPro
                 type="category"
                 dataKey="name"
                 width={110}
-                tick={{ fill: "#a1a1aa", fontSize: 11 }}
+                tick={{ fill: "var(--color-text-dim)", fontSize: 11 }}
                 axisLine={false}
                 tickLine={false}
               />
-              <Tooltip content={<DarkTooltip />} cursor={{ fill: "#27272a55" }} />
-              <Bar dataKey="cost" radius={[0, 4, 4, 0]} label={{ position: "right", formatter: (v: unknown) => `$${(v as number).toFixed(4)}`, fill: "#52525b", fontSize: 10 }}>
+              <Tooltip content={<CostChartTooltip />} cursor={{ fill: "rgb(113 113 122 / 0.22)" }} />
+              <Bar dataKey="cost" radius={[0, 4, 4, 0]} label={{ position: "right", formatter: (v: unknown) => `$${(v as number).toFixed(4)}`, fill: "var(--color-zinc-500)", fontSize: 10 }}>
                 {chartData.map((entry) => (
                   <Cell
                     key={entry.fullPhase}
@@ -390,7 +389,7 @@ export function CostView({ costStats, dbRunId, workflowId, isLive }: CostViewPro
                     <td className="px-4 py-3 text-right tabular-nums text-zinc-400 text-xs">
                       {m.tokens_out.toLocaleString()}
                     </td>
-                    <td className="px-5 py-3 text-right tabular-nums font-mono font-medium text-emerald-400 text-xs">
+                    <td className="px-5 py-3 text-right tabular-nums font-mono font-medium text-intent-success text-xs">
                       ${m.cost_usd.toFixed(4)}
                     </td>
                   </tr>
@@ -435,7 +434,7 @@ export function CostView({ costStats, dbRunId, workflowId, isLive }: CostViewPro
                       </div>
                     </td>
                     <td className="px-4 py-3 text-right tabular-nums text-zinc-400 text-xs">{p.calls}</td>
-                    <td className="px-5 py-3 text-right tabular-nums font-mono font-medium text-emerald-400 text-xs">
+                    <td className="px-5 py-3 text-right tabular-nums font-mono font-medium text-intent-success text-xs">
                       ${p.cost_usd.toFixed(4)}
                     </td>
                   </tr>
@@ -502,7 +501,7 @@ export function CostView({ costStats, dbRunId, workflowId, isLive }: CostViewPro
             </div>
 
             {opsLoading && <div className="text-xs text-zinc-500">Loading ops aggregates...</div>}
-            {opsError && <div className="text-xs text-rose-400">{opsError}</div>}
+            {opsError && <div className="text-xs text-intent-danger">{opsError}</div>}
 
             {opsAggregates?.totals && (
               <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-xs">
@@ -574,7 +573,7 @@ export function CostView({ costStats, dbRunId, workflowId, isLive }: CostViewPro
                         <div className="text-zinc-200">{check.check_name}</div>
                         <div className={cn(
                           "font-medium",
-                          check.status === "error" ? "text-red-400" : check.status === "warn" ? "text-amber-400" : "text-emerald-400",
+                          check.status === "error" ? "text-intent-danger" : check.status === "warn" ? "text-intent-warning" : "text-intent-success",
                         )}>
                           {check.status}
                         </div>

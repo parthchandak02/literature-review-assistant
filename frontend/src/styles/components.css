@@ -1,0 +1,322 @@
+@layer components {
+  /* ------------------------------------------------------------------ */
+  /* Canonical glass surfaces                                            */
+  /* ------------------------------------------------------------------ */
+  .glass-panel {
+    @apply rounded-xl border;
+    background-color: var(--glass-surface-1);
+    border-color: var(--glass-border-1);
+    box-shadow: var(--glass-shadow-1), var(--glass-shadow-2);
+  }
+
+  .glass-panel-strong {
+    @apply rounded-xl border;
+    background:
+      linear-gradient(
+        162deg,
+        color-mix(in srgb, var(--glass-surface-2) 92%, rgb(124 58 237 / 8%) 8%) 0%,
+        color-mix(in srgb, var(--glass-surface-2) 88%, black 12%) 58%,
+        color-mix(in srgb, var(--glass-surface-3) 86%, black 14%) 100%
+      );
+    border-color: var(--glass-border-2);
+    box-shadow: var(--glass-shadow-1), var(--glass-shadow-3);
+  }
+
+  .glass-toolbar {
+    @apply border-b;
+    position: relative;
+    isolation: isolate;
+    background-color: color-mix(in srgb, var(--glass-surface-2) 93%, black 7%);
+    border-color: color-mix(in srgb, var(--glass-border-1) 75%, black 25%);
+  }
+
+  .glass-chip {
+    @apply rounded-full border text-[10px] px-2 py-0.5 font-medium;
+    background-color: color-mix(in srgb, var(--glass-surface-2) 85%, black 15%);
+    border-color: color-mix(in srgb, var(--glass-border-1) 92%, black 8%);
+  }
+
+  .glass-interactive {
+    @apply transition-colors duration-150;
+  }
+
+  .glass-interactive:hover {
+    background-color: color-mix(in srgb, var(--glass-surface-2) 88%, black 12%);
+    border-color: var(--glass-border-2);
+  }
+
+  .glass-interactive:focus-visible {
+    outline: 2px solid rgba(139, 92, 246, 0.45);
+    outline-offset: 1px;
+  }
+
+  @supports ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+    .glass-panel,
+    .glass-panel-strong,
+    .glass-toolbar {
+      backdrop-filter: saturate(125%) blur(var(--glass-blur-md));
+      -webkit-backdrop-filter: saturate(125%) blur(var(--glass-blur-md));
+    }
+  }
+
+  @supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+    .glass-panel,
+    .glass-panel-strong,
+    .glass-toolbar {
+      background-color: rgb(24 24 27 / 0.88);
+    }
+  }
+
+  html[data-theme="light"] .glass-panel,
+  html[data-theme="light"] .glass-panel-strong,
+  html[data-theme="light"] .glass-toolbar {
+    background-color: color-mix(in srgb, var(--glass-surface-2) 95%, white 5%);
+  }
+
+  @supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+    html[data-theme="light"] .glass-panel,
+    html[data-theme="light"] .glass-panel-strong,
+    html[data-theme="light"] .glass-toolbar {
+      background-color: rgb(245 243 240 / 0.95);
+    }
+  }
+
+  @media (max-width: 767px) {
+    @supports ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+      .glass-panel,
+      .glass-panel-strong,
+      .glass-toolbar {
+        backdrop-filter: saturate(120%) blur(var(--glass-blur-sm));
+        -webkit-backdrop-filter: saturate(120%) blur(var(--glass-blur-sm));
+      }
+    }
+  }
+
+  /* ------------------------------------------------------------------ */
+  /* Card surfaces                                                       */
+  /* ------------------------------------------------------------------ */
+  .card-surface {
+    @apply rounded-xl border;
+    background-color: var(--glass-surface-1);
+    border-color: var(--glass-border-1);
+    box-shadow: var(--glass-shadow-1), var(--glass-shadow-2);
+  }
+  .card-section {
+    @apply rounded-xl border p-4;
+    background-color: var(--glass-surface-1);
+    border-color: var(--glass-border-1);
+    box-shadow: var(--glass-shadow-1), var(--glass-shadow-2);
+  }
+
+  /* ------------------------------------------------------------------ */
+  /* Sidebar glass cards                                                 */
+  /* ------------------------------------------------------------------ */
+  .sidebar-card {
+    @apply rounded-xl overflow-hidden transition-all duration-150 border;
+    border-color: color-mix(in srgb, var(--glass-border-2) 76%, black 24%);
+    background-color: color-mix(in srgb, var(--glass-surface-2) 78%, black 22%);
+    box-shadow: 0 1px 0 rgba(255, 255, 255, 0.02) inset, var(--glass-shadow-2);
+  }
+  .sidebar-card-selected {
+    @apply rounded-xl border;
+    background:
+      linear-gradient(
+        162deg,
+        color-mix(in srgb, var(--glass-surface-2) 91%, rgb(124 58 237 / 9%) 9%) 0%,
+        color-mix(in srgb, var(--glass-surface-2) 88%, black 12%) 56%,
+        color-mix(in srgb, var(--glass-surface-3) 86%, black 14%) 100%
+      );
+    box-shadow:
+      0 1px 0 rgba(255, 255, 255, 0.02) inset,
+      0 10px 24px rgba(0, 0, 0, 0.38),
+      0 0 0 1px rgba(124, 58, 237, 0.22),
+      0 0 16px rgba(124, 58, 237, 0.10);
+    border-color: rgba(124, 58, 237, 0.26);
+  }
+
+  html[data-theme="light"] .sidebar-card {
+    background-color: var(--sidebar-card-bg);
+    border: 1px solid var(--sidebar-card-border);
+    box-shadow: 0 1px 0 rgba(255, 255, 255, 0.65) inset;
+  }
+
+  html[data-theme="light"] .sidebar-card-hover:hover {
+    background-color: var(--sidebar-card-hover-bg);
+    border-color: rgba(20, 20, 20, 0.12);
+  }
+
+  html[data-theme="light"] .sidebar-card-selected {
+    background: var(--sidebar-card-selected-bg);
+    border: 1px solid rgba(124, 58, 237, 0.22);
+    box-shadow:
+      0 1px 0 rgba(255, 255, 255, 0.75) inset,
+      0 0 0 1px rgba(124, 58, 237, 0.08);
+  }
+
+  html[data-theme="light"] .sidebar-card-archived {
+    background-color: color-mix(in srgb, var(--sidebar-card-bg) 85%, var(--color-surface-2) 15%);
+    border: 1px solid var(--sidebar-card-border);
+  }
+
+  html[data-theme="light"] .glass-toolbar {
+    background-color: color-mix(in srgb, var(--glass-surface-2) 96%, white 4%);
+    border-color: color-mix(in srgb, var(--glass-border-1) 85%, white 15%);
+  }
+
+  html[data-theme="light"] .glass-table-row {
+    border-color: rgb(231 229 228 / 0.65);
+  }
+
+  html[data-theme="light"] .glass-table-row:hover {
+    background-color: rgb(245 243 240 / 0.85);
+  }
+
+  .sidebar-card-hover {
+    @apply transition-colors duration-150;
+  }
+  .sidebar-card-hover:hover {
+    background-color: color-mix(in srgb, var(--glass-surface-2) 88%, black 12%);
+    border-color: var(--glass-border-2);
+  }
+
+  .sidebar-brand-chip {
+    color: #efe9ff;
+    background-color: color-mix(in srgb, #a78bfa 62%, #ffffff 38%);
+    border: 1px solid rgb(196 181 253 / 0.42);
+  }
+
+  .sidebar-new-review-button {
+    color: #f8f5ff;
+    border: 1px solid rgb(196 181 253 / 0.42);
+    background: linear-gradient(
+      135deg,
+      rgb(167 139 250 / 0.82) 0%,
+      rgb(147 120 246 / 0.82) 100%
+    );
+    box-shadow: 0 1px 1px rgb(0 0 0 / 0.12);
+  }
+
+  .sidebar-new-review-button:hover {
+    background: linear-gradient(
+      135deg,
+      rgb(177 149 251 / 0.9) 0%,
+      rgb(157 130 247 / 0.9) 100%
+    );
+  }
+
+  html[data-theme="light"] .sidebar-brand-chip {
+    color: #6d28d9;
+    background-color: #ede9fe;
+    border-color: rgb(196 181 253 / 0.75);
+  }
+
+  html[data-theme="light"] .sidebar-new-review-button {
+    color: #5b21b6;
+    border-color: rgb(196 181 253 / 0.75);
+    background: linear-gradient(
+      135deg,
+      rgb(237 233 254 / 0.96) 0%,
+      rgb(221 214 254 / 0.96) 100%
+    );
+    box-shadow: 0 1px 1px rgb(109 40 217 / 0.08);
+  }
+
+  html[data-theme="light"] .sidebar-new-review-button:hover {
+    background: linear-gradient(
+      135deg,
+      rgb(233 225 253 / 0.98) 0%,
+      rgb(215 205 252 / 0.98) 100%
+    );
+  }
+
+  /* Sidebar workflow number badges */
+  .sidebar-wf-badge {
+    background-color: rgb(39 39 42 / 0.8);
+    border: 1px solid rgb(63 63 70 / 0.7);
+    color: #e4e4e7;
+  }
+
+  .sidebar-wf-badge-collapsed {
+    background-color: rgb(39 39 42 / 0.8);
+    color: #f4f4f5;
+  }
+
+  html[data-theme="light"] .sidebar-wf-badge {
+    background-color: #f5f3f0;
+    border-color: rgb(214 211 209 / 0.85);
+    color: #1c1917;
+  }
+
+  html[data-theme="light"] .sidebar-wf-badge-collapsed {
+    background-color: #f5f3f0;
+    color: #1c1917;
+  }
+
+  /* ------------------------------------------------------------------ */
+  /* Section + layout                                                    */
+  /* ------------------------------------------------------------------ */
+  .section-trigger {
+    @apply w-full flex items-center justify-between px-4 py-3 hover:bg-zinc-800/30 transition-colors;
+  }
+
+  /* ------------------------------------------------------------------ */
+  /* Typography utilities                                                */
+  /* ------------------------------------------------------------------ */
+  .label-caps {
+    @apply text-[11px] font-medium uppercase tracking-wide text-zinc-500;
+  }
+  .label-sub {
+    @apply text-xs text-zinc-500;
+  }
+  .label-muted {
+    @apply text-xs text-zinc-600;
+  }
+  .text-meta {
+    @apply text-[11px] font-mono tabular-nums;
+  }
+
+  /* Interactive row hover */
+  .row-hover {
+    @apply hover:bg-zinc-800/40 transition-colors duration-150;
+  }
+
+  /* ------------------------------------------------------------------ */
+  /* Glass table primitives (data-dense, contrast-first)                 */
+  /* ------------------------------------------------------------------ */
+  .glass-table-shell {
+    @apply rounded-xl border overflow-hidden;
+    background-color: color-mix(in srgb, var(--glass-surface-1) 88%, black 12%);
+    border-color: color-mix(in srgb, var(--glass-border-1) 86%, black 14%);
+  }
+  .glass-table-head {
+    @apply border-b;
+    background-color: color-mix(in srgb, var(--glass-surface-2) 90%, black 10%);
+    border-color: color-mix(in srgb, var(--glass-border-1) 75%, black 25%);
+  }
+  .glass-table-row {
+    @apply transition-colors duration-150;
+    border-color: rgb(39 39 42 / 0.42);
+  }
+  .glass-table-row:hover {
+    background-color: rgb(39 39 42 / 0.42);
+  }
+  .glass-table-cell-muted {
+    color: rgb(161 161 170 / 0.82);
+  }
+
+  html[data-theme="light"] .glass-table-cell-muted {
+    color: color-mix(in srgb, var(--color-text-dim) 88%, transparent);
+  }
+
+  /* ------------------------------------------------------------------ */
+  /* Touch + safe area                                                   */
+  /* ------------------------------------------------------------------ */
+  .touch-target {
+    @apply min-w-11 min-h-11 flex items-center justify-center;
+  }
+
+  .pt-safe { padding-top: env(safe-area-inset-top); }
+  .pb-safe { padding-bottom: env(safe-area-inset-bottom); }
+  .pl-safe { padding-left: env(safe-area-inset-left); }
+  .pr-safe { padding-right: env(safe-area-inset-right); }
+}

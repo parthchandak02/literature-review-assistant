@@ -12,7 +12,7 @@ import type { ScreenedPaper, ScreeningSummary, ScreeningOverride } from "@/lib/a
 function DecisionBadge({ decision }: { decision: string }) {
   if (decision === "include") {
     return (
-      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium bg-emerald-900/50 text-emerald-400 border border-emerald-800">
+      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium bg-intent-success-subtle text-intent-success border border-intent-success-border">
         <CheckCircle className="h-3 w-3" />
         Include
       </span>
@@ -20,14 +20,14 @@ function DecisionBadge({ decision }: { decision: string }) {
   }
   if (decision === "exclude") {
     return (
-      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium bg-red-900/50 text-red-400 border border-red-800">
+      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium bg-intent-danger-subtle text-intent-danger border border-intent-danger-border">
         <XCircle className="h-3 w-3" />
         Exclude
       </span>
     )
   }
   return (
-    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium bg-amber-900/50 text-amber-400 border border-amber-800">
+      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium bg-intent-warning-subtle text-intent-warning border border-intent-warning-border">
       <HelpCircle className="h-3 w-3" />
       Uncertain
     </span>
@@ -38,7 +38,7 @@ function ConfidencePill({ confidence }: { confidence: number | null }) {
   if (confidence == null) return null
   const pct = Math.round(confidence * 100)
   const color =
-    pct >= 80 ? "text-emerald-400" : pct >= 60 ? "text-amber-400" : "text-red-400"
+    pct >= 80 ? "text-intent-success" : pct >= 60 ? "text-intent-warning" : "text-intent-danger"
   return (
     <span className={cn("text-xs font-mono", color)}>
       {pct}% conf.
@@ -74,7 +74,7 @@ function PaperRow({ paper, override, onOverride }: PaperRowProps) {
   return (
     <div className={cn(
       "border rounded-lg overflow-hidden",
-      override ? "border-violet-700 bg-violet-900/10" : "border-zinc-800 bg-zinc-900/40"
+      override ? "border-intent-primary-border bg-intent-primary-subtle" : "border-zinc-800 bg-zinc-900/40"
     )}>
       <button
         className="w-full flex items-start gap-3 px-4 py-3 text-left row-hover"
@@ -84,7 +84,7 @@ function PaperRow({ paper, override, onOverride }: PaperRowProps) {
           <div className="flex items-center gap-2 flex-wrap mb-1">
             <DecisionBadge decision={paper.decision} />
             {override && (
-              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium bg-violet-900/50 text-violet-300 border border-violet-700">
+              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium bg-intent-primary-subtle text-intent-primary border border-intent-primary-border">
                 Override: {override.decision}
               </span>
             )}
@@ -133,7 +133,7 @@ function PaperRow({ paper, override, onOverride }: PaperRowProps) {
                 href={`https://doi.org/${paper.doi}`}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="text-xs text-violet-400 hover:text-violet-300 font-mono"
+                className="text-xs text-intent-primary hover:text-intent-primary font-mono"
                 onClick={(e) => e.stopPropagation()}
               >
                 {paper.doi}
@@ -154,8 +154,8 @@ function PaperRow({ paper, override, onOverride }: PaperRowProps) {
                 className={cn(
                   "px-2.5 py-1 rounded text-xs font-medium border transition-colors",
                   override?.decision === "include"
-                    ? "bg-emerald-700 border-emerald-600 text-white"
-                    : "bg-zinc-800 border-zinc-700 text-zinc-300 hover:border-emerald-700"
+                    ? "bg-intent-success border-intent-success-border text-white"
+                    : "bg-zinc-800 border-zinc-700 text-zinc-300 hover:border-intent-success-border"
                 )}
               >
                 Force Include
@@ -165,8 +165,8 @@ function PaperRow({ paper, override, onOverride }: PaperRowProps) {
                 className={cn(
                   "px-2.5 py-1 rounded text-xs font-medium border transition-colors",
                   override?.decision === "exclude"
-                    ? "bg-red-800 border-red-700 text-white"
-                    : "bg-zinc-800 border-zinc-700 text-zinc-300 hover:border-red-700"
+                    ? "bg-intent-danger border-intent-danger-border text-white"
+                    : "bg-zinc-800 border-zinc-700 text-zinc-300 hover:border-intent-danger-border"
                 )}
               >
                 Force Exclude
@@ -187,7 +187,7 @@ function PaperRow({ paper, override, onOverride }: PaperRowProps) {
                 value={reason}
                 onChange={(e) => handleReasonChange(e.target.value)}
                 onClick={(e) => e.stopPropagation()}
-                className="mt-2 w-full px-2 py-1.5 rounded text-xs bg-zinc-800 border border-zinc-700 text-zinc-300 placeholder-zinc-600 focus:outline-none focus:border-violet-600"
+                className="mt-2 w-full px-2 py-1.5 rounded text-xs bg-zinc-800 border border-zinc-700 text-zinc-300 placeholder-zinc-600 focus:outline-none focus:border-intent-primary-border"
               />
             )}
           </div>
@@ -257,7 +257,7 @@ export function ScreeningReviewView({ runId }: { runId: string }) {
   if (loading) {
     return (
       <div className="flex items-center justify-center h-48">
-        <Spinner size="md" className="text-violet-500" />
+        <Spinner size="md" className="text-intent-primary" />
       </div>
     )
   }
@@ -299,17 +299,17 @@ export function ScreeningReviewView({ runId }: { runId: string }) {
         </span>
         <span className="text-zinc-700">|</span>
         <span className="text-zinc-400">
-          <span className="text-emerald-400 font-semibold">{includedCount}</span> include
+          <span className="text-intent-success font-semibold">{includedCount}</span> include
         </span>
         <span className="text-zinc-700">|</span>
         <span className="text-zinc-400">
-          <span className="text-amber-400 font-semibold">{uncertainCount}</span> uncertain
+          <span className="text-intent-warning font-semibold">{uncertainCount}</span> uncertain
         </span>
       </div>
 
       {/* Approve button */}
       {approved ? (
-        <div className="flex items-center gap-2 p-3 rounded-lg bg-emerald-900/30 border border-emerald-800 text-sm text-emerald-400">
+        <div className="flex items-center gap-2 p-3 rounded-lg bg-intent-success-subtle border border-intent-success-border text-sm text-intent-success">
           <CheckCircle className="h-4 w-4" />
           Screening approved -- workflow is resuming extraction...
         </div>
@@ -322,14 +322,14 @@ export function ScreeningReviewView({ runId }: { runId: string }) {
               "flex items-center gap-2 px-4 py-2.5 rounded-lg text-sm font-medium transition-colors",
               approving
                 ? "bg-zinc-800 text-zinc-500 cursor-not-allowed"
-                : "bg-amber-600 hover:bg-amber-500 text-white",
+                : "bg-intent-warning hover:bg-intent-warning text-white",
             )}
           >
             {approving && <Spinner size="sm" className="text-zinc-400" />}
             {approving ? "Approving..." : "Approve Screening and Resume Extraction"}
           </button>
           {overrides.size > 0 && (
-            <span className="text-xs text-violet-400 font-medium">
+            <span className="text-xs text-intent-primary font-medium">
               {overrides.size} override{overrides.size !== 1 ? "s" : ""} will be sent for active learning
             </span>
           )}
@@ -345,7 +345,7 @@ export function ScreeningReviewView({ runId }: { runId: string }) {
             className={cn(
               "px-3 py-2 text-xs font-medium border-b-2 -mb-px capitalize transition-colors",
               filter === f
-                ? "border-violet-500 text-white"
+                ? "border-intent-primary text-intent-primary"
                 : "border-transparent text-zinc-500 hover:text-zinc-300",
             )}
           >

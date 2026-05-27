@@ -18,12 +18,12 @@ interface GlassTabsProps<T extends string> {
 function accentClasses(accent: "violet" | "amber", active: boolean): string {
   if (accent === "amber") {
     return active
-      ? "border-amber-500/70 bg-amber-500/14 text-amber-300"
-      : "border-zinc-700/80 text-zinc-400 hover:text-amber-300 hover:border-amber-700/60 hover:bg-amber-900/20"
+      ? "border-intent-warning/70 bg-intent-warning-subtle text-intent-warning"
+      : "border-zinc-700/80 text-zinc-400 hover:text-intent-warning hover:border-intent-warning/40 hover:bg-intent-warning-subtle"
   }
   return active
-    ? "border-violet-500/70 bg-violet-500/14 text-zinc-100"
-    : "border-zinc-700/80 text-zinc-400 hover:text-zinc-200 hover:border-violet-700/60 hover:bg-zinc-800/55"
+    ? "border-intent-primary/70 bg-intent-primary-subtle text-zinc-100"
+    : "border-zinc-700/80 text-zinc-400 hover:text-zinc-200 hover:border-intent-primary/40 hover:bg-zinc-800/55"
 }
 
 export function GlassTabs<T extends string>({
