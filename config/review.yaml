@@ -1,7 +1,7 @@
 # Config generation mode: web-grounded brief with live web research.
 # Review and edit this YAML before launching the workflow.
 
-research_question: "What is the impact of AI-powered household robots on human individual health and the nature of domestic labor?"
+research_question: "What is the effect of spaced repetition flashcard applications on exam performance in undergraduate students?"
 review_type: "systematic"
 
 # Living review settings (optional)
@@ -11,95 +11,87 @@ living_review: false
 last_search_date: null
 
 pico:
-  population: "Individuals and households"
-  intervention: "AI-powered household robots designed for domestic chores"
-  comparison: "Pre-robotization of domestic chores or manual performance of chores"
-  outcome: "Human individual health (physical and cognitive), time spent on chores, physical strain, user satisfaction, and task completion efficiency"
+  population: "Undergraduate university students enrolled in degree-granting programs across disciplines (e.g., psychology, biology, pre-med, engineering, nursing, language learning, business, law)"
+  intervention: "Spaced repetition flashcard applications (digital flashcard tools that use algorithmic spacing of retrieval practice, including Anki, Quizlet Learn mode, Memrise, SuperMemo, RemNote, Brainscape, and similar SRS-based apps)"
+  comparison: "Paper flashcards, non-adaptive digital flashcards, no-intervention control, alternative study methods (e.g., re-reading, note review), or within-subject comparison across course modules"
+  outcome: "Exam scores (mean percentage correct, raw grades, pass/fail rates), retention over time (immediate and delayed recall at intervals from days to months), learning efficiency (time spent studying, cards reviewed), adherence metrics (session frequency, completion rates), and self-reported measures (perceived usefulness, satisfaction, usability)"
 
 keywords:
-  - "AI robotics"
-  - "artificial intelligence robotics"
-  - "household robots"
-  - "domestic robots"
-  - "service robots"
-  - "intelligent home robots"
-  - "cobots home"
-  - "human-robot interaction"
-  - "HRI domestic"
-  - "smart home robots"
-  - "assistive robotics"
-  - "automation domestic labor"
-  - "iRobot"
-  - "Roomba"
-  - "Amazon Astro"
-  - "Samsung Bot Handy"
-  - "LG CLOi"
-  - "elderly assistance"
-  - "disability support"
-  - "task completion rate"
-  - "time saved"
-  - "physical strain reduction"
-  - "user satisfaction"
-  - "fall prevention"
+  - "spaced repetition"
+  - "spaced retrieval"
+  - "expanded retrieval"
+  - "graduated-interval recall"
+  - "spaced rehearsal"
+  - "SRS app"
+  - "digital flashcards"
+  - "electronic flashcards"
+  - "mobile flashcards"
+  - "computer-based flashcards"
+  - "flashcard app"
+  - "Anki"
+  - "Quizlet"
+  - "SuperMemo"
+  - "Memrise"
+  - "retrieval practice"
+  - "testing effect"
+  - "spacing effect"
+  - "distributed practice"
+  - "undergraduate"
+  - "university students"
+  - "exam performance"
+  - "exam scores"
+  - "academic performance"
 
-domain: "AI and Robotics in Domestic Settings"
-scope: "This systematic review will examine the impact of artificial intelligence (AI)-powered robots designed to perform daily household chores. It will focus on populations within general households, including elderly individuals and those with disabilities, and assess outcomes related to human individual health, including physical and cognitive aspects, as well as measures of task efficiency and user satisfaction. The review will consider robots that assist with or automate domestic labor, comparing their effects to scenarios without such automation or with manual chore performance."
+domain: "Educational technology and cognitive psychology — spaced repetition flashcard applications in undergraduate higher education"
+scope: "This systematic review examines the effect of spaced repetition flashcard applications on exam performance in undergraduate students. It covers studies conducted in university settings across disciplines including STEM, health sciences, social sciences, and humanities. The review includes experimental, quasi-experimental, and observational studies that compare spaced repetition flashcard apps against paper flashcards, non-adaptive digital flashcards, alternative study methods, or no-intervention controls. Outcomes of interest include exam scores, retention over varying intervals, learning efficiency, adherence, and self-reported perceptions."
 
 domain_expert:
-  expert_role: "Robotics Engineer specializing in Human-Robot Interaction"
-  domain_summary: "The field of AI-powered household robotics is rapidly evolving, moving beyond simple automation to intelligent task execution and human collaboration within the home environment. Key challenges include robust navigation, object manipulation, and ensuring user acceptance and safety. The impact on human well-being, particularly for vulnerable populations, is a critical area of research."
+  expert_role: "Systematic review expert for Educational technology and cognitive psychology — spaced repetition flashcard applications in undergraduate higher education"
+  domain_summary: "This systematic review examines the effect of spaced repetition flashcard applications on exam performance in undergraduate students. It covers studies conducted in university settings across disciplines including STEM, health sciences, social sciences, and humanities. The review includes experimental, quasi-experimental, and observational studies that compare spaced repetition flashcard apps against paper flashcards, non-adaptive digital flashcards, alternative study methods, or no-intervention controls. Outcomes of interest include exam scores, retention over varying intervals, learning efficiency, adherence, and self-reported perceptions."
   canonical_terms:
-    - "AI household robots"
-    - "domestic service robots"
-    - "human-robot interaction"
-    - "assistive robotics"
-    - "automation of domestic work"
+    - "spaced repetition"
+    - "spaced retrieval"
+    - "expanded retrieval"
+    - "graduated-interval recall"
+    - "spaced rehearsal"
+    - "SRS app"
+    - "digital flashcards"
+    - "electronic flashcards"
   related_terms:
-    - "smart home technology"
-    - "cobots"
-    - "ubiquitous computing"
-    - "personal robots"
-  excluded_terms:
-    - "industrial robots"
-    - "autonomous vehicles"
-    - "drones"
-    - "telepresence robots"
-    - "surgical robots"
-  methodological_focus:
-    - "human-robot interaction studies"
-    - "usability testing"
-    - "longitudinal impact studies"
-    - "field trials"
+    - "mobile flashcards"
+    - "computer-based flashcards"
+    - "flashcard app"
+    - "Anki"
+    - "Quizlet"
+    - "SuperMemo"
+  excluded_terms: []
+  methodological_focus: []
   outcome_focus:
-    - "human health metrics"
-    - "task efficiency"
-    - "user experience"
-    - "adoption and acceptance"
+    - "Exam scores (mean percentage correct, raw grades, pass/fail rates), retention over time (immediate and delayed recall at intervals from days to months), learning efficiency (time spent studying, cards reviewed), adherence metrics (session frequency, completion rates), and self-reported measures (perceived usefulness, satisfaction, usability)"
 
 inclusion_criteria:
-  - "Studies must evaluate artificial intelligence (AI)-powered robots designed for performing domestic household chores."
-  - "The study population must include individuals or households, with specific attention to elderly populations or individuals with disabilities where applicable."
-  - "Outcomes must report on human individual health (physical or cognitive), time savings, physical strain, user satisfaction, or task completion efficiency related to robot use."
-  - "Studies must compare the use of AI-powered household robots against a baseline of manual chore performance or no automation."
-  - "Research must be published in English."
-  - "Included study designs are empirical research, including experimental, quasi-experimental, observational studies, and field trials."
-  - "Publications must be peer-reviewed journal articles or conference proceedings."
+  - "Studies that evaluate a digital flashcard application that uses algorithmic spaced repetition (e.g., Anki, SuperMemo, Memrise, Quizlet Learn mode, Brainscape, RemNote, or similar SRS-based tools)"
+  - "Studies where the participant population consists of undergraduate university students enrolled in a degree-granting program"
+  - "Studies that report at least one quantitative outcome related to exam performance, test scores, or knowledge retention"
+  - "Studies that include a comparison condition such as paper flashcards, non-adaptive digital flashcards, alternative study methods, or no-intervention control"
+  - "Peer-reviewed journal articles, conference papers, or preprints published in English"
+  - "Studies published from 2005 onward (reflecting the emergence of modern SRS flashcard apps)"
+  - "Experimental, quasi-experimental, within-subject, or observational study designs that provide quantitative effect estimates"
 
 exclusion_criteria:
-  - "Studies focusing solely on industrial robots, manufacturing automation, or non-domestic service robots."
-  - "Research on autonomous vehicles, drones, or other aerial robotics not intended for indoor household tasks."
-  - "Studies exclusively examining smart home hubs, voice assistants, or software-based home automation without physical robotic embodiment."
-  - "Research focusing on telepresence robots or robots designed primarily for remote communication."
-  - "Studies on surgical robots or highly specialized medical robotics."
-  - "Publications not available in English."
-  - "Literature reviews, opinion pieces, editorials, and theoretical papers without empirical data."
+  - "Studies focused on adaptive learning platforms (e.g., ALEKS, Knewton, DreamBox) or intelligent tutoring systems that do not primarily use spaced repetition flashcard mechanics"
+  - "Studies evaluating non-adaptive digital flashcards (static digital decks without algorithmic spacing) as the primary intervention"
+  - "Studies where the intervention is a multimodal microlearning platform (e.g., Duolingo, Busuu) not primarily structured as a flashcard app"
+  - "Studies focused on cognitive training games (e.g., Lumosity, Brain Age) targeting working memory or processing speed rather than course content"
+  - "Studies involving only paper flashcards as the intervention (not the comparator)"
+  - "Studies conducted exclusively with graduate students, medical residents, or K-12 populations without an undergraduate student subsample"
+  - "Opinion pieces, editorials, book chapters, or studies that do not report original empirical data"
 
 date_range_start: 2000
 date_range_end: 2026
 
 target_databases:
   - openalex
-  - pubmed
   - semantic_scholar
   - crossref
   - arxiv
@@ -133,10 +125,11 @@ conflicts_of_interest: "The authors declare no conflicts of interest."
 
 # Optional: override auto-generated queries per database. Omit a database to use default.
 search_overrides:
-  pubmed: "((\"Robotics\"[MeSH Terms] OR \"Artificial Intelligence\"[MeSH Terms]) AND \"Household\"[MeSH Terms]) OR (\"household robot\"[Title/Abstract] OR \"domestic robot\"[Title/Abstract] OR \"AI robot\"[Title/Abstract] OR \"service robot\"[Title/Abstract] OR \"assistive robot\"[Title/Abstract] OR \"cobot\"[Title/Abstract]) AND (\"health\"[Title/Abstract] OR \"wellbeing\"[Title/Abstract] OR \"strain\"[Title/Abstract] OR \"satisfaction\"[Title/Abstract] OR \"efficiency\"[Title/Abstract] OR \"time\"[Title/Abstract] OR \"elderly\"[Title/Abstract] OR \"disability\"[Title/Abstract])"
-  scopus: "TITLE-ABS-KEY(\"AI robot\" OR \"artificial intelligence robot\" OR \"household robot\" OR \"domestic robot\" OR \"service robot\" OR \"assistive robot\" OR \"cobot\") AND TITLE-ABS-KEY(\"human health\" OR \"physical health\" OR \"cognitive health\" OR \"physical strain\" OR \"user satisfaction\" OR \"task completion\" OR \"time saving\" OR \"domestic labor\" OR \"elderly\" OR \"disability\") AND PUBYEAR > 2009 AND PUBYEAR < 2027"
-  web_of_science: "(TS=\"AI robot\" OR TS=\"artificial intelligence robot\" OR TS=\"household robot\" OR TS=\"domestic robot\" OR TS=\"service robot\" OR TS=\"assistive robot\" OR TS=\"cobot\") AND (TS=\"human health\" OR TS=\"physical health\" OR TS=\"cognitive health\" OR TS=\"physical strain\" OR TS=\"user satisfaction\" OR TS=\"task completion\" OR TS=\"time saving\" OR TS=\"domestic labor\" OR TS=\"elderly\" OR TS=\"disability\") AND PY=2010-2026"
-  ieee_xplore: "(\"AI robot\" OR \"artificial intelligence robot\" OR \"household robot\" OR \"domestic robot\" OR \"service robot\" OR \"assistive robot\" OR \"cobot\") AND (\"human health\" OR \"physical health\" OR \"cognitive health\" OR \"physical strain\" OR \"user satisfaction\" OR \"task completion\" OR \"time saving\" OR \"domestic labor\" OR \"elderly\" OR \"disability\")"
-  semantic_scholar: "AI household robot human health domestic labor user satisfaction elderly disability"
-  openalex: "AI household robot human health domestic labor user satisfaction elderly disability"
-  core: "AI household robot human health domestic labor user satisfaction elderly disability"
+  scopus: "TITLE-ABS-KEY(\"spaced repetition\" OR \"digital flashcards\" OR \"flashcard app\" OR \"Anki\" OR \"Quizlet\" OR \"SuperMemo\" OR \"retrieval practice\" OR \"SRS\") AND TITLE-ABS-KEY(\"undergraduate\" OR \"university\" OR \"exam performance\" OR \"retention\" OR \"recall\" OR \"academic performance\") AND PUBYEAR > 2004 AND PUBYEAR < 2027"
+  web_of_science: "(TS=\"spaced repetition\" OR TS=\"digital flashcards\" OR TS=\"flashcard\" OR TS=\"Anki\" OR TS=\"Quizlet\" OR TS=\"SuperMemo\" OR TS=\"retrieval practice\" OR TS=\"SRS\") AND (TS=\"undergraduate\" OR TS=\"university\" OR TS=\"student\" OR TS=\"exam\" OR TS=\"retention\" OR TS=\"recall\") AND PY=2005-2026"
+  ieee_xplore: "(\"spaced repetition\" OR \"digital flashcards\" OR \"flashcard app\" OR \"Anki\" OR \"retrieval practice\") AND (\"undergraduate\" OR \"university\" OR \"exam\" OR \"retention\" OR \"student\")"
+  semantic_scholar: "spaced repetition flashcards undergraduate exam performance retention"
+  openalex: "spaced repetition flashcard app undergraduate exam performance retention"
+  dblp: "spaced repetition flashcard retrieval practice spaced education"
+  europepmc: "spaced repetition flashcard undergraduate exam performance retention"
+  core: "spaced repetition digital flashcards undergraduate exam scores retention"
