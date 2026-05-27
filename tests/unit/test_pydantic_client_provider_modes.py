@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from pydantic_ai import NativeOutput
 
 from src.llm import pydantic_client as mod
+from src.llm.pydantic_client import _model_settings
 
 
 @dataclass
@@ -32,6 +33,26 @@ async def test_complete_uses_native_output_for_google(monkeypatch) -> None:
         json_schema={"type": "object"},
     )
     assert isinstance(_FakeAgent.captured_output_type, NativeOutput)
+
+
+def test_model_settings_disables_thinking_for_deepseek_structured() -> None:
+    settings = _model_settings(
+        temperature=0.1,
+        timeout=60.0,
+        model="deepseek:deepseek-v4-flash",
+        structured=True,
+    )
+    assert settings.get("extra_body") == {"thinking": {"type": "disabled"}}
+
+
+def test_model_settings_keeps_thinking_for_deepseek_plain_text() -> None:
+    settings = _model_settings(
+        temperature=0.1,
+        timeout=60.0,
+        model="deepseek:deepseek-v4-flash",
+        structured=False,
+    )
+    assert settings.get("extra_body") is None
 
 
 async def test_complete_uses_structured_dict_for_non_google(monkeypatch) -> None:
