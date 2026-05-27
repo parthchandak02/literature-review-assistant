@@ -4,9 +4,17 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from src.models.enums import ExclusionReason, ReviewerType, ScreeningDecisionType
+
+
+def _coerce_null_string(v: object) -> object:
+    """LLMs (especially via tool-call structured output) sometimes return the literal
+    string ``"null"`` or ``"None"`` instead of a JSON ``null`` for optional enum fields."""
+    if isinstance(v, str) and v.strip().lower() in ("null", "none", ""):
+        return None
+    return v
 
 
 class ScreeningDecision(BaseModel):
@@ -28,6 +36,11 @@ class ScreeningResponsePayload(BaseModel):
     reasoning: str
     exclusion_reason: ExclusionReason | None = None
 
+    @field_validator("exclusion_reason", mode="before")
+    @classmethod
+    def _coerce_null(cls, v: object) -> object:
+        return _coerce_null_string(v)
+
 
 class BatchScreeningItemPayload(BaseModel):
     """Schema-constrained per-paper item in a batch screening response."""
@@ -38,6 +51,11 @@ class BatchScreeningItemPayload(BaseModel):
     short_reason: str | None = None
     reasoning: str = "Batch response omitted reasoning."
     exclusion_reason: ExclusionReason | None = None
+
+    @field_validator("exclusion_reason", mode="before")
+    @classmethod
+    def _coerce_null(cls, v: object) -> object:
+        return _coerce_null_string(v)
 
 
 class BatchScreeningResponsePayload(BaseModel):

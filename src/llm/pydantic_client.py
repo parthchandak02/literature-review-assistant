@@ -7,6 +7,8 @@ used in config/settings.yaml (e.g. "google:", "anthropic:", "openai:").
 Structured output strategy per provider:
 - Gemini (google:, google-cloud:): NativeOutput -- uses responseSchema
   at the API level, equivalent to the previous responseJsonSchema behavior.
+- DeepSeek (deepseek:): StructuredDict with thinking disabled via extra_body,
+  because V4 models default to thinking mode and reject tool_choice=required.
 - All other providers: default ToolOutput -- uses tool calling to enforce schema.
 
 This module is the single replacement for the four raw aiohttp Gemini clients
@@ -53,6 +55,11 @@ _GEMINI_PREFIXES = (
     "google-vertex:",
 )
 
+_DEEPSEEK_PREFIX = "deepseek:"
+# DeepSeek V4 enables thinking by default; tool_choice=required (StructuredDict) fails unless disabled.
+# https://api-docs.deepseek.com/guides/thinking_mode
+_DEEPSEEK_DISABLE_THINKING_EXTRA_BODY: dict[str, object] = {"thinking": {"type": "disabled"}}
+
 # ---------------------------------------------------------------------------
 # Retry configuration
 # ---------------------------------------------------------------------------
@@ -68,6 +75,24 @@ _RETRYABLE_MSGS = {"unavailable", "resource_exhausted", "rate", "overloaded", "g
 
 def _is_gemini(model: str) -> bool:
     return model.startswith(_GEMINI_PREFIXES)
+
+
+def _is_deepseek(model: str) -> bool:
+    return model.startswith(_DEEPSEEK_PREFIX)
+
+
+def _model_settings(
+    *,
+    temperature: float,
+    timeout: float,
+    model: str,
+    structured: bool,
+) -> ModelSettings:
+    """Build per-request ModelSettings, applying provider-specific structured-output fixes."""
+    settings: ModelSettings = ModelSettings(temperature=temperature, timeout=timeout)
+    if structured and _is_deepseek(model):
+        settings["extra_body"] = _DEEPSEEK_DISABLE_THINKING_EXTRA_BODY
+    return settings
 
 
 def _is_retryable(exc: BaseException) -> bool:
@@ -179,7 +204,12 @@ class PydanticAIClient:
         that schema. Callers should use model_validate_json() on the result.
         If no schema is provided, the response is plain text.
         """
-        settings = ModelSettings(temperature=temperature, timeout=self._timeout_seconds)
+        settings = _model_settings(
+            temperature=temperature,
+            timeout=self._timeout_seconds,
+            model=model,
+            structured=json_schema is not None,
+        )
 
         if json_schema is not None:
             if _is_gemini(model):
@@ -231,7 +261,12 @@ class PydanticAIClient:
         are no word-count heuristics.  cache_write and cache_read are 0 when
         the provider does not report them (e.g. OpenAI, Groq).
         """
-        settings = ModelSettings(temperature=temperature, timeout=self._timeout_seconds)
+        settings = _model_settings(
+            temperature=temperature,
+            timeout=self._timeout_seconds,
+            model=model,
+            structured=json_schema is not None,
+        )
 
         if json_schema is not None:
             if _is_gemini(model):
@@ -342,7 +377,12 @@ class PydanticAIClient:
         total_in = total_out = total_cw = total_cr = 0
         current_parts = list(prompt_parts)
         last_exc: Exception | None = None
-        settings = ModelSettings(temperature=temperature, timeout=self._timeout_seconds)
+        settings = _model_settings(
+            temperature=temperature,
+            timeout=self._timeout_seconds,
+            model=model,
+            structured=True,
+        )
 
         for attempt in range(1 + max_validation_retries):
             if _is_gemini(model):
