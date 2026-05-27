@@ -35,7 +35,9 @@ export function setTheme(next: Theme): void {
 }
 
 export function toggleTheme(): void {
-  setTheme(theme === "dark" ? "light" : "dark")
+  // Derive from live DOM first to avoid stale module state during HMR/session drift.
+  const current = readThemeFromDocument() ?? theme
+  setTheme(current === "dark" ? "light" : "dark")
 }
 
 function subscribe(listener: () => void): () => void {

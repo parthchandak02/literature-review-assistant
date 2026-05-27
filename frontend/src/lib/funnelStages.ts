@@ -171,26 +171,26 @@ export function computeFunnelStages(events: ReviewEvent[]): FunnelStage[] {
 
   // Show raw only when it meaningfully differs from deduped (duplicates were removed).
   if (rawSearched > 0 && deduped != null && rawSearched !== deduped) {
-    stages.push({ key: "raw", label: "retrieved", count: rawSearched, colorClass: "text-blue-300" })
+    stages.push({ key: "raw", label: "retrieved", count: rawSearched, colorClass: "text-intent-info" })
   }
 
   if (startCount != null && startCount > 0) {
     const prevCount = rawSearched > 0 && deduped != null && rawSearched !== deduped ? rawSearched : null
-    push("deduped", "deduped", startCount, "text-blue-400", prevCount)
+    push("deduped", "deduped", startCount, "text-intent-info", prevCount)
   }
 
-  push("after_metadata", "filtered", afterMetadata, "text-violet-300", startCount)
+  push("after_metadata", "filtered", afterMetadata, "text-intent-primary", startCount)
   // "ranked" = top-k from keyword/BM25 ranking, fed into the batch LLM pre-ranker.
-  push("to_llm", "ranked", toLlm, "text-violet-400", afterMetadata ?? startCount)
+  push("to_llm", "ranked", toLlm, "text-intent-primary", afterMetadata ?? startCount)
   // "screened" = papers that passed the batch LLM pre-ranker threshold.
-  push("to_dual_review", "screened", toDualReview, "text-violet-500", toLlm ?? afterMetadata ?? startCount)
-  push("fulltext", "eligible", fulltextAssessed, "text-amber-400", toDualReview ?? toLlm ?? afterMetadata ?? startCount)
-  push("included", "included", included, "text-emerald-400", fulltextAssessed ?? toLlm ?? afterMetadata ?? startCount)
+  push("to_dual_review", "screened", toDualReview, "text-intent-active", toLlm ?? afterMetadata ?? startCount)
+  push("fulltext", "eligible", fulltextAssessed, "text-intent-warning", toDualReview ?? toLlm ?? afterMetadata ?? startCount)
+  push("included", "included", included, "text-intent-success", fulltextAssessed ?? toLlm ?? afterMetadata ?? startCount)
 
   // Citation chasing is additive (not a filter), so bypass the prev-count deduplication
   // by pushing directly. Only shown when citation chasing found at least one paper.
   if (chasedIncluded != null && chasedIncluded > 0) {
-    stages.push({ key: "chased", label: "+ chased", count: chasedIncluded, colorClass: "text-teal-400" })
+    stages.push({ key: "chased", label: "+ chased", count: chasedIncluded, colorClass: "text-intent-info" })
   }
 
   return stages

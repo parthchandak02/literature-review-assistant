@@ -77,7 +77,7 @@ export function FetchError({ message, onRetry, className }: FetchErrorProps) {
   return (
     <div
       className={cn(
-        "flex items-start gap-2 text-xs text-red-400 bg-red-500/10 border border-red-500/20 rounded-lg px-3 py-2.5",
+        "flex items-start gap-2 text-xs text-intent-danger bg-intent-danger-subtle border border-intent-danger-border rounded-lg px-3 py-2.5",
         className,
       )}
     >
@@ -88,7 +88,7 @@ export function FetchError({ message, onRetry, className }: FetchErrorProps) {
           size="sm"
           variant="ghost"
           onClick={onRetry}
-          className="h-5 px-2 text-[11px] text-red-400 hover:text-red-300 hover:bg-red-500/10 shrink-0"
+          className="h-5 px-2 text-[11px] text-intent-danger hover:text-intent-danger hover:bg-intent-danger-subtle shrink-0"
         >
           Retry
         </Button>

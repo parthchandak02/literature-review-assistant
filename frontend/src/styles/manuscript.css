@@ -1,0 +1,62 @@
+/* ------------------------------------------------------------------ */
+/* manuscript-viewer: overrides for the academic manuscript prose view */
+/* ------------------------------------------------------------------ */
+
+/* prose-invert is dark-only; light mode uses default prose-zinc (dark text) */
+html[data-theme="dark"] .manuscript-viewer {
+  @apply prose-invert;
+}
+
+.manuscript-viewer .prose hr,
+.manuscript-viewer hr {
+  border-color: var(--color-surface-3);
+  margin-top: 2rem;
+  margin-bottom: 2rem;
+}
+
+.manuscript-viewer :is(h1, h2, h3, h4) a {
+  text-decoration: none;
+  color: inherit;
+}
+.manuscript-viewer :is(h1, h2, h3, h4) a:hover::after {
+  content: " #";
+  color: var(--color-surface-4);
+  font-weight: 400;
+  font-size: 0.85em;
+}
+
+.manuscript-viewer p > strong:first-child {
+  color: var(--color-text-dim);
+}
+
+.manuscript-viewer table {
+  border-collapse: collapse;
+  width: 100%;
+}
+.manuscript-viewer th,
+.manuscript-viewer td {
+  border: 1px solid var(--color-surface-3);
+  padding: 0.4rem 0.75rem;
+}
+.manuscript-viewer th {
+  background-color: var(--color-surface-2);
+  font-weight: 600;
+}
+.manuscript-viewer tr:nth-child(even) td {
+  background-color: var(--color-surface-1);
+}
+
+.manuscript-viewer code:not(pre code) {
+  color: var(--color-accent-soft);
+  background-color: var(--color-accent-muted);
+  padding: 0.1em 0.3em;
+  border-radius: 0.25em;
+  font-size: 0.875em;
+}
+
+@media print {
+  .manuscript-viewer {
+    max-height: none !important;
+    overflow: visible !important;
+  }
+}

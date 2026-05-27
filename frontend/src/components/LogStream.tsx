@@ -99,11 +99,11 @@ function buildRenderItems(events: ReviewEvent[]): RenderItem[] {
 
 function levelClass(level: LogLevel): string {
   switch (level) {
-    case "error":             return "text-red-400"
-    case "warn":              return "text-amber-400"
+    case "error":             return "text-intent-danger"
+    case "warn":              return "text-intent-warning"
     case "info":              return "text-zinc-200"
     case "dim":               return "text-zinc-500"
-    case "status":            return "text-amber-500/70 italic"
+    case "status":            return "text-intent-warning/70 italic"
     // include/exclude/exclude-heuristic handled separately as bordered cards
     default:                  return "text-zinc-500"
   }
@@ -116,16 +116,16 @@ function screeningCardClass(level: LogLevel): {
 } {
   if (level === "include") {
     return {
-      borderClass: "border-emerald-500 bg-emerald-500/5",
-      badgeClass: "text-emerald-400",
-      textClass: "text-emerald-300",
+      borderClass: "border-intent-success bg-intent-success-subtle",
+      badgeClass: "text-intent-success",
+      textClass: "text-intent-success",
     }
   }
   if (level === "exclude-heuristic") {
     return {
-      borderClass: "border-amber-700/60 bg-amber-600/5",
-      badgeClass: "text-amber-500",
-      textClass: "text-amber-300/90",
+      borderClass: "border-intent-warning-border bg-intent-warning-subtle",
+      badgeClass: "text-intent-warning",
+      textClass: "text-intent-warning",
     }
   }
   return {
@@ -325,7 +325,7 @@ export const LogStream = forwardRef<LogStreamHandle, LogStreamProps>(function Lo
               >
                 <div className="flex items-center gap-2">
                   <div className="h-px flex-1 bg-zinc-800" />
-                  <span className="text-[10px] font-semibold tracking-widest uppercase text-violet-500/80 shrink-0 px-1">
+                  <span className="text-[10px] font-semibold tracking-widest uppercase text-intent-primary/80 shrink-0 px-1">
                     {item.label}
                   </span>
                   <div className="h-px flex-1 bg-zinc-800" />
@@ -400,7 +400,7 @@ export const LogStream = forwardRef<LogStreamHandle, LogStreamProps>(function Lo
                 </span>
               </div>
               {errorEv?.traceback && (
-                <pre className="text-[10px] text-zinc-500 whitespace-pre-wrap break-all font-mono pl-4 border-l-2 border-red-500/30 mt-1">
+                <pre className="text-[10px] text-zinc-500 whitespace-pre-wrap break-all font-mono pl-4 border-l-2 border-intent-danger-border mt-1">
                   {errorEv.traceback}
                 </pre>
               )}

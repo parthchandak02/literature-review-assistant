@@ -1,0 +1,90 @@
+@theme {
+  --font-sans: "Inter", system-ui, -apple-system, sans-serif;
+
+  --animate-note-flash: note-flash 0.7s ease-out forwards;
+
+  @keyframes note-flash {
+    0%   { background-color: rgba(245, 158, 11, 0.30); border-radius: 0.25rem; }
+    100% { background-color: transparent; }
+  }
+
+  --color-background: #09090b;
+  --color-card: #18181b;
+  --color-border: #27272a;
+  --color-muted: #71717a;
+  --color-accent: #8b5cf6;
+
+  /* Semantic surface scale */
+  --color-surface-0: #09090b;
+  --color-surface-1: #18181b;
+  --color-surface-2: #27272a;
+  --color-surface-3: #3f3f46;
+  --color-surface-4: #52525b;
+
+  /* Semantic text scale */
+  --color-text-dim: #a1a1aa;
+
+  /* Accent shades */
+  --color-accent-soft: #c4b5fd;
+  --color-accent-muted: #1e1a2e;
+
+  /* ------------------------------------------------------------------ */
+  /* Semantic intent tokens                                              */
+  /* Each intent has: base, fg, subtle (badge bg), border                */
+  /* ------------------------------------------------------------------ */
+  --color-intent-primary: #8b5cf6;
+  --color-intent-primary-fg: #f5f3ff;
+  --color-intent-primary-subtle: rgba(139, 92, 246, 0.10);
+  --color-intent-primary-border: rgba(139, 92, 246, 0.20);
+
+  --color-intent-success: #34d399;
+  --color-intent-success-fg: #f0fdf4;
+  --color-intent-success-subtle: rgba(52, 211, 153, 0.10);
+  --color-intent-success-border: rgba(52, 211, 153, 0.20);
+
+  --color-intent-warning: #fbbf24;
+  --color-intent-warning-fg: #fffbeb;
+  --color-intent-warning-subtle: rgba(251, 191, 36, 0.10);
+  --color-intent-warning-border: rgba(251, 191, 36, 0.20);
+
+  --color-intent-danger: #f87171;
+  --color-intent-danger-fg: #fef2f2;
+  --color-intent-danger-subtle: rgba(248, 113, 113, 0.10);
+  --color-intent-danger-border: rgba(248, 113, 113, 0.20);
+
+  --color-intent-info: #60a5fa;
+  --color-intent-info-fg: #eff6ff;
+  --color-intent-info-subtle: rgba(96, 165, 250, 0.10);
+  --color-intent-info-border: rgba(96, 165, 250, 0.20);
+
+  --color-intent-active: #a78bfa;
+  --color-intent-active-fg: #f5f3ff;
+  --color-intent-active-subtle: rgba(167, 139, 250, 0.10);
+  --color-intent-active-border: rgba(167, 139, 250, 0.20);
+
+  --color-intent-neutral: #a1a1aa;
+  --color-intent-neutral-fg: #fafafa;
+  --color-intent-neutral-subtle: rgba(161, 161, 170, 0.08);
+  --color-intent-neutral-border: rgba(161, 161, 170, 0.15);
+
+  /* ------------------------------------------------------------------ */
+  /* Glass semantic tokens                                               */
+  /* ------------------------------------------------------------------ */
+  --glass-surface-1: rgba(24, 24, 27, 0.42);
+  --glass-surface-2: rgba(39, 39, 42, 0.38);
+  --glass-surface-3: rgba(63, 63, 70, 0.32);
+  --glass-surface-4: rgba(82, 82, 91, 0.28);
+  --glass-border-1: rgba(255, 255, 255, 0.12);
+  --glass-border-2: rgba(255, 255, 255, 0.18);
+  --glass-border-3: rgba(139, 92, 246, 0.36);
+  --glass-shadow-1: 0 1px 0 rgba(255, 255, 255, 0.02) inset;
+  --glass-shadow-2: 0 10px 24px rgba(0, 0, 0, 0.34);
+  --glass-shadow-3: 0 0 0 1px rgba(139, 92, 246, 0.18), 0 14px 32px rgba(0, 0, 0, 0.42);
+  --glass-blur-sm: 8px;
+  --glass-blur-md: 12px;
+  --glass-blur-lg: 18px;
+  --glass-noise-opacity: 0.02;
+  --ambient-violet-alpha: 0.12;
+  --ambient-orange-alpha: 0.10;
+  --ambient-orange-alpha-soft: 0.04;
+}

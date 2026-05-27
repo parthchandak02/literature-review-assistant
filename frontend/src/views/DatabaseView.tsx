@@ -36,9 +36,9 @@ const SUGGEST_DEBOUNCE_MS = 200
 const FILTER_DEBOUNCE_MS = 350
 
 const DECISION_COLOR: Record<string, string> = {
-  include: "text-emerald-400",
-  exclude: "text-red-400",
-  uncertain: "text-amber-400",
+  include: "text-intent-success",
+  exclude: "text-intent-danger",
+  uncertain: "text-intent-warning",
 }
 
 interface DatabaseViewProps {
@@ -336,7 +336,7 @@ export function DatabaseView({ runId, isDone, dbAvailable, isLive }: DatabaseVie
         {activeFilters > 0 && (
           <button
             onClick={clearAllFilters}
-            className="text-xs text-violet-400 hover:text-violet-300 transition-colors whitespace-nowrap"
+            className="text-xs text-intent-primary hover:text-intent-primary transition-colors whitespace-nowrap"
           >
             Clear {activeFilters} filter{activeFilters > 1 ? "s" : ""}
           </button>
@@ -348,16 +348,16 @@ export function DatabaseView({ runId, isDone, dbAvailable, isLive }: DatabaseVie
             </span>
           )}
           {isLive && (
-            <div className="flex items-center gap-1.5 text-xs text-violet-400">
+            <div className="flex items-center gap-1.5 text-xs text-intent-active">
               <span className="relative flex h-2 w-2">
-                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-violet-400 opacity-75" />
-                <span className="relative inline-flex rounded-full h-2 w-2 bg-violet-500" />
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-intent-active opacity-75" />
+                <span className="relative inline-flex rounded-full h-2 w-2 bg-intent-active" />
               </span>
               Live
             </div>
           )}
           {isDone && (
-            <span className="text-xs text-emerald-400 font-medium">Complete</span>
+            <span className="text-xs text-intent-success font-medium">Complete</span>
           )}
         </div>
       </div>
@@ -500,7 +500,7 @@ export function DatabaseView({ runId, isDone, dbAvailable, isLive }: DatabaseVie
                             rel="noopener noreferrer"
                             className="group flex items-start gap-1"
                           >
-                            <span className="line-clamp-2 text-zinc-200 group-hover:text-white group-hover:underline underline-offset-2">
+                            <span className="line-clamp-2 text-zinc-200 group-hover:text-zinc-100 group-hover:underline underline-offset-2">
                               {p.title}
                             </span>
                             <ExternalLink className="h-3 w-3 shrink-0 mt-0.5 text-zinc-600 group-hover:text-zinc-400 transition-colors" />
@@ -667,7 +667,7 @@ function FilterComboboxPopover({
         <button
           className={cn(
             "flex items-center justify-center h-4 w-4 rounded transition-colors",
-            isActive ? "text-violet-400 hover:text-violet-300" : "text-zinc-600 hover:text-zinc-400",
+            isActive ? "text-intent-primary hover:text-intent-primary" : "text-zinc-600 hover:text-zinc-400",
           )}
           aria-label="Filter column"
         >
@@ -735,7 +735,7 @@ function FilterComboboxPopover({
                       onSelect={() => applyValue(s)}
                       className={cn(
                         "text-xs text-zinc-200 cursor-pointer rounded-md px-2 py-1.5",
-                        "data-[selected=true]:bg-violet-900/40 data-[selected=true]:text-violet-100",
+                        "data-[selected=true]:bg-intent-primary-subtle data-[selected=true]:text-intent-primary",
                       )}
                     >
                       <span className="truncate">{s}</span>
@@ -760,11 +760,11 @@ function PrimaryStatusCell({ value }: { value: string | null }) {
   const normalized = (value ?? "unknown").toLowerCase()
   const color =
     normalized === "primary"
-      ? "bg-emerald-900/40 text-emerald-400 border-emerald-800"
+      ? "bg-intent-success-subtle text-intent-success border-intent-success-border"
       : normalized === "secondary_review"
-        ? "bg-red-900/40 text-red-400 border-red-800"
+        ? "bg-intent-danger-subtle text-intent-danger border-intent-danger-border"
         : normalized === "protocol_only"
-          ? "bg-amber-900/40 text-amber-400 border-amber-800"
+          ? "bg-intent-warning-subtle text-intent-warning border-intent-warning-border"
           : normalized === "non_empirical"
             ? "bg-zinc-800 text-zinc-300 border-zinc-700"
             : "bg-zinc-900/60 text-zinc-500 border-zinc-800"
@@ -797,10 +797,10 @@ function ExtractionConfidenceCell({ value }: { value: number | null }) {
   const pct = Math.round(value * 100)
   const color =
     pct >= 80
-      ? "bg-emerald-900/40 text-emerald-400 border-emerald-800"
+      ? "bg-intent-success-subtle text-intent-success border-intent-success-border"
       : pct >= 60
-        ? "bg-amber-900/40 text-amber-400 border-amber-800"
-        : "bg-red-900/40 text-red-400 border-red-800"
+        ? "bg-intent-warning-subtle text-intent-warning border-intent-warning-border"
+        : "bg-intent-danger-subtle text-intent-danger border-intent-danger-border"
   return (
     <Td>
       <span
@@ -822,7 +822,7 @@ function AssessmentSourceCell({ value }: { value: string | null }) {
   if (value === "heuristic") {
     return (
       <Td>
-        <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium bg-amber-900/40 text-amber-400 border border-amber-800">
+        <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium bg-intent-warning-subtle text-intent-warning border border-intent-warning-border">
           <AlertTriangle className="h-2.5 w-2.5" />
           heuristic
         </span>

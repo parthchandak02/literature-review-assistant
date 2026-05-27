@@ -19,11 +19,11 @@ export function ThemeToggle({ className }: ThemeToggleProps) {
         toggleTheme()
       }}
       className={cn(
-        "relative z-20 flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border transition-colors duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-500/50 focus-visible:ring-offset-1",
+        "relative z-20 flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border transition-colors duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-intent-primary focus-visible:ring-offset-1",
         isLight
-          ? "border-zinc-300/90 bg-zinc-200/80 text-amber-500 hover:bg-zinc-100"
+          ? "border-zinc-300/90 bg-zinc-200/80 text-intent-warning hover:bg-zinc-100"
           : "border-zinc-600/80 bg-zinc-800/90",
-        !isLight && "text-violet-200 hover:bg-zinc-700/90",
+        !isLight && "text-intent-active hover:bg-zinc-700/90",
         className,
       )}
     >

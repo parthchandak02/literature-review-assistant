@@ -68,7 +68,7 @@ export function YamlEditor({
           onChange={(e) => onChange(e.target.value)}
           rows={rows}
           placeholder={placeholder}
-          className="resize-none text-xs font-mono bg-zinc-950 border-zinc-800 text-zinc-300 placeholder:text-zinc-600 focus-visible:ring-violet-500/50 leading-relaxed"
+          className="resize-none text-xs font-mono bg-zinc-950 border-zinc-800 text-zinc-300 placeholder:text-zinc-600 focus-visible:ring-intent-primary leading-relaxed"
           spellCheck={false}
         />
       </div>

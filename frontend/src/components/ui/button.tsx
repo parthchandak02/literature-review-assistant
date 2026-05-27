@@ -9,15 +9,17 @@ const buttonVariants = cva(
   {
     variants: {
       variant: {
-        default: "bg-violet-600 text-white hover:bg-violet-500",
+        default: "bg-intent-primary text-intent-primary-fg hover:bg-intent-primary/85",
         destructive:
-          "bg-destructive text-destructive-foreground hover:bg-destructive/90",
+          "bg-intent-danger text-intent-danger-fg hover:bg-intent-danger/85",
+        success:
+          "bg-intent-success text-intent-success-fg hover:bg-intent-success/85",
         outline:
           "glass-panel border-zinc-700/80 text-zinc-200 hover:text-zinc-100",
         secondary:
           "glass-panel text-zinc-200 hover:text-zinc-100",
         ghost: "text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800/45",
-        link: "text-primary underline-offset-4 hover:underline",
+        link: "text-intent-primary underline-offset-4 hover:underline",
       },
       size: {
         default: "h-10 px-4 py-2",

@@ -171,7 +171,7 @@ function GraphCanvas({ graph, width, height, gapPaperIds, selectedId, onSelect, 
   if (!positions.size) {
     return (
       <div className="flex items-center justify-center h-full">
-        <Spinner size="md" className="text-violet-500" />
+        <Spinner size="md" className="text-intent-primary" />
       </div>
     )
   }
@@ -348,13 +348,13 @@ function DetailSidebar({ node, graph, gapPaperIds, onClose }: DetailSidebarProps
       </div>
 
       {community && (
-        <p className="text-violet-400 text-xs">
+        <p className="text-intent-primary text-xs">
           Cluster {node.community_id}: {community.label}
         </p>
       )}
 
       {isGap && (
-        <p className="text-amber-400 text-xs font-medium">
+        <p className="text-intent-warning text-xs font-medium">
           Related to a detected research gap
         </p>
       )}
@@ -444,7 +444,7 @@ export function EvidenceNetworkViz({ runId }: EvidenceNetworkVizProps) {
   if (loading) {
     return (
       <div className="flex items-center justify-center h-48">
-        <Spinner size="md" className="text-violet-500" />
+        <Spinner size="md" className="text-intent-primary" />
       </div>
     )
   }
@@ -489,7 +489,7 @@ export function EvidenceNetworkViz({ runId }: EvidenceNetworkVizProps) {
         {graph.gaps.length > 0 && (
           <>
             <span className="text-zinc-700">|</span>
-            <span className="text-amber-400 font-semibold">{graph.gaps.length} research gaps</span>
+            <span className="text-intent-warning font-semibold">{graph.gaps.length} research gaps</span>
           </>
         )}
         <div className="ml-auto">
@@ -518,8 +518,8 @@ export function EvidenceNetworkViz({ runId }: EvidenceNetworkVizProps) {
             </span>
           ))}
           {gapPaperIds.size > 0 && (
-            <span className="flex items-center gap-1 text-amber-500">
-              <span className="inline-block w-3 h-3 rounded-full border border-amber-500 border-dashed" />
+            <span className="flex items-center gap-1 text-intent-warning">
+              <span className="inline-block w-3 h-3 rounded-full border border-intent-warning border-dashed" />
               research gap
             </span>
           )}
@@ -569,9 +569,9 @@ export function EvidenceNetworkViz({ runId }: EvidenceNetworkVizProps) {
           {graph.gaps.map((gap) => (
             <div
               key={gap.id}
-              className="p-3 rounded-lg border border-amber-900/50 bg-amber-900/10 text-sm"
+              className="p-3 rounded-lg border border-intent-warning-border bg-intent-warning-subtle text-sm"
             >
-              <span className="inline-block px-1.5 py-0.5 rounded text-xs font-medium bg-amber-900/50 text-amber-300 border border-amber-800 mb-1.5">
+              <span className="inline-block px-1.5 py-0.5 rounded text-xs font-medium bg-intent-warning-subtle text-intent-warning border border-intent-warning-border mb-1.5">
                 {GAP_TYPE_LABELS[gap.gap_type] || gap.gap_type}
               </span>
               <p className="text-zinc-300 text-xs leading-relaxed">{gap.description}</p>

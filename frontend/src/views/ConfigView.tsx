@@ -236,9 +236,9 @@ export function ConfigView({
             </div>
             <div className="px-4 py-4 space-y-3">
               {isDraft && draftConfig?.generationError && (
-                <div className="rounded-md border border-amber-500/30 bg-amber-500/10 p-3 text-xs text-amber-100">
+                <div className="rounded-md border border-intent-warning-border bg-intent-warning-subtle p-3 text-xs text-intent-warning">
                   <div className="flex items-start gap-2">
-                    <AlertTriangle className="h-4 w-4 mt-0.5 shrink-0 text-amber-300" />
+                    <AlertTriangle className="h-4 w-4 mt-0.5 shrink-0 text-intent-warning" />
                     <div className="space-y-2">
                       <p>Config generation failed: {draftConfig.generationError}</p>
                       {onRetryDraftGeneration && (
@@ -317,9 +317,9 @@ function getGenerationStepStatus(stepKey: string, mode: GenerationMode): StepSta
 function getStatusStyle(status: StepStatus): { row: string; dot: string; text: string } {
   if (status === "active") {
     return {
-      row: "bg-violet-500/15 border-violet-400/40",
-      dot: "bg-violet-300 border-violet-200/60",
-      text: "text-violet-100",
+      row: "bg-intent-active-subtle border-intent-active-border",
+      dot: "bg-intent-active border-intent-active-border",
+      text: "text-intent-active",
     }
   }
   if (status === "pending") {
@@ -331,22 +331,22 @@ function getStatusStyle(status: StepStatus): { row: string; dot: string; text: s
   }
   if (status === "degraded") {
     return {
-      row: "bg-amber-500/10 border-amber-500/30",
-      dot: "bg-amber-300 border-amber-200/70",
-      text: "text-amber-200",
+      row: "bg-intent-warning-subtle border-intent-warning-border",
+      dot: "bg-intent-warning border-intent-warning-border",
+      text: "text-intent-warning",
     }
   }
   if (status === "skipped") {
     return {
-      row: "bg-sky-500/8 border-sky-500/20",
-      dot: "bg-sky-300/80 border-sky-200/50",
-      text: "text-sky-200/85",
+      row: "bg-intent-info-subtle border-intent-info-border",
+      dot: "bg-intent-info border-intent-info-border",
+      text: "text-intent-info",
     }
   }
   return {
-    row: "bg-emerald-500/8 border-emerald-500/20",
-    dot: "bg-emerald-400 border-emerald-300/60",
-    text: "text-emerald-200/90",
+      row: "bg-intent-success-subtle border-intent-success-border",
+      dot: "bg-intent-success border-intent-success-border",
+      text: "text-intent-success",
   }
 }
 

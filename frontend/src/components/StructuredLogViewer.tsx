@@ -138,18 +138,18 @@ function StructuredLogViewerBody({ runId, workflowId, searchQuery }: StructuredL
       <div className="px-4 py-2 border-b border-zinc-800/70 flex items-center justify-between text-[11px]">
         <span className="text-zinc-500 tabular-nums">{filtered.length} lines</span>
         {status === "connecting" ? (
-          <span className="flex items-center gap-1.5 text-violet-400">
+          <span className="flex items-center gap-1.5 text-intent-primary">
             <Loader2 className="h-3 w-3 animate-spin" />
             Connecting...
           </span>
         ) : status === "streaming" ? (
-          <span className="text-emerald-400">Streaming app.jsonl</span>
+          <span className="text-intent-success">Streaming app.jsonl</span>
         ) : (
-          <span className="text-red-400">Disconnected</span>
+          <span className="text-intent-danger">Disconnected</span>
         )}
       </div>
       <div ref={containerRef} className="flex-1 overflow-y-auto font-mono text-[11px] p-4 leading-5 space-y-1">
-        {error && <div className="text-red-400">{error}</div>}
+        {error && <div className="text-intent-danger">{error}</div>}
         {!error && filtered.length === 0 && (
           <div className="text-zinc-500">No structured log lines yet for this filter.</div>
         )}

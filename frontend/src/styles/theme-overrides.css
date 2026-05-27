@@ -1,0 +1,189 @@
+/* Dark mode: explicit token block so switching back from light restores the full palette */
+html[data-theme="dark"] {
+  color-scheme: dark;
+  --color-zinc-50: #fafafa;
+  --color-zinc-100: #f4f4f5;
+  --color-zinc-200: #e4e4e7;
+  --color-zinc-300: #d4d4d8;
+  --color-zinc-400: #a1a1aa;
+  --color-zinc-500: #71717a;
+  --color-zinc-600: #52525b;
+  --color-zinc-700: #3f3f46;
+  --color-zinc-800: #27272a;
+  --color-zinc-900: #18181b;
+  --color-zinc-950: #09090b;
+
+  --color-background: #09090b;
+  --color-card: #18181b;
+  --color-border: #27272a;
+  --color-muted: #71717a;
+  --color-accent: #8b5cf6;
+
+  --color-surface-0: #09090b;
+  --color-surface-1: #18181b;
+  --color-surface-2: #27272a;
+  --color-surface-3: #3f3f46;
+  --color-surface-4: #52525b;
+
+  --color-text-dim: #a1a1aa;
+  --color-accent-soft: #c4b5fd;
+  --color-accent-muted: #1e1a2e;
+
+  --color-intent-primary: #8b5cf6;
+  --color-intent-primary-fg: #f5f3ff;
+  --color-intent-primary-subtle: rgba(139, 92, 246, 0.10);
+  --color-intent-primary-border: rgba(139, 92, 246, 0.20);
+
+  --color-intent-success: #34d399;
+  --color-intent-success-fg: #f0fdf4;
+  --color-intent-success-subtle: rgba(52, 211, 153, 0.10);
+  --color-intent-success-border: rgba(52, 211, 153, 0.20);
+
+  --color-intent-warning: #fbbf24;
+  --color-intent-warning-fg: #fffbeb;
+  --color-intent-warning-subtle: rgba(251, 191, 36, 0.10);
+  --color-intent-warning-border: rgba(251, 191, 36, 0.20);
+
+  --color-intent-danger: #f87171;
+  --color-intent-danger-fg: #fef2f2;
+  --color-intent-danger-subtle: rgba(248, 113, 113, 0.10);
+  --color-intent-danger-border: rgba(248, 113, 113, 0.20);
+
+  --color-intent-info: #60a5fa;
+  --color-intent-info-fg: #eff6ff;
+  --color-intent-info-subtle: rgba(96, 165, 250, 0.10);
+  --color-intent-info-border: rgba(96, 165, 250, 0.20);
+
+  --color-intent-active: #a78bfa;
+  --color-intent-active-fg: #f5f3ff;
+  --color-intent-active-subtle: rgba(167, 139, 250, 0.10);
+  --color-intent-active-border: rgba(167, 139, 250, 0.20);
+
+  --color-intent-neutral: #a1a1aa;
+  --color-intent-neutral-fg: #fafafa;
+  --color-intent-neutral-subtle: rgba(161, 161, 170, 0.08);
+  --color-intent-neutral-border: rgba(161, 161, 170, 0.15);
+
+  --glass-surface-1: rgba(24, 24, 27, 0.42);
+  --glass-surface-2: rgba(39, 39, 42, 0.38);
+  --glass-surface-3: rgba(63, 63, 70, 0.32);
+  --glass-surface-4: rgba(82, 82, 91, 0.28);
+  --glass-border-1: rgba(255, 255, 255, 0.12);
+  --glass-border-2: rgba(255, 255, 255, 0.18);
+  --glass-border-3: rgba(139, 92, 246, 0.36);
+  --glass-shadow-1: 0 1px 0 rgba(255, 255, 255, 0.02) inset;
+  --glass-shadow-2: 0 10px 24px rgba(0, 0, 0, 0.34);
+  --glass-shadow-3: 0 0 0 1px rgba(139, 92, 246, 0.18), 0 14px 32px rgba(0, 0, 0, 0.42);
+  --ambient-violet-alpha: 0.12;
+  --ambient-orange-alpha: 0.10;
+  --ambient-orange-alpha-soft: 0.04;
+}
+
+/* Cursor Light-inspired palette: remap zinc utilities so existing class names stay semantic */
+html[data-theme="light"] {
+  color-scheme: light;
+  --color-zinc-50: #fafaf9;
+  --color-zinc-100: #141414;
+  --color-zinc-200: #252525;
+  --color-zinc-300: #44403c;
+  --color-zinc-400: #57534e;
+  --color-zinc-500: #78716c;
+  --color-zinc-600: #a8a29e;
+  --color-zinc-700: #d6d3d1;
+  --color-zinc-800: #e7e5e4;
+  --color-zinc-900: #f5f3f0;
+  --color-zinc-950: #fcfcfc;
+
+  /* Ochre / brown-gold — readable on light surfaces (cost, warnings) */
+  --color-amber-50: #faf6ef;
+  --color-amber-100: #f0e6d0;
+  --color-amber-200: #dfc89a;
+  --color-amber-300: #b8894a;
+  --color-amber-400: #9a6b1a;
+  --color-amber-500: #855f12;
+  --color-amber-600: #704f0f;
+  --color-amber-700: #5c410c;
+  --color-amber-800: #48330a;
+  --color-amber-900: #3a2908;
+  --color-amber-950: #261a05;
+
+  /* Violet/Sky/Emerald text shades remapped for readable light-mode accents */
+  --color-violet-200: #5b4aa1;
+  --color-violet-300: #6a53b5;
+  --color-violet-400: #7b5fc7;
+  --color-sky-200: #1f5f95;
+  --color-sky-300: #2a74af;
+  --color-emerald-200: #156043;
+  --color-emerald-300: #1b7350;
+
+  --color-background: #fcfcfc;
+  --color-card: #f5f3f0;
+  --color-border: #e7e5e4;
+  --color-muted: #78716c;
+  --color-accent: #7c5cbf;
+
+  --color-surface-0: #fcfcfc;
+  --color-surface-1: #f5f3f0;
+  --color-surface-2: #ebe8e3;
+  --color-surface-3: #d9d5cf;
+  --color-surface-4: #a8a29e;
+
+  --color-text-dim: #57534e;
+
+  --color-accent-soft: #6049b3;
+  --color-accent-muted: #ede9fe;
+
+  --color-intent-primary: #7c3aed;
+  --color-intent-primary-fg: #ffffff;
+  --color-intent-primary-subtle: #ede9fe;
+  --color-intent-primary-border: rgba(124, 58, 237, 0.20);
+
+  --color-intent-success: #059669;
+  --color-intent-success-fg: #ffffff;
+  --color-intent-success-subtle: #d1fae5;
+  --color-intent-success-border: rgba(5, 150, 105, 0.20);
+
+  --color-intent-warning: #d97706;
+  --color-intent-warning-fg: #ffffff;
+  --color-intent-warning-subtle: #fef3c7;
+  --color-intent-warning-border: rgba(217, 119, 6, 0.20);
+
+  --color-intent-danger: #dc2626;
+  --color-intent-danger-fg: #ffffff;
+  --color-intent-danger-subtle: #fee2e2;
+  --color-intent-danger-border: rgba(220, 38, 38, 0.20);
+
+  --color-intent-info: #2563eb;
+  --color-intent-info-fg: #ffffff;
+  --color-intent-info-subtle: #dbeafe;
+  --color-intent-info-border: rgba(37, 99, 235, 0.20);
+
+  --color-intent-active: #7c3aed;
+  --color-intent-active-fg: #ffffff;
+  --color-intent-active-subtle: #ede9fe;
+  --color-intent-active-border: rgba(124, 58, 237, 0.20);
+
+  --color-intent-neutral: #57534e;
+  --color-intent-neutral-fg: #fafaf9;
+  --color-intent-neutral-subtle: #f5f5f4;
+  --color-intent-neutral-border: rgba(87, 83, 78, 0.15);
+
+  --glass-surface-1: rgba(255, 255, 255, 0.72);
+  --glass-surface-2: rgba(245, 243, 240, 0.88);
+  --glass-surface-3: rgba(235, 232, 227, 0.92);
+  --glass-surface-4: rgba(217, 213, 207, 0.85);
+  --glass-border-1: rgba(20, 20, 20, 0.08);
+  --glass-border-2: rgba(20, 20, 20, 0.12);
+  --glass-border-3: rgba(124, 92, 191, 0.28);
+  --glass-shadow-1: 0 1px 0 rgba(255, 255, 255, 0.85) inset;
+  --glass-shadow-2: 0 8px 20px rgba(20, 20, 20, 0.06);
+  --glass-shadow-3: 0 0 0 1px rgba(124, 92, 191, 0.14), 0 12px 28px rgba(20, 20, 20, 0.08);
+  --ambient-violet-alpha: 0.08;
+  --ambient-orange-alpha: 0.07;
+  --ambient-orange-alpha-soft: 0.03;
+
+  --sidebar-card-bg: rgba(255, 255, 255, 0.52);
+  --sidebar-card-border: rgba(20, 20, 20, 0.09);
+  --sidebar-card-hover-bg: rgba(255, 255, 255, 0.78);
+  --sidebar-card-selected-bg: color-mix(in srgb, #ffffff 88%, rgb(124 58 237 / 6%) 12%);
+}

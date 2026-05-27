@@ -48,7 +48,7 @@ function SourceBadge({ source }: { source: string }) {
         "glass-chip inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-mono",
         isAbstract
           ? "text-zinc-400"
-          : "text-emerald-300 border-emerald-700/70",
+          : "text-intent-success border-intent-success-border",
       )}
     >
       {label}
@@ -142,7 +142,7 @@ export function ReferencesView({
 
   if (error) {
     return (
-      <div className="flex flex-col items-center justify-center h-48 text-red-400 gap-2">
+      <div className="flex flex-col items-center justify-center h-48 text-intent-danger gap-2">
         <FileX className="h-8 w-8 opacity-50" />
         <p className="text-sm">{error}</p>
       </div>
@@ -173,7 +173,7 @@ export function ReferencesView({
           <p className="text-xs text-zinc-500 mt-0.5">
             {papers.length} {papers.length === 1 ? "paper" : "papers"} included in this review
             {abstractOnlyCount > 0 && (
-              <span className="text-amber-500/80 ml-1">
+              <span className="text-intent-warning ml-1">
                 -- {abstractOnlyCount} without full text (abstract-only extraction)
               </span>
             )}
@@ -182,7 +182,7 @@ export function ReferencesView({
         <div className="flex flex-col items-end gap-2">
           <div className="flex items-center gap-2 text-xs text-zinc-500">
             <span className="inline-flex items-center gap-1">
-              <span className="w-2 h-2 rounded-full bg-emerald-500/60" />
+              <span className="w-2 h-2 rounded-full bg-intent-success" />
               Full text available
             </span>
             <span className="inline-flex items-center gap-1">
@@ -218,14 +218,14 @@ export function ReferencesView({
             <div className="flex flex-col items-end gap-1 w-56">
               <div className="w-full h-1 bg-zinc-800 rounded-full overflow-hidden">
                 <div
-                  className="h-full bg-emerald-600 transition-all duration-300"
+                  className="h-full bg-intent-success transition-all duration-300"
                   style={{ width: `${Math.round((fetchProgress.current / fetchProgress.total) * 100)}%` }}
                 />
               </div>
               <p className="text-[11px] text-zinc-500 text-right">
                 {fetchProgress.current} / {fetchProgress.total} papers
                 {fetchProgress.succeeded > 0 && (
-                  <span className="text-emerald-500 ml-1">-- {fetchProgress.succeeded} retrieved</span>
+                  <span className="text-intent-success ml-1">-- {fetchProgress.succeeded} retrieved</span>
                 )}
               </p>
               <p className="text-[11px] text-zinc-600 text-right truncate max-w-[14rem]" title={fetchProgress.currentTitle}>
@@ -245,7 +245,7 @@ export function ReferencesView({
             </p>
           )}
           {fetchError && !fetching && (
-            <p className="text-[11px] text-red-400">{fetchError}</p>
+            <p className="text-[11px] text-intent-danger">{fetchError}</p>
           )}
         </div>
       </div>
@@ -322,13 +322,13 @@ function PaperCard({ paper, index, runId }: PaperCardProps) {
               </span>
             )}
             {paper.file_type === "pdf" && (
-              <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[10px] font-mono bg-blue-900/40 text-blue-400">
+              <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[10px] font-mono bg-intent-info-subtle text-intent-info">
                 <FileText className="h-2.5 w-2.5" />
                 PDF
               </span>
             )}
             {paper.file_type === "txt" && (
-              <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[10px] font-mono bg-violet-900/40 text-violet-400">
+              <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[10px] font-mono bg-intent-primary-subtle text-intent-primary">
                 <FileText className="h-2.5 w-2.5" />
                 TXT
               </span>
@@ -364,7 +364,7 @@ function PaperCard({ paper, index, runId }: PaperCardProps) {
             <a
               href={paperFileUrl(runId, paper.paper_id)}
               download
-              className="p-1.5 rounded text-emerald-600 hover:text-emerald-400 hover:bg-zinc-800 transition-colors"
+              className="p-1.5 rounded text-intent-success hover:text-intent-success hover:bg-zinc-800 transition-colors"
               title={`Download ${paper.file_type === "pdf" ? "PDF" : "full text"}`}
             >
               <Download className="h-3.5 w-3.5" />

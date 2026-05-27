@@ -98,44 +98,44 @@ export const STATUS_LABEL: Record<RunStatus, string> = {
   stale: "Stale",
 }
 
+import type { BadgeVariant } from "@/components/ui/badge"
+
+/** Canonical map from RunStatus to Badge variant. Single source of truth. */
+export const STATUS_VARIANT: Record<RunStatus, BadgeVariant> = {
+  idle: "neutral",
+  connecting: "active",
+  streaming: "active",
+  done: "success",
+  error: "danger",
+  cancelled: "warning",
+  stale: "warning",
+}
+
+/** Convenience helper — returns the Badge variant for a given status. */
+export function statusToVariant(status: RunStatus): BadgeVariant {
+  return STATUS_VARIANT[status] ?? "neutral"
+}
+
+/** Semantic dot color for inline status indicators. */
 export const STATUS_DOT: Record<RunStatus, string> = {
-  idle: "bg-zinc-600",
-  connecting: "bg-violet-400",
-  streaming: "bg-violet-500",
-  done: "bg-emerald-500",
-  error: "bg-red-500",
-  cancelled: "bg-amber-500",
-  stale: "bg-amber-600",
+  idle: "bg-intent-neutral",
+  connecting: "bg-intent-active",
+  streaming: "bg-intent-active",
+  done: "bg-intent-success",
+  error: "bg-intent-danger",
+  cancelled: "bg-intent-warning",
+  stale: "bg-intent-warning",
 }
 
+/** Semantic text color for status labels. */
 export const STATUS_TEXT: Record<RunStatus, string> = {
-  idle: "text-zinc-500",
-  connecting: "text-violet-400",
-  streaming: "text-violet-400",
-  done: "text-emerald-400",
-  error: "text-red-400",
-  cancelled: "text-amber-400",
-  stale: "text-amber-500",
-}
-
-export const STATUS_BORDER: Record<RunStatus, string> = {
-  idle: "border-zinc-700",
-  connecting: "border-violet-500",
-  streaming: "border-violet-500",
-  done: "border-emerald-500",
-  error: "border-red-500",
-  cancelled: "border-amber-500",
-  stale: "border-amber-600",
-}
-
-export const BADGE_STYLE: Record<RunStatus, string> = {
-  idle: "text-zinc-400 bg-zinc-800/60 border-zinc-700",
-  connecting: "text-violet-400 bg-violet-500/10 border-violet-500/20",
-  streaming: "text-amber-400 bg-amber-500/10 border-amber-500/20",
-  done: "text-emerald-400 bg-emerald-500/10 border-emerald-500/20",
-  error: "text-red-400 bg-red-500/10 border-red-500/20",
-  cancelled: "text-zinc-400 bg-zinc-800/60 border-zinc-700",
-  stale: "text-amber-500 bg-amber-500/10 border-amber-500/30",
+  idle: "text-intent-neutral",
+  connecting: "text-intent-active",
+  streaming: "text-intent-active",
+  done: "text-intent-success",
+  error: "text-intent-danger",
+  cancelled: "text-intent-warning",
+  stale: "text-intent-warning",
 }
 
 // ---------------------------------------------------------------------------
