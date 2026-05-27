@@ -42,10 +42,10 @@ function MetricTile({ icon: Icon, label, value, sub, iconClass }: MetricTileProp
   return (
     <div className="card-section">
       <div className="flex items-center gap-2 mb-3">
-        <Icon className={cn("h-4 w-4", iconClass ?? "text-zinc-500")} />
+        <Icon className={cn("h-4 w-4", iconClass ?? "text-muted")} />
         <span className="label-caps">{label}</span>
       </div>
-      <div className="text-2xl font-bold text-zinc-100 tabular-nums font-mono">{value}</div>
+      <div className="text-2xl font-bold text-foreground tabular-nums font-mono">{value}</div>
       {sub && <div className="label-muted mt-1">{sub}</div>}
     </div>
   )
@@ -55,8 +55,8 @@ function CostChartTooltip({ active, payload, label }: { active?: boolean; payloa
   if (!active || !payload?.length) return null
   return (
     <div className="rounded-lg border border-border bg-popover px-3 py-2 text-xs text-popover-foreground shadow-xl">
-      <div className="text-zinc-500 mb-1">{label}</div>
-      <div className="text-zinc-100 font-mono font-semibold">${payload[0].value.toFixed(4)}</div>
+      <div className="text-muted mb-1">{label}</div>
+      <div className="text-foreground font-mono font-semibold">${payload[0].value.toFixed(4)}</div>
     </div>
   )
 }
@@ -312,7 +312,7 @@ export function CostView({ costStats, dbRunId, workflowId, isLive }: CostViewPro
           Only shown when 2+ phases have non-zero cost; a single bar is misleading. */}
       {nonZeroPhasesCount >= 2 ? (
         <div className="card-surface p-5">
-          <h3 className="text-sm font-semibold text-zinc-300 mb-4">Cost by Phase</h3>
+          <h3 className="text-sm font-semibold text-foreground mb-4">Cost by Phase</h3>
           <ResponsiveContainer width="100%" height={Math.max(180, chartData.length * 36)}>
             <BarChart
               data={chartData}
@@ -335,7 +335,7 @@ export function CostView({ costStats, dbRunId, workflowId, isLive }: CostViewPro
                 tickLine={false}
               />
               <Tooltip content={<CostChartTooltip />} cursor={{ fill: "rgb(113 113 122 / 0.22)" }} />
-              <Bar dataKey="cost" radius={[0, 4, 4, 0]} label={{ position: "right", formatter: (v: unknown) => `$${(v as number).toFixed(4)}`, fill: "var(--color-zinc-500)", fontSize: 10 }}>
+              <Bar dataKey="cost" radius={[0, 4, 4, 0]} label={{ position: "right", formatter: (v: unknown) => `$${(v as number).toFixed(4)}`, fill: "var(--color-muted-foreground)", fontSize: 10 }}>
                 {chartData.map((entry) => (
                   <Cell
                     key={entry.fullPhase}
@@ -356,13 +356,13 @@ export function CostView({ costStats, dbRunId, workflowId, isLive }: CostViewPro
       {/* Cost by model table */}
       {by_model.length > 0 && (
         <div className="card-surface overflow-hidden">
-          <div className="glass-toolbar px-5 py-3 border-b border-zinc-800/70">
-            <h3 className="text-sm font-semibold text-zinc-300">Cost by Model</h3>
+          <div className="glass-toolbar px-5 py-3 border-b border-border/70">
+            <h3 className="text-sm font-semibold text-foreground">Cost by Model</h3>
           </div>
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
-                <tr className="glass-toolbar border-b border-zinc-800/70">
+                <tr className="glass-toolbar border-b border-border/70">
                   <th className="text-left px-5 py-2.5 label-caps">Model</th>
                   <th className="text-right px-4 py-2.5 label-caps">Calls</th>
                   <th className="text-right px-4 py-2.5 label-caps">Tokens In</th>
@@ -375,18 +375,18 @@ export function CostView({ costStats, dbRunId, workflowId, isLive }: CostViewPro
                   <tr
                     key={m.model}
                     className={cn(
-                      "border-b border-zinc-800/50 hover:bg-zinc-800/40 transition-colors",
+                      "border-b border-border/50 hover:bg-surface-2/40 transition-colors",
                       i === by_model.length - 1 && "border-0",
                     )}
                   >
-                    <td className="px-5 py-3 font-mono text-xs text-zinc-300">
+                    <td className="px-5 py-3 font-mono text-xs text-foreground">
                       {m.model.split(":").pop() ?? m.model}
                     </td>
-                    <td className="px-4 py-3 text-right tabular-nums text-zinc-400 text-xs">{m.calls}</td>
-                    <td className="px-4 py-3 text-right tabular-nums text-zinc-400 text-xs">
+                    <td className="px-4 py-3 text-right tabular-nums text-muted text-xs">{m.calls}</td>
+                    <td className="px-4 py-3 text-right tabular-nums text-muted text-xs">
                       {m.tokens_in.toLocaleString()}
                     </td>
-                    <td className="px-4 py-3 text-right tabular-nums text-zinc-400 text-xs">
+                    <td className="px-4 py-3 text-right tabular-nums text-muted text-xs">
                       {m.tokens_out.toLocaleString()}
                     </td>
                     <td className="px-5 py-3 text-right tabular-nums font-mono font-medium text-intent-success text-xs">
@@ -403,13 +403,13 @@ export function CostView({ costStats, dbRunId, workflowId, isLive }: CostViewPro
       {/* Cost by phase table */}
       {by_phase.length > 0 && (
         <div className="card-surface overflow-hidden">
-          <div className="glass-toolbar px-5 py-3 border-b border-zinc-800/70">
-            <h3 className="text-sm font-semibold text-zinc-300">Cost by Phase</h3>
+          <div className="glass-toolbar px-5 py-3 border-b border-border/70">
+            <h3 className="text-sm font-semibold text-foreground">Cost by Phase</h3>
           </div>
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
-                <tr className="glass-toolbar border-b border-zinc-800/70">
+                <tr className="glass-toolbar border-b border-border/70">
                   <th className="text-left px-5 py-2.5 label-caps">Phase</th>
                   <th className="text-right px-4 py-2.5 label-caps">Calls</th>
                   <th className="text-right px-5 py-2.5 label-caps">Cost</th>
@@ -420,11 +420,11 @@ export function CostView({ costStats, dbRunId, workflowId, isLive }: CostViewPro
                   <tr
                     key={p.phase}
                     className={cn(
-                      "border-b border-zinc-800/50 hover:bg-zinc-800/40 transition-colors",
+                      "border-b border-border/50 hover:bg-surface-2/40 transition-colors",
                       i === by_phase.length - 1 && "border-0",
                     )}
                   >
-                    <td className="px-5 py-3 text-zinc-300 text-xs">
+                    <td className="px-5 py-3 text-foreground text-xs">
                       <div className="flex items-center gap-2">
                         <span
                           className="inline-block h-2 w-2 rounded-sm shrink-0"
@@ -433,7 +433,7 @@ export function CostView({ costStats, dbRunId, workflowId, isLive }: CostViewPro
                         {formatPhaseName(p.phase)}
                       </div>
                     </td>
-                    <td className="px-4 py-3 text-right tabular-nums text-zinc-400 text-xs">{p.calls}</td>
+                    <td className="px-4 py-3 text-right tabular-nums text-muted text-xs">{p.calls}</td>
                     <td className="px-5 py-3 text-right tabular-nums font-mono font-medium text-intent-success text-xs">
                       ${p.cost_usd.toFixed(4)}
                     </td>
@@ -447,36 +447,36 @@ export function CostView({ costStats, dbRunId, workflowId, isLive }: CostViewPro
 
       {opsEnabled && dbRunId && (
         <div className="card-surface overflow-hidden">
-          <div className="glass-toolbar px-5 py-3 border-b border-zinc-800/70 flex items-center justify-between gap-3">
-            <h3 className="text-sm font-semibold text-zinc-300">Ops Cost Diagnostics</h3>
+          <div className="glass-toolbar px-5 py-3 border-b border-border/70 flex items-center justify-between gap-3">
+            <h3 className="text-sm font-semibold text-foreground">Ops Cost Diagnostics</h3>
             <div className="label-muted">Hidden mode (`ops=1`)</div>
           </div>
           <div className="p-5 space-y-4">
             <div className="grid grid-cols-1 md:grid-cols-5 gap-3">
-              <label className="flex flex-col gap-1 text-xs text-zinc-400">
+              <label className="flex flex-col gap-1 text-xs text-muted">
                 Start
                 <input
                   type="date"
                   value={opsStartDate}
                   onChange={(e) => setOpsStartDate(e.target.value)}
-                  className="h-9 rounded-md border border-zinc-800 bg-zinc-900 px-2 text-zinc-200"
+                  className="h-9 rounded-md border border-border bg-surface-2 px-2 text-foreground"
                 />
               </label>
-              <label className="flex flex-col gap-1 text-xs text-zinc-400">
+              <label className="flex flex-col gap-1 text-xs text-muted">
                 End
                 <input
                   type="date"
                   value={opsEndDate}
                   onChange={(e) => setOpsEndDate(e.target.value)}
-                  className="h-9 rounded-md border border-zinc-800 bg-zinc-900 px-2 text-zinc-200"
+                  className="h-9 rounded-md border border-border bg-surface-2 px-2 text-foreground"
                 />
               </label>
-              <label className="flex flex-col gap-1 text-xs text-zinc-400">
+              <label className="flex flex-col gap-1 text-xs text-muted">
                 CSV Bucket
                 <select
                   value={opsGranularity}
                   onChange={(e) => setOpsGranularity(e.target.value as DbCostExportGranularity)}
-                  className="h-9 rounded-md border border-zinc-800 bg-zinc-900 px-2 text-zinc-200"
+                  className="h-9 rounded-md border border-border bg-surface-2 px-2 text-foreground"
                 >
                   <option value="day">day</option>
                   <option value="week">week</option>
@@ -487,55 +487,55 @@ export function CostView({ costStats, dbRunId, workflowId, isLive }: CostViewPro
                 <button
                   type="button"
                   onClick={loadOpsAggregates}
-                  className="h-9 px-3 rounded-md border border-zinc-700 bg-zinc-900 text-zinc-200 text-xs hover:bg-zinc-800"
+                  className="h-9 px-3 rounded-md border border-border bg-surface-2 text-foreground text-xs hover:bg-surface-3"
                 >
                   Refresh
                 </button>
                 <a
                   href={opsExportUrl}
-                  className="h-9 px-3 rounded-md border border-zinc-700 bg-zinc-900 text-zinc-200 text-xs hover:bg-zinc-800 inline-flex items-center"
+                  className="h-9 px-3 rounded-md border border-border bg-surface-2 text-foreground text-xs hover:bg-surface-3 inline-flex items-center"
                 >
                   Export CSV
                 </a>
               </div>
             </div>
 
-            {opsLoading && <div className="text-xs text-zinc-500">Loading ops aggregates...</div>}
+            {opsLoading && <div className="text-xs text-muted">Loading ops aggregates...</div>}
             {opsError && <div className="text-xs text-intent-danger">{opsError}</div>}
 
             {opsAggregates?.totals && (
               <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-xs">
-                <div className="text-zinc-400">Total cost: <span className="text-zinc-200 font-mono">{formatUsd(Number(opsAggregates.totals.total_cost_usd || 0))}</span></div>
-                <div className="text-zinc-400">Calls: <span className="text-zinc-200 font-mono">{Number(opsAggregates.totals.total_calls || 0)}</span></div>
-                <div className="text-zinc-400">Tokens in: <span className="text-zinc-200 font-mono">{Number(opsAggregates.totals.total_tokens_in || 0).toLocaleString()}</span></div>
-                <div className="text-zinc-400">Tokens out: <span className="text-zinc-200 font-mono">{Number(opsAggregates.totals.total_tokens_out || 0).toLocaleString()}</span></div>
+                <div className="text-muted">Total cost: <span className="text-foreground font-mono">{formatUsd(Number(opsAggregates.totals.total_cost_usd || 0))}</span></div>
+                <div className="text-muted">Calls: <span className="text-foreground font-mono">{Number(opsAggregates.totals.total_calls || 0)}</span></div>
+                <div className="text-muted">Tokens in: <span className="text-foreground font-mono">{Number(opsAggregates.totals.total_tokens_in || 0).toLocaleString()}</span></div>
+                <div className="text-muted">Tokens out: <span className="text-foreground font-mono">{Number(opsAggregates.totals.total_tokens_out || 0).toLocaleString()}</span></div>
               </div>
             )}
 
             {opsAggregates && (
               <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-xs">
-                <div className="rounded-md border border-zinc-800 p-3">
-                  <div className="text-zinc-400 mb-2">Top phases</div>
+                <div className="rounded-md border border-border p-3">
+                  <div className="text-muted mb-2">Top phases</div>
                   {opsAggregates.by_phase.slice(0, 5).map((row) => (
-                    <div key={row.group_key} className="flex items-center justify-between py-1 text-zinc-300">
+                    <div key={row.group_key} className="flex items-center justify-between py-1 text-foreground">
                       <span>{formatPhaseName(row.group_key)}</span>
                       <span className="font-mono">{formatUsd(Number(row.cost_usd))}</span>
                     </div>
                   ))}
                 </div>
-                <div className="rounded-md border border-zinc-800 p-3">
-                  <div className="text-zinc-400 mb-2">Top models</div>
+                <div className="rounded-md border border-border p-3">
+                  <div className="text-muted mb-2">Top models</div>
                   {opsAggregates.by_model.slice(0, 5).map((row) => (
-                    <div key={row.group_key} className="flex items-center justify-between py-1 text-zinc-300">
+                    <div key={row.group_key} className="flex items-center justify-between py-1 text-foreground">
                       <span>{row.group_key}</span>
                       <span className="font-mono">{formatUsd(Number(row.cost_usd))}</span>
                     </div>
                   ))}
                 </div>
-                <div className="rounded-md border border-zinc-800 p-3">
-                  <div className="text-zinc-400 mb-2">Recent buckets</div>
+                <div className="rounded-md border border-border p-3">
+                  <div className="text-muted mb-2">Recent buckets</div>
                   {opsAggregates.by_day.slice(-5).map((row) => (
-                    <div key={row.bucket} className="flex items-center justify-between py-1 text-zinc-300">
+                    <div key={row.bucket} className="flex items-center justify-between py-1 text-foreground">
                       <span>{row.bucket}</span>
                       <span className="font-mono">{formatUsd(Number(row.cost_usd))}</span>
                     </div>
@@ -549,10 +549,10 @@ export function CostView({ costStats, dbRunId, workflowId, isLive }: CostViewPro
 
       {(screeningDiagnostics || validationSummary) && (
         <div className="card-surface overflow-hidden">
-          <div className="glass-toolbar px-5 py-3 border-b border-zinc-800/70">
-            <h3 className="text-sm font-semibold text-zinc-300">Validation and Screening Diagnostics</h3>
+          <div className="glass-toolbar px-5 py-3 border-b border-border/70">
+            <h3 className="text-sm font-semibold text-foreground">Validation and Screening Diagnostics</h3>
           </div>
-          <div className="p-5 space-y-3 text-xs text-zinc-300">
+          <div className="p-5 space-y-3 text-xs text-foreground">
             {validationSummary && (
               <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
                 <div>Validation status: <span className="font-semibold">{validationSummary.status}</span></div>
@@ -562,15 +562,15 @@ export function CostView({ costStats, dbRunId, workflowId, isLive }: CostViewPro
               </div>
             )}
             {validationChecks.length > 0 && (
-              <div className="rounded-xl border border-zinc-800 bg-zinc-950/70 overflow-hidden">
-                <div className="px-3 py-2 border-b border-zinc-800 text-xs font-semibold text-zinc-400">
+              <div className="rounded-xl border border-border bg-card/70 overflow-hidden">
+                <div className="px-3 py-2 border-b border-border text-xs font-semibold text-muted">
                   Latest validation checks
                 </div>
-                <div className="divide-y divide-zinc-900">
+                <div className="divide-y divide-border">
                   {validationChecks.slice(0, 8).map((check, idx) => (
                     <div key={`${check.phase}-${check.check_name}-${idx}`} className="px-3 py-2 text-xs">
                       <div className="flex items-center justify-between gap-3">
-                        <div className="text-zinc-200">{check.check_name}</div>
+                        <div className="text-foreground">{check.check_name}</div>
                         <div className={cn(
                           "font-medium",
                           check.status === "error" ? "text-intent-danger" : check.status === "warn" ? "text-intent-warning" : "text-intent-success",
@@ -578,7 +578,7 @@ export function CostView({ costStats, dbRunId, workflowId, isLive }: CostViewPro
                           {check.status}
                         </div>
                       </div>
-                      <div className="mt-0.5 text-zinc-500">
+                      <div className="mt-0.5 text-muted">
                         {check.phase}
                         {check.metric_value != null ? ` | metric ${check.metric_value}` : ""}
                         {check.source_module ? ` | ${check.source_module}` : ""}
@@ -589,7 +589,7 @@ export function CostView({ costStats, dbRunId, workflowId, isLive }: CostViewPro
               </div>
             )}
             {screeningDiagnostics && (
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-zinc-400">
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-muted">
                 <div>Batch parse degraded: {screeningDiagnostics.batch_parse_degraded}</div>
                 <div>Batch id mismatch: {screeningDiagnostics.batch_id_mismatch}</div>
                 <div>Missing fallback: {screeningDiagnostics.batch_missing_fallback}</div>

@@ -181,22 +181,22 @@ function PhaseStep({
     state.status === "done" && "bg-intent-success-subtle border-intent-success-border text-intent-success",
     state.status === "running" && "bg-intent-active-subtle border-intent-active-border text-intent-active",
     state.status === "error" && "bg-intent-danger-subtle border-intent-danger-border text-intent-danger",
-    state.status === "pending" && "bg-zinc-900 border-zinc-700 text-zinc-600",
+    state.status === "pending" && "bg-card border-border text-muted",
   )
 
   const connectorCls = cn(
     "h-px shrink-0",
     state.status === "done" ? "bg-intent-success" :
     state.status === "running" ? "bg-intent-active" :
-    "bg-zinc-800",
+    "bg-border",
   )
 
   const labelCls = cn(
     "text-[10px] sm:text-[11px] text-center leading-tight font-medium px-0 mt-1.5",
-    state.status === "done" && "text-zinc-300",
+    state.status === "done" && "text-foreground",
     state.status === "running" && "text-intent-active",
     state.status === "error" && "text-intent-danger",
-    state.status === "pending" && "text-zinc-600",
+    state.status === "pending" && "text-muted",
   )
 
   const subLabelCls = cn(
@@ -245,7 +245,7 @@ function PhaseStep({
         <span className={labelCls}>{stepLabel}</span>
         {subLabel && <span className={subLabelCls}>{subLabel}</span>}
         {durationStr && (
-          <span className="text-[9px] sm:text-[10px] font-mono tabular-nums text-zinc-600 mt-0.5 text-center">
+          <span className="text-[9px] sm:text-[10px] font-mono tabular-nums text-muted mt-0.5 text-center">
             {durationStr}
           </span>
         )}
@@ -283,7 +283,7 @@ function HorizontalStepperContent({
               <Skeleton className="w-7 h-7 sm:w-8 sm:h-8 rounded-full" />
               <Skeleton className="h-2.5 w-8 sm:w-10" />
             </div>
-            {i < PHASE_MILESTONES.length - 1 && <div className="flex-1 mt-3.5 sm:mt-4 h-px bg-zinc-800" />}
+            {i < PHASE_MILESTONES.length - 1 && <div className="flex-1 mt-3.5 sm:mt-4 h-px bg-border" />}
           </div>
         ))}
       </div>
@@ -562,14 +562,14 @@ export function ActivityView({
 
       <div className="flex flex-col gap-3 min-h-[480px]">
         <div className="card-surface overflow-hidden flex flex-col">
-          <div className="glass-toolbar flex items-center justify-between px-4 h-11 border-b border-zinc-800/70 shrink-0">
+          <div className="glass-toolbar flex items-center justify-between px-4 h-11 border-b border-border/70 shrink-0">
             <span className="label-caps">Phase Timeline</span>
             {resumeModeActive ? (
-              <span className="text-[11px] text-zinc-500">
+              <span className="text-[11px] text-muted">
                 {resumeHint ?? (canResumeEligibility ? "Tap a phase once, tap again to resume from it" : resumeBlockedReason)}
               </span>
             ) : canResumeEligibility ? (
-              <span className="text-[11px] text-zinc-500">
+              <span className="text-[11px] text-muted">
                 Use Resume from last checkpoint in the sidebar
               </span>
             ) : null}
@@ -586,16 +586,16 @@ export function ActivityView({
         </div>
 
         <div className="card-surface overflow-hidden flex flex-col flex-1 min-h-0">
-          <div className="glass-toolbar flex items-center gap-2 px-4 h-11 border-b border-zinc-800/70 shrink-0 overflow-hidden">
+          <div className="glass-toolbar flex items-center gap-2 px-4 h-11 border-b border-border/70 shrink-0 overflow-hidden">
             <span className="label-caps shrink-0">Activity Log</span>
 
             {effectiveLoadingHistory && !showStructuredLog ? (
-              <span className="flex items-center gap-1.5 text-xs text-zinc-500">
+              <span className="flex items-center gap-1.5 text-xs text-muted">
                 <Loader2 className="h-3 w-3 animate-spin" />
                 Loading...
               </span>
             ) : eventCountLabel && !showStructuredLog ? (
-              <span className="text-xs text-zinc-600 tabular-nums shrink-0">
+              <span className="text-xs text-muted tabular-nums shrink-0">
                 {eventCountLabel}
               </span>
             ) : null}
@@ -605,7 +605,7 @@ export function ActivityView({
               size="sm"
               variant="outline"
               className={cn(
-                "h-7 px-2 text-[11px] shrink-0 border-zinc-700",
+                "h-7 px-2 text-[11px] shrink-0 border-border",
                 showStructuredLog && "bg-intent-active-subtle text-intent-active border-intent-active-border",
               )}
               onClick={() => setShowStructuredLog((v) => !v)}
@@ -614,13 +614,13 @@ export function ActivityView({
             </Button>
 
             <div className="relative flex-1 min-w-0">
-              <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-zinc-500 pointer-events-none" />
+              <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted pointer-events-none" />
               <Input
                 type="text"
                 placeholder="Search log..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                className="pl-8 h-7 text-xs bg-transparent border-zinc-800 w-full"
+                className="pl-8 h-7 text-xs bg-transparent border-border w-full"
               />
             </div>
           </div>
@@ -645,7 +645,7 @@ export function ActivityView({
 
             {!showStructuredLog && !effectiveLoadingHistory && filtered.length === 0 && !fetchError && (
               <div className="py-12 flex items-center justify-center">
-                <p className="text-zinc-600 text-sm">
+                <p className="text-muted text-sm">
                   Events will appear here once the review starts.
                 </p>
               </div>

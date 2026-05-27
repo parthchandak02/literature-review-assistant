@@ -69,17 +69,17 @@ export function CollapsibleSection({
           className="flex flex-1 items-center justify-between px-4 py-3 glass-interactive min-w-0 text-left"
         >
           <div className="flex items-center gap-2 min-w-0">
-            {Icon && <Icon className="h-4 w-4 text-zinc-500 shrink-0" />}
-            <span className="text-sm font-medium text-zinc-300 shrink-0">{title}</span>
+            {Icon && <Icon className="h-4 w-4 text-muted shrink-0" />}
+            <span className="text-sm font-medium text-foreground shrink-0">{title}</span>
             {badge}
             {description && (
               <span className="label-muted truncate">{description}</span>
             )}
           </div>
           {open ? (
-            <ChevronUp className="h-4 w-4 text-zinc-600 shrink-0 ml-2" />
+            <ChevronUp className="h-4 w-4 text-muted shrink-0 ml-2" />
           ) : (
-            <ChevronDown className="h-4 w-4 text-zinc-600 shrink-0 ml-2" />
+            <ChevronDown className="h-4 w-4 text-muted shrink-0 ml-2" />
           )}
         </button>
 
@@ -95,7 +95,7 @@ export function CollapsibleSection({
       </div>
 
       {open && (
-        <div className="border-t border-zinc-800/70">
+        <div className="border-t border-border/70">
           {children}
         </div>
       )}
@@ -133,10 +133,10 @@ export function PageSection({
 }: PageSectionProps) {
   return (
     <div className={cn("card-surface overflow-hidden", className)}>
-      <div className="glass-toolbar flex items-center justify-between px-4 py-3 border-b border-zinc-800/70">
+      <div className="glass-toolbar flex items-center justify-between px-4 py-3 border-b border-border/70">
         <div className="flex items-center gap-2 min-w-0">
-          {Icon && <Icon className="h-4 w-4 text-zinc-500 shrink-0" />}
-          <span className="text-sm font-medium text-zinc-300 shrink-0">{title}</span>
+          {Icon && <Icon className="h-4 w-4 text-muted shrink-0" />}
+          <span className="text-sm font-medium text-foreground shrink-0">{title}</span>
           {description && <span className="label-muted truncate">{description}</span>}
         </div>
         {action && <div>{action}</div>}

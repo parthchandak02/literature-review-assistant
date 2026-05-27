@@ -14,9 +14,16 @@ html[data-theme="dark"] {
   --color-zinc-950: #09090b;
 
   --color-background: #09090b;
+  --color-foreground: #fafafa;
   --color-card: #18181b;
+  --color-card-foreground: #fafafa;
+  --color-popover: #18181b;
+  --color-popover-foreground: #fafafa;
   --color-border: #27272a;
+  --color-input: #27272a;
+  --color-ring: #8b5cf6;
   --color-muted: #71717a;
+  --color-muted-foreground: #a1a1aa;
   --color-accent: #8b5cf6;
 
   --color-surface-0: #09090b;
@@ -63,6 +70,23 @@ html[data-theme="dark"] {
   --color-intent-neutral-fg: #fafafa;
   --color-intent-neutral-subtle: rgba(161, 161, 170, 0.08);
   --color-intent-neutral-border: rgba(161, 161, 170, 0.15);
+
+  --color-phase-2-search: #3b82f6;
+  --color-phase-3-screening: #8b5cf6;
+  --color-screening-calibration: #a78bfa;
+  --color-fulltext-pdf-retrieval: #c4b5fd;
+  --color-phase-4-extraction: #f59e0b;
+  --color-phase-4-extraction-quality: #d97706;
+  --color-phase-4b-embedding: #f59e0b;
+  --color-phase-5-synthesis: #10b981;
+  --color-phase-5b-knowledge-graph: #14b8a6;
+  --color-phase-5c-pre-writing-gate: #0f766e;
+  --color-phase-6-writing: #ef4444;
+  --color-phase-6-humanizer: #f97316;
+  --color-quality-rob2: #06b6d4;
+  --color-quality-robins-i: #0ea5e9;
+  --color-quality-casp: #38bdf8;
+  --color-finalize: #6b7280;
 
   --glass-surface-1: rgba(24, 24, 27, 0.42);
   --glass-surface-2: rgba(39, 39, 42, 0.38);
@@ -117,9 +141,16 @@ html[data-theme="light"] {
   --color-emerald-300: #1b7350;
 
   --color-background: #fcfcfc;
+  --color-foreground: #141414;
   --color-card: #f5f3f0;
+  --color-card-foreground: #141414;
+  --color-popover: #ffffff;
+  --color-popover-foreground: #141414;
   --color-border: #e7e5e4;
+  --color-input: #e7e5e4;
+  --color-ring: #7c3aed;
   --color-muted: #78716c;
+  --color-muted-foreground: #57534e;
   --color-accent: #7c5cbf;
 
   --color-surface-0: #fcfcfc;
@@ -167,6 +198,23 @@ html[data-theme="light"] {
   --color-intent-neutral-fg: #fafaf9;
   --color-intent-neutral-subtle: #f5f5f4;
   --color-intent-neutral-border: rgba(87, 83, 78, 0.15);
+
+  --color-phase-2-search: #1d4ed8;
+  --color-phase-3-screening: #6d28d9;
+  --color-screening-calibration: #7c3aed;
+  --color-fulltext-pdf-retrieval: #8b5cf6;
+  --color-phase-4-extraction: #b45309;
+  --color-phase-4-extraction-quality: #92400e;
+  --color-phase-4b-embedding: #b45309;
+  --color-phase-5-synthesis: #059669;
+  --color-phase-5b-knowledge-graph: #0f766e;
+  --color-phase-5c-pre-writing-gate: #115e59;
+  --color-phase-6-writing: #dc2626;
+  --color-phase-6-humanizer: #c2410c;
+  --color-quality-rob2: #0e7490;
+  --color-quality-robins-i: #0369a1;
+  --color-quality-casp: #0284c7;
+  --color-finalize: #57534e;
 
   --glass-surface-1: rgba(255, 255, 255, 0.72);
   --glass-surface-2: rgba(245, 243, 240, 0.88);

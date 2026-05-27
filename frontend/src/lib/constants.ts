@@ -139,10 +139,29 @@ export const STATUS_TEXT: Record<RunStatus, string> = {
 }
 
 // ---------------------------------------------------------------------------
-// Phase colors (hex) used by charts and visualizations
+// Phase colors (theme-backed CSS variables) used by charts and visualizations
 // ---------------------------------------------------------------------------
 
-export const PHASE_COLORS: Record<string, string> = {
+export const PHASE_COLOR_VARS: Record<string, string> = {
+  phase_2_search: "--color-phase-2-search",
+  phase_3_screening: "--color-phase-3-screening",
+  screening_calibration: "--color-screening-calibration",
+  fulltext_pdf_retrieval: "--color-fulltext-pdf-retrieval",
+  phase_4_extraction: "--color-phase-4-extraction",
+  phase_4_extraction_quality: "--color-phase-4-extraction-quality",
+  phase_4b_embedding: "--color-phase-4b-embedding",
+  phase_5_synthesis: "--color-phase-5-synthesis",
+  phase_5b_knowledge_graph: "--color-phase-5b-knowledge-graph",
+  phase_5c_pre_writing_gate: "--color-phase-5c-pre-writing-gate",
+  phase_6_writing: "--color-phase-6-writing",
+  phase_6_humanizer: "--color-phase-6-humanizer",
+  quality_rob2: "--color-quality-rob2",
+  quality_robins_i: "--color-quality-robins-i",
+  quality_casp: "--color-quality-casp",
+  finalize: "--color-finalize",
+}
+
+const PHASE_COLOR_FALLBACKS: Record<string, string> = {
   phase_2_search: "#3b82f6",
   phase_3_screening: "#8b5cf6",
   screening_calibration: "#a78bfa",
@@ -161,13 +180,31 @@ export const PHASE_COLORS: Record<string, string> = {
   finalize: "#6b7280",
 }
 
+function resolvePhaseColorToken(phaseKey: string): string | null {
+  const exact = PHASE_COLOR_VARS[phaseKey]
+  if (exact) return exact
+  for (const [key, cssVar] of Object.entries(PHASE_COLOR_VARS)) {
+    if (phaseKey.startsWith(key)) return cssVar
+  }
+  return null
+}
+
+function resolvePhaseColorFallback(phaseKey: string): string {
+  if (phaseKey in PHASE_COLOR_FALLBACKS) return PHASE_COLOR_FALLBACKS[phaseKey]
+  for (const [key, color] of Object.entries(PHASE_COLOR_FALLBACKS)) {
+    if (phaseKey.startsWith(key)) return color
+  }
+  return PHASE_COLOR_FALLBACKS.finalize
+}
+
 /** Resolve the chart color for a phase key, falling back to prefix matching. */
 export function phaseColor(phase: string): string {
-  if (phase in PHASE_COLORS) return PHASE_COLORS[phase]
-  for (const [key, color] of Object.entries(PHASE_COLORS)) {
-    if (phase.startsWith(key)) return color
+  const cssVar = resolvePhaseColorToken(phase)
+  if (cssVar && typeof document !== "undefined") {
+    const computed = getComputedStyle(document.documentElement).getPropertyValue(cssVar).trim()
+    if (computed) return computed
   }
-  return "#6b7280"
+  return resolvePhaseColorFallback(phase)
 }
 
 export const PHASE_LABEL_MAP: Record<string, string> = {

@@ -134,9 +134,9 @@ function StructuredLogViewerBody({ runId, workflowId, searchQuery }: StructuredL
   }, [lines, searchQuery])
 
   return (
-    <div className="h-[clamp(22rem,calc(100dvh-20rem),40rem)] w-full rounded-xl border border-zinc-800 bg-background overflow-hidden flex flex-col">
-      <div className="px-4 py-2 border-b border-zinc-800/70 flex items-center justify-between text-[11px]">
-        <span className="text-zinc-500 tabular-nums">{filtered.length} lines</span>
+    <div className="h-[clamp(22rem,calc(100dvh-20rem),40rem)] w-full rounded-xl border border-border bg-background overflow-hidden flex flex-col">
+      <div className="px-4 py-2 border-b border-border/70 flex items-center justify-between text-[11px]">
+        <span className="text-muted tabular-nums">{filtered.length} lines</span>
         {status === "connecting" ? (
           <span className="flex items-center gap-1.5 text-intent-primary">
             <Loader2 className="h-3 w-3 animate-spin" />
@@ -151,17 +151,17 @@ function StructuredLogViewerBody({ runId, workflowId, searchQuery }: StructuredL
       <div ref={containerRef} className="flex-1 overflow-y-auto font-mono text-[11px] p-4 leading-5 space-y-1">
         {error && <div className="text-intent-danger">{error}</div>}
         {!error && filtered.length === 0 && (
-          <div className="text-zinc-500">No structured log lines yet for this filter.</div>
+          <div className="text-muted">No structured log lines yet for this filter.</div>
         )}
         {filtered.map((line) => {
           return (
-            <div key={line.id} className="border-l-2 border-zinc-800 pl-2">
+            <div key={line.id} className="border-l-2 border-border pl-2">
               {line.parsed ? (
-                <pre className="text-[10px] text-zinc-300 whitespace-pre-wrap break-all">
+                <pre className="text-[10px] text-foreground whitespace-pre-wrap break-all">
                   {JSON.stringify(line.parsed, null, 2)}
                 </pre>
               ) : (
-                <div className="whitespace-pre-wrap break-all text-zinc-500">{line.raw}</div>
+                <div className="whitespace-pre-wrap break-all text-muted">{line.raw}</div>
               )}
             </div>
           )

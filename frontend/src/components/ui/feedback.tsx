@@ -30,7 +30,7 @@ const SPINNER_SIZE: Record<string, string> = {
 export function Spinner({ size = "md", className }: SpinnerProps) {
   return (
     <Loader2
-      className={cn("animate-spin text-zinc-500", SPINNER_SIZE[size], className)}
+      className={cn("animate-spin text-muted", SPINNER_SIZE[size], className)}
     />
   )
 }
@@ -54,10 +54,10 @@ export function EmptyState({ icon: Icon, heading, sub, className }: EmptyStatePr
         className,
       )}
     >
-      <Icon className="h-10 w-10 text-zinc-700" />
-      <p className="text-zinc-400 text-sm font-medium">{heading}</p>
+      <Icon className="h-10 w-10 text-border" />
+      <p className="text-muted text-sm font-medium">{heading}</p>
       {sub && (
-        <p className="text-zinc-600 text-xs max-w-xs leading-relaxed">{sub}</p>
+        <p className="text-muted text-xs max-w-xs leading-relaxed">{sub}</p>
       )}
     </div>
   )
@@ -114,8 +114,8 @@ export function LoadingPane({ message, className }: LoadingPaneProps) {
         className,
       )}
     >
-      <Loader2 className="h-6 w-6 animate-spin text-zinc-500" />
-      {message && <p className="text-xs text-zinc-500">{message}</p>}
+      <Loader2 className="h-6 w-6 animate-spin text-muted" />
+      {message && <p className="text-xs text-muted">{message}</p>}
     </div>
   )
 }

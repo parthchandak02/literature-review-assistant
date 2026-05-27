@@ -21,9 +21,9 @@ export function ThemeToggle({ className }: ThemeToggleProps) {
       className={cn(
         "relative z-20 flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border transition-colors duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-intent-primary focus-visible:ring-offset-1",
         isLight
-          ? "border-zinc-300/90 bg-zinc-200/80 text-intent-warning hover:bg-zinc-100"
-          : "border-zinc-600/80 bg-zinc-800/90",
-        !isLight && "text-intent-active hover:bg-zinc-700/90",
+          ? "border-border/90 bg-surface-2/80 text-intent-warning hover:bg-surface-1"
+          : "border-border/80 bg-surface-2/90",
+        !isLight && "text-intent-active hover:bg-surface-3/90",
         className,
       )}
     >

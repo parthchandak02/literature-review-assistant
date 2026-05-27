@@ -1,5 +1,9 @@
 @theme {
   --font-sans: "Inter", system-ui, -apple-system, sans-serif;
+  --text-xs: 0.75rem;
+  --text-sm: 0.875rem;
+  --text-base: 1rem;
+  --text-lg: 1.125rem;
 
   --animate-note-flash: note-flash 0.7s ease-out forwards;
 
@@ -9,9 +13,16 @@
   }
 
   --color-background: #09090b;
+  --color-foreground: #fafafa;
   --color-card: #18181b;
+  --color-card-foreground: #fafafa;
+  --color-popover: #18181b;
+  --color-popover-foreground: #fafafa;
   --color-border: #27272a;
+  --color-input: #27272a;
+  --color-ring: #8b5cf6;
   --color-muted: #71717a;
+  --color-muted-foreground: #a1a1aa;
   --color-accent: #8b5cf6;
 
   /* Semantic surface scale */
@@ -67,6 +78,24 @@
   --color-intent-neutral-subtle: rgba(161, 161, 170, 0.08);
   --color-intent-neutral-border: rgba(161, 161, 170, 0.15);
 
+  /* Phase colors (chart/source-of-truth tokens) */
+  --color-phase-2-search: #3b82f6;
+  --color-phase-3-screening: #8b5cf6;
+  --color-screening-calibration: #a78bfa;
+  --color-fulltext-pdf-retrieval: #c4b5fd;
+  --color-phase-4-extraction: #f59e0b;
+  --color-phase-4-extraction-quality: #d97706;
+  --color-phase-4b-embedding: #f59e0b;
+  --color-phase-5-synthesis: #10b981;
+  --color-phase-5b-knowledge-graph: #14b8a6;
+  --color-phase-5c-pre-writing-gate: #0f766e;
+  --color-phase-6-writing: #ef4444;
+  --color-phase-6-humanizer: #f97316;
+  --color-quality-rob2: #06b6d4;
+  --color-quality-robins-i: #0ea5e9;
+  --color-quality-casp: #38bdf8;
+  --color-finalize: #6b7280;
+
   /* ------------------------------------------------------------------ */
   /* Glass semantic tokens                                               */
   /* ------------------------------------------------------------------ */
@@ -87,4 +116,21 @@
   --ambient-violet-alpha: 0.12;
   --ambient-orange-alpha: 0.10;
   --ambient-orange-alpha-soft: 0.04;
+
+  /* Typography + layout semantic tokens */
+  --radius: 0.5rem;
+  --radius-panel: 0.75rem;
+  --spacing-section: 1.5rem;
+  --spacing-section-lg: 2rem;
+
+  /* Motion tokens */
+  --motion-fast: 150ms;
+  --motion-default: 200ms;
+  --motion-slow: 300ms;
+  --ease-standard: cubic-bezier(0.16, 1, 0.3, 1);
+
+  /* Layering tokens */
+  --z-header: 30;
+  --z-overlay: 40;
+  --z-modal: 50;
 }

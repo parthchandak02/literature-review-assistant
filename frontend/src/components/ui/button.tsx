@@ -15,10 +15,10 @@ const buttonVariants = cva(
         success:
           "bg-intent-success text-intent-success-fg hover:bg-intent-success/85",
         outline:
-          "glass-panel border-zinc-700/80 text-zinc-200 hover:text-zinc-100",
+          "glass-panel border-border text-foreground hover:text-foreground",
         secondary:
-          "glass-panel text-zinc-200 hover:text-zinc-100",
-        ghost: "text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800/45",
+          "glass-panel text-foreground hover:text-foreground",
+        ghost: "text-muted hover:text-foreground hover:bg-surface-2/45",
         link: "text-intent-primary underline-offset-4 hover:underline",
       },
       size: {

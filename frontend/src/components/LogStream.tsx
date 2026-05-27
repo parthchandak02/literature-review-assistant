@@ -101,11 +101,11 @@ function levelClass(level: LogLevel): string {
   switch (level) {
     case "error":             return "text-intent-danger"
     case "warn":              return "text-intent-warning"
-    case "info":              return "text-zinc-200"
-    case "dim":               return "text-zinc-500"
+    case "info":              return "text-foreground"
+    case "dim":               return "text-muted"
     case "status":            return "text-intent-warning/70 italic"
     // include/exclude/exclude-heuristic handled separately as bordered cards
-    default:                  return "text-zinc-500"
+    default:                  return "text-muted"
   }
 }
 
@@ -129,9 +129,9 @@ function screeningCardClass(level: LogLevel): {
     }
   }
   return {
-    borderClass: "border-zinc-600 bg-zinc-800/20",
-    badgeClass: "text-zinc-400",
-    textClass: "text-zinc-300",
+    borderClass: "border-border bg-surface-2/20",
+    badgeClass: "text-muted",
+    textClass: "text-foreground",
   }
 }
 
@@ -295,7 +295,7 @@ export const LogStream = forwardRef<LogStreamHandle, LogStreamProps>(function Lo
 
   if (events.length === 0) {
     return (
-      <div className="h-64 flex items-center justify-center text-sm text-zinc-500 bg-zinc-900 border border-zinc-800 rounded-xl">
+      <div className="h-64 flex items-center justify-center text-sm text-muted bg-card border border-border rounded-xl">
         Events will appear here once the review starts.
       </div>
     )
@@ -304,7 +304,7 @@ export const LogStream = forwardRef<LogStreamHandle, LogStreamProps>(function Lo
   return (
     <div
       ref={scrollContainerRef}
-      className="h-[clamp(22rem,calc(100dvh-20rem),40rem)] w-full rounded-xl border border-zinc-800 bg-background overflow-y-auto"
+      className="h-[clamp(22rem,calc(100dvh-20rem),40rem)] w-full rounded-xl border border-border bg-background overflow-y-auto"
       role="log"
       aria-live="polite"
       aria-label="Event log"
@@ -324,14 +324,14 @@ export const LogStream = forwardRef<LogStreamHandle, LogStreamProps>(function Lo
                 )}
               >
                 <div className="flex items-center gap-2">
-                  <div className="h-px flex-1 bg-zinc-800" />
+                  <div className="h-px flex-1 bg-border" />
                   <span className="text-[10px] font-semibold tracking-widest uppercase text-intent-primary/80 shrink-0 px-1">
                     {item.label}
                   </span>
-                  <div className="h-px flex-1 bg-zinc-800" />
+                  <div className="h-px flex-1 bg-border" />
                 </div>
                 {item.description ? (
-                  <div className="text-[10px] text-zinc-500 pl-0.5 pr-1 leading-snug">{item.description}</div>
+                  <div className="text-[10px] text-muted pl-0.5 pr-1 leading-snug">{item.description}</div>
                 ) : null}
               </div>
             )
@@ -380,8 +380,8 @@ export const LogStream = forwardRef<LogStreamHandle, LogStreamProps>(function Lo
           return (
             <div key={item.key} className="flex flex-col gap-1">
               <div className={cn("grid grid-cols-[74px_62px_1fr] items-start gap-x-2", levelClass(level))}>
-                <span className="text-zinc-500 tabular-nums">{cols.ts ? `[${cols.ts}]` : ""}</span>
-                <span className="text-zinc-400">{cols.tag ?? ""}</span>
+                <span className="text-muted tabular-nums">{cols.ts ? `[${cols.ts}]` : ""}</span>
+                <span className="text-muted">{cols.tag ?? ""}</span>
                 <span className="whitespace-pre-wrap break-all min-w-0">
                   {displayMessage}
                   {canExpand && (
@@ -390,7 +390,7 @@ export const LogStream = forwardRef<LogStreamHandle, LogStreamProps>(function Lo
                       <button
                         type="button"
                         onClick={() => toggleExpanded(item.key)}
-                        className="text-zinc-500 hover:text-zinc-300 underline underline-offset-2 transition-colors"
+                        className="text-muted hover:text-foreground underline underline-offset-2 transition-colors"
                         title="Toggle full row"
                       >
                         {isExpanded ? "less" : "more"}
@@ -400,7 +400,7 @@ export const LogStream = forwardRef<LogStreamHandle, LogStreamProps>(function Lo
                 </span>
               </div>
               {errorEv?.traceback && (
-                <pre className="text-[10px] text-zinc-500 whitespace-pre-wrap break-all font-mono pl-4 border-l-2 border-intent-danger-border mt-1">
+                <pre className="text-[10px] text-muted whitespace-pre-wrap break-all font-mono pl-4 border-l-2 border-intent-danger-border mt-1">
                   {errorEv.traceback}
                 </pre>
               )}

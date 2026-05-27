@@ -104,7 +104,7 @@ function fileIcon(file: OutputFile): { icon: React.ElementType; className: strin
   // Data artifacts
   if (lower === "data_narrative_synthesis.json") return { icon: ScrollText, className: "text-indigo-400" }
   if (lower === "data_papers_manifest.json") return { icon: Database, className: "text-fuchsia-400" }
-  if (lower === "run_summary.json") return { icon: ClipboardList, className: "text-zinc-300" }
+  if (lower === "run_summary.json") return { icon: ClipboardList, className: "text-foreground" }
 
   // Figure semantics by filename for faster visual scan.
   if (lower.includes("forest")) return { icon: BarChart3, className: "text-intent-info" }
@@ -116,13 +116,13 @@ function fileIcon(file: OutputFile): { icon: React.ElementType; className: strin
 
   if (/\.docx$/i.test(name)) return { icon: FileType, className: "text-intent-info" }
   if (/\.pdf$/i.test(name)) return { icon: FileText, className: "text-intent-danger" }
-  if (/\.json$/i.test(name)) return { icon: FileJson, className: "text-zinc-500" }
+  if (/\.json$/i.test(name)) return { icon: FileJson, className: "text-muted" }
   if (/\.csv$/i.test(name)) return { icon: FileSpreadsheet, className: "text-intent-success" }
-  if (/\.tex$/i.test(name)) return { icon: FileCode, className: "text-zinc-500" }
-  if (/\.bib$/i.test(name)) return { icon: BookMarked, className: "text-zinc-500" }
-  if (/\.md$/i.test(name)) return { icon: FileText, className: "text-zinc-500" }
-  if (/\.(png|jpg|jpeg|svg|webp)$/i.test(name)) return { icon: Image, className: "text-zinc-500" }
-  return { icon: File, className: "text-zinc-500" }
+  if (/\.tex$/i.test(name)) return { icon: FileCode, className: "text-muted" }
+  if (/\.bib$/i.test(name)) return { icon: BookMarked, className: "text-muted" }
+  if (/\.md$/i.test(name)) return { icon: FileText, className: "text-muted" }
+  if (/\.(png|jpg|jpeg|svg|webp)$/i.test(name)) return { icon: Image, className: "text-muted" }
+  return { icon: File, className: "text-muted" }
 }
 
 type DocGroup = "manuscript" | "protocol" | "submission" | "data"
@@ -202,9 +202,9 @@ function FileRow({ file }: { file: OutputFile }) {
     <div className="flex items-center justify-between gap-2">
       <span className="flex items-center gap-2 min-w-0">
         <Icon className={`h-4 w-4 shrink-0 ${iconClass}`} />
-        <span className="text-sm truncate text-zinc-400">{file.label}</span>
+        <span className="text-sm truncate text-muted">{file.label}</span>
       </span>
-      <Button size="sm" variant="outline" asChild className="shrink-0 border-zinc-700 text-zinc-400 hover:text-zinc-200">
+      <Button size="sm" variant="outline" asChild className="shrink-0 border-border text-muted hover:text-foreground">
         <a href={resolveFileUrl(file.path)} download={file.label} className="gap-1.5">
           <Download className="h-3.5 w-3.5" />
           Download
@@ -271,8 +271,8 @@ function TocBar({
   }
 
   return (
-    <div className="flex items-center gap-1 px-3 py-2 border-b border-zinc-800 bg-zinc-950 overflow-x-auto">
-      <BookOpen className="h-3.5 w-3.5 text-zinc-600 shrink-0 mr-1" />
+    <div className="flex items-center gap-1 px-3 py-2 border-b border-border bg-card overflow-x-auto">
+      <BookOpen className="h-3.5 w-3.5 text-muted shrink-0 mr-1" />
       {headings.map((h) => (
         <button
           key={h.slug}
@@ -280,10 +280,10 @@ function TocBar({
           className={[
             "shrink-0 px-2 py-0.5 rounded text-xs transition-colors whitespace-nowrap",
             h.level === 1
-              ? "text-zinc-200 font-semibold hover:bg-zinc-800"
+              ? "text-foreground font-semibold hover:bg-surface-2"
               : h.level === 2
-                ? "text-zinc-400 hover:bg-zinc-800 hover:text-zinc-200"
-                : "text-zinc-600 hover:bg-zinc-800 hover:text-zinc-400",
+                ? "text-muted hover:bg-surface-2 hover:text-foreground"
+                : "text-muted hover:bg-surface-2 hover:text-muted",
           ].join(" ")}
         >
           {h.text}
@@ -308,15 +308,15 @@ function parseCsv(text: string): string[][] {
 /** Inline CSV table viewer. */
 function CsvViewer({ content }: { content: string }) {
   const rows = parseCsv(content)
-  if (rows.length === 0) return <p className="text-xs text-zinc-600 p-4">Empty file.</p>
+  if (rows.length === 0) return <p className="text-xs text-muted p-4">Empty file.</p>
   const [header, ...body] = rows
   return (
     <div className="overflow-auto max-h-[50vh]">
-      <table className="text-xs text-zinc-300 border-collapse w-full">
-        <thead className="sticky top-0 bg-zinc-900">
+      <table className="text-xs text-foreground border-collapse w-full">
+        <thead className="sticky top-0 bg-card">
           <tr>
             {header.map((cell, i) => (
-              <Th key={i} className="border border-zinc-700 whitespace-nowrap">
+              <Th key={i} className="border border-border whitespace-nowrap">
                 {cell}
               </Th>
             ))}
@@ -324,9 +324,9 @@ function CsvViewer({ content }: { content: string }) {
         </thead>
         <tbody>
           {body.map((row, ri) => (
-            <tr key={ri} className={ri % 2 === 0 ? "bg-zinc-950" : "bg-zinc-900/50"}>
+            <tr key={ri} className={ri % 2 === 0 ? "bg-background" : "bg-card/50"}>
               {row.map((cell, ci) => (
-                <td key={ci} className="px-3 py-1.5 border border-zinc-800 max-w-[20rem] truncate">
+                <td key={ci} className="px-3 py-1.5 border border-border max-w-[20rem] truncate">
                   {cell}
                 </td>
               ))}
@@ -411,7 +411,7 @@ function InlineDocRow({ file }: { file: OutputFile }) {
       return <LatexViewer content={content} isLatex={/\.tex$/i.test(file.path)} />
     }
     return (
-      <pre className="text-xs text-zinc-400 whitespace-pre-wrap font-mono p-4">
+      <pre className="text-xs text-muted whitespace-pre-wrap font-mono p-4">
         {file.isJson
           ? (() => { try { return JSON.stringify(JSON.parse(content), null, 2) } catch { return content } })()
           : content}
@@ -426,7 +426,7 @@ function InlineDocRow({ file }: { file: OutputFile }) {
       <div className="flex items-center justify-between gap-2">
         <span className="flex items-center gap-2 min-w-0">
           <Icon className={`h-4 w-4 shrink-0 ${iconClass}`} />
-          <span className="text-sm truncate text-zinc-400">{file.label}</span>
+          <span className="text-sm truncate text-muted">{file.label}</span>
         </span>
         <div className="flex items-center gap-1.5 shrink-0">
           <Button
@@ -434,7 +434,7 @@ function InlineDocRow({ file }: { file: OutputFile }) {
             variant="ghost"
             onClick={handleToggle}
             disabled={loading}
-            className="border border-zinc-800 gap-1 text-zinc-500 hover:text-zinc-200"
+            className="border border-border gap-1 text-muted hover:text-foreground"
           >
             {loading ? "Loading..." : open ? (
               <><ChevronUp className="h-3.5 w-3.5" />Hide</>
@@ -442,7 +442,7 @@ function InlineDocRow({ file }: { file: OutputFile }) {
               <><ChevronDown className="h-3.5 w-3.5" />View</>
             )}
           </Button>
-          <Button size="sm" variant="outline" asChild className="border-zinc-700 text-zinc-400 hover:text-zinc-200">
+          <Button size="sm" variant="outline" asChild className="border-border text-muted hover:text-foreground">
             <a href={resolveFileUrl(file.path)} download={file.label} className="gap-1.5">
               <Download className="h-3.5 w-3.5" />
               Download
@@ -454,7 +454,7 @@ function InlineDocRow({ file }: { file: OutputFile }) {
         <p className="text-xs text-intent-danger px-1">Could not load file content.</p>
       )}
       {open && content !== null && (
-        <div className="rounded-lg border border-zinc-800 bg-zinc-950 overflow-hidden flex flex-col">
+        <div className="rounded-lg border border-border bg-background overflow-hidden flex flex-col">
           {file.isMarkdown && <TocBar headings={headings} viewerRef={viewerRef} />}
           <div ref={viewerRef} className={file.isMarkdown ? "overflow-auto max-h-[80vh] p-6" : ""}>
             {renderContent()}
@@ -473,17 +473,17 @@ function FigureRow({ file }: { file: OutputFile }) {
       <div className="flex items-center justify-between gap-2">
         <span className="flex items-center gap-2 min-w-0">
           <Icon className={`h-4 w-4 shrink-0 ${iconClass}`} />
-          <span className="text-sm truncate text-zinc-400">{file.label}</span>
+          <span className="text-sm truncate text-muted">{file.label}</span>
         </span>
         {!imgError ? (
-          <Button size="sm" variant="outline" asChild className="shrink-0 border-zinc-700 text-zinc-400 hover:text-zinc-200">
+          <Button size="sm" variant="outline" asChild className="shrink-0 border-border text-muted hover:text-foreground">
             <a href={resolveFileUrl(file.path)} download={file.label} className="gap-1.5">
               <Download className="h-3.5 w-3.5" />
               Download
             </a>
           </Button>
         ) : (
-          <span className="shrink-0 text-xs text-zinc-600 border border-zinc-800 rounded px-2 py-1">
+          <span className="shrink-0 text-xs text-muted border border-border rounded px-2 py-1">
             Not generated
           </span>
         )}
@@ -492,7 +492,7 @@ function FigureRow({ file }: { file: OutputFile }) {
         <img
           src={resolveFileUrl(file.path)}
           alt={file.label}
-          className="w-full rounded-lg border border-zinc-800 object-contain max-h-72"
+          className="w-full rounded-lg border border-border object-contain max-h-72"
           loading="lazy"
           onError={() => setImgError(true)}
         />
@@ -598,7 +598,7 @@ export function ResultsPanel({
         if (groupFiles.length === 0) return null
         const isLast = idx === flatGroups.filter((g) => groupedDocs[g.key].length > 0).length - 1
         return (
-          <div key={key} className={isLast && figs.length === 0 ? "" : "pb-4 mb-4 border-b border-zinc-800/60"}>
+          <div key={key} className={isLast && figs.length === 0 ? "" : "pb-4 mb-4 border-b border-border/60"}>
             <p className="label-caps pb-2">{label}</p>
             <div className="flex flex-col gap-2">
               {groupFiles.map((f) => (

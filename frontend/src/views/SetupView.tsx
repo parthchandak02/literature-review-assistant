@@ -130,32 +130,32 @@ function GenerationProgressCard({
               ? "bg-intent-warning-subtle border-intent-warning-border"
               : active
               ? "bg-intent-warning-subtle border-intent-warning-border"
-              : "bg-zinc-900/40 border-zinc-800"
+              : "bg-surface-2/40 border-border"
             : fallbackSkipped
             ? "bg-intent-info-subtle border-intent-info-border"
             : done
             ? "bg-intent-success-subtle border-intent-success-border"
             : active
             ? "bg-intent-primary-subtle border-intent-primary-border"
-            : "bg-zinc-900/40 border-zinc-800"
+            : "bg-surface-2/40 border-border"
           const titleCls = fallbackDegraded
             ? done || active
-              ? "text-zinc-100"
-              : "text-zinc-600"
+              ? "text-foreground"
+              : "text-muted"
             : fallbackSkipped
-            ? "text-zinc-200"
+            ? "text-foreground"
             : done
-            ? "text-zinc-200"
+            ? "text-foreground"
             : active
-            ? "text-zinc-100"
-            : "text-zinc-600"
+            ? "text-foreground"
+            : "text-muted"
           const detailCls = fallbackDegraded
-            ? "text-zinc-500"
+            ? "text-muted"
             : fallbackSkipped
-            ? "text-zinc-500"
+            ? "text-muted"
             : done
-            ? "text-zinc-500"
-            : "text-zinc-500"
+            ? "text-muted"
+            : "text-muted"
           const detailText = fallbackSkipped
             ? "Skipped because web research succeeded."
             : fallbackDegraded && fallbackReason
@@ -224,7 +224,7 @@ function ApiKeysSection({ keys, onChange, embedded }: ApiKeysProps) {
     <div className={embedded ? "space-y-3" : "px-4 py-4 space-y-3"}>
       {/* DeepSeek key -- always shown */}
       <div>
-        <label className="block text-xs font-medium text-zinc-400 mb-1.5">
+        <label className="block text-xs font-medium text-muted mb-1.5">
           {primaryField.label} <span className="text-intent-danger">*</span>
         </label>
         <div className="relative">
@@ -234,12 +234,12 @@ function ApiKeysSection({ keys, onChange, embedded }: ApiKeysProps) {
             onChange={(e) => onChange({ ...keys, deepseek: e.target.value })}
             placeholder={primaryField.placeholder}
             autoComplete="off"
-            className="pr-9 h-9 text-xs bg-zinc-950 border-zinc-700 text-zinc-200 placeholder:text-zinc-600 focus-visible:ring-intent-primary-border"
+            className="pr-9 h-9 text-xs bg-background border-border text-foreground placeholder:text-muted focus-visible:ring-intent-primary-border"
           />
           <button
             type="button"
             onClick={() => setShowDeepseek((v) => !v)}
-            className="absolute right-2.5 top-1/2 -translate-y-1/2 text-zinc-500 hover:text-zinc-300 transition-colors"
+            className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted hover:text-foreground transition-colors"
           >
             {showDeepseek ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
           </button>
@@ -250,7 +250,7 @@ function ApiKeysSection({ keys, onChange, embedded }: ApiKeysProps) {
       <button
         type="button"
         onClick={() => setExpanded((v) => !v)}
-        className="flex items-center gap-1.5 text-xs text-zinc-500 hover:text-zinc-300 transition-colors"
+        className="flex items-center gap-1.5 text-xs text-muted hover:text-foreground transition-colors"
       >
         <ChevronDown className={`h-3.5 w-3.5 transition-transform ${expanded ? "rotate-180" : ""}`} />
         {expanded ? "Hide optional API keys" : "Add optional API keys (OpenAlex, PubMed, IEEE...)"}
@@ -258,7 +258,7 @@ function ApiKeysSection({ keys, onChange, embedded }: ApiKeysProps) {
 
       {expanded && extraFields.map((f) => (
         <div key={f.id}>
-          <label className="block text-xs font-medium text-zinc-500 mb-1">
+          <label className="block text-xs font-medium text-muted mb-1">
             {f.label}
           </label>
           <Input
@@ -267,7 +267,7 @@ function ApiKeysSection({ keys, onChange, embedded }: ApiKeysProps) {
             onChange={(e) => onChange({ ...keys, [f.id]: e.target.value })}
             placeholder={f.placeholder}
             autoComplete="off"
-            className="h-9 text-xs bg-zinc-950 border-zinc-700 text-zinc-200 placeholder:text-zinc-600 focus-visible:ring-intent-primary-border"
+            className="h-9 text-xs bg-background border-border text-foreground placeholder:text-muted focus-visible:ring-intent-primary-border"
           />
         </div>
       ))}
@@ -280,9 +280,9 @@ function ApiKeysSection({ keys, onChange, embedded }: ApiKeysProps) {
 
   return (
     <div className="card-surface overflow-hidden">
-      <div className="flex items-center gap-2 px-4 py-3 border-b border-zinc-800">
-        <Key className="h-3.5 w-3.5 text-zinc-500 shrink-0" />
-        <span className="text-xs font-semibold text-zinc-300 flex-1">API Keys</span>
+      <div className="flex items-center gap-2 px-4 py-3 border-b border-border">
+        <Key className="h-3.5 w-3.5 text-muted shrink-0" />
+        <span className="text-xs font-semibold text-foreground flex-1">API Keys</span>
         {!keys.deepseek && (
           <span className="text-xs text-intent-danger font-medium">At least one LLM key required</span>
         )}
@@ -447,14 +447,14 @@ function CsvDropZone({ file, onFile, mode, onModeChange }: CsvDropZoneProps) {
     <TooltipProvider delayDuration={250}>
       <div>
         <div className="flex items-center gap-1.5 mb-2">
-          <label className="text-xs font-semibold text-zinc-400 uppercase tracking-wide cursor-default">
-            CSV Import <span className="text-zinc-600">(optional)</span>
+          <label className="text-xs font-semibold text-muted uppercase tracking-wide cursor-default">
+            CSV Import <span className="text-muted">(optional)</span>
           </label>
           <Tooltip>
             <TooltipTrigger asChild>
               <button
                 type="button"
-                className="text-zinc-600 hover:text-intent-info transition-colors rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-intent-primary-border"
+                className="text-muted hover:text-intent-info transition-colors rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-intent-primary-border"
                 aria-label="About optional CSV import"
               >
                 <HelpCircle className="h-3.5 w-3.5" />
@@ -464,16 +464,16 @@ function CsvDropZone({ file, onFile, mode, onModeChange }: CsvDropZoneProps) {
               side="top"
               align="start"
               sideOffset={6}
-              className="max-w-[260px] text-xs leading-relaxed px-3 py-2.5 bg-zinc-950 border border-zinc-700 text-zinc-100 shadow-xl"
+              className="max-w-[260px] text-xs leading-relaxed px-3 py-2.5 bg-card border border-border text-foreground shadow-xl"
             >
-              <p className="font-semibold text-zinc-100 mb-1">Optional CSV</p>
+              <p className="font-semibold text-foreground mb-1">Optional CSV</p>
               <p>Add a Scopus-style spreadsheet to either enrich automated search or replace it with your fixed list.</p>
             </TooltipContent>
           </Tooltip>
         </div>
 
         <div
-          className="inline-flex rounded-lg border border-zinc-700 bg-zinc-900/70 p-0.5 gap-0.5 mb-2"
+          className="inline-flex rounded-lg border border-border bg-surface-2/70 p-0.5 gap-0.5 mb-2"
           role="radiogroup"
           aria-label="How to use the CSV"
         >
@@ -486,8 +486,8 @@ function CsvDropZone({ file, onFile, mode, onModeChange }: CsvDropZoneProps) {
                 onClick={() => onModeChange("supplementary")}
                 className={`px-2.5 py-1 rounded-md text-xs font-medium transition-colors min-w-0 ${
                   mode === "supplementary"
-                    ? "bg-intent-primary-subtle text-zinc-100 shadow-sm ring-1 ring-intent-primary-border"
-                    : "text-zinc-500 hover:text-zinc-300"
+                    ? "bg-intent-primary-subtle text-foreground shadow-sm ring-1 ring-intent-primary-border"
+                    : "text-muted hover:text-foreground"
                 }`}
               >
                 Merge with search
@@ -496,7 +496,7 @@ function CsvDropZone({ file, onFile, mode, onModeChange }: CsvDropZoneProps) {
             <TooltipContent
               side="bottom"
               sideOffset={6}
-              className="max-w-[260px] text-xs leading-relaxed px-3 py-2.5 bg-zinc-950 border border-zinc-700 text-zinc-100 shadow-xl"
+              className="max-w-[260px] text-xs leading-relaxed px-3 py-2.5 bg-card border border-border text-foreground shadow-xl"
             >
               <p>{mergeTooltip}</p>
             </TooltipContent>
@@ -510,8 +510,8 @@ function CsvDropZone({ file, onFile, mode, onModeChange }: CsvDropZoneProps) {
                 onClick={() => onModeChange("masterlist")}
                 className={`px-2.5 py-1 rounded-md text-xs font-medium transition-colors min-w-0 ${
                   mode === "masterlist"
-                    ? "bg-intent-primary-subtle text-zinc-100 shadow-sm ring-1 ring-intent-primary-border"
-                    : "text-zinc-500 hover:text-zinc-300"
+                    ? "bg-intent-primary-subtle text-foreground shadow-sm ring-1 ring-intent-primary-border"
+                    : "text-muted hover:text-foreground"
                 }`}
               >
                 Use as master list
@@ -520,7 +520,7 @@ function CsvDropZone({ file, onFile, mode, onModeChange }: CsvDropZoneProps) {
             <TooltipContent
               side="bottom"
               sideOffset={6}
-              className="max-w-[260px] text-xs leading-relaxed px-3 py-2.5 bg-zinc-950 border border-zinc-700 text-zinc-100 shadow-xl"
+              className="max-w-[260px] text-xs leading-relaxed px-3 py-2.5 bg-card border border-border text-foreground shadow-xl"
             >
               <p>{masterTooltip}</p>
             </TooltipContent>
@@ -537,15 +537,15 @@ function CsvDropZone({ file, onFile, mode, onModeChange }: CsvDropZoneProps) {
           className={`flex flex-col items-center justify-center gap-2 px-4 py-6 rounded-xl border-2 border-dashed cursor-pointer transition-colors ${
             dragging
               ? "border-intent-success/60 bg-intent-success-subtle"
-              : "border-zinc-700 bg-zinc-900/50 hover:border-zinc-600 hover:bg-zinc-900"
+              : "border-border bg-surface-2/50 hover:border-border hover:bg-surface-2"
           }`}
         >
-          <Upload className="h-5 w-5 text-zinc-500" />
-          <p className="text-xs text-zinc-500 text-center leading-relaxed">
+          <Upload className="h-5 w-5 text-muted" />
+          <p className="text-xs text-muted text-center leading-relaxed">
             Drop a CSV file here, or{" "}
             <span className="text-intent-success font-medium">click to browse</span>
           </p>
-          <p className="text-xs text-zinc-600">
+          <p className="text-xs text-muted">
             {mode === "masterlist"
               ? "Use your curated study list as the primary input."
               : "Scopus export format (Title, Authors, Year, DOI, Abstract...)."}
@@ -558,21 +558,21 @@ function CsvDropZone({ file, onFile, mode, onModeChange }: CsvDropZoneProps) {
             ? "border-intent-success-border bg-intent-success-subtle"
             : analysis && !analysis.valid
             ? "border-intent-warning-border bg-intent-warning-subtle"
-            : "border-zinc-700 bg-zinc-900/50"
+            : "border-border bg-surface-2/50"
         }`}>
-          <FileText className={`h-4 w-4 shrink-0 ${analysis?.valid ? "text-intent-success" : analysis ? "text-intent-warning" : "text-zinc-500"}`} />
+          <FileText className={`h-4 w-4 shrink-0 ${analysis?.valid ? "text-intent-success" : analysis ? "text-intent-warning" : "text-muted"}`} />
           <div className="flex-1 min-w-0">
-            <p className={`text-xs font-medium truncate ${analysis?.valid ? "text-intent-success" : analysis ? "text-intent-warning" : "text-zinc-300"}`}>
+            <p className={`text-xs font-medium truncate ${analysis?.valid ? "text-intent-success" : analysis ? "text-intent-warning" : "text-foreground"}`}>
               {file.name}
             </p>
-            <p className={`text-xs mt-0.5 ${analysis?.valid ? "text-intent-success/70" : "text-zinc-600"}`}>
+            <p className={`text-xs mt-0.5 ${analysis?.valid ? "text-intent-success/70" : "text-muted"}`}>
               {(file.size / 1024).toFixed(0)} KB
             </p>
           </div>
           <button
             type="button"
             onClick={() => { onFile(null); setAnalysis(null) }}
-            className="text-zinc-500 hover:text-zinc-300 transition-colors shrink-0"
+            className="text-muted hover:text-foreground transition-colors shrink-0"
             aria-label="Remove file"
           >
             <X className="h-3.5 w-3.5" />
@@ -582,10 +582,10 @@ function CsvDropZone({ file, onFile, mode, onModeChange }: CsvDropZoneProps) {
 
       {/* Validation panel */}
       {file && (
-        <div className="mt-2 rounded-xl border border-zinc-800 bg-zinc-950/80 overflow-hidden">
+        <div className="mt-2 rounded-xl border border-border bg-card/80 overflow-hidden">
           {analysing && (
-            <div className="flex items-center gap-2 px-4 py-3 text-xs text-zinc-500">
-              <div className="h-3 w-3 rounded-full border border-zinc-600 border-t-zinc-400 animate-spin shrink-0" />
+            <div className="flex items-center gap-2 px-4 py-3 text-xs text-muted">
+              <div className="h-3 w-3 rounded-full border border-border border-t-muted animate-spin shrink-0" />
               Analysing CSV...
             </div>
           )}
@@ -593,7 +593,7 @@ function CsvDropZone({ file, onFile, mode, onModeChange }: CsvDropZoneProps) {
           {analysis && !analysing && (
             <>
               {/* Status row */}
-              <div className={`flex items-center gap-2.5 px-4 py-3 border-b border-zinc-800/60 ${analysis.valid ? "bg-intent-success-subtle" : "bg-intent-warning-subtle"}`}>
+              <div className={`flex items-center gap-2.5 px-4 py-3 border-b border-border/60 ${analysis.valid ? "bg-intent-success-subtle" : "bg-intent-warning-subtle"}`}>
                 {analysis.valid ? (
                   <CheckCircle2 className="h-4 w-4 text-intent-success shrink-0" />
                 ) : (
@@ -627,7 +627,7 @@ function CsvDropZone({ file, onFile, mode, onModeChange }: CsvDropZoneProps) {
 
               {/* Column grid */}
               <div className="px-4 py-3">
-                <p className="text-xs font-semibold text-zinc-500 uppercase tracking-wide mb-2">
+                <p className="text-xs font-semibold text-muted uppercase tracking-wide mb-2">
                   Detected columns
                 </p>
                 <div className="grid grid-cols-2 gap-x-4 gap-y-1.5">
@@ -637,10 +637,10 @@ function CsvDropZone({ file, onFile, mode, onModeChange }: CsvDropZoneProps) {
                     return (
                       <div key={col} className="flex items-center gap-1.5">
                         <div className={`w-1.5 h-1.5 rounded-full shrink-0 ${
-                          present ? "bg-intent-success" : required ? "bg-intent-danger" : "bg-zinc-700"
+                          present ? "bg-intent-success" : required ? "bg-intent-danger" : "bg-surface-4"
                         }`} />
                         <span className={`text-xs truncate ${
-                          present ? "text-zinc-300" : required ? "text-intent-danger" : "text-zinc-600"
+                          present ? "text-foreground" : required ? "text-intent-danger" : "text-muted"
                         }`}>
                           {col}
                           {required && !present && " *"}
@@ -650,7 +650,7 @@ function CsvDropZone({ file, onFile, mode, onModeChange }: CsvDropZoneProps) {
                   })}
                 </div>
                 {analysis.missingExpected.length > 0 && analysis.valid && (
-                  <p className="text-xs text-zinc-600 mt-2 leading-relaxed">
+                  <p className="text-xs text-muted mt-2 leading-relaxed">
                     {analysis.missingExpected.length} optional column{analysis.missingExpected.length > 1 ? "s" : ""} not found - those fields will be blank in the review.
                   </p>
                 )}
@@ -760,7 +760,7 @@ function QuestionStage({
     <div className="flex flex-col gap-6">
       {/* Hero */}
       <div className="text-center pt-4 pb-1">
-        <p className="text-sm text-zinc-400 max-w-sm mx-auto leading-relaxed">
+        <p className="text-sm text-muted max-w-sm mx-auto leading-relaxed">
           Describe your review question to generate PICO, search keywords, and screening criteria.
         </p>
       </div>
@@ -775,12 +775,12 @@ function QuestionStage({
           }}
           rows={3}
           placeholder="What is the effect of [intervention] on [outcome] in [population]?"
-          className="resize-none text-sm bg-zinc-900 border-zinc-800 text-zinc-200 placeholder:text-zinc-600 focus-visible:ring-intent-primary-border leading-relaxed"
+          className="resize-none text-sm bg-card border-border text-foreground placeholder:text-muted focus-visible:ring-intent-primary-border leading-relaxed"
           onKeyDown={(e) => {
             if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) void handleGenerate("standard")
           }}
         />
-        <p className="text-xs text-zinc-600 mt-1.5">Press Cmd/Ctrl+Enter to generate config.</p>
+        <p className="text-xs text-muted mt-1.5">Press Cmd/Ctrl+Enter to generate config.</p>
       </div>
 
       <CsvDropZone file={csvFile} onFile={setCsvFile} mode={csvMode} onModeChange={setCsvMode} />
@@ -814,7 +814,7 @@ function QuestionStage({
           Health + SDG Config
         </Button>
         </div>
-        <p className="text-[11px] text-zinc-600 text-center leading-relaxed">
+        <p className="text-[11px] text-muted text-center leading-relaxed">
           Health mode adds health-impact pathways and UN SDG alignment.
         </p>
       </div>
@@ -827,7 +827,7 @@ function QuestionStage({
               type="button"
               onClick={() => setShowHistory((v) => !v)}
               disabled={!!loadingHistoryId}
-              className="flex items-center gap-1.5 text-xs text-zinc-500 hover:text-zinc-300 transition-colors"
+              className="flex items-center gap-1.5 text-xs text-muted hover:text-foreground transition-colors"
             >
               <RotateCcw className={`h-3.5 w-3.5 ${loadingHistoryId ? "animate-spin" : ""}`} />
               {loadingHistoryId ? "Loading..." : "Reuse past config"}
@@ -836,9 +836,9 @@ function QuestionStage({
           )}
 
           {showHistory && (
-            <div className="absolute left-0 top-full mt-1.5 z-20 w-[min(400px,calc(100vw-2rem))] max-h-[280px] overflow-y-auto glass-panel border border-zinc-700/80 rounded-xl shadow-xl">
-              <div className="px-3 py-2 border-b border-zinc-800">
-                <p className="text-xs text-zinc-500">Select a completed run to reuse its config</p>
+            <div className="absolute left-0 top-full mt-1.5 z-20 w-[min(400px,calc(100vw-2rem))] max-h-[280px] overflow-y-auto glass-panel border border-border/80 rounded-xl shadow-xl">
+              <div className="px-3 py-2 border-b border-border">
+                <p className="text-xs text-muted">Select a completed run to reuse its config</p>
               </div>
               {completedRuns.map((entry) => (
                 <button
@@ -848,12 +848,12 @@ function QuestionStage({
                     setShowHistory(false)
                     onLoadFromHistory(entry)
                   }}
-                  className="w-full flex items-start gap-2.5 px-3 py-2.5 hover:bg-zinc-800/60 transition-colors text-left border-b border-zinc-800/50 last:border-0"
+                  className="w-full flex items-start gap-2.5 px-3 py-2.5 hover:bg-surface-2/60 transition-colors text-left border-b border-border/50 last:border-0"
                 >
-                  <Clock className="h-3.5 w-3.5 text-zinc-600 mt-0.5 flex-shrink-0" />
+                  <Clock className="h-3.5 w-3.5 text-muted mt-0.5 flex-shrink-0" />
                   <div className="flex-1 min-w-0">
-                    <p className="text-xs text-zinc-200 truncate leading-snug">{entry.topic}</p>
-                    <p className="text-xs text-zinc-600 mt-0.5">{formatShortDate(entry.created_at)}</p>
+                    <p className="text-xs text-foreground truncate leading-snug">{entry.topic}</p>
+                    <p className="text-xs text-muted mt-0.5">{formatShortDate(entry.created_at)}</p>
                   </div>
                 </button>
               ))}
@@ -864,7 +864,7 @@ function QuestionStage({
         <button
           type="button"
           onClick={onPasteYaml}
-          className="flex items-center gap-1.5 text-xs text-zinc-600 hover:text-zinc-400 transition-colors"
+          className="flex items-center gap-1.5 text-xs text-muted hover:text-foreground transition-colors"
         >
           <FileCode2 className="h-3.5 w-3.5" />
           Paste YAML
@@ -995,22 +995,22 @@ export function ConfigReviewStage({
             size="sm"
             onClick={onBack}
             disabled={isGeneratingConfig}
-            className="text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800/50 shrink-0 -ml-2"
+            className="text-muted hover:text-foreground hover:bg-surface-3/50 shrink-0 -ml-2"
           >
             <ChevronLeft className="h-3.5 w-3.5" />
             Back
           </Button>
-          <span className="text-zinc-600">|</span>
-          <span className="text-xs text-zinc-500">
+          <span className="text-muted">|</span>
+          <span className="text-xs text-muted">
             <span className="text-intent-success/80 font-medium">1. Question</span>
-            <span className="text-zinc-600 mx-1.5">/</span>
+            <span className="text-muted mx-1.5">/</span>
             <span className="text-intent-primary font-medium">2. Config</span>
           </span>
         </div>
         <div>
-          <h2 className="text-base font-semibold text-zinc-100">Review Configuration</h2>
+          <h2 className="text-base font-semibold text-foreground">Review Configuration</h2>
           {question && (
-            <p className="text-xs text-zinc-500 mt-0.5 leading-relaxed truncate max-w-xl" title={question}>
+            <p className="text-xs text-muted mt-0.5 leading-relaxed truncate max-w-xl" title={question}>
               Generated for: {question}
             </p>
           )}
@@ -1032,7 +1032,7 @@ export function ConfigReviewStage({
 
       {/* Generated banner */}
       {question && (
-        <div className="flex items-start gap-2.5 px-3 py-2.5 bg-intent-success-subtle border border-intent-success-border rounded-xl text-xs text-zinc-200">
+        <div className="flex items-start gap-2.5 px-3 py-2.5 bg-intent-success-subtle border border-intent-success-border rounded-xl text-xs text-foreground">
           <Sparkles className="h-3.5 w-3.5 flex-shrink-0 mt-0.5" />
           <span className="leading-relaxed">
             {isGeneratingConfig
