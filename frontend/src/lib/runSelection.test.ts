@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest"
 import {
   isTerminalHistoricalStatus,
   isSameRunSelection,
+  isSameWorkflowSelection,
   shouldFallbackToWorkflowEvents,
   shouldUsePrefetchedHistorical,
 } from "./runSelection"
@@ -14,10 +15,16 @@ describe("runSelection guards", () => {
   })
 
   it("falls back to workflow replay when run replay is empty", () => {
-    expect(shouldFallbackToWorkflowEvents(0, "wf-1", "run-1")).toBe(true)
-    expect(shouldFallbackToWorkflowEvents(1, "wf-1", "run-1")).toBe(false)
-    expect(shouldFallbackToWorkflowEvents(0, null, "run-1")).toBe(false)
-    expect(shouldFallbackToWorkflowEvents(0, "run-1", "run-1")).toBe(false)
+    expect(shouldFallbackToWorkflowEvents(0, "wf-1")).toBe(true)
+    expect(shouldFallbackToWorkflowEvents(1, "wf-1")).toBe(false)
+    expect(shouldFallbackToWorkflowEvents(0, null)).toBe(false)
+    expect(shouldFallbackToWorkflowEvents(0, "wf-1")).toBe(true)
+  })
+
+  it("detects same-workflow reselection", () => {
+    expect(isSameWorkflowSelection("wf-1", "wf-1")).toBe(true)
+    expect(isSameWorkflowSelection("wf-1", "wf-2")).toBe(false)
+    expect(isSameWorkflowSelection(null, "wf-1")).toBe(false)
   })
 
   it("uses prefetched historical events only when non-empty", () => {

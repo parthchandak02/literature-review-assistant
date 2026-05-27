@@ -17,7 +17,7 @@ import type { LogStreamHandle } from "@/components/LogStream"
 import { eventToLogEntry } from "@/lib/logLine"
 import { FetchError } from "@/components/ui/feedback"
 import { Skeleton } from "@/components/ui/skeleton"
-import { fetchRunEvents, fetchWorkflowEvents } from "@/lib/api"
+import { fetchHistoricalReviewEvents } from "@/lib/api"
 import { shouldUsePrefetchedHistorical } from "@/lib/runSelection"
 import { PHASE_ORDER, PHASE_LABELS, PHASE_MILESTONES, RESUME_PHASE_ORDER } from "@/lib/constants"
 import type { ReviewEvent } from "@/lib/api"
@@ -178,30 +178,30 @@ function PhaseStep({
 
   const circleCls = cn(
     "w-7 h-7 sm:w-8 sm:h-8 rounded-full flex items-center justify-center border shrink-0",
-    state.status === "done" && "bg-emerald-500/15 border-emerald-500/40 text-emerald-500",
-    state.status === "running" && "bg-violet-500/15 border-violet-500/40 text-violet-400",
-    state.status === "error" && "bg-red-500/15 border-red-500/40 text-red-400",
+    state.status === "done" && "bg-intent-success-subtle border-intent-success-border text-intent-success",
+    state.status === "running" && "bg-intent-active-subtle border-intent-active-border text-intent-active",
+    state.status === "error" && "bg-intent-danger-subtle border-intent-danger-border text-intent-danger",
     state.status === "pending" && "bg-zinc-900 border-zinc-700 text-zinc-600",
   )
 
   const connectorCls = cn(
     "h-px shrink-0",
-    state.status === "done" ? "bg-emerald-500/40" :
-    state.status === "running" ? "bg-violet-500/30" :
+    state.status === "done" ? "bg-intent-success" :
+    state.status === "running" ? "bg-intent-active" :
     "bg-zinc-800",
   )
 
   const labelCls = cn(
     "text-[10px] sm:text-[11px] text-center leading-tight font-medium px-0 mt-1.5",
     state.status === "done" && "text-zinc-300",
-    state.status === "running" && "text-white",
-    state.status === "error" && "text-red-400",
+    state.status === "running" && "text-intent-active",
+    state.status === "error" && "text-intent-danger",
     state.status === "pending" && "text-zinc-600",
   )
 
   const subLabelCls = cn(
     "text-[9px] sm:text-[10px] font-mono mt-0.5 tabular-nums text-center",
-    state.status === "running" ? "text-violet-400/80" : "text-emerald-500/80",
+    state.status === "running" ? "text-intent-active" : "text-intent-success",
   )
 
   return (
@@ -209,7 +209,7 @@ function PhaseStep({
       {inResumeRange && (
         <div
           className={cn(
-            "absolute left-0 right-0 top-1 h-14 sm:h-14 bg-amber-500/10",
+            "absolute left-0 right-0 top-1 h-14 sm:h-14 bg-intent-warning-subtle",
             isRangeStart && "rounded-l-md",
             isRangeEnd && "rounded-r-md",
           )}
@@ -227,8 +227,8 @@ function PhaseStep({
           className={cn(
             circleCls,
             "relative transition-colors",
-            isResumeSelectable && "cursor-pointer hover:border-amber-500/50",
-            isArmed && "border-amber-400 bg-amber-500/20 text-amber-300",
+            isResumeSelectable && "cursor-pointer hover:border-intent-warning-border",
+            isArmed && "border-intent-warning bg-intent-warning-subtle text-intent-warning",
           )}
           title={isResumeSelectable ? "Tap once to arm resume, tap again to confirm" : undefined}
         >
@@ -328,6 +328,8 @@ export interface ActivityViewProps {
   historicalEventsLoading?: boolean
   /** When true, an empty event list can fall back to persisted history. */
   allowHistoricalFallback?: boolean
+  /** True while history attach is in flight — use workflow replay only. */
+  attachPending?: boolean
   status: string
   runId: string
   workflowId?: string | null
@@ -343,6 +345,7 @@ export function ActivityView({
   prefetchedHistoricalEvents = null,
   historicalEventsLoading = false,
   allowHistoricalFallback = false,
+  attachPending = false,
   status,
   runId,
   workflowId,
@@ -365,14 +368,11 @@ export function ActivityView({
   const isFallbackMode = allowHistoricalFallback && events.length === 0 && Boolean(runId)
 
   const loadHistoricalEvents = useCallback(
-    async (id: string, wfId: string | null | undefined) => {
+    async (id: string, wfId: string | null | undefined, pending: boolean) => {
       setLoadingHistory(true)
       setFetchError(null)
       try {
-        let evs = await fetchRunEvents(id)
-        if (evs.length === 0 && wfId && wfId !== id) {
-          evs = await fetchWorkflowEvents(wfId)
-        }
+        const evs = await fetchHistoricalReviewEvents(wfId, id, { attachPending: pending })
         setHistoricalEvents(evs)
       } catch (e) {
         const msg = e instanceof Error ? e.message : String(e)
@@ -395,7 +395,7 @@ export function ActivityView({
       setFetchError(null)
       return
     }
-    if (hasPrefetchedHistorical) {
+    if (hasPrefetchedHistorical || historicalEventsLoading) {
       return
     }
     let cancelled = false
@@ -403,10 +403,7 @@ export function ActivityView({
     setFetchError(null)
     ;(async () => {
       try {
-        let evs = await fetchRunEvents(runId)
-        if (evs.length === 0 && workflowId && workflowId !== runId) {
-          evs = await fetchWorkflowEvents(workflowId)
-        }
+        const evs = await fetchHistoricalReviewEvents(workflowId, runId, { attachPending })
         if (!cancelled) setHistoricalEvents(evs)
       } catch (e) {
         if (!cancelled) {
@@ -423,7 +420,7 @@ export function ActivityView({
       }
     })()
     return () => { cancelled = true }
-  }, [isFallbackMode, runId, workflowId, hasPrefetchedHistorical])
+  }, [isFallbackMode, runId, workflowId, hasPrefetchedHistorical, historicalEventsLoading, attachPending])
 
   const [searchQuery, setSearchQuery] = useState("")
   const activeHistoricalEvents = hasPrefetchedHistorical ? (prefetchedHistoricalEvents ?? []) : historicalEvents
@@ -526,23 +523,23 @@ export function ActivityView({
           <div className="flex items-center gap-1.5 text-xs">
             {status === "connecting" ? (
               <>
-                <Loader2 className="h-3.5 w-3.5 animate-spin text-violet-400" />
-                <span className="text-violet-400">Connecting to event stream...</span>
+                <Loader2 className="h-3.5 w-3.5 animate-spin text-intent-active" />
+                <span className="text-intent-active">Connecting to event stream...</span>
               </>
             ) : (
               <>
                 <span className="relative flex h-2 w-2 shrink-0">
-                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-violet-400 opacity-75" />
-                  <span className="relative inline-flex rounded-full h-2 w-2 bg-violet-500" />
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-intent-active opacity-75" />
+                  <span className="relative inline-flex rounded-full h-2 w-2 bg-intent-active" />
                 </span>
-                <span className="text-violet-400">Live stream active</span>
+                <span className="text-intent-active">Live stream active</span>
               </>
             )}
           </div>
           <Button
             size="sm"
             onClick={onCancel}
-            className="bg-red-600 hover:bg-red-500 text-white gap-1.5 shrink-0"
+            className="bg-intent-danger hover:bg-intent-danger text-white gap-1.5 shrink-0"
           >
             <Square className="h-3.5 w-3.5 fill-white" />
             Stop
@@ -552,7 +549,7 @@ export function ActivityView({
 
       {/* Error banner */}
       {status === "error" && (
-        <div className="flex items-start gap-2.5 bg-red-500/10 border border-red-500/20 rounded-xl px-4 py-3 text-sm text-red-400">
+        <div className="flex items-start gap-2.5 bg-intent-danger-subtle border border-intent-danger-border rounded-xl px-4 py-3 text-sm text-intent-danger">
           <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5" />
           <div>
             <span className="font-medium">Review failed. </span>
@@ -609,7 +606,7 @@ export function ActivityView({
               variant="outline"
               className={cn(
                 "h-7 px-2 text-[11px] shrink-0 border-zinc-700",
-                showStructuredLog && "bg-violet-500/15 text-violet-300 border-violet-500/40",
+                showStructuredLog && "bg-intent-active-subtle text-intent-active border-intent-active-border",
               )}
               onClick={() => setShowStructuredLog((v) => !v)}
             >
@@ -637,7 +634,11 @@ export function ActivityView({
               <div className="p-4">
                 <FetchError
                   message={fetchError}
-                  onRetry={runId ? () => void loadHistoricalEvents(runId, workflowId) : undefined}
+                  onRetry={
+                    runId
+                      ? () => void loadHistoricalEvents(runId, workflowId, attachPending)
+                      : undefined
+                  }
                 />
               </div>
             )}
