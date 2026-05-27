@@ -47,7 +47,7 @@ function SourceBadge({ source }: { source: string }) {
       className={cn(
         "glass-chip inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-mono",
         isAbstract
-          ? "text-zinc-400"
+          ? "text-muted"
           : "text-intent-success border-intent-success-border",
       )}
     >
@@ -125,7 +125,7 @@ export function ReferencesView({
 
   if (!isDone) {
     return (
-      <div className="flex flex-col items-center justify-center h-48 text-zinc-500 gap-2">
+      <div className="flex flex-col items-center justify-center h-48 text-muted gap-2">
         <BookOpen className="h-8 w-8 opacity-30" />
         <p className="text-sm">References are available after the run completes.</p>
       </div>
@@ -134,7 +134,7 @@ export function ReferencesView({
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center h-48 text-zinc-500 text-sm">
+      <div className="flex items-center justify-center h-48 text-muted text-sm">
         Loading references...
       </div>
     )
@@ -151,7 +151,7 @@ export function ReferencesView({
 
   if (papers.length === 0) {
     return (
-      <div className="flex flex-col items-center justify-center h-48 text-zinc-500 gap-2">
+      <div className="flex flex-col items-center justify-center h-48 text-muted gap-2">
         <BookOpen className="h-8 w-8 opacity-30" />
         <p className="text-sm">No included papers found for this run.</p>
       </div>
@@ -167,10 +167,10 @@ export function ReferencesView({
       {/* Header */}
       <div className="flex items-start justify-between gap-4">
         <div>
-          <h2 className="text-base font-semibold text-zinc-200">
+          <h2 className="text-base font-semibold text-foreground">
             Included Studies
           </h2>
-          <p className="text-xs text-zinc-500 mt-0.5">
+          <p className="text-xs text-muted mt-0.5">
             {papers.length} {papers.length === 1 ? "paper" : "papers"} included in this review
             {abstractOnlyCount > 0 && (
               <span className="text-intent-warning ml-1">
@@ -180,13 +180,13 @@ export function ReferencesView({
           </p>
         </div>
         <div className="flex flex-col items-end gap-2">
-          <div className="flex items-center gap-2 text-xs text-zinc-500">
+          <div className="flex items-center gap-2 text-xs text-muted">
             <span className="inline-flex items-center gap-1">
               <span className="w-2 h-2 rounded-full bg-intent-success" />
               Full text available
             </span>
             <span className="inline-flex items-center gap-1">
-              <span className="w-2 h-2 rounded-full bg-zinc-600" />
+              <span className="w-2 h-2 rounded-full bg-surface-4" />
               Abstract only
             </span>
           </div>
@@ -194,7 +194,7 @@ export function ReferencesView({
             size="sm"
             variant="outline"
             onClick={onGoToSubmissionReferencePapers}
-            className="border-zinc-700 text-zinc-300 hover:text-zinc-100"
+            className="border-border text-foreground hover:text-foreground"
           >
             Download All
           </Button>
@@ -205,8 +205,8 @@ export function ReferencesView({
               className={cn(
                 "inline-flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-medium transition-colors glass-interactive",
                 fetching
-                  ? "glass-panel text-zinc-500 cursor-not-allowed"
-                  : "glass-panel text-zinc-300 hover:text-zinc-100",
+                  ? "glass-panel text-muted cursor-not-allowed"
+                  : "glass-panel text-foreground hover:text-foreground",
               )}
             >
               <RefreshCw className={cn("h-3 w-3", fetching && "animate-spin")} />
@@ -216,29 +216,29 @@ export function ReferencesView({
           {/* Live progress during fetch */}
           {fetching && fetchProgress && (
             <div className="flex flex-col items-end gap-1 w-56">
-              <div className="w-full h-1 bg-zinc-800 rounded-full overflow-hidden">
+              <div className="w-full h-1 bg-surface-2 rounded-full overflow-hidden">
                 <div
                   className="h-full bg-intent-success transition-all duration-300"
                   style={{ width: `${Math.round((fetchProgress.current / fetchProgress.total) * 100)}%` }}
                 />
               </div>
-              <p className="text-[11px] text-zinc-500 text-right">
+              <p className="text-[11px] text-muted text-right">
                 {fetchProgress.current} / {fetchProgress.total} papers
                 {fetchProgress.succeeded > 0 && (
                   <span className="text-intent-success ml-1">-- {fetchProgress.succeeded} retrieved</span>
                 )}
               </p>
-              <p className="text-[11px] text-zinc-600 text-right truncate max-w-[14rem]" title={fetchProgress.currentTitle}>
+              <p className="text-[11px] text-muted text-right truncate max-w-[14rem]" title={fetchProgress.currentTitle}>
                 {fetchProgress.currentTitle}
               </p>
             </div>
           )}
           {/* Waiting for first event */}
           {fetching && !fetchProgress && (
-            <p className="text-[11px] text-zinc-500">Connecting...</p>
+            <p className="text-[11px] text-muted">Connecting...</p>
           )}
           {fetchResult && !fetching && (
-            <p className="text-[11px] text-zinc-500">
+            <p className="text-[11px] text-muted">
               Retrieved {fetchResult.succeeded} of {fetchResult.attempted} --{" "}
               {fetchResult.failed > 0 ? `${fetchResult.failed} unavailable` : "all found"}
               {fetchResult.skipped > 0 ? `, ${fetchResult.skipped} already saved` : ""}
@@ -263,7 +263,7 @@ export function ReferencesView({
       </div>
 
       {/* Note on full-text availability */}
-      <p className="text-xs text-zinc-600 border-t border-zinc-800 pt-3 mt-1">
+      <p className="text-xs text-muted border-t border-border pt-3 mt-1">
         Full-text files are saved to the run directory during extraction. Papers showing
         "Abstract only" were extracted from abstract and metadata; no full-text PDF was
         retrieved for those studies.
@@ -286,25 +286,25 @@ function PaperCard({ paper, index, runId }: PaperCardProps) {
       className={cn(
         "group relative rounded-lg border p-4 transition-colors glass-panel",
         hasFullText
-          ? "border-zinc-700/70 hover:border-zinc-500"
-          : "border-zinc-800/70",
+          ? "border-border/70 hover:border-border"
+          : "border-border/70",
       )}
     >
       <div className="flex items-start gap-3">
         {/* Index badge */}
-        <span className="shrink-0 mt-0.5 w-6 h-6 rounded-full bg-zinc-800 text-zinc-400 text-xs font-mono flex items-center justify-center">
+        <span className="shrink-0 mt-0.5 w-6 h-6 rounded-full bg-surface-2 text-muted text-xs font-mono flex items-center justify-center">
           {index}
         </span>
 
         <div className="flex-1 min-w-0">
           {/* Title */}
-          <p className="text-sm font-medium text-zinc-200 leading-snug">
+          <p className="text-sm font-medium text-foreground leading-snug">
             {paper.title || "Untitled"}
           </p>
 
           {/* Authors + year */}
           {(paper.authors || paper.year) && (
-            <p className="text-xs text-zinc-500 mt-1 truncate">
+            <p className="text-xs text-muted mt-1 truncate">
               {paper.authors && (
                 <span>{paper.authors}</span>
               )}
@@ -317,7 +317,7 @@ function PaperCard({ paper, index, runId }: PaperCardProps) {
           <div className="flex flex-wrap items-center gap-1.5 mt-2">
             <SourceBadge source={paper.retrieval_source} />
             {paper.source_database && (
-            <span className="glass-chip inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-mono text-zinc-400">
+            <span className="glass-chip inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-mono text-muted">
                 {paper.source_database}
               </span>
             )}
@@ -343,7 +343,7 @@ function PaperCard({ paper, index, runId }: PaperCardProps) {
               href={`https://doi.org/${paper.doi}`}
               target="_blank"
               rel="noopener noreferrer"
-              className="p-1.5 rounded text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800 transition-colors"
+              className="p-1.5 rounded text-muted hover:text-foreground hover:bg-surface-2 transition-colors"
               title={`Open DOI: ${paper.doi}`}
             >
               <ExternalLink className="h-3.5 w-3.5" />
@@ -354,7 +354,7 @@ function PaperCard({ paper, index, runId }: PaperCardProps) {
               href={paper.url}
               target="_blank"
               rel="noopener noreferrer"
-              className="p-1.5 rounded text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800 transition-colors"
+              className="p-1.5 rounded text-muted hover:text-foreground hover:bg-surface-2 transition-colors"
               title="Open source URL"
             >
               <ExternalLink className="h-3.5 w-3.5" />
@@ -364,7 +364,7 @@ function PaperCard({ paper, index, runId }: PaperCardProps) {
             <a
               href={paperFileUrl(runId, paper.paper_id)}
               download
-              className="p-1.5 rounded text-intent-success hover:text-intent-success hover:bg-zinc-800 transition-colors"
+              className="p-1.5 rounded text-intent-success hover:text-intent-success hover:bg-surface-2 transition-colors"
               title={`Download ${paper.file_type === "pdf" ? "PDF" : "full text"}`}
             >
               <Download className="h-3.5 w-3.5" />

@@ -88,7 +88,7 @@ interface InfoPillProps {
 
 function InfoPill({ children, dim }: InfoPillProps) {
   return (
-    <span className={cn("shrink-0", dim ? "text-zinc-500" : "text-zinc-400")}>
+    <span className={cn("shrink-0", dim ? "text-muted" : "text-muted")}>
       {children}
     </span>
   )
@@ -280,12 +280,12 @@ export function RunView({
             ? "text-intent-danger"
             : status === "done" || isDone
               ? "text-intent-success"
-              : "text-zinc-500"
+              : "text-muted"
 
   return (
     <div className="flex flex-col gap-0 h-full">
       {/* Run info strip */}
-      <div className="glass-toolbar flex items-center gap-2 px-6 py-2 border-b border-zinc-800/60 shrink-0 overflow-x-auto scrollbar-none text-meta" style={{ touchAction: 'pan-x' }}>
+      <div className="glass-toolbar flex items-center gap-2 px-6 py-2 border-b border-border/60 shrink-0 overflow-x-auto scrollbar-none text-meta" style={{ touchAction: 'pan-x' }}>
         <span className={cn("font-semibold shrink-0", statusClass)}>
           {statusLabel}
         </span>
@@ -303,7 +303,7 @@ export function RunView({
                     setTimeout(() => setWfIdCopied(false), 1500)
                   }
                 }}
-                className="hover:text-zinc-400 transition-colors cursor-pointer"
+                className="hover:text-foreground transition-colors cursor-pointer"
                 title="Copy workflow ID"
               >
                 {wfIdCopied ? "Copied!" : formatWorkflowId(run.workflowId ?? run.runId)}
@@ -326,12 +326,12 @@ export function RunView({
                 {displayFunnelStages.map((stage, i) => (
                   <span key={stage.key} className="flex items-baseline gap-1 shrink-0">
                     {i > 0 && (
-                      <span className="text-zinc-500 select-none mx-0.5">&gt;</span>
+                      <span className="text-muted select-none mx-0.5">&gt;</span>
                     )}
                     <span className={cn("font-semibold", stage.colorClass)}>
                       {stage.count.toLocaleString()}
                     </span>
-                    <span className="text-zinc-500">{stage.label}</span>
+                    <span className="text-muted">{stage.label}</span>
                   </span>
                 ))}
               </span>
@@ -375,7 +375,7 @@ export function RunView({
       </div>
 
       {/* Glass tabs module */}
-      <div className="glass-toolbar px-3 py-2 border-b border-zinc-800/70 shrink-0" style={{ touchAction: "pan-x" }}>
+      <div className="glass-toolbar px-3 py-2 border-b border-border/70 shrink-0" style={{ touchAction: "pan-x" }}>
         <GlassTabs
           items={[
             ...TAB_ITEMS.map((tab) => ({ id: tab.id, label: tab.label, icon: tab.icon })),

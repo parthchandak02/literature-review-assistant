@@ -143,7 +143,7 @@ export function ConfigView({
 
   if (loading && !isDraft) {
     return (
-      <div className="flex flex-col items-center justify-center gap-3 py-16 text-zinc-500">
+      <div className="flex flex-col items-center justify-center gap-3 py-16 text-muted">
         <Loader2 className="h-8 w-8 animate-spin" />
         <p className="text-sm">Loading config...</p>
       </div>
@@ -175,14 +175,14 @@ export function ConfigView({
   return (
     <div className="flex flex-col gap-4">
       <div className="card-surface overflow-hidden">
-        <div className="glass-toolbar px-4 py-3 border-b border-zinc-800/70">
-          <h3 className="text-sm font-semibold text-zinc-200">Research Question</h3>
+        <div className="glass-toolbar px-4 py-3 border-b border-border/70">
+          <h3 className="text-sm font-semibold text-foreground">Research Question</h3>
         </div>
         <div className="px-4 py-4">
-          <p className="text-sm text-zinc-100 leading-relaxed">{researchQuestion}</p>
+          <p className="text-sm text-foreground leading-relaxed">{researchQuestion}</p>
           {createdAt && (
-            <div className="mt-2 inline-flex items-center gap-1.5 glass-chip text-zinc-300">
-              <Clock className="h-3.5 w-3.5 text-zinc-400" />
+            <div className="mt-2 inline-flex items-center gap-1.5 glass-chip text-foreground">
+              <Clock className="h-3.5 w-3.5 text-muted" />
               <span className="text-xs">Run completed {formatRunDate(createdAt)}</span>
             </div>
           )}
@@ -192,9 +192,9 @@ export function ConfigView({
       {(yamlContent || isDraft) && (
         <div className="grid grid-cols-1 xl:grid-cols-[minmax(320px,430px)_minmax(0,1fr)] gap-4 items-start">
           <div className="card-surface overflow-hidden">
-            <div className="glass-toolbar flex items-center gap-2 px-4 py-3 border-b border-zinc-800/70">
-              <Sparkles className="h-3.5 w-3.5 text-zinc-400 shrink-0" />
-              <h3 className="text-sm font-semibold text-zinc-200">Config Generation Summary</h3>
+            <div className="glass-toolbar flex items-center gap-2 px-4 py-3 border-b border-border/70">
+              <Sparkles className="h-3.5 w-3.5 text-muted shrink-0" />
+              <h3 className="text-sm font-semibold text-foreground">Config Generation Summary</h3>
             </div>
             <div className="px-3 py-3 space-y-1.5">
               {generationSummary && CONFIG_GEN_STEPS.map((step) => {
@@ -220,7 +220,7 @@ export function ConfigView({
                       <span className={`h-2 w-2 rounded-full border ${style.dot}`} />
                       <p className={`text-xs font-medium ${style.text}`}>{label}</p>
                     </div>
-                    <p className="text-[11px] text-zinc-500 mt-1 leading-snug">{detail}</p>
+                    <p className="text-[11px] text-muted mt-1 leading-snug">{detail}</p>
                   </div>
                 )
               })}
@@ -228,9 +228,9 @@ export function ConfigView({
           </div>
 
           <div className="card-surface overflow-hidden">
-            <div className="glass-toolbar flex items-center justify-between px-4 py-3 border-b border-zinc-800/70">
-              <h3 className="text-sm font-semibold text-zinc-200">Review Config (YAML)</h3>
-              <span className="text-xs text-zinc-500">
+            <div className="glass-toolbar flex items-center justify-between px-4 py-3 border-b border-border/70">
+              <h3 className="text-sm font-semibold text-foreground">Review Config (YAML)</h3>
+              <span className="text-xs text-muted">
                 {isDraft ? "Generated live before launch" : "Timestamped config used for this run"}
               </span>
             </div>
@@ -260,7 +260,7 @@ export function ConfigView({
                   />
                   <div className="flex items-center justify-end gap-2">
                     {draftConfig?.request === null && (
-                      <span className="text-xs text-zinc-500 mr-auto">
+                      <span className="text-xs text-muted mr-auto">
                         Launch is disabled for pasted/legacy configs started from setup.
                       </span>
                     )}
@@ -278,7 +278,7 @@ export function ConfigView({
                   </div>
                 </>
               ) : (
-                <pre className="text-xs font-mono text-zinc-200 whitespace-pre-wrap break-words max-h-[70vh] overflow-y-auto leading-relaxed">
+                <pre className="text-xs font-mono text-foreground whitespace-pre-wrap break-words max-h-[70vh] overflow-y-auto leading-relaxed">
                   {yamlContent}
                 </pre>
               )}
@@ -324,9 +324,9 @@ function getStatusStyle(status: StepStatus): { row: string; dot: string; text: s
   }
   if (status === "pending") {
     return {
-      row: "bg-zinc-900/60 border-zinc-800/70",
-      dot: "bg-zinc-700 border-zinc-600/80",
-      text: "text-zinc-400",
+      row: "bg-card/60 border-border/70",
+      dot: "bg-surface-3 border-surface-4/80",
+      text: "text-muted",
     }
   }
   if (status === "degraded") {

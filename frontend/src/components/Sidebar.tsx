@@ -97,7 +97,7 @@ interface SidebarProps {
 // ---------------------------------------------------------------------------
 
 const PROGRESS_BAR_COLOR: Record<RunStatus, string> = {
-  idle: "bg-zinc-600",
+  idle: "bg-surface-4",
   connecting: "bg-intent-active",
   streaming: "bg-intent-active",
   done: "bg-intent-success",
@@ -433,7 +433,7 @@ export function Sidebar({
       )}
       <aside
         className={cn(
-          "fixed left-0 top-0 h-full bg-zinc-950/90 border-r border-zinc-800/80 backdrop-blur-sm flex flex-col select-none overflow-hidden",
+          "fixed left-0 top-0 h-full bg-surface-0/90 border-r border-border/80 backdrop-blur-sm flex flex-col select-none overflow-hidden",
           isMobile
             ? cn(
                 "z-50 w-72 transition-transform duration-200 ease-in-out",
@@ -460,7 +460,7 @@ export function Sidebar({
         {/* Logo row — home link + theme toggle (separate buttons; no nested interactive elements) */}
         <div
           className={cn(
-            "relative z-10 flex items-center h-14 glass-toolbar border-b border-zinc-800/70 shrink-0 px-3.5 gap-2 w-full",
+            "relative z-10 flex items-center h-14 glass-toolbar border-b border-border/70 shrink-0 px-3.5 gap-2 w-full",
           )}
         >
           <button
@@ -480,12 +480,12 @@ export function Sidebar({
                 collapsed ? "w-0 opacity-0 overflow-hidden" : "w-auto opacity-100",
               )}
             >
-              <span className="font-semibold text-sm text-zinc-100 tracking-tight whitespace-nowrap">
+              <span className="font-semibold text-sm text-foreground tracking-tight whitespace-nowrap">
                 LitReview
               </span>
               {shouldShowFrontendBuildStamp() && (
                 <span
-                  className="text-[10px] font-mono text-zinc-500 tabular-nums whitespace-nowrap"
+                  className="text-[10px] font-mono text-muted tabular-nums whitespace-nowrap"
                   title={`Frontend build ${FRONTEND_BUILD_STAMP}`}
                 >
                   {FRONTEND_BUILD_STAMP}
@@ -520,7 +520,7 @@ export function Sidebar({
             {/* Section header */}
             {!collapsed && (
               <div className="flex items-center justify-between px-1 mb-1.5">
-                <span className="label-caps font-semibold text-zinc-500 flex items-center gap-1.5">
+                <span className="label-caps font-semibold text-muted flex items-center gap-1.5">
                   <span className="flex h-3.5 w-3.5 items-center justify-center rounded-[3px] border border-intent-primary-border bg-intent-primary-subtle text-intent-primary">
                     <Clock className="h-2.5 w-2.5" />
                   </span>
@@ -530,7 +530,7 @@ export function Sidebar({
                   onClick={() => void loadHistory()}
                   disabled={loadingHistory}
                   aria-label="Refresh history"
-                  className="text-zinc-500 hover:text-zinc-300 transition-colors"
+                  className="text-muted hover:text-foreground transition-colors"
                 >
                   <RefreshCw
                     className={cn("h-3 w-3", loadingHistory && "animate-spin")}
@@ -549,8 +549,8 @@ export function Sidebar({
               <div className="space-y-2">
                 {[1, 2, 3].map((i) => (
                   <div key={i} className="sidebar-card px-3 py-3">
-                    <div className="h-2.5 bg-zinc-700/50 rounded animate-pulse w-3/4 mb-2" />
-                    <div className="h-2 bg-zinc-700/50 rounded animate-pulse w-1/2" />
+                    <div className="h-2.5 bg-surface-3/50 rounded animate-pulse w-3/4 mb-2" />
+                    <div className="h-2 bg-surface-3/50 rounded animate-pulse w-1/2" />
                   </div>
                 ))}
               </div>
@@ -582,7 +582,7 @@ export function Sidebar({
                               <ExpandedWorkflowBadge workflowId={liveRun.workflowId} />
                               <span
                                 className={cn(
-                                  "text-xs text-zinc-300 line-clamp-2 leading-snug min-w-0",
+                                  "text-xs text-foreground line-clamp-2 leading-snug min-w-0",
                                   ((onArchive && liveRun.workflowId && !isRunning) || (isRunning && onCancel)) && "pr-12",
                                 )}
                               >
@@ -616,7 +616,7 @@ export function Sidebar({
                                   {STATUS_LABEL[liveRun.status]}
                                 </span>
                               </div>
-                              <span className="text-zinc-400 font-medium tabular-nums shrink-0">
+                              <span className="text-muted font-medium tabular-nums shrink-0">
                                 {liveRun.startedAt ? formatRunDate(liveRun.startedAt) : "Now"}
                               </span>
                             </div>
@@ -644,12 +644,12 @@ export function Sidebar({
                           title="Archive run"
                           className={cn(
                             "absolute top-0 right-0 flex items-center justify-center h-8 w-8 rounded-bl-md",
-                            "text-zinc-500 hover:text-intent-warning hover:bg-intent-warning-subtle transition-colors",
+                            "text-muted hover:text-intent-warning hover:bg-intent-warning-subtle transition-colors",
                             archivingId === liveRun.workflowId && "opacity-50 cursor-wait",
                           )}
                         >
                           {archivingId === liveRun.workflowId ? (
-                            <div className="h-2.5 w-2.5 border border-zinc-500 border-t-zinc-300 rounded-full animate-spin" />
+                            <div className="h-2.5 w-2.5 border border-muted border-t-foreground rounded-full animate-spin" />
                           ) : (
                             <Archive className="h-3 w-3" />
                           )}
@@ -745,7 +745,7 @@ export function Sidebar({
                                 <ExpandedWorkflowBadge workflowId={entry.workflow_id} />
                                 <span
                                   className={cn(
-                                    "text-xs text-zinc-300 line-clamp-2 leading-snug min-w-0",
+                                    "text-xs text-foreground line-clamp-2 leading-snug min-w-0",
                                     actionPadClass,
                                   )}
                                 >
@@ -770,7 +770,7 @@ export function Sidebar({
                               <div className="flex items-center justify-between gap-2 min-w-0 text-meta">
                                 <div className="flex items-center gap-1.5 shrink-0">
                                   {isOpening ? (
-                                    <div className="h-1.5 w-1.5 rounded-full border border-zinc-500 animate-spin" />
+                                    <div className="h-1.5 w-1.5 rounded-full border border-muted animate-spin" />
                                   ) : (
                                     <RunDot status={statusKey} animate={rowIsRunning} />
                                   )}
@@ -784,7 +784,7 @@ export function Sidebar({
                                   </span>
                                 </div>
                                 {entry.created_at && (
-                                  <span className="text-zinc-400 font-medium tabular-nums shrink-0">
+                                  <span className="text-muted font-medium tabular-nums shrink-0">
                                     {formatRunDate(entry.created_at)}
                                   </span>
                                 )}
@@ -819,12 +819,12 @@ export function Sidebar({
                                 title="Archive run"
                                 className={cn(
                                   "flex items-center justify-center h-7 w-7 rounded-md",
-                                  "text-zinc-500 hover:text-intent-warning hover:bg-intent-warning-subtle transition-colors",
+                                  "text-muted hover:text-intent-warning hover:bg-intent-warning-subtle transition-colors",
                                   archivingId === entry.workflow_id && "opacity-50 cursor-wait",
                                 )}
                               >
                                 {archivingId === entry.workflow_id ? (
-                                  <div className="h-2.5 w-2.5 border border-zinc-500 border-t-zinc-300 rounded-full animate-spin" />
+                                  <div className="h-2.5 w-2.5 border border-muted border-t-foreground rounded-full animate-spin" />
                                 ) : (
                                   <Archive className="h-3 w-3" />
                                 )}
@@ -895,7 +895,7 @@ export function Sidebar({
 
             {!collapsed && !loadingHistory && inProgressHistory.length === 0 && !shouldShowStandaloneLiveCard && (
               <div className="flex flex-col items-center py-6 gap-2">
-                <Clock className="h-6 w-6 text-zinc-700" />
+                <Clock className="h-6 w-6 text-border" />
                 <p className="label-muted text-center">
                   Past reviews will appear here automatically.
                 </p>
@@ -905,7 +905,7 @@ export function Sidebar({
         </nav>
 
         {!collapsed && (
-          <section className="relative z-10 border-t border-zinc-800/80 px-2 py-2 shrink-0">
+          <section className="relative z-10 border-t border-border/80 px-2 py-2 shrink-0">
             <button
               type="button"
               onClick={() => setCompletedExpanded((prev) => !prev)}
@@ -953,7 +953,7 @@ export function Sidebar({
                             className="w-full transition-colors text-left pl-2.5 pr-10 pt-3 pb-2.5"
                           >
                             <div className="flex flex-col gap-1 min-w-0">
-                              <span className="text-xs text-zinc-200 line-clamp-2 leading-snug">
+                              <span className="text-xs text-foreground line-clamp-2 leading-snug">
                                 {entry.topic}
                               </span>
                               <RunCardMetrics
@@ -999,12 +999,12 @@ export function Sidebar({
                                 aria-label="Move run to archived"
                                 title="Move run to archived"
                                 className={cn(
-                                  "h-7 w-7 flex items-center justify-center rounded-md text-zinc-400 hover:text-intent-warning hover:bg-intent-warning-subtle transition-colors",
+                                  "h-7 w-7 flex items-center justify-center rounded-md text-muted hover:text-intent-warning hover:bg-intent-warning-subtle transition-colors",
                                   archivingId === entry.workflow_id && "opacity-50 cursor-wait",
                                 )}
                               >
                                 {archivingId === entry.workflow_id ? (
-                                  <div className="h-2.5 w-2.5 border border-zinc-500 border-t-zinc-300 rounded-full animate-spin" />
+                                  <div className="h-2.5 w-2.5 border border-muted border-t-foreground rounded-full animate-spin" />
                                 ) : (
                                   <Archive className="h-3 w-3" />
                                 )}
@@ -1039,7 +1039,7 @@ export function Sidebar({
             <button
               type="button"
               onClick={() => setArchivedExpanded((prev) => !prev)}
-              className="w-full flex items-center justify-between px-1.5 py-1 rounded-md text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800/60 transition-colors"
+              className="w-full flex items-center justify-between px-1.5 py-1 rounded-md text-muted hover:text-foreground hover:bg-surface-2/60 transition-colors"
             >
               <span className="label-caps font-semibold flex items-center gap-1.5">
                 <span className="flex h-3.5 w-3.5 items-center justify-center rounded-[3px] border border-intent-warning-border bg-intent-warning-subtle text-intent-warning">
@@ -1057,7 +1057,7 @@ export function Sidebar({
             {archivedExpanded && (
               <div className="mt-1 max-h-48 overflow-y-auto space-y-1.5 pr-0.5">
                 {archivedHistory.length === 0 ? (
-                  <p className="px-2 py-1.5 text-[11px] text-zinc-500">
+                  <p className="px-2 py-1.5 text-[11px] text-muted">
                     No archived chats.
                   </p>
                 ) : (
@@ -1083,7 +1083,7 @@ export function Sidebar({
                             className="w-full transition-colors text-left pl-2.5 pr-10 pt-3 pb-2.5"
                           >
                             <div className="flex flex-col gap-1 min-w-0">
-                              <span className="text-xs text-zinc-300 line-clamp-2 leading-snug">
+                              <span className="text-xs text-foreground line-clamp-2 leading-snug">
                                 {entry.topic}
                               </span>
                               <RunCardMetrics
@@ -1113,7 +1113,7 @@ export function Sidebar({
                                   </span>
                                 </div>
                                 {entry.created_at && (
-                                  <span className="text-zinc-500 font-medium tabular-nums shrink-0">
+                                  <span className="text-muted font-medium tabular-nums shrink-0">
                                     {formatRunDate(entry.created_at)}
                                   </span>
                                 )}
@@ -1149,12 +1149,12 @@ export function Sidebar({
                                 aria-label="Restore run"
                                 title="Restore run"
                                 className={cn(
-                                  "h-7 w-7 flex items-center justify-center rounded-md text-zinc-500 hover:text-intent-success hover:bg-intent-success-subtle transition-colors",
+                                  "h-7 w-7 flex items-center justify-center rounded-md text-muted hover:text-intent-success hover:bg-intent-success-subtle transition-colors",
                                   restoringId === entry.workflow_id && "opacity-50 cursor-wait",
                                 )}
                               >
                                 {restoringId === entry.workflow_id ? (
-                                  <div className="h-2.5 w-2.5 border border-zinc-500 border-t-zinc-300 rounded-full animate-spin" />
+                                  <div className="h-2.5 w-2.5 border border-muted border-t-foreground rounded-full animate-spin" />
                                 ) : (
                                   <RotateCcw className="h-3 w-3" />
                                 )}
@@ -1171,12 +1171,12 @@ export function Sidebar({
                                   }}
                                   aria-label="More actions"
                                   title="More actions"
-                                  className="h-7 w-7 flex items-center justify-center rounded-md text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800 transition-colors"
+                                  className="h-7 w-7 flex items-center justify-center rounded-md text-muted hover:text-foreground hover:bg-surface-2 transition-colors"
                                 >
                                   <MoreHorizontal className="h-3 w-3" />
                                 </button>
                                 {openArchivedMenuId === entry.workflow_id && (
-                                  <div className="absolute right-9 top-0 z-40 min-w-[172px] rounded-lg border border-zinc-700/80 bg-zinc-900/95 shadow-xl backdrop-blur-sm p-1.5">
+                                  <div className="absolute right-9 top-0 z-40 min-w-[172px] rounded-lg border border-border/80 bg-card/95 shadow-xl backdrop-blur-sm p-1.5">
                                     <button
                                       type="button"
                                       onClick={(e) => {
@@ -1208,8 +1208,8 @@ export function Sidebar({
           onClick={onToggle}
           aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
           className={cn(
-            "relative z-10 flex items-center justify-center h-9 shrink-0 border-t border-zinc-800",
-            "text-zinc-600 hover:text-zinc-300 hover:bg-zinc-800/50 transition-colors",
+            "relative z-10 flex items-center justify-center h-9 shrink-0 border-t border-border",
+            "text-muted hover:text-foreground hover:bg-surface-2/50 transition-colors",
           )}
         >
           {collapsed ? (
@@ -1289,7 +1289,7 @@ function RunCardMetrics({
               <span className={cn("font-semibold tabular-nums", stage.colorClass)}>
                 {fmtNum(stage.count)}
               </span>
-              <span className="text-zinc-600 font-normal">{stage.label}</span>
+              <span className="text-muted font-normal">{stage.label}</span>
             </span>
           ))
         ) : (
@@ -1297,13 +1297,13 @@ function RunCardMetrics({
             {papersFound != null && (
               <span className="flex items-baseline gap-1 leading-none">
                 <span className="font-semibold tabular-nums text-intent-info">{fmtNum(papersFound)}</span>
-                <span className="text-zinc-600 font-normal">found</span>
+                <span className="text-muted font-normal">found</span>
               </span>
             )}
             {papersIncluded != null && (
               <span className="flex items-baseline gap-1 leading-none">
                 <span className="font-semibold tabular-nums text-intent-success">{fmtNum(papersIncluded)}</span>
-                <span className="text-zinc-600 font-normal">included</span>
+                <span className="text-muted font-normal">included</span>
               </span>
             )}
           </>
@@ -1332,14 +1332,14 @@ function RunCardMetrics({
                   void onCopyWorkflowId(workflowId!)
                 }
               }}
-              className="text-zinc-600 whitespace-nowrap hover:text-zinc-400 transition-colors cursor-pointer"
+              className="text-muted whitespace-nowrap hover:text-foreground transition-colors cursor-pointer"
               title="Copy workflow ID"
             >
               {copiedWorkflowId === workflowId ? "Copied!" : formatWorkflowId(workflowId!)}
             </span>
           ) : (
             <span
-              className="text-zinc-600 whitespace-nowrap"
+              className="text-muted whitespace-nowrap"
               title={workflowId ?? undefined}
             >
               {formatWorkflowId(workflowId!)}
@@ -1358,7 +1358,7 @@ function CardProgressBar({
   status: RunStatus
   progress?: number
 }) {
-  const colorClass = PROGRESS_BAR_COLOR[status] ?? "bg-zinc-600"
+  const colorClass = PROGRESS_BAR_COLOR[status] ?? "bg-surface-4"
   // progress === -1 is the indeterminate sentinel: active background run with no live SSE data
   const isIndeterminate = progress === -1
   const showFill =
@@ -1368,7 +1368,7 @@ function CardProgressBar({
 
   if (isIndeterminate) {
     return (
-      <div className="h-0.5 overflow-hidden bg-zinc-700/40">
+      <div className="h-0.5 overflow-hidden bg-surface-3/40">
         <div className="h-full w-1/3 rounded-full bg-intent-active/70 animate-pulse" />
       </div>
     )
@@ -1378,7 +1378,7 @@ function CardProgressBar({
     <div
       className={cn(
         "h-0.5 overflow-hidden",
-        showFill ? "bg-zinc-700/40" : colorClass,
+        showFill ? "bg-surface-3/40" : colorClass,
       )}
     >
       {showFill && (
@@ -1441,7 +1441,7 @@ function RunDot({
   status: RunStatus | "idle"
   animate?: boolean
 }) {
-  const color = STATUS_DOT[status] ?? "bg-zinc-600"
+  const color = STATUS_DOT[status] ?? "bg-surface-4"
   if (animate) {
     return (
       <span className="relative flex h-1.5 w-1.5 shrink-0">
@@ -1475,7 +1475,7 @@ function SidebarTooltip({
       <TooltipTrigger asChild>{children}</TooltipTrigger>
       <TooltipContent
         side={side ?? "right"}
-        className="bg-zinc-800 border-zinc-700 text-zinc-200 text-xs max-w-[200px]"
+        className="bg-card border-border text-foreground text-xs max-w-[200px]"
       >
         {label}
       </TooltipContent>
@@ -1543,14 +1543,14 @@ function NoteField({
         placeholder="Add a note..."
         className={cn(
           "w-full bg-transparent resize-none text-[11px] leading-relaxed",
-          "text-intent-warning/90 placeholder-zinc-600",
+          "text-intent-warning/90 placeholder-muted",
           "border-none outline-none focus:outline-none",
           "scrollbar-none block",
         )}
         style={{ minHeight: "1.4rem", overflowY: "hidden" }}
       />
       {saveState !== "idle" && (
-        <span className="text-[10px] text-zinc-600 tabular-nums">
+        <span className="text-[10px] text-muted tabular-nums">
           {saveState === "saving" ? "Saving..." : "Saved"}
         </span>
       )}

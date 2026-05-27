@@ -17,7 +17,7 @@ export function Th({ children, align, filter, className }: ThProps) {
   return (
     <th
       className={cn(
-        "px-4 py-2.5 text-xs font-medium text-zinc-300 uppercase tracking-wide",
+        "px-4 py-2.5 text-xs font-medium text-foreground uppercase tracking-wide",
         align === "right" ? "text-right" : "text-left",
         className,
       )}
@@ -48,7 +48,7 @@ export function Td({ children, className, align }: TdProps) {
   return (
     <td
       className={cn(
-        "px-4 py-2.5 text-zinc-200",
+        "px-4 py-2.5 text-foreground",
         align === "right" ? "text-right" : "text-left",
         className,
       )}
@@ -77,7 +77,7 @@ export function TableSkeleton({ cols, rows }: TableSkeletonProps) {
           {Array.from({ length: cols }).map((_, j) => (
             <div
               key={j}
-              className="h-4 rounded animate-pulse bg-zinc-700/50"
+              className="h-4 rounded animate-pulse bg-surface-3/50"
               style={{ flex: j === 0 ? 3 : 1 }}
             />
           ))}
@@ -108,7 +108,7 @@ export function Pagination({ page, pageSize, total, onPrev, onNext }: Pagination
   if (total <= pageSize) return null
 
   return (
-    <div className="flex items-center justify-between text-xs text-zinc-400">
+    <div className="flex items-center justify-between text-xs text-muted">
       <span>
         {start}-{end} of {total.toLocaleString()}
       </span>
@@ -118,7 +118,7 @@ export function Pagination({ page, pageSize, total, onPrev, onNext }: Pagination
           variant="outline"
           onClick={onPrev}
           disabled={!hasPrev}
-          className="h-9 w-9 p-0 border-zinc-800"
+          className="h-9 w-9 p-0 border-border"
           aria-label="Previous page"
         >
           <ChevronLeft className="h-3.5 w-3.5" />
@@ -128,7 +128,7 @@ export function Pagination({ page, pageSize, total, onPrev, onNext }: Pagination
           variant="outline"
           onClick={onNext}
           disabled={!hasNext}
-          className="h-9 w-9 p-0 border-zinc-800"
+          className="h-9 w-9 p-0 border-border"
           aria-label="Next page"
         >
           <ChevronRight className="h-3.5 w-3.5" />

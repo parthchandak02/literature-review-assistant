@@ -42,7 +42,7 @@ function formatLabel(value: string): string {
 function PrismaStatusIcon({ status }: { status: string }) {
   if (status === "REPORTED") return <CheckCircle className="h-3.5 w-3.5 text-intent-success shrink-0" />
   if (status === "PARTIAL") return <AlertTriangle className="h-3.5 w-3.5 text-intent-warning shrink-0" />
-  if (status === "NOT_APPLICABLE") return <BookOpen className="h-3.5 w-3.5 text-zinc-500 shrink-0" />
+  if (status === "NOT_APPLICABLE") return <BookOpen className="h-3.5 w-3.5 text-muted shrink-0" />
   return <XCircle className="h-3.5 w-3.5 text-intent-danger shrink-0" />
 }
 
@@ -50,7 +50,7 @@ function auditStatusBadgeClass(status: string): string {
   if (status === "passed") return "text-intent-success border-intent-success-border bg-intent-success-subtle"
   if (status === "blocked") return "text-intent-danger border-intent-danger-border bg-intent-danger-subtle"
   if (status === "completed_with_findings") return "text-intent-warning border-intent-warning-border bg-intent-warning-subtle"
-  return "text-zinc-300 border-zinc-700 bg-zinc-900/40"
+  return "text-foreground border-border bg-surface-2/40"
 }
 
 function ReadinessCard({ runId, workflowId }: { runId: string; workflowId?: string | null }) {
@@ -124,7 +124,7 @@ function ReadinessCard({ runId, workflowId }: { runId: string; workflowId?: stri
             </div>
             <div className="grid gap-2">
               {data.checks.map((check) => (
-                <div key={check.name} className="rounded-lg border border-zinc-800 bg-zinc-950/60 px-3 py-2">
+                <div key={check.name} className="rounded-lg border border-border bg-card/60 px-3 py-2">
                   <div className="flex items-start gap-2">
                     {check.ok ? (
                       <CheckCircle className="mt-0.5 h-4 w-4 text-intent-success shrink-0" />
@@ -132,8 +132,8 @@ function ReadinessCard({ runId, workflowId }: { runId: string; workflowId?: stri
                       <AlertTriangle className="mt-0.5 h-4 w-4 text-intent-warning shrink-0" />
                     )}
                     <div className="min-w-0">
-                      <div className="text-sm text-zinc-200">{formatLabel(check.name)}</div>
-                      {check.detail && <div className="mt-0.5 text-xs text-zinc-500">{check.detail}</div>}
+                      <div className="text-sm text-foreground">{formatLabel(check.name)}</div>
+                      {check.detail && <div className="mt-0.5 text-xs text-muted">{check.detail}</div>}
                     </div>
                   </div>
                 </div>
@@ -248,7 +248,7 @@ function PrismaCard({ runId }: { runId: string }) {
               <span className="text-intent-success font-semibold">{data.reported_count} Reported</span>
               <span className="text-intent-warning font-semibold">{data.partial_count} Partial</span>
               <span className="text-intent-danger font-semibold">{data.missing_count} Missing</span>
-              <span className="text-zinc-400 font-semibold">{data.not_applicable_count} N/A</span>
+              <span className="text-muted font-semibold">{data.not_applicable_count} N/A</span>
             </div>
 
             <div className="flex items-center gap-1 flex-wrap">
@@ -260,7 +260,7 @@ function PrismaCard({ runId }: { runId: string }) {
                     "px-2.5 py-1 rounded-full text-xs border transition-colors",
                     sectionFilter === section
                       ? "border-intent-primary-border bg-intent-primary-subtle text-intent-primary"
-                      : "border-zinc-700 text-zinc-500 hover:text-zinc-300",
+                      : "border-border text-muted hover:text-foreground",
                   )}
                 >
                   {section}
@@ -279,18 +279,18 @@ function PrismaCard({ runId }: { runId: string }) {
                       : item.status === "PARTIAL"
                         ? "bg-intent-warning-subtle"
                         : item.status === "NOT_APPLICABLE"
-                          ? "bg-zinc-900/40"
+                          ? "bg-surface-2/40"
                           : "bg-intent-danger-subtle",
                   )}
                 >
                   <PrismaStatusIcon status={item.status} />
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 flex-wrap">
-                      <span className="font-mono text-zinc-500 shrink-0">{item.item_id}</span>
-                      <span className="text-zinc-400 font-medium leading-snug">{item.description}</span>
-                      <span className="text-zinc-600 ml-auto shrink-0">{item.section}</span>
+                      <span className="font-mono text-muted shrink-0">{item.item_id}</span>
+                      <span className="text-muted font-medium leading-snug">{item.description}</span>
+                      <span className="text-muted ml-auto shrink-0">{item.section}</span>
                     </div>
-                    {item.rationale && <p className="text-zinc-600 mt-0.5 leading-relaxed">{item.rationale}</p>}
+                    {item.rationale && <p className="text-muted mt-0.5 leading-relaxed">{item.rationale}</p>}
                   </div>
                 </div>
               ))}
@@ -436,7 +436,7 @@ function ManuscriptAuditCard({ runId }: { runId: string }) {
                     "text-[10px] font-mono px-2 py-1 rounded border",
                     selectedAuditRunId === run.audit_run_id
                       ? "border-intent-primary-border bg-intent-primary-subtle text-intent-primary"
-                      : "border-zinc-800 bg-zinc-900/40 text-zinc-400 hover:text-zinc-200",
+                      : "border-border bg-card/40 text-muted hover:text-foreground",
                   )}
                   onClick={() => {
                     setSelectedAuditRunId(run.audit_run_id)
@@ -447,8 +447,8 @@ function ManuscriptAuditCard({ runId }: { runId: string }) {
                 </button>
               ))}
             </div>
-            <div className="text-xs text-zinc-400">
-              <span className="text-zinc-300 font-medium">Summary:</span> {selectedRun.summary || "No summary."}
+            <div className="text-xs text-muted">
+              <span className="text-foreground font-medium">Summary:</span> {selectedRun.summary || "No summary."}
             </div>
             <div
               className={cn(
@@ -474,27 +474,27 @@ function ManuscriptAuditCard({ runId }: { runId: string }) {
               </div>
             </div>
             <div className="flex items-center gap-3 text-xs flex-wrap p-3 rounded-lg glass-panel">
-              <span className="text-zinc-300">Findings: {selectedRun.total_findings}</span>
+              <span className="text-foreground">Findings: {selectedRun.total_findings}</span>
               <span className="text-intent-danger">Major: {selectedRun.major_count}</span>
               <span className="text-intent-warning">Minor: {selectedRun.minor_count}</span>
-              <span className="text-zinc-400">Notes: {selectedRun.note_count}</span>
+              <span className="text-muted">Notes: {selectedRun.note_count}</span>
               <span className="text-intent-primary">Blocking: {selectedRun.blocking_count}</span>
             </div>
             {selectedRun.top_recommendations && selectedRun.top_recommendations.length > 0 && (
-              <div className="rounded-lg border border-zinc-800 bg-zinc-950/60 px-3 py-3">
-                <div className="text-xs font-semibold text-zinc-200">Top next fixes</div>
+              <div className="rounded-lg border border-border bg-card/60 px-3 py-3">
+                <div className="text-xs font-semibold text-foreground">Top next fixes</div>
                 <div className="mt-2 space-y-2">
                   {selectedRun.top_recommendations.slice(0, 3).map((recommendation) => (
-                    <div key={recommendation} className="text-xs text-zinc-400">
+                    <div key={recommendation} className="text-xs text-muted">
                       {recommendation}
                     </div>
                   ))}
                 </div>
               </div>
             )}
-            <div className="text-xs rounded-lg px-3 py-2 bg-zinc-900/50 border border-zinc-800 space-y-1">
-              <div className="text-zinc-200">{describeManuscriptGate(selectedRun)}</div>
-              <div className="text-zinc-400">{describeManuscriptContract(selectedRun)}</div>
+            <div className="text-xs rounded-lg px-3 py-2 bg-card/50 border border-border space-y-1">
+              <div className="text-foreground">{describeManuscriptGate(selectedRun)}</div>
+              <div className="text-muted">{describeManuscriptContract(selectedRun)}</div>
               {selectedRun.gate_failure_reasons.length > 0 && (
                 <div className="space-y-1 pt-1">
                   {selectedRun.gate_failure_reasons.map((reason) => (
@@ -505,7 +505,7 @@ function ManuscriptAuditCard({ runId }: { runId: string }) {
                 </div>
               )}
               {selectedRun.contract_violations.slice(0, 5).map((violation) => (
-                <div key={`${violation.code}-${violation.message}`} className="text-zinc-500">
+                <div key={`${violation.code}-${violation.message}`} className="text-muted">
                   {violation.code}: {violation.message}
                 </div>
               ))}
@@ -514,10 +514,10 @@ function ManuscriptAuditCard({ runId }: { runId: string }) {
               {findings.slice(0, 12).map((finding) => (
                 <div
                   key={finding.finding_id}
-                  className="text-xs rounded-lg px-3 py-2 bg-zinc-900/50 border border-zinc-800"
+                  className="text-xs rounded-lg px-3 py-2 bg-card/50 border border-border"
                 >
                   <div className="flex items-center gap-2">
-                    <span className="font-mono text-zinc-500">{finding.profile}</span>
+                    <span className="font-mono text-muted">{finding.profile}</span>
                     <span
                       className={cn(
                         "uppercase text-[10px] font-semibold",
@@ -525,15 +525,15 @@ function ManuscriptAuditCard({ runId }: { runId: string }) {
                           ? "text-intent-danger"
                           : finding.severity === "minor"
                             ? "text-intent-warning"
-                            : "text-zinc-400",
+                            : "text-muted",
                       )}
                     >
                       {finding.severity}
                     </span>
-                    {finding.section ? <span className="text-zinc-500">[{finding.section}]</span> : null}
+                    {finding.section ? <span className="text-muted">[{finding.section}]</span> : null}
                   </div>
-                  <div className="text-zinc-300 mt-1">{finding.evidence}</div>
-                  <div className="text-zinc-500 mt-1">Fix: {finding.recommendation}</div>
+                  <div className="text-foreground mt-1">{finding.evidence}</div>
+                  <div className="text-muted mt-1">Fix: {finding.recommendation}</div>
                 </div>
               ))}
             </div>
@@ -585,7 +585,7 @@ function RunDiagnosticsCard({ runId, workflowId }: { runId: string; workflowId?:
       onToggle={handleToggle}
       badge={
         data ? (
-          <span className="text-[10px] font-mono px-1.5 py-0.5 rounded border shrink-0 border-zinc-700 bg-zinc-900/40 text-zinc-300">
+          <span className="text-[10px] font-mono px-1.5 py-0.5 rounded border shrink-0 border-border bg-surface-2/40 text-foreground">
             {data.writing_manifests.length} manifests
           </span>
         ) : null
@@ -602,27 +602,27 @@ function RunDiagnosticsCard({ runId, workflowId }: { runId: string; workflowId?:
         {data && (
           <>
             <div className="grid gap-2 md:grid-cols-3">
-              <div className="rounded-lg border border-zinc-800 bg-zinc-950/60 px-3 py-2 text-xs">
-                <div className="text-zinc-500">Workflow</div>
-                <div className="mt-1 font-mono text-zinc-200">{data.workflow_id}</div>
+              <div className="rounded-lg border border-border bg-card/60 px-3 py-2 text-xs">
+                <div className="text-muted">Workflow</div>
+                <div className="mt-1 font-mono text-foreground">{data.workflow_id}</div>
               </div>
-              <div className="rounded-lg border border-zinc-800 bg-zinc-950/60 px-3 py-2 text-xs">
-                <div className="text-zinc-500">Step failures</div>
-                <div className="mt-1 text-zinc-200">{data.step_failures}</div>
+              <div className="rounded-lg border border-border bg-card/60 px-3 py-2 text-xs">
+                <div className="text-muted">Step failures</div>
+                <div className="mt-1 text-foreground">{data.step_failures}</div>
               </div>
-              <div className="rounded-lg border border-zinc-800 bg-zinc-950/60 px-3 py-2 text-xs">
-                <div className="text-zinc-500">Fallback events</div>
-                <div className="mt-1 text-zinc-200">{data.fallback_count}</div>
+              <div className="rounded-lg border border-border bg-card/60 px-3 py-2 text-xs">
+                <div className="text-muted">Fallback events</div>
+                <div className="mt-1 text-foreground">{data.fallback_count}</div>
               </div>
             </div>
 
-            <div className="rounded-lg border border-zinc-800 bg-zinc-950/60 px-3 py-3">
-              <div className="text-xs font-semibold text-zinc-300">Step summary</div>
+            <div className="rounded-lg border border-border bg-card/60 px-3 py-3">
+              <div className="text-xs font-semibold text-foreground">Step summary</div>
               <div className="mt-2 space-y-2">
                 {Object.entries(data.step_summary).map(([phase, statuses]) => (
                   <div key={phase} className="text-xs flex items-start justify-between gap-4">
-                    <span className="font-mono text-zinc-400">{phase}</span>
-                    <span className="text-zinc-500 text-right">
+                    <span className="font-mono text-muted">{phase}</span>
+                    <span className="text-muted text-right">
                       {Object.entries(statuses)
                         .map(([status, count]) => `${status}: ${count}`)
                         .join(" | ")}
@@ -632,35 +632,35 @@ function RunDiagnosticsCard({ runId, workflowId }: { runId: string; workflowId?:
               </div>
             </div>
 
-            <div className="rounded-lg border border-zinc-800 bg-zinc-950/60 px-3 py-3">
-              <div className="text-xs font-semibold text-zinc-300">Fallback summary</div>
+            <div className="rounded-lg border border-border bg-card/60 px-3 py-3">
+              <div className="text-xs font-semibold text-foreground">Fallback summary</div>
               <div className="mt-2 space-y-2">
                 {data.fallback_summary.length === 0 ? (
-                  <div className="text-xs text-zinc-500">No fallback events recorded for the active generation.</div>
+                  <div className="text-xs text-muted">No fallback events recorded for the active generation.</div>
                 ) : (
                   data.fallback_summary.map((row) => (
                     <div key={`${row.phase}-${row.module}-${row.fallback_type}`} className="text-xs flex items-start justify-between gap-4">
-                      <span className="text-zinc-400">{row.phase} / {row.module}</span>
-                      <span className="text-zinc-500">{row.fallback_type} x {row.event_count}</span>
+                      <span className="text-muted">{row.phase} / {row.module}</span>
+                      <span className="text-muted">{row.fallback_type} x {row.event_count}</span>
                     </div>
                   ))
                 )}
               </div>
             </div>
 
-            <div className="rounded-lg border border-zinc-800 bg-zinc-950/60 px-3 py-3">
-              <div className="text-xs font-semibold text-zinc-300">Writing manifests</div>
+            <div className="rounded-lg border border-border bg-card/60 px-3 py-3">
+              <div className="text-xs font-semibold text-foreground">Writing manifests</div>
               <div className="mt-2 space-y-2">
                 {data.writing_manifests.length === 0 ? (
-                  <div className="text-xs text-zinc-500">No writing manifests recorded.</div>
+                  <div className="text-xs text-muted">No writing manifests recorded.</div>
                 ) : (
                   data.writing_manifests.slice(0, 12).map((row) => (
-                    <div key={`${row.section_key}-${row.attempt_number}-${row.generation}`} className="rounded-md border border-zinc-800/80 px-3 py-2 text-xs">
+                    <div key={`${row.section_key}-${row.attempt_number}-${row.generation}`} className="rounded-md border border-border/80 px-3 py-2 text-xs">
                       <div className="flex items-center justify-between gap-3">
-                        <span className="font-mono text-zinc-300">{row.section_key}</span>
-                        <span className="text-zinc-500">attempt {row.attempt_number} / gen {row.generation}</span>
+                        <span className="font-mono text-foreground">{row.section_key}</span>
+                        <span className="text-muted">attempt {row.attempt_number} / gen {row.generation}</span>
                       </div>
-                      <div className="mt-1 text-zinc-500">
+                      <div className="mt-1 text-muted">
                         contract={row.contract_status} | retries={row.retry_count} | fallback={row.fallback_used ? "yes" : "no"} | words={row.word_count ?? "n/a"}
                       </div>
                     </div>
@@ -716,7 +716,7 @@ function RagDiagnosticsCard({ runId, workflowId }: { runId: string; workflowId?:
       onToggle={handleToggle}
       badge={
         data ? (
-          <span className="text-[10px] font-mono px-1.5 py-0.5 rounded border shrink-0 border-zinc-700 bg-zinc-900/40 text-zinc-300">
+          <span className="text-[10px] font-mono px-1.5 py-0.5 rounded border shrink-0 border-border bg-surface-2/40 text-foreground">
             {data.total} records
           </span>
         ) : null
@@ -733,22 +733,22 @@ function RagDiagnosticsCard({ runId, workflowId }: { runId: string; workflowId?:
         {data && (
           <div className="space-y-2">
             {data.records.length === 0 ? (
-              <div className="text-xs text-zinc-500">No RAG diagnostics recorded for this run.</div>
+              <div className="text-xs text-muted">No RAG diagnostics recorded for this run.</div>
             ) : (
               data.records.slice(0, 12).map((row, idx) => (
-                <div key={`${row.section}-${row.created_at}-${idx}`} className="rounded-lg border border-zinc-800 bg-zinc-950/60 px-3 py-3 text-xs">
+                <div key={`${row.section}-${row.created_at}-${idx}`} className="rounded-lg border border-border bg-card/60 px-3 py-3 text-xs">
                   <div className="flex items-center justify-between gap-3">
-                    <span className="font-mono text-zinc-300">{row.section}</span>
+                    <span className="font-mono text-foreground">{row.section}</span>
                     <span className={cn("uppercase tracking-wide", row.status === "ok" ? "text-intent-success" : "text-intent-warning")}>
                       {row.status}
                     </span>
                   </div>
-                  <div className="mt-1 text-zinc-500">
+                  <div className="mt-1 text-muted">
                     {row.query_type} | retrieved={row.retrieved_count} | candidate_k={row.candidate_k} | final_k={row.final_k} | latency={row.latency_ms}ms | rerank={row.rerank_enabled ? "yes" : "no"}
                   </div>
                   {row.error_message && <div className="mt-1 text-intent-danger">{row.error_message}</div>}
                   {row.selected_chunks.length > 0 && (
-                    <div className="mt-2 text-zinc-500">
+                    <div className="mt-2 text-muted">
                       Top chunks: {row.selected_chunks.slice(0, 3).map((chunk) => chunk.citekey || chunk.paper_id || chunk.chunk_id || "chunk").join(", ")}
                     </div>
                   )}
@@ -781,9 +781,9 @@ export function QualityView({ exportRunId, workflowId }: QualityViewProps) {
 
   return (
     <div className="flex flex-col gap-3 min-h-[520px]">
-      <div className="rounded-xl border border-zinc-800 bg-zinc-950/60 px-4 py-4">
-        <div className="text-sm font-semibold text-zinc-100">Advanced quality diagnostics</div>
-        <div className="mt-1 text-sm text-zinc-300">
+      <div className="rounded-xl border border-border bg-card/60 px-4 py-4">
+        <div className="text-sm font-semibold text-foreground">Advanced quality diagnostics</div>
+        <div className="mt-1 text-sm text-foreground">
           Use Results for the primary submission decision. This tab is the deep-dive for readiness checks, audit findings, PRISMA detail, and diagnostics.
         </div>
       </div>

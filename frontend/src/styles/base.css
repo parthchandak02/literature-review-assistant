@@ -1,4 +1,6 @@
 @layer base {
+  /* Legacy shadcn-compatible aliases.
+   * Canonical design tokens live in tokens.css/theme-overrides.css. */
   :root {
     --background: 240 10% 3.9%;
     --foreground: 0 0% 98%;
@@ -32,28 +34,6 @@
 
   html[data-theme="light"] {
     color-scheme: light;
-  }
-
-  html[data-theme="dark"] {
-    --background: 240 10% 3.9%;
-    --foreground: 0 0% 98%;
-    --card: 240 10% 3.9%;
-    --card-foreground: 0 0% 98%;
-    --popover: 240 10% 3.9%;
-    --popover-foreground: 0 0% 98%;
-    --primary: 263.4 70% 50.4%;
-    --primary-foreground: 210 40% 98%;
-    --secondary: 240 3.7% 15.9%;
-    --secondary-foreground: 0 0% 98%;
-    --muted: 240 3.7% 15.9%;
-    --muted-foreground: 240 5% 64.9%;
-    --accent: 240 3.7% 15.9%;
-    --accent-foreground: 0 0% 98%;
-    --destructive: 0 62.8% 30.6%;
-    --destructive-foreground: 0 0% 98%;
-    --border: 240 3.7% 15.9%;
-    --input: 240 3.7% 15.9%;
-    --ring: 263.4 70% 50.4%;
   }
 
   body {
@@ -105,6 +85,15 @@
       radial-gradient(44% 34% at 14% 12%, rgb(139 92 246 / var(--ambient-violet-alpha)) 0%, rgb(139 92 246 / 0.03) 42%, transparent 72%),
       radial-gradient(48% 36% at 84% 16%, rgb(251 146 60 / var(--ambient-orange-alpha)) 0%, rgb(251 146 60 / var(--ambient-orange-alpha-soft)) 38%, transparent 74%),
       linear-gradient(180deg, #0b0b10 0%, #09090b 100%);
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after {
+      animation-duration: 0ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0ms !important;
+      scroll-behavior: auto !important;
+    }
   }
 }
 

@@ -82,12 +82,12 @@ export class AppErrorBoundary extends Component<{ children: ReactNode }, ErrorBo
   render() {
     if (this.state.hasError) {
       return (
-        <div className="flex flex-col items-center justify-center h-screen bg-background text-zinc-100 gap-4 p-8">
+        <div className="flex flex-col items-center justify-center h-screen bg-background text-foreground gap-4 p-8">
           <AlertTriangle className="h-10 w-10 text-intent-danger" />
           <h1 className="text-xl font-semibold text-intent-danger">Something went wrong</h1>
-          <p className="text-zinc-400 text-sm max-w-md text-center">{this.state.message}</p>
+          <p className="text-muted text-sm max-w-md text-center">{this.state.message}</p>
           <button
-            className="mt-2 px-4 py-2 text-sm rounded bg-zinc-800 hover:bg-zinc-700 text-zinc-100 transition-colors"
+            className="mt-2 px-4 py-2 text-sm rounded bg-surface-2 hover:bg-surface-3 text-foreground transition-colors"
             onClick={() => { this.setState({ hasError: false, message: "" }); window.location.href = "/" }}
           >
             Reload app
@@ -1209,7 +1209,7 @@ export default function App() {
   }
 
   return (
-    <div className="flex h-dvh bg-background text-zinc-100 overflow-hidden">
+    <div className="flex h-dvh bg-background text-foreground overflow-hidden">
       <Toaster position="top-center" richColors closeButton />
       <Sidebar
         liveRun={liveRunForSidebar}
@@ -1249,7 +1249,7 @@ export default function App() {
         />
         {/* Top bar -- paddingTop pushes content below the iOS status bar when viewport-fit=cover is active */}
         <header
-          className="sticky top-0 z-30 glass-toolbar border-b border-zinc-800/70 shrink-0"
+          className="sticky top-0 z-30 glass-toolbar border-b border-border/70 shrink-0"
           style={{ paddingTop: 'env(safe-area-inset-top)' }}
         >
           <div className="h-14 flex items-center px-4 gap-3">
@@ -1258,7 +1258,7 @@ export default function App() {
               <button
                 onClick={() => setSidebarCollapsed(false)}
                 aria-label="Open menu"
-                className="flex items-center justify-center h-10 w-10 -ml-1 rounded-lg text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800 transition-colors shrink-0"
+                className="flex items-center justify-center h-10 w-10 -ml-1 rounded-lg text-muted hover:text-foreground hover:bg-surface-2 transition-colors shrink-0"
               >
                 <Menu className="h-5 w-5" />
               </button>
@@ -1272,23 +1272,23 @@ export default function App() {
                       <TooltipTrigger asChild>
                         <button
                           onClick={() => void handleCopyTopic()}
-                          className="text-zinc-400 font-medium truncate flex-1 min-w-0 text-left hover:text-zinc-200 transition-colors cursor-pointer"
+                          className="text-muted font-medium truncate flex-1 min-w-0 text-left hover:text-foreground transition-colors cursor-pointer"
                         >
                           {breadcrumbTopic}
                         </button>
                       </TooltipTrigger>
                       <TooltipContent
                         side="bottom"
-                        className="max-w-md break-words bg-zinc-800 border-zinc-700 text-zinc-200"
+                        className="max-w-md break-words bg-card border-border text-foreground"
                       >
                         {breadcrumbTopic}
                       </TooltipContent>
                     </Tooltip>
-                    <span className="text-zinc-700 shrink-0">/</span>
-                    <span className="text-zinc-300 font-medium shrink-0">{breadcrumbTab}</span>
+                    <span className="text-border shrink-0">/</span>
+                    <span className="text-foreground font-medium shrink-0">{breadcrumbTab}</span>
                   </>
                 ) : (
-                  <span className="text-zinc-300 font-medium">{breadcrumbTab}</span>
+                  <span className="text-foreground font-medium">{breadcrumbTab}</span>
                 )}
               </div>
             </TooltipProvider>
@@ -1323,7 +1323,7 @@ export default function App() {
         <button
           type="button"
           onClick={handleOpenSettings}
-          className="fixed bottom-4 right-4 z-40 inline-flex items-center justify-center h-10 w-10 rounded-full border border-zinc-700 bg-zinc-900/95 text-zinc-400 shadow-lg hover:bg-zinc-800 hover:text-zinc-100 transition-colors"
+          className="fixed bottom-4 right-4 z-40 inline-flex items-center justify-center h-10 w-10 rounded-full border border-border bg-card/95 text-muted shadow-lg hover:bg-surface-2 hover:text-foreground transition-colors"
           aria-label="Open settings"
           title="Settings"
         >

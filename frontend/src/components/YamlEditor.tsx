@@ -57,7 +57,7 @@ export function YamlEditor({
             variant="ghost"
             size="sm"
             onClick={() => setEditMode(false)}
-            className="text-zinc-500 hover:text-zinc-300 text-xs gap-1.5"
+            className="text-muted hover:text-foreground text-xs gap-1.5"
           >
             <Eye className="h-3.5 w-3.5" />
             Preview
@@ -68,7 +68,7 @@ export function YamlEditor({
           onChange={(e) => onChange(e.target.value)}
           rows={rows}
           placeholder={placeholder}
-          className="resize-none text-xs font-mono bg-zinc-950 border-zinc-800 text-zinc-300 placeholder:text-zinc-600 focus-visible:ring-intent-primary leading-relaxed"
+          className="resize-none text-xs font-mono bg-background border-border text-foreground placeholder:text-muted focus-visible:ring-intent-primary leading-relaxed"
           spellCheck={false}
         />
       </div>
@@ -80,28 +80,28 @@ export function YamlEditor({
       <style>{previewTokenStyle}</style>
       <div className="flex justify-end">
         {isLoading ? (
-          <span className="text-xs text-zinc-500">{loadingLabel}</span>
+          <span className="text-xs text-muted">{loadingLabel}</span>
         ) : (
           <Button
             type="button"
             variant="ghost"
             size="sm"
             onClick={() => setEditMode(true)}
-            className="text-zinc-500 hover:text-zinc-300 text-xs gap-1.5"
+            className="text-muted hover:text-foreground text-xs gap-1.5"
           >
             <Pencil className="h-3.5 w-3.5" />
             Edit
           </Button>
         )}
       </div>
-      <ScrollArea className="border border-zinc-800 rounded-md bg-zinc-950 h-[400px]">
+      <ScrollArea className="border border-border rounded-md bg-background h-[400px]">
         <pre className="hljs yaml-preview-pre text-xs p-4 font-mono leading-relaxed whitespace-pre-wrap min-h-full">
           {isLoading ? (
-            <code className="text-zinc-500">{loadingLabel}</code>
+            <code className="text-muted">{loadingLabel}</code>
           ) : value.trim() ? (
             <code dangerouslySetInnerHTML={{ __html: highlighted }} />
           ) : (
-            <code className="text-zinc-600">{placeholder}</code>
+            <code className="text-muted">{placeholder}</code>
           )}
         </pre>
       </ScrollArea>

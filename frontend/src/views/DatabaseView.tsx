@@ -343,7 +343,7 @@ export function DatabaseView({ runId, isDone, dbAvailable, isLive }: DatabaseVie
         )}
         <div className="flex items-center gap-3 ml-auto">
           {!error && (
-            <span className="text-xs text-zinc-500 tabular-nums">
+            <span className="text-xs text-muted tabular-nums">
               {total.toLocaleString()} papers
             </span>
           )}
@@ -376,7 +376,7 @@ export function DatabaseView({ runId, isDone, dbAvailable, isLive }: DatabaseVie
           <div className="overflow-x-auto">
             <table className="w-full text-xs">
               <thead>
-                <tr className="glass-table-head border-b border-zinc-800/70">
+                <tr className="glass-table-head border-b border-border/70">
                   <Th
                     filter={
                       <FilterComboboxPopover
@@ -486,7 +486,7 @@ export function DatabaseView({ runId, isDone, dbAvailable, isLive }: DatabaseVie
                   <tr
                     key={p.paper_id}
                     className={cn(
-                      "glass-table-row border-b border-zinc-800/40",
+                      "glass-table-row border-b border-border/40",
                       i === papers.length - 1 && "border-0",
                     )}
                   >
@@ -500,13 +500,13 @@ export function DatabaseView({ runId, isDone, dbAvailable, isLive }: DatabaseVie
                             rel="noopener noreferrer"
                             className="group flex items-start gap-1"
                           >
-                            <span className="line-clamp-2 text-zinc-200 group-hover:text-zinc-100 group-hover:underline underline-offset-2">
+                            <span className="line-clamp-2 text-foreground group-hover:text-foreground group-hover:underline underline-offset-2">
                               {p.title}
                             </span>
-                            <ExternalLink className="h-3 w-3 shrink-0 mt-0.5 text-zinc-600 group-hover:text-zinc-400 transition-colors" />
+                            <ExternalLink className="h-3 w-3 shrink-0 mt-0.5 text-muted group-hover:text-foreground transition-colors" />
                           </a>
                         ) : (
-                          <span className="line-clamp-2 text-zinc-200">{p.title}</span>
+                          <span className="line-clamp-2 text-foreground">{p.title}</span>
                         )
                       })()}
                     </Td>
@@ -530,12 +530,12 @@ export function DatabaseView({ runId, isDone, dbAvailable, isLive }: DatabaseVie
       </div>
 
       <div className="card-surface overflow-hidden">
-        <div className="px-4 py-3 border-b border-zinc-800/70 flex items-center justify-between gap-3">
+        <div className="px-4 py-3 border-b border-border/70 flex items-center justify-between gap-3">
           <div>
-            <div className="text-sm font-semibold text-zinc-200">Extracted Outcomes</div>
-            <div className="text-xs text-zinc-500">Deterministic table extraction results from included studies.</div>
+            <div className="text-sm font-semibold text-foreground">Extracted Outcomes</div>
+            <div className="text-xs text-muted">Deterministic table extraction results from included studies.</div>
           </div>
-          <div className="text-xs text-zinc-500">{flattenedOutcomes.length.toLocaleString()} outcome rows</div>
+          <div className="text-xs text-muted">{flattenedOutcomes.length.toLocaleString()} outcome rows</div>
         </div>
         {outcomeError ? (
           <div className="p-4">
@@ -547,7 +547,7 @@ export function DatabaseView({ runId, isDone, dbAvailable, isLive }: DatabaseVie
           <div className="overflow-x-auto">
             <table className="w-full text-xs">
               <thead>
-                <tr className="glass-table-head border-b border-zinc-800/70">
+                <tr className="glass-table-head border-b border-border/70">
                   <Th>Paper</Th>
                   <Th>Outcome</Th>
                   <Th>Effect Size</Th>
@@ -559,7 +559,7 @@ export function DatabaseView({ runId, isDone, dbAvailable, isLive }: DatabaseVie
               </thead>
               <tbody>
                 {flattenedOutcomes.slice(0, 200).map((row) => (
-                  <tr key={row.key} className="border-b border-zinc-900/80">
+                  <tr key={row.key} className="border-b border-border/80">
                     <Td className="max-w-[28rem] truncate">
                       <span title={row.paperTitle}>{row.paperTitle}</span>
                     </Td>
@@ -574,7 +574,7 @@ export function DatabaseView({ runId, isDone, dbAvailable, isLive }: DatabaseVie
               </tbody>
             </table>
             {flattenedOutcomes.length > 200 && (
-              <div className="px-4 py-3 text-xs text-zinc-500 border-t border-zinc-800/70">
+              <div className="px-4 py-3 text-xs text-muted border-t border-border/70">
                 Showing the first 200 outcome rows.
               </div>
             )}
@@ -667,7 +667,7 @@ function FilterComboboxPopover({
         <button
           className={cn(
             "flex items-center justify-center h-4 w-4 rounded transition-colors",
-            isActive ? "text-intent-primary hover:text-intent-primary" : "text-zinc-600 hover:text-zinc-400",
+            isActive ? "text-intent-primary hover:text-intent-primary" : "text-muted hover:text-foreground",
           )}
           aria-label="Filter column"
         >
@@ -681,12 +681,12 @@ function FilterComboboxPopover({
           sideOffset={6}
           onInteractOutside={() => setOpen(false)}
           className={cn(
-            "z-50 w-56 glass-panel-strong border border-zinc-700/80 rounded-xl shadow-2xl shadow-black/60",
+            "z-50 w-56 glass-panel-strong border border-border/80 rounded-xl shadow-2xl shadow-black/60",
             "overflow-hidden",
           )}
         >
           <Command shouldFilter={false}>
-            <div className="relative flex items-center border-b border-zinc-700/80 px-2 glass-toolbar">
+            <div className="relative flex items-center border-b border-border/80 px-2 glass-toolbar">
               <CommandInput
                 value={local}
                 onValueChange={(v) => setLocal(v)}
@@ -701,7 +701,7 @@ function FilterComboboxPopover({
                     setOpen(false)
                   }
                 }}
-                className="border-0 focus:ring-0 h-8 text-xs bg-transparent text-zinc-100 placeholder:text-zinc-500 py-0"
+                className="border-0 focus:ring-0 h-8 text-xs bg-transparent text-foreground placeholder:text-muted py-0"
               />
               {local && (
                 <button
@@ -709,7 +709,7 @@ function FilterComboboxPopover({
                     e.preventDefault()
                     clearValue()
                   }}
-                  className="shrink-0 text-zinc-600 hover:text-zinc-300 transition-colors ml-1"
+                  className="shrink-0 text-muted hover:text-foreground transition-colors ml-1"
                   aria-label="Clear filter"
                 >
                   <X className="h-3 w-3" />
@@ -718,13 +718,13 @@ function FilterComboboxPopover({
             </div>
             <CommandList>
               {isLoadingSuggestions && (
-                <div className="py-2 px-3 text-xs text-zinc-600 flex items-center gap-2">
+                <div className="py-2 px-3 text-xs text-muted flex items-center gap-2">
                   <Loader2 className="h-3 w-3 animate-spin" />
                   Loading...
                 </div>
               )}
               {!isLoadingSuggestions && suggestions.length === 0 && local && (
-                <CommandEmpty className="py-3 text-xs text-zinc-600">No matches.</CommandEmpty>
+                <CommandEmpty className="py-3 text-xs text-muted">No matches.</CommandEmpty>
               )}
               {suggestions.length > 0 && (
                 <CommandGroup>
@@ -734,7 +734,7 @@ function FilterComboboxPopover({
                       value={s}
                       onSelect={() => applyValue(s)}
                       className={cn(
-                        "text-xs text-zinc-200 cursor-pointer rounded-md px-2 py-1.5",
+                        "text-xs text-foreground cursor-pointer rounded-md px-2 py-1.5",
                         "data-[selected=true]:bg-intent-primary-subtle data-[selected=true]:text-intent-primary",
                       )}
                     >
@@ -745,7 +745,7 @@ function FilterComboboxPopover({
               )}
             </CommandList>
           </Command>
-          <Popover.Arrow className="fill-zinc-800" />
+          <Popover.Arrow className="fill-surface-2" />
         </Popover.Content>
       </Popover.Portal>
     </Popover.Root>
@@ -766,8 +766,8 @@ function PrimaryStatusCell({ value }: { value: string | null }) {
         : normalized === "protocol_only"
           ? "bg-intent-warning-subtle text-intent-warning border-intent-warning-border"
           : normalized === "non_empirical"
-            ? "bg-zinc-800 text-zinc-300 border-zinc-700"
-            : "bg-zinc-900/60 text-zinc-500 border-zinc-800"
+            ? "bg-surface-2 text-foreground border-border"
+            : "bg-card/60 text-muted border-border"
   return (
     <Td>
       <span className={cn("inline-block px-1.5 py-0.5 rounded text-[10px] font-medium border", color)}>
@@ -779,11 +779,11 @@ function PrimaryStatusCell({ value }: { value: string | null }) {
 
 function DecisionCell({ value }: { value: string | null }) {
   if (!value) {
-    return <Td className="text-zinc-700">--</Td>
+    return <Td className="text-muted">--</Td>
   }
   return (
     <Td>
-      <span className={cn("font-semibold capitalize", DECISION_COLOR[value] ?? "text-zinc-400")}>
+      <span className={cn("font-semibold capitalize", DECISION_COLOR[value] ?? "text-muted")}>
         {value}
       </span>
     </Td>
@@ -792,7 +792,7 @@ function DecisionCell({ value }: { value: string | null }) {
 
 function ExtractionConfidenceCell({ value }: { value: number | null }) {
   if (value == null) {
-    return <Td className="text-zinc-700">--</Td>
+    return <Td className="text-muted">--</Td>
   }
   const pct = Math.round(value * 100)
   const color =
@@ -817,7 +817,7 @@ function ExtractionConfidenceCell({ value }: { value: number | null }) {
 
 function AssessmentSourceCell({ value }: { value: string | null }) {
   if (!value) {
-    return <Td className="text-zinc-700">--</Td>
+    return <Td className="text-muted">--</Td>
   }
   if (value === "heuristic") {
     return (
@@ -831,7 +831,7 @@ function AssessmentSourceCell({ value }: { value: string | null }) {
   }
   return (
     <Td>
-      <span className="inline-block px-1.5 py-0.5 rounded text-[10px] font-medium bg-zinc-800 text-zinc-400 border border-zinc-700">
+      <span className="inline-block px-1.5 py-0.5 rounded text-[10px] font-medium bg-surface-2 text-muted border border-border">
         {value}
       </span>
     </Td>

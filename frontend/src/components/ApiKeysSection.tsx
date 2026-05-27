@@ -64,7 +64,7 @@ function KeyField({
   return (
     <div className="group">
       <div className="flex items-center gap-2 mb-1.5">
-        <label className="text-xs font-medium text-zinc-400 flex-1">
+        <label className="text-xs font-medium text-muted flex-1">
           {field.label}
           {required && <span className="text-intent-danger ml-0.5">*</span>}
         </label>
@@ -88,12 +88,12 @@ function KeyField({
           onChange={(e) => onChange(e.target.value)}
           placeholder={usingEnv ? `Using .env (${envMasked})` : field.placeholder}
           autoComplete="off"
-          className="pr-9 h-9 text-xs bg-zinc-950 border-zinc-700/80 text-zinc-200 placeholder:text-zinc-600 focus-visible:ring-intent-primary"
+          className="pr-9 h-9 text-xs bg-background border-border/80 text-foreground placeholder:text-muted focus-visible:ring-intent-primary"
         />
         <button
           type="button"
           onClick={() => setShow((v) => !v)}
-          className="absolute right-2.5 top-1/2 -translate-y-1/2 text-zinc-500 hover:text-zinc-300 transition-colors"
+          className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted hover:text-foreground transition-colors"
         >
           {show ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
         </button>
@@ -184,10 +184,10 @@ export function ApiKeysPanel({ onValidityChange }: { onValidityChange?: (valid: 
       {/* LLM Providers */}
       <div>
         <div className="flex items-center gap-2 mb-3">
-          <h4 className="text-xs font-semibold text-zinc-300 uppercase tracking-wide">
+          <h4 className="text-xs font-semibold text-foreground uppercase tracking-wide">
             LLM Providers
           </h4>
-          <span className="text-[10px] text-zinc-600">
+          <span className="text-[10px] text-muted">
             {configuredLlmCount}/{LLM_FIELDS.length} configured
           </span>
         </div>
@@ -216,13 +216,13 @@ export function ApiKeysPanel({ onValidityChange }: { onValidityChange?: (valid: 
           onClick={() => setShowSearch((v) => !v)}
           className="flex items-center gap-2 mb-3 group cursor-pointer"
         >
-          <h4 className="text-xs font-semibold text-zinc-300 uppercase tracking-wide group-hover:text-zinc-100 transition-colors">
+          <h4 className="text-xs font-semibold text-foreground uppercase tracking-wide group-hover:text-foreground transition-colors">
             Search &amp; Data Sources
           </h4>
-          <span className="text-[10px] text-zinc-600">
+          <span className="text-[10px] text-muted">
             {configuredSearchCount}/{SEARCH_FIELDS.length} configured
           </span>
-          <ChevronDown className={`h-3 w-3 text-zinc-500 transition-transform ${showSearch ? "rotate-180" : ""}`} />
+          <ChevronDown className={`h-3 w-3 text-muted transition-transform ${showSearch ? "rotate-180" : ""}`} />
         </button>
 
         {showSearch && (
@@ -245,8 +245,8 @@ export function ApiKeysPanel({ onValidityChange }: { onValidityChange?: (valid: 
         )}
       </div>
 
-      <p className="text-[11px] text-zinc-600 leading-relaxed">
-        Keys in <code className="text-zinc-500">.env</code> are the source of truth.
+      <p className="text-[11px] text-muted leading-relaxed">
+        Keys in <code className="text-muted">.env</code> are the source of truth.
         Browser overrides apply only to this session and are not written to disk.
       </p>
     </div>

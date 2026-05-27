@@ -74,7 +74,7 @@ function PaperRow({ paper, override, onOverride }: PaperRowProps) {
   return (
     <div className={cn(
       "border rounded-lg overflow-hidden",
-      override ? "border-intent-primary-border bg-intent-primary-subtle" : "border-zinc-800 bg-zinc-900/40"
+      override ? "border-intent-primary-border bg-intent-primary-subtle" : "border-border bg-card/40"
     )}>
       <button
         className="w-full flex items-start gap-3 px-4 py-3 text-left row-hover"
@@ -90,18 +90,18 @@ function PaperRow({ paper, override, onOverride }: PaperRowProps) {
             )}
             <ConfidencePill confidence={paper.confidence} />
             {paper.year && (
-              <span className="text-xs text-zinc-500 font-mono">{paper.year}</span>
+              <span className="text-xs text-muted font-mono">{paper.year}</span>
             )}
-            <span className="text-xs text-zinc-600 font-mono">{paper.source_database}</span>
+            <span className="text-xs text-muted font-mono">{paper.source_database}</span>
           </div>
-          <p className="text-sm text-zinc-200 font-medium leading-snug line-clamp-2">
+          <p className="text-sm text-foreground font-medium leading-snug line-clamp-2">
             {paper.title || "(no title)"}
           </p>
           {paper.authors && (
-            <p className="text-xs text-zinc-500 mt-0.5 line-clamp-1">{paper.authors}</p>
+            <p className="text-xs text-muted mt-0.5 line-clamp-1">{paper.authors}</p>
           )}
         </div>
-        <div className="shrink-0 text-zinc-600 mt-0.5">
+        <div className="shrink-0 text-muted mt-0.5">
           {expanded ? (
             <ChevronUp className="h-4 w-4" />
           ) : (
@@ -111,24 +111,24 @@ function PaperRow({ paper, override, onOverride }: PaperRowProps) {
       </button>
 
       {expanded && (
-        <div className="px-4 pb-4 border-t border-zinc-800 pt-3 space-y-3">
+        <div className="px-4 pb-4 border-t border-border pt-3 space-y-3">
           {paper.reason && (
             <div>
-              <p className="text-xs font-semibold text-zinc-400 mb-1">AI Rationale</p>
-              <p className="text-sm text-zinc-300 leading-relaxed">{paper.reason}</p>
+              <p className="text-xs font-semibold text-muted mb-1">AI Rationale</p>
+              <p className="text-sm text-foreground leading-relaxed">{paper.reason}</p>
             </div>
           )}
           {paper.abstract && (
             <div>
-              <p className="text-xs font-semibold text-zinc-400 mb-1">Abstract</p>
-              <p className="text-sm text-zinc-400 leading-relaxed line-clamp-6">
+              <p className="text-xs font-semibold text-muted mb-1">Abstract</p>
+              <p className="text-sm text-muted leading-relaxed line-clamp-6">
                 {paper.abstract}
               </p>
             </div>
           )}
           {paper.doi && (
             <div>
-              <p className="text-xs font-semibold text-zinc-400 mb-1">DOI</p>
+              <p className="text-xs font-semibold text-muted mb-1">DOI</p>
               <a
                 href={`https://doi.org/${paper.doi}`}
                 target="_blank"
@@ -141,13 +141,13 @@ function PaperRow({ paper, override, onOverride }: PaperRowProps) {
             </div>
           )}
           <div>
-            <p className="text-xs font-semibold text-zinc-400 mb-1">Stage</p>
-            <span className="text-xs text-zinc-500 font-mono">{paper.stage}</span>
+            <p className="text-xs font-semibold text-muted mb-1">Stage</p>
+            <span className="text-xs text-muted font-mono">{paper.stage}</span>
           </div>
 
           {/* Human override controls */}
-          <div className="pt-2 border-t border-zinc-800">
-            <p className="text-xs font-semibold text-zinc-400 mb-2">Override AI Decision</p>
+          <div className="pt-2 border-t border-border">
+            <p className="text-xs font-semibold text-muted mb-2">Override AI Decision</p>
             <div className="flex items-center gap-2 flex-wrap">
               <button
                 onClick={(e) => { e.stopPropagation(); handleOverride("include") }}
@@ -155,7 +155,7 @@ function PaperRow({ paper, override, onOverride }: PaperRowProps) {
                   "px-2.5 py-1 rounded text-xs font-medium border transition-colors",
                   override?.decision === "include"
                     ? "bg-intent-success border-intent-success-border text-white"
-                    : "bg-zinc-800 border-zinc-700 text-zinc-300 hover:border-intent-success-border"
+                    : "bg-surface-2 border-border text-foreground hover:border-intent-success-border"
                 )}
               >
                 Force Include
@@ -166,7 +166,7 @@ function PaperRow({ paper, override, onOverride }: PaperRowProps) {
                   "px-2.5 py-1 rounded text-xs font-medium border transition-colors",
                   override?.decision === "exclude"
                     ? "bg-intent-danger border-intent-danger-border text-white"
-                    : "bg-zinc-800 border-zinc-700 text-zinc-300 hover:border-intent-danger-border"
+                    : "bg-surface-2 border-border text-foreground hover:border-intent-danger-border"
                 )}
               >
                 Force Exclude
@@ -174,7 +174,7 @@ function PaperRow({ paper, override, onOverride }: PaperRowProps) {
               {override && (
                 <button
                   onClick={(e) => { e.stopPropagation(); onOverride(null); setReason("") }}
-                  className="px-2.5 py-1 rounded text-xs font-medium border border-zinc-700 bg-zinc-800 text-zinc-400 hover:text-zinc-200"
+                  className="px-2.5 py-1 rounded text-xs font-medium border border-border bg-surface-2 text-muted hover:text-foreground"
                 >
                   Clear Override
                 </button>
@@ -187,7 +187,7 @@ function PaperRow({ paper, override, onOverride }: PaperRowProps) {
                 value={reason}
                 onChange={(e) => handleReasonChange(e.target.value)}
                 onClick={(e) => e.stopPropagation()}
-                className="mt-2 w-full px-2 py-1.5 rounded text-xs bg-zinc-800 border border-zinc-700 text-zinc-300 placeholder-zinc-600 focus:outline-none focus:border-intent-primary-border"
+                className="mt-2 w-full px-2 py-1.5 rounded text-xs bg-surface-2 border border-border text-foreground placeholder:text-muted focus:outline-none focus:border-intent-primary-border"
               />
             )}
           </div>
@@ -284,8 +284,8 @@ export function ScreeningReviewView({ runId }: { runId: string }) {
       {/* Header */}
       <div className="flex items-start justify-between gap-4">
         <div>
-          <h2 className="text-base font-semibold text-zinc-200">Human Review Checkpoint</h2>
-          <p className="text-sm text-zinc-500 mt-0.5">
+          <h2 className="text-base font-semibold text-foreground">Human Review Checkpoint</h2>
+          <p className="text-sm text-muted mt-0.5">
             The workflow has paused for human review. Inspect the AI screening decisions below,
             then approve to continue with extraction.
           </p>
@@ -293,16 +293,16 @@ export function ScreeningReviewView({ runId }: { runId: string }) {
       </div>
 
       {/* Stats bar */}
-      <div className="flex items-center gap-4 p-3 rounded-lg bg-zinc-900 border border-zinc-800 text-sm">
-        <span className="text-zinc-400">
-          <span className="text-zinc-200 font-semibold">{summary.total}</span> papers reviewed
+      <div className="flex items-center gap-4 p-3 rounded-lg bg-card border border-border text-sm">
+        <span className="text-muted">
+          <span className="text-foreground font-semibold">{summary.total}</span> papers reviewed
         </span>
-        <span className="text-zinc-700">|</span>
-        <span className="text-zinc-400">
+        <span className="text-border">|</span>
+        <span className="text-muted">
           <span className="text-intent-success font-semibold">{includedCount}</span> include
         </span>
-        <span className="text-zinc-700">|</span>
-        <span className="text-zinc-400">
+        <span className="text-border">|</span>
+        <span className="text-muted">
           <span className="text-intent-warning font-semibold">{uncertainCount}</span> uncertain
         </span>
       </div>
@@ -321,11 +321,11 @@ export function ScreeningReviewView({ runId }: { runId: string }) {
             className={cn(
               "flex items-center gap-2 px-4 py-2.5 rounded-lg text-sm font-medium transition-colors",
               approving
-                ? "bg-zinc-800 text-zinc-500 cursor-not-allowed"
+                ? "bg-surface-2 text-muted cursor-not-allowed"
                 : "bg-intent-warning hover:bg-intent-warning text-white",
             )}
           >
-            {approving && <Spinner size="sm" className="text-zinc-400" />}
+            {approving && <Spinner size="sm" className="text-muted" />}
             {approving ? "Approving..." : "Approve Screening and Resume Extraction"}
           </button>
           {overrides.size > 0 && (
@@ -337,7 +337,7 @@ export function ScreeningReviewView({ runId }: { runId: string }) {
       )}
 
       {/* Filter tabs */}
-      <div className="flex items-center gap-1 border-b border-zinc-800 pb-0">
+      <div className="flex items-center gap-1 border-b border-border pb-0">
         {(["all", "include", "uncertain"] as const).map((f) => (
           <button
             key={f}
@@ -346,7 +346,7 @@ export function ScreeningReviewView({ runId }: { runId: string }) {
               "px-3 py-2 text-xs font-medium border-b-2 -mb-px capitalize transition-colors",
               filter === f
                 ? "border-intent-primary text-intent-primary"
-                : "border-transparent text-zinc-500 hover:text-zinc-300",
+                : "border-transparent text-muted hover:text-foreground",
             )}
           >
             {f === "all"

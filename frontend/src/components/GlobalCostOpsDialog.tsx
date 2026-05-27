@@ -74,15 +74,15 @@ function formatInteger(value: number): string {
 
 const fieldLabelClass = "space-y-1.5 text-sm"
 const fieldControlClass =
-  "h-10 w-full min-w-0 rounded-lg border border-zinc-800 bg-zinc-950/90 px-3 text-sm text-zinc-100 shadow-sm outline-none transition-colors hover:border-zinc-700 focus:border-intent-primary"
-const statCardClass = "rounded-xl border border-zinc-800/80 bg-zinc-950/60 px-4 py-4"
+  "h-10 w-full min-w-0 rounded-lg border border-border bg-card/90 px-3 text-sm text-foreground shadow-sm outline-none transition-colors hover:border-border focus:border-intent-primary"
+const statCardClass = "rounded-xl border border-border/80 bg-card/60 px-4 py-4"
 const loadingStages = [
   "Preparing filters",
   "Fetching cost aggregates",
   "Building summaries",
   "Rendering breakdowns",
 ] as const
-const sectionHeaderClass = "border-b border-zinc-800/80 px-4 py-3 text-sm font-semibold text-zinc-200"
+const sectionHeaderClass = "border-b border-border/80 px-4 py-3 text-sm font-semibold text-foreground"
 
 function formatAxisCost(value: number): string {
   return `$${value >= 1 ? value.toFixed(2) : value.toFixed(4)}`
@@ -100,9 +100,9 @@ function CostTooltip({
   if (!active || !payload?.length) return null
   const value = Number(payload[0].value ?? 0)
   return (
-    <div className="rounded-md border border-zinc-700 bg-zinc-900/95 px-3 py-2 text-xs shadow-lg">
-      <div className="mb-1 text-zinc-400">{label}</div>
-      <div className="font-medium text-zinc-100">{formatUsd(value)}</div>
+    <div className="rounded-md border border-border bg-surface-2/95 px-3 py-2 text-xs shadow-lg">
+      <div className="mb-1 text-muted">{label}</div>
+      <div className="font-medium text-foreground">{formatUsd(value)}</div>
     </div>
   )
 }
@@ -117,7 +117,7 @@ function RawTable({
   return (
     <div className="max-h-56 overflow-auto">
       <table className="min-w-full text-sm">
-        <thead className="sticky top-0 bg-zinc-950/95 text-zinc-500">
+        <thead className="sticky top-0 bg-card/95 text-muted">
           <tr>
             <th className="px-4 py-2 text-left font-medium">{labelHeader}</th>
             <th className="px-4 py-2 text-right font-medium">Calls</th>
@@ -126,7 +126,7 @@ function RawTable({
         </thead>
         <tbody>
           {rows.map((row) => (
-            <tr key={`${labelHeader}-${row.label}`} className="border-t border-zinc-900 text-zinc-300">
+            <tr key={`${labelHeader}-${row.label}`} className="border-t border-border text-foreground">
               <td className="px-4 py-2">{row.label}</td>
               <td className="px-4 py-2 text-right">{formatInteger(row.calls)}</td>
               <td className="px-4 py-2 text-right">{formatUsd(row.cost_usd)}</td>
@@ -155,22 +155,22 @@ function ChartOrTableSection({
   }))
 
   return (
-    <div className="relative rounded-xl border border-zinc-800/80 bg-zinc-950/60">
+    <div className="relative rounded-xl border border-border/80 bg-card/60">
       <div className={sectionHeaderClass}>
         {title}
       </div>
       {rows.length === 0 ? (
-        <div className="px-4 py-6 text-sm text-zinc-500">No cost records in this window.</div>
+        <div className="px-4 py-6 text-sm text-muted">No cost records in this window.</div>
       ) : showRaw ? (
         <>
           <RawTable rows={rows} labelHeader={labelHeader} />
-          <div className="border-t border-zinc-800/60 px-3 py-2">
+          <div className="border-t border-border/60 px-3 py-2">
             <div className="flex justify-end">
               <Button
                 type="button"
                 size="sm"
                 variant="secondary"
-                className="h-8 rounded-lg border border-zinc-700 bg-zinc-900/70 px-3 text-zinc-200 hover:bg-zinc-800"
+                className="h-8 rounded-lg border border-border bg-surface-2/70 px-3 text-foreground hover:bg-surface-3"
                 onClick={() => setShowRaw(false)}
               >
                 Show chart
@@ -201,13 +201,13 @@ function ChartOrTableSection({
         </div>
       )}
       {!showRaw && rows.length > 0 && (
-        <div className="border-t border-zinc-800/60 px-3 py-2">
+        <div className="border-t border-border/60 px-3 py-2">
           <div className="flex justify-end">
             <Button
               type="button"
               size="sm"
               variant="secondary"
-              className="h-8 rounded-lg border border-zinc-700 bg-zinc-900/85 px-2.5 text-zinc-200 hover:bg-zinc-800"
+              className="h-8 rounded-lg border border-border bg-surface-2/85 px-2.5 text-foreground hover:bg-surface-3"
               onClick={() => setShowRaw(true)}
               title="Show raw table"
             >
@@ -270,7 +270,7 @@ function CostsLoadingSkeleton() {
             key={`stat-skeleton-${index}`}
             className={`${statCardClass} flex items-center justify-center`}
           >
-            <div className="flex items-center gap-2 text-sm text-zinc-400">
+            <div className="flex items-center gap-2 text-sm text-muted">
               <Loader2 className="h-4 w-4 animate-spin text-intent-primary" />
               <span>Loading metric</span>
             </div>
@@ -282,9 +282,9 @@ function CostsLoadingSkeleton() {
         {Array.from({ length: 3 }).map((_, index) => (
           <div
             key={`bucket-skeleton-${index}`}
-            className="rounded-xl border border-zinc-800/80 bg-zinc-950/60 p-4"
+            className="rounded-xl border border-border/80 bg-card/60 p-4"
           >
-            <div className="text-sm font-semibold text-zinc-300">
+            <div className="text-sm font-semibold text-foreground">
               Loading chart
             </div>
             <div className="flex h-40 items-center justify-center">
@@ -298,9 +298,9 @@ function CostsLoadingSkeleton() {
         {Array.from({ length: 3 }).map((_, index) => (
           <div
             key={`group-skeleton-${index}`}
-            className="rounded-xl border border-zinc-800/80 bg-zinc-950/60 p-4"
+            className="rounded-xl border border-border/80 bg-card/60 p-4"
           >
-            <div className="text-sm font-semibold text-zinc-300">
+            <div className="text-sm font-semibold text-foreground">
               Loading breakdown
             </div>
             <div className="flex h-40 items-center justify-center">
@@ -397,12 +397,12 @@ export function CostsPanel() {
   return (
     <div className="space-y-5">
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-[300px_170px_170px_140px_110px_130px] lg:items-end">
-        <div className="inline-flex h-10 flex-wrap items-center gap-1.5 rounded-2xl border border-zinc-800/80 bg-zinc-950/50 p-1">
+        <div className="inline-flex h-10 flex-wrap items-center gap-1.5 rounded-2xl border border-border/80 bg-card/50 p-1">
           <Button
             type="button"
             variant={preset === "5d" ? "default" : "ghost"}
             size="sm"
-            className={preset === "5d" ? "h-8 rounded-xl px-3 shadow-sm" : "h-8 rounded-xl px-3 text-zinc-300 hover:bg-zinc-800/80 hover:text-zinc-100"}
+            className={preset === "5d" ? "h-8 rounded-xl px-3 shadow-sm" : "h-8 rounded-xl px-3 text-foreground hover:bg-surface-3/80 hover:text-foreground"}
             onClick={() => applyPreset("5d")}
           >
             Last 5 days
@@ -411,7 +411,7 @@ export function CostsPanel() {
             type="button"
             variant={preset === "30d" ? "default" : "ghost"}
             size="sm"
-            className={preset === "30d" ? "h-8 rounded-xl px-3 shadow-sm" : "h-8 rounded-xl px-3 text-zinc-300 hover:bg-zinc-800/80 hover:text-zinc-100"}
+            className={preset === "30d" ? "h-8 rounded-xl px-3 shadow-sm" : "h-8 rounded-xl px-3 text-foreground hover:bg-surface-3/80 hover:text-foreground"}
             onClick={() => applyPreset("30d")}
           >
             Last 30 days
@@ -420,14 +420,14 @@ export function CostsPanel() {
             type="button"
             variant={preset === "90d" ? "default" : "ghost"}
             size="sm"
-            className={preset === "90d" ? "h-8 rounded-xl px-3 shadow-sm" : "h-8 rounded-xl px-3 text-zinc-300 hover:bg-zinc-800/80 hover:text-zinc-100"}
+            className={preset === "90d" ? "h-8 rounded-xl px-3 shadow-sm" : "h-8 rounded-xl px-3 text-foreground hover:bg-surface-3/80 hover:text-foreground"}
             onClick={() => applyPreset("90d")}
           >
             Last 90 days
           </Button>
         </div>
         <label className={`${fieldLabelClass} min-w-0`}>
-          <span className="text-zinc-400">Start date</span>
+          <span className="text-muted">Start date</span>
           <input
             type="date"
             value={startDate}
@@ -439,7 +439,7 @@ export function CostsPanel() {
           />
         </label>
         <label className={`${fieldLabelClass} min-w-0`}>
-          <span className="text-zinc-400">End date</span>
+          <span className="text-muted">End date</span>
           <input
             type="date"
             value={endDate}
@@ -451,7 +451,7 @@ export function CostsPanel() {
           />
         </label>
         <label className={`${fieldLabelClass} min-w-0`}>
-          <span className="text-zinc-400">Export</span>
+          <span className="text-muted">Export</span>
           <select
             value={exportGranularity}
             onChange={(event) => setExportGranularity(event.target.value as DbCostExportGranularity)}
@@ -467,7 +467,7 @@ export function CostsPanel() {
           variant="secondary"
           onClick={() => void loadAggregates()}
           disabled={loading}
-          className="h-10 rounded-lg border border-zinc-700 bg-zinc-900/80 px-3.5 text-zinc-100 hover:bg-zinc-800"
+          className="h-10 rounded-lg border border-border bg-surface-2/80 px-3.5 text-foreground hover:bg-surface-3"
         >
           {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
           Refresh
@@ -481,15 +481,15 @@ export function CostsPanel() {
       </div>
 
       {loading && (
-        <div className="rounded-lg border border-zinc-800/80 bg-zinc-950/70 px-3 py-2">
+        <div className="rounded-lg border border-border/80 bg-card/70 px-3 py-2">
           <div className="mb-1.5 flex items-center justify-between gap-3">
-            <div className="flex items-center gap-2 text-sm text-zinc-200">
+            <div className="flex items-center gap-2 text-sm text-foreground">
               <Loader2 className="h-4 w-4 animate-spin text-intent-primary" />
               <span>Loading cost analytics</span>
             </div>
-            <span className="text-xs text-zinc-400">{loadingStages[loadingStageIndex]}</span>
+            <span className="text-xs text-muted">{loadingStages[loadingStageIndex]}</span>
           </div>
-          <div className="h-1.5 overflow-hidden rounded-full bg-zinc-900">
+          <div className="h-1.5 overflow-hidden rounded-full bg-surface-2">
             <div
               className="h-full rounded-full bg-intent-primary transition-all duration-300"
               style={{ width: `${((loadingStageIndex + 1) / loadingStages.length) * 100}%` }}
@@ -510,26 +510,26 @@ export function CostsPanel() {
         <>
           <div className="grid gap-3 md:grid-cols-4">
             <div className={statCardClass}>
-              <div className="text-xs uppercase tracking-wide text-zinc-500">Total cost</div>
-              <div className="mt-2 text-2xl font-semibold text-zinc-50">
+              <div className="text-xs uppercase tracking-wide text-muted">Total cost</div>
+              <div className="mt-2 text-2xl font-semibold text-foreground">
                 {totals ? formatUsd(totals.total_cost_usd) : "--"}
               </div>
             </div>
             <div className={statCardClass}>
-              <div className="text-xs uppercase tracking-wide text-zinc-500">Total calls</div>
-              <div className="mt-2 text-2xl font-semibold text-zinc-50">
+              <div className="text-xs uppercase tracking-wide text-muted">Total calls</div>
+              <div className="mt-2 text-2xl font-semibold text-foreground">
                 {totals ? formatInteger(totals.total_calls) : "--"}
               </div>
             </div>
             <div className={statCardClass}>
-              <div className="text-xs uppercase tracking-wide text-zinc-500">Input tokens</div>
-              <div className="mt-2 text-2xl font-semibold text-zinc-50">
+              <div className="text-xs uppercase tracking-wide text-muted">Input tokens</div>
+              <div className="mt-2 text-2xl font-semibold text-foreground">
                 {totals ? formatInteger(totals.total_tokens_in) : "--"}
               </div>
             </div>
             <div className={statCardClass}>
-              <div className="text-xs uppercase tracking-wide text-zinc-500">Workflows</div>
-              <div className="mt-2 text-2xl font-semibold text-zinc-50">
+              <div className="text-xs uppercase tracking-wide text-muted">Workflows</div>
+              <div className="mt-2 text-2xl font-semibold text-foreground">
                 {data ? formatInteger(data.workflow_count) : "--"}
               </div>
             </div>
@@ -555,15 +555,15 @@ export function CostsPanel() {
 export function GlobalCostOpsDialog({ open, onOpenChange }: GlobalCostOpsDialogProps) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-6xl border-zinc-800 bg-zinc-900 p-0 text-zinc-100">
-        <DialogHeader className="border-b border-zinc-800 px-6 py-5">
+      <DialogContent className="max-w-6xl border-border bg-surface-2 p-0 text-foreground">
+        <DialogHeader className="border-b border-border px-6 py-5">
           <div className="flex items-start justify-between gap-4">
             <div>
-              <DialogTitle className="flex items-center gap-2 text-zinc-100">
+              <DialogTitle className="flex items-center gap-2 text-foreground">
                 <CalendarDays className="h-5 w-5 text-intent-primary" />
                 Costs
               </DialogTitle>
-              <DialogDescription className="mt-1 text-zinc-400">
+              <DialogDescription className="mt-1 text-muted">
                 Real LLM spend over time from `cost_records` across all registry-linked run databases.
               </DialogDescription>
             </div>
@@ -573,7 +573,7 @@ export function GlobalCostOpsDialog({ open, onOpenChange }: GlobalCostOpsDialogP
                 variant="ghost"
                 size="icon"
                 onClick={() => onOpenChange(false)}
-                className="rounded-xl border border-transparent text-zinc-400 hover:border-zinc-800 hover:bg-zinc-800/70 hover:text-zinc-200"
+                className="rounded-xl border border-transparent text-muted hover:border-border hover:bg-surface-3/70 hover:text-foreground"
                 aria-label="Close costs modal"
                 title="Close"
               >

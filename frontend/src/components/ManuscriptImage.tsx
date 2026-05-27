@@ -8,7 +8,7 @@ export function ManuscriptImage({ src, alt }: { src?: string; alt?: string }) {
     <img
       src={src}
       alt={alt ?? ""}
-      className="max-w-full rounded border border-zinc-800 my-4 mx-auto block"
+      className="max-w-full rounded border border-border my-4 mx-auto block"
       loading="lazy"
       onError={() => setFailed(true)}
     />

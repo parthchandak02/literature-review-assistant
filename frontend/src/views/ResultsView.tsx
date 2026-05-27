@@ -188,9 +188,9 @@ function ManuscriptViewer({ filePath }: { filePath: string }) {
   if (loading) {
     return (
       <div className="overflow-hidden">
-        <div className="px-6 py-4 border-b border-zinc-800 flex items-center gap-2">
+        <div className="px-6 py-4 border-b border-border flex items-center gap-2">
           <Loader2 className="h-4 w-4 animate-spin text-intent-primary" />
-          <span className="text-sm text-zinc-400">Loading manuscript...</span>
+          <span className="text-sm text-muted">Loading manuscript...</span>
         </div>
         <div className="p-6 space-y-4">
           <Skeleton className="h-7 w-2/3" />
@@ -214,15 +214,15 @@ function ManuscriptViewer({ filePath }: { filePath: string }) {
   return (
     <div className="overflow-hidden">
       {/* Toolbar: outline toggle + zoom control */}
-      <div className="glass-toolbar flex items-center justify-between px-4 h-9 border-b border-zinc-800/70 shrink-0">
+      <div className="glass-toolbar flex items-center justify-between px-4 h-9 border-b border-border/70 shrink-0">
         {/* Outline toggle */}
         <button
           onClick={() => setShowOutline((v) => !v)}
           className={cn(
             "flex items-center gap-1.5 text-xs rounded px-1.5 py-1 transition-colors",
             showOutline
-              ? "text-zinc-300 bg-zinc-800/60 hover:bg-zinc-800"
-              : "text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800/40",
+              ? "text-foreground bg-surface-2/60 hover:bg-surface-2"
+              : "text-muted hover:text-foreground hover:bg-surface-2/40",
           )}
           title={showOutline ? "Hide outline" : "Show outline"}
         >
@@ -235,15 +235,15 @@ function ManuscriptViewer({ filePath }: { filePath: string }) {
           <button
             onClick={() => setZoom((z) => Math.max(70, z - 15))}
             disabled={zoom <= 70}
-            className="w-6 h-6 rounded text-sm font-mono text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800 disabled:opacity-30 transition-colors"
+            className="w-6 h-6 rounded text-sm font-mono text-muted hover:text-foreground hover:bg-surface-2 disabled:opacity-30 transition-colors"
           >
             -
           </button>
-          <span className="text-xs font-mono text-zinc-400 w-10 text-center tabular-nums">{zoom}%</span>
+          <span className="text-xs font-mono text-muted w-10 text-center tabular-nums">{zoom}%</span>
           <button
             onClick={() => setZoom((z) => Math.min(160, z + 15))}
             disabled={zoom >= 160}
-            className="w-6 h-6 rounded text-sm font-mono text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800 disabled:opacity-30 transition-colors"
+            className="w-6 h-6 rounded text-sm font-mono text-muted hover:text-foreground hover:bg-surface-2 disabled:opacity-30 transition-colors"
           >
             +
           </button>
@@ -252,19 +252,19 @@ function ManuscriptViewer({ filePath }: { filePath: string }) {
 
       {/* Vertical outline panel -- collapsible */}
       {showOutline && headings.length > 0 && (
-        <div className="glass-toolbar border-b border-zinc-800/70 max-h-52 overflow-y-auto">
+        <div className="glass-toolbar border-b border-border/70 max-h-52 overflow-y-auto">
           <nav className="py-1">
             {headings.map((h) => (
               <button
                 key={h.slug}
                 onClick={() => jumpTo(h.slug)}
                 className={cn(
-                  "w-full text-left px-4 py-1 text-xs transition-colors hover:bg-zinc-800/50 truncate block",
+                  "w-full text-left px-4 py-1 text-xs transition-colors hover:bg-surface-2/50 truncate block",
                   h.level === 1
-                    ? "text-zinc-300 font-semibold pl-4"
+                    ? "text-foreground font-semibold pl-4"
                     : h.level === 2
-                    ? "text-zinc-400 pl-7"
-                    : "text-zinc-500 pl-10",
+                    ? "text-muted pl-7"
+                    : "text-muted pl-10",
                 )}
               >
                 {h.text}
@@ -351,7 +351,7 @@ function GradeSofCard({ runId }: { runId: string }) {
           <div className="overflow-x-auto">
             <table className="w-full text-xs">
               <thead>
-                <tr className="border-b border-zinc-800 text-zinc-500">
+                <tr className="border-b border-border text-muted">
                   <th className="py-2 pr-3 text-left font-medium">Outcome</th>
                   <th className="py-2 pr-3 text-left font-medium">Studies</th>
                   <th className="py-2 pr-3 text-left font-medium">Participants</th>
@@ -361,14 +361,14 @@ function GradeSofCard({ runId }: { runId: string }) {
               </thead>
               <tbody>
                 {data.rows.map((row) => (
-                  <tr key={row.outcome} className="border-b border-zinc-900 align-top">
-                    <td className="py-2 pr-3 text-zinc-200">{row.outcome}</td>
-                    <td className="py-2 pr-3 text-zinc-400">{row.studies ?? "-"}</td>
-                    <td className="py-2 pr-3 text-zinc-400">{row.participants ?? "-"}</td>
-                    <td className="py-2 pr-3 text-zinc-400">{row.effect || "-"}</td>
+                  <tr key={row.outcome} className="border-b border-border align-top">
+                    <td className="py-2 pr-3 text-foreground">{row.outcome}</td>
+                    <td className="py-2 pr-3 text-muted">{row.studies ?? "-"}</td>
+                    <td className="py-2 pr-3 text-muted">{row.participants ?? "-"}</td>
+                    <td className="py-2 pr-3 text-muted">{row.effect || "-"}</td>
                     <td className="py-2 pr-3">
-                      <div className="text-zinc-200">{row.certainty || "-"}</div>
-                      {row.reasons && row.reasons.length > 0 && <div className="mt-0.5 text-zinc-500">{row.reasons.join(", ")}</div>}
+                      <div className="text-foreground">{row.certainty || "-"}</div>
+                      {row.reasons && row.reasons.length > 0 && <div className="mt-0.5 text-muted">{row.reasons.join(", ")}</div>}
                     </td>
                   </tr>
                 ))}
@@ -385,13 +385,13 @@ function ProsperoDownloadsCard({ runId }: { runId: string }) {
   return (
     <CollapsibleSection icon={Download} title="PROSPERO Draft" defaultOpen={false}>
       <div className="p-4 flex flex-wrap gap-2">
-        <Button size="sm" variant="outline" asChild className="h-8 gap-1 text-xs border-zinc-700 text-zinc-300">
+        <Button size="sm" variant="outline" asChild className="h-8 gap-1 text-xs border-border text-foreground">
           <a href={prosperoFormDocxUrl(runId)}>
             <FileType className="h-3 w-3 text-intent-info" />
             PROSPERO DOCX
           </a>
         </Button>
-        <Button size="sm" variant="outline" asChild className="h-8 gap-1 text-xs border-zinc-700 text-zinc-300">
+        <Button size="sm" variant="outline" asChild className="h-8 gap-1 text-xs border-border text-foreground">
           <a href={prosperoFormMarkdownUrl(runId)}>
             <FileCode className="h-3 w-3 text-intent-success" />
             PROSPERO Markdown
@@ -406,7 +406,7 @@ function PrismaDiagramCard({ filePath }: { filePath: string }) {
   return (
     <CollapsibleSection icon={FileText} title="PRISMA Diagram" defaultOpen={false}>
       <div className="p-4">
-        <div className="rounded-xl border border-zinc-800 bg-white p-2">
+        <div className="rounded-xl border border-border bg-white p-2">
           <img src={downloadUrl(filePath)} alt="PRISMA flow diagram" className="w-full h-auto rounded-lg" />
         </div>
       </div>
@@ -497,13 +497,13 @@ function ManuscriptActions({
     [mergedOutputs, docxPath],
   )
 
-  const sharedCls = "h-7 gap-1 text-xs border-zinc-700 text-zinc-400 hover:text-zinc-200 hover:border-zinc-500"
+  const sharedCls = "h-7 gap-1 text-xs border-border text-muted hover:text-foreground hover:border-border"
 
   return (
     <div className="flex items-center gap-1.5">
       {/* Packaging spinner shown while auto-export is in flight */}
       {exportState === "loading" && (
-        <span className="flex items-center gap-1 text-xs text-zinc-500">
+        <span className="flex items-center gap-1 text-xs text-muted">
           <Loader2 className="h-3 w-3 animate-spin" />
           Packaging...
         </span>
@@ -552,7 +552,7 @@ function ManuscriptActions({
             <Button
               size="sm"
               onClick={() => { setExportState("idle"); void handleExport(true); }}
-              className="h-7 gap-1 text-xs bg-zinc-800 hover:bg-zinc-700 text-zinc-300 hover:text-zinc-100 border-0 shadow-none"
+              className="h-7 gap-1 text-xs bg-surface-2 hover:bg-surface-3 text-foreground hover:text-foreground border-0 shadow-none"
               title="Regenerate manuscript .tex and DOCX"
             >
               <RefreshCw className="h-3 w-3 text-intent-success" />
@@ -701,7 +701,7 @@ export function ResultsView({
               <Button
                 size="sm"
                 asChild
-                className="h-7 gap-1 text-xs bg-intent-success hover:bg-intent-success text-zinc-950 border-0 shadow-none"
+                className="h-7 gap-1 text-xs bg-intent-success hover:bg-intent-success text-intent-success-fg border-0 shadow-none"
               >
                 <a href={submissionZipUrl(exportRunId)} download>
                   <Download className="h-3 w-3" />
@@ -712,7 +712,7 @@ export function ResultsView({
               <Button
                 size="sm"
                 disabled
-                className="h-7 gap-1 text-xs bg-zinc-800 text-zinc-400 border-0 shadow-none cursor-not-allowed"
+                className="h-7 gap-1 text-xs bg-surface-2 text-muted border-0 shadow-none cursor-not-allowed"
                 title="Run manuscript export first"
               >
                 <Download className="h-3 w-3" />

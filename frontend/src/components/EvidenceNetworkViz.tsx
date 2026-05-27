@@ -324,10 +324,10 @@ function DetailSidebar({ node, graph, gapPaperIds, onClose }: DetailSidebarProps
   const isGap = gapPaperIds.has(node.id)
 
   return (
-    <div className="border border-zinc-800 rounded-lg bg-zinc-900 p-4 space-y-3 text-sm relative">
+    <div className="border border-border rounded-lg bg-card p-4 space-y-3 text-sm relative">
       <button
         onClick={onClose}
-        className="absolute top-3 right-3 text-zinc-500 hover:text-zinc-200 transition-colors"
+        className="absolute top-3 right-3 text-muted hover:text-foreground transition-colors"
         aria-label="Close detail panel"
       >
         <X size={14} />
@@ -339,8 +339,8 @@ function DetailSidebar({ node, graph, gapPaperIds, onClose }: DetailSidebarProps
           style={{ backgroundColor: communityColor }}
         />
         <div>
-          <p className="text-zinc-100 font-medium leading-snug">{node.title}</p>
-          <p className="text-zinc-500 text-xs mt-0.5">
+          <p className="text-foreground font-medium leading-snug">{node.title}</p>
+          <p className="text-muted text-xs mt-0.5">
             {node.year ? `${node.year}  |  ` : ""}
             {node.study_design}
           </p>
@@ -361,7 +361,7 @@ function DetailSidebar({ node, graph, gapPaperIds, onClose }: DetailSidebarProps
 
       {connectedPapers.length > 0 && (
         <div>
-          <p className="text-zinc-400 text-xs font-medium mb-1.5">
+          <p className="text-muted text-xs font-medium mb-1.5">
             Connected papers ({connectedPapers.length})
           </p>
           <ul className="space-y-1">
@@ -371,14 +371,14 @@ function DetailSidebar({ node, graph, gapPaperIds, onClose }: DetailSidebarProps
               )
               const color = edgeToP ? (EDGE_COLORS[edgeToP.rel_type] || "#71717a") : "#71717a"
               return (
-                <li key={p.id} className="flex items-center gap-1.5 text-xs text-zinc-400">
+                <li key={p.id} className="flex items-center gap-1.5 text-xs text-muted">
                   <span className="w-2 h-0.5 rounded-full flex-shrink-0" style={{ backgroundColor: color }} />
                   {p.title.length > 50 ? p.title.slice(0, 50) + "..." : p.title}
                 </li>
               )
             })}
             {connectedPapers.length > 6 && (
-              <li className="text-xs text-zinc-600">+{connectedPapers.length - 6} more</li>
+              <li className="text-xs text-muted">+{connectedPapers.length - 6} more</li>
             )}
           </ul>
         </div>
@@ -474,28 +474,28 @@ export function EvidenceNetworkViz({ runId }: EvidenceNetworkVizProps) {
   return (
     <div className="space-y-4">
       {/* Stats bar + Download SVG */}
-      <div className="flex items-center gap-4 p-3 rounded-lg bg-zinc-900 border border-zinc-800 text-sm flex-wrap">
-        <span className="text-zinc-400">
-          <span className="text-zinc-200 font-semibold">{graph.nodes.length}</span> papers
+      <div className="flex items-center gap-4 p-3 rounded-lg bg-card border border-border text-sm flex-wrap">
+        <span className="text-muted">
+          <span className="text-foreground font-semibold">{graph.nodes.length}</span> papers
         </span>
-        <span className="text-zinc-700">|</span>
-        <span className="text-zinc-400">
-          <span className="text-zinc-200 font-semibold">{graph.edges.length}</span> relationships
+        <span className="text-border">|</span>
+        <span className="text-muted">
+          <span className="text-foreground font-semibold">{graph.edges.length}</span> relationships
         </span>
-        <span className="text-zinc-700">|</span>
-        <span className="text-zinc-400">
-          <span className="text-zinc-200 font-semibold">{graph.communities.length}</span> clusters
+        <span className="text-border">|</span>
+        <span className="text-muted">
+          <span className="text-foreground font-semibold">{graph.communities.length}</span> clusters
         </span>
         {graph.gaps.length > 0 && (
           <>
-            <span className="text-zinc-700">|</span>
+            <span className="text-border">|</span>
             <span className="text-intent-warning font-semibold">{graph.gaps.length} research gaps</span>
           </>
         )}
         <div className="ml-auto">
           <button
             onClick={handleDownloadSvg}
-            className="flex items-center gap-1.5 px-2.5 py-1.5 rounded border border-zinc-700 text-xs text-zinc-400 hover:text-zinc-200 hover:border-zinc-500 transition-colors"
+            className="flex items-center gap-1.5 px-2.5 py-1.5 rounded border border-border text-xs text-muted hover:text-foreground hover:border-border transition-colors"
             title="Download evidence network as SVG"
           >
             <Download size={12} />
@@ -506,7 +506,7 @@ export function EvidenceNetworkViz({ runId }: EvidenceNetworkVizProps) {
 
       {/* Edge type legend */}
       {relTypes.length > 0 && (
-        <div className="flex items-center gap-3 flex-wrap text-xs text-zinc-500">
+        <div className="flex items-center gap-3 flex-wrap text-xs text-muted">
           <span>Edge types:</span>
           {relTypes.map((t) => (
             <span key={t} className="flex items-center gap-1">
@@ -523,18 +523,18 @@ export function EvidenceNetworkViz({ runId }: EvidenceNetworkVizProps) {
               research gap
             </span>
           )}
-          <span className="ml-auto text-zinc-600 italic">Click a node for details</span>
+          <span className="ml-auto text-muted italic">Click a node for details</span>
         </div>
       )}
 
       {/* Graph canvas */}
       <div
         ref={containerRef}
-        className="w-full rounded-lg border border-zinc-800 bg-zinc-950 overflow-hidden"
+        className="w-full rounded-lg border border-border bg-background overflow-hidden"
         style={{ height: dims.height }}
       >
         {graph.edges.length === 0 ? (
-          <div className="flex items-center justify-center h-full text-sm text-zinc-500">
+          <div className="flex items-center justify-center h-full text-sm text-muted">
             No edges found -- papers may be too heterogeneous to cluster.
           </div>
         ) : (
@@ -565,7 +565,7 @@ export function EvidenceNetworkViz({ runId }: EvidenceNetworkVizProps) {
       {/* Research gaps */}
       {graph.gaps.length > 0 && (
         <div className="space-y-2">
-          <h4 className="text-sm font-semibold text-zinc-300">Detected Research Gaps</h4>
+          <h4 className="text-sm font-semibold text-foreground">Detected Research Gaps</h4>
           {graph.gaps.map((gap) => (
             <div
               key={gap.id}
@@ -574,9 +574,9 @@ export function EvidenceNetworkViz({ runId }: EvidenceNetworkVizProps) {
               <span className="inline-block px-1.5 py-0.5 rounded text-xs font-medium bg-intent-warning-subtle text-intent-warning border border-intent-warning-border mb-1.5">
                 {GAP_TYPE_LABELS[gap.gap_type] || gap.gap_type}
               </span>
-              <p className="text-zinc-300 text-xs leading-relaxed">{gap.description}</p>
+              <p className="text-foreground text-xs leading-relaxed">{gap.description}</p>
               {gap.related_paper_ids.length > 0 && (
-                <p className="text-zinc-600 text-xs mt-1">
+                <p className="text-muted text-xs mt-1">
                   {gap.related_paper_ids.length} related paper(s)
                 </p>
               )}
