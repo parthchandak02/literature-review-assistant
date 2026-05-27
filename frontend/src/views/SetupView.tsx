@@ -10,7 +10,6 @@ import {
   FileText,
   RotateCcw,
   Sparkles,
-  Wand2,
   FileCode2,
   HeartPulse,
   HelpCircle,
@@ -27,7 +26,6 @@ import {
   fetchEnvKeys,
   fetchEnvKeysStatus,
   fetchRequiredLlmUiKeys,
-  llmProviderLabel,
   fetchHistory,
   fetchRunConfig,
   buildRunRequest,
@@ -43,7 +41,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip"
 import { formatShortDate } from "@/lib/format"
-import type { HistoryEntry, RunRequest, StoredApiKeys } from "@/lib/api"
+import type { EnvKeysStatus, HistoryEntry, RunRequest, StoredApiKeys } from "@/lib/api"
 
 // ---------------------------------------------------------------------------
 // Types
@@ -129,34 +127,34 @@ function GenerationProgressCard({
           const showDetail = active || done || fallbackSkipped
           const rowCls = fallbackDegraded
             ? done
-              ? "bg-amber-500/10 border-amber-500/30"
+              ? "bg-intent-warning-subtle border-intent-warning-border"
               : active
-              ? "bg-amber-500/12 border-amber-500/40"
+              ? "bg-intent-warning-subtle border-intent-warning-border"
               : "bg-zinc-900/40 border-zinc-800"
             : fallbackSkipped
-            ? "bg-sky-500/8 border-sky-500/20"
+            ? "bg-intent-info-subtle border-intent-info-border"
             : done
-            ? "bg-emerald-500/8 border-emerald-500/20"
+            ? "bg-intent-success-subtle border-intent-success-border"
             : active
-            ? "bg-violet-500/10 border-violet-500/30"
+            ? "bg-intent-primary-subtle border-intent-primary-border"
             : "bg-zinc-900/40 border-zinc-800"
           const titleCls = fallbackDegraded
             ? done || active
-              ? "text-amber-200"
+              ? "text-zinc-100"
               : "text-zinc-600"
             : fallbackSkipped
-            ? "text-sky-200/80"
+            ? "text-zinc-200"
             : done
-            ? "text-emerald-300/80"
+            ? "text-zinc-200"
             : active
-            ? "text-violet-200"
+            ? "text-zinc-100"
             : "text-zinc-600"
           const detailCls = fallbackDegraded
-            ? "text-amber-300/70"
+            ? "text-zinc-500"
             : fallbackSkipped
-            ? "text-sky-300/60"
+            ? "text-zinc-500"
             : done
-            ? "text-emerald-400/50"
+            ? "text-zinc-500"
             : "text-zinc-500"
           const detailText = fallbackSkipped
             ? "Skipped because web research succeeded."
@@ -227,7 +225,7 @@ function ApiKeysSection({ keys, onChange, embedded }: ApiKeysProps) {
       {/* DeepSeek key -- always shown */}
       <div>
         <label className="block text-xs font-medium text-zinc-400 mb-1.5">
-          {primaryField.label} <span className="text-red-500">*</span>
+          {primaryField.label} <span className="text-intent-danger">*</span>
         </label>
         <div className="relative">
           <Input
@@ -236,7 +234,7 @@ function ApiKeysSection({ keys, onChange, embedded }: ApiKeysProps) {
             onChange={(e) => onChange({ ...keys, deepseek: e.target.value })}
             placeholder={primaryField.placeholder}
             autoComplete="off"
-            className="pr-9 h-9 text-xs bg-zinc-950 border-zinc-700 text-zinc-200 placeholder:text-zinc-600 focus-visible:ring-violet-500/50"
+            className="pr-9 h-9 text-xs bg-zinc-950 border-zinc-700 text-zinc-200 placeholder:text-zinc-600 focus-visible:ring-intent-primary-border"
           />
           <button
             type="button"
@@ -269,7 +267,7 @@ function ApiKeysSection({ keys, onChange, embedded }: ApiKeysProps) {
             onChange={(e) => onChange({ ...keys, [f.id]: e.target.value })}
             placeholder={f.placeholder}
             autoComplete="off"
-            className="h-9 text-xs bg-zinc-950 border-zinc-700 text-zinc-200 placeholder:text-zinc-600 focus-visible:ring-violet-500/50"
+            className="h-9 text-xs bg-zinc-950 border-zinc-700 text-zinc-200 placeholder:text-zinc-600 focus-visible:ring-intent-primary-border"
           />
         </div>
       ))}
@@ -286,7 +284,7 @@ function ApiKeysSection({ keys, onChange, embedded }: ApiKeysProps) {
         <Key className="h-3.5 w-3.5 text-zinc-500 shrink-0" />
         <span className="text-xs font-semibold text-zinc-300 flex-1">API Keys</span>
         {!keys.deepseek && (
-          <span className="text-xs text-red-400 font-medium">At least one LLM key required</span>
+          <span className="text-xs text-intent-danger font-medium">At least one LLM key required</span>
         )}
       </div>
       {formContent}
@@ -442,29 +440,8 @@ function CsvDropZone({ file, onFile, mode, onModeChange }: CsvDropZoneProps) {
     if (f) onFile(f)
   }
 
-  const mergeTooltip = (
-    <>
-      <p className="font-semibold text-zinc-100 mb-1.5">Merge with search</p>
-      <p className="text-zinc-300/90 mb-1.5">
-        Connector search runs first (OpenAlex, PubMed, etc.). Rows from your CSV are combined with those hits before screening.
-      </p>
-      <p className="text-zinc-400">
-        Example: you have 80 hand-picked Scopus exports and still want automated search to add newer papers—duplicates drop out when merged.
-      </p>
-    </>
-  )
-
-  const masterTooltip = (
-    <>
-      <p className="font-semibold text-zinc-100 mb-1.5">Use as master list</p>
-      <p className="text-zinc-300/90 mb-1.5">
-        Your CSV is the canonical study set; the workflow treats it as the primary input instead of expanding via connector search.
-      </p>
-      <p className="text-zinc-400">
-        Example: you already locked a PRISMA table of 42 included studies and want screening and extraction on exactly those rows.
-      </p>
-    </>
-  )
+  const mergeTooltip = "Run connector search first, then merge your CSV rows. Duplicates are removed."
+  const masterTooltip = "Skip connector search and use only the studies in your CSV."
 
   return (
     <TooltipProvider delayDuration={250}>
@@ -477,7 +454,7 @@ function CsvDropZone({ file, onFile, mode, onModeChange }: CsvDropZoneProps) {
             <TooltipTrigger asChild>
               <button
                 type="button"
-                className="text-zinc-600 hover:text-blue-400/90 transition-colors rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-500/40"
+                className="text-zinc-600 hover:text-intent-info transition-colors rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-intent-primary-border"
                 aria-label="About optional CSV import"
               >
                 <HelpCircle className="h-3.5 w-3.5" />
@@ -486,7 +463,8 @@ function CsvDropZone({ file, onFile, mode, onModeChange }: CsvDropZoneProps) {
             <TooltipContent
               side="top"
               align="start"
-              className="max-w-[280px] border-zinc-700 bg-zinc-950 text-xs text-zinc-300 leading-relaxed px-3 py-2.5 shadow-lg"
+              sideOffset={6}
+              className="max-w-[260px] text-xs leading-relaxed px-3 py-2.5 bg-zinc-950 border border-zinc-700 text-zinc-100 shadow-xl"
             >
               <p className="font-semibold text-zinc-100 mb-1">Optional CSV</p>
               <p>Add a Scopus-style spreadsheet to either enrich automated search or replace it with your fixed list.</p>
@@ -508,7 +486,7 @@ function CsvDropZone({ file, onFile, mode, onModeChange }: CsvDropZoneProps) {
                 onClick={() => onModeChange("supplementary")}
                 className={`px-2.5 py-1 rounded-md text-xs font-medium transition-colors min-w-0 ${
                   mode === "supplementary"
-                    ? "bg-violet-500/15 text-violet-200 shadow-sm ring-1 ring-violet-500/35"
+                    ? "bg-intent-primary-subtle text-zinc-100 shadow-sm ring-1 ring-intent-primary-border"
                     : "text-zinc-500 hover:text-zinc-300"
                 }`}
               >
@@ -517,9 +495,10 @@ function CsvDropZone({ file, onFile, mode, onModeChange }: CsvDropZoneProps) {
             </TooltipTrigger>
             <TooltipContent
               side="bottom"
-              className="max-w-[280px] border-zinc-700 bg-zinc-950 text-xs leading-relaxed px-3 py-2.5 shadow-lg"
+              sideOffset={6}
+              className="max-w-[260px] text-xs leading-relaxed px-3 py-2.5 bg-zinc-950 border border-zinc-700 text-zinc-100 shadow-xl"
             >
-              {mergeTooltip}
+              <p>{mergeTooltip}</p>
             </TooltipContent>
           </Tooltip>
           <Tooltip>
@@ -531,7 +510,7 @@ function CsvDropZone({ file, onFile, mode, onModeChange }: CsvDropZoneProps) {
                 onClick={() => onModeChange("masterlist")}
                 className={`px-2.5 py-1 rounded-md text-xs font-medium transition-colors min-w-0 ${
                   mode === "masterlist"
-                    ? "bg-violet-500/15 text-violet-200 shadow-sm ring-1 ring-violet-500/35"
+                    ? "bg-intent-primary-subtle text-zinc-100 shadow-sm ring-1 ring-intent-primary-border"
                     : "text-zinc-500 hover:text-zinc-300"
                 }`}
               >
@@ -540,9 +519,10 @@ function CsvDropZone({ file, onFile, mode, onModeChange }: CsvDropZoneProps) {
             </TooltipTrigger>
             <TooltipContent
               side="bottom"
-              className="max-w-[280px] border-zinc-700 bg-zinc-950 text-xs leading-relaxed px-3 py-2.5 shadow-lg"
+              sideOffset={6}
+              className="max-w-[260px] text-xs leading-relaxed px-3 py-2.5 bg-zinc-950 border border-zinc-700 text-zinc-100 shadow-xl"
             >
-              {masterTooltip}
+              <p>{masterTooltip}</p>
             </TooltipContent>
           </Tooltip>
         </div>
@@ -556,14 +536,14 @@ function CsvDropZone({ file, onFile, mode, onModeChange }: CsvDropZoneProps) {
           onClick={() => inputRef.current?.click()}
           className={`flex flex-col items-center justify-center gap-2 px-4 py-6 rounded-xl border-2 border-dashed cursor-pointer transition-colors ${
             dragging
-              ? "border-emerald-500/60 bg-emerald-500/8"
+              ? "border-intent-success/60 bg-intent-success-subtle"
               : "border-zinc-700 bg-zinc-900/50 hover:border-zinc-600 hover:bg-zinc-900"
           }`}
         >
           <Upload className="h-5 w-5 text-zinc-500" />
           <p className="text-xs text-zinc-500 text-center leading-relaxed">
             Drop a CSV file here, or{" "}
-            <span className="text-emerald-400 font-medium">click to browse</span>
+            <span className="text-intent-success font-medium">click to browse</span>
           </p>
           <p className="text-xs text-zinc-600">
             {mode === "masterlist"
@@ -575,17 +555,17 @@ function CsvDropZone({ file, onFile, mode, onModeChange }: CsvDropZoneProps) {
         /* File info row */
         <div className={`flex items-center gap-3 px-4 py-3 rounded-xl border ${
           analysis?.valid
-            ? "border-emerald-500/30 bg-emerald-500/8"
+            ? "border-intent-success-border bg-intent-success-subtle"
             : analysis && !analysis.valid
-            ? "border-amber-500/30 bg-amber-500/8"
+            ? "border-intent-warning-border bg-intent-warning-subtle"
             : "border-zinc-700 bg-zinc-900/50"
         }`}>
-          <FileText className={`h-4 w-4 shrink-0 ${analysis?.valid ? "text-emerald-400" : analysis ? "text-amber-400" : "text-zinc-500"}`} />
+          <FileText className={`h-4 w-4 shrink-0 ${analysis?.valid ? "text-intent-success" : analysis ? "text-intent-warning" : "text-zinc-500"}`} />
           <div className="flex-1 min-w-0">
-            <p className={`text-xs font-medium truncate ${analysis?.valid ? "text-emerald-300" : analysis ? "text-amber-300" : "text-zinc-300"}`}>
+            <p className={`text-xs font-medium truncate ${analysis?.valid ? "text-intent-success" : analysis ? "text-intent-warning" : "text-zinc-300"}`}>
               {file.name}
             </p>
-            <p className={`text-xs mt-0.5 ${analysis?.valid ? "text-emerald-500/70" : "text-zinc-600"}`}>
+            <p className={`text-xs mt-0.5 ${analysis?.valid ? "text-intent-success/70" : "text-zinc-600"}`}>
               {(file.size / 1024).toFixed(0)} KB
             </p>
           </div>
@@ -613,30 +593,30 @@ function CsvDropZone({ file, onFile, mode, onModeChange }: CsvDropZoneProps) {
           {analysis && !analysing && (
             <>
               {/* Status row */}
-              <div className={`flex items-center gap-2.5 px-4 py-3 border-b border-zinc-800/60 ${analysis.valid ? "bg-emerald-500/6" : "bg-amber-500/6"}`}>
+              <div className={`flex items-center gap-2.5 px-4 py-3 border-b border-zinc-800/60 ${analysis.valid ? "bg-intent-success-subtle" : "bg-intent-warning-subtle"}`}>
                 {analysis.valid ? (
-                  <CheckCircle2 className="h-4 w-4 text-emerald-400 shrink-0" />
+                  <CheckCircle2 className="h-4 w-4 text-intent-success shrink-0" />
                 ) : (
-                  <AlertCircle className="h-4 w-4 text-amber-400 shrink-0" />
+                  <AlertCircle className="h-4 w-4 text-intent-warning shrink-0" />
                 )}
                 <div className="flex-1">
                   {analysis.error ? (
-                    <p className="text-xs font-semibold text-red-400">{analysis.error}</p>
+                    <p className="text-xs font-semibold text-intent-danger">{analysis.error}</p>
                   ) : analysis.valid ? (
-                    <p className="text-xs font-semibold text-emerald-300">
+                    <p className="text-xs font-semibold text-intent-success">
                       {analysis.rowCount.toLocaleString()} papers ready to screen
                     </p>
                   ) : analysis.missingRequired.length > 0 ? (
-                    <p className="text-xs font-semibold text-amber-300">
+                    <p className="text-xs font-semibold text-intent-warning">
                       Missing required column: {analysis.missingRequired.join(", ")}
                     </p>
                   ) : (
-                    <p className="text-xs font-semibold text-amber-300">
+                    <p className="text-xs font-semibold text-intent-warning">
                       {analysis.rowCount === 0 ? "No data rows found" : `${analysis.rowCount.toLocaleString()} rows found`}
                     </p>
                   )}
                   {analysis.valid && (
-                    <p className="text-xs text-emerald-500/70 mt-0.5">
+                    <p className="text-xs text-intent-success/70 mt-0.5">
                       {mode === "masterlist"
                         ? "This CSV will be used as the review master list instead of connector search."
                         : "Connector search will run, then this CSV will be merged before screening."}
@@ -657,10 +637,10 @@ function CsvDropZone({ file, onFile, mode, onModeChange }: CsvDropZoneProps) {
                     return (
                       <div key={col} className="flex items-center gap-1.5">
                         <div className={`w-1.5 h-1.5 rounded-full shrink-0 ${
-                          present ? "bg-emerald-400" : required ? "bg-red-400" : "bg-zinc-700"
+                          present ? "bg-intent-success" : required ? "bg-intent-danger" : "bg-zinc-700"
                         }`} />
                         <span className={`text-xs truncate ${
-                          present ? "text-zinc-300" : required ? "text-red-400" : "text-zinc-600"
+                          present ? "text-zinc-300" : required ? "text-intent-danger" : "text-zinc-600"
                         }`}>
                           {col}
                           {required && !present && " *"}
@@ -710,29 +690,37 @@ function QuestionStage({
   initialCsvMode,
 }: Stage1Props) {
   const [question, setQuestion] = useState(initialQuestion)
-  const [credentialMode, setCredentialMode] = useState<"server" | "override">("server")
-  const [serverReady, setServerReady] = useState(false)
-  const [serverMasked, setServerMasked] = useState("")
-  const [deepseekKey, setDeepseekKey] = useState(() => {
-    const saved = loadApiKeys()
-    return initialDeepseekKey || saved?.deepseek || ""
-  })
+  const [envStatus, setEnvStatus] = useState<EnvKeysStatus | null>(null)
+  const [requiredUiKeys, setRequiredUiKeys] = useState<string[]>(["deepseek"])
+  const [submitError, setSubmitError] = useState<string | null>(null)
 
   useEffect(() => {
     fetchEnvKeysStatus().then((status) => {
       if (!status) return
-      setServerReady(status.server_ready)
-      const deepseek = status.providers.deepseek
-      if (deepseek?.configured && deepseek.masked) {
-        setServerMasked(deepseek.masked)
-        if (!initialDeepseekKey && !loadApiKeys()?.deepseek) {
-          setCredentialMode("server")
-        }
+      setEnvStatus(status)
+    })
+    fetchRequiredLlmUiKeys().then((keys) => {
+      if (keys.length > 0) {
+        setRequiredUiKeys(keys)
       }
     })
-  }, [initialDeepseekKey])
+  }, [])
 
-  const [showKey, setShowKey] = useState(false)
+  function hasRequiredCredentials(): boolean {
+    const saved = loadApiKeys()
+    const savedByName = (saved ?? {}) as Record<string, string>
+    const required = requiredUiKeys.length > 0 ? requiredUiKeys : ["deepseek"]
+    return required.every((key) => {
+      const browserVal = String(savedByName[key] ?? "").trim()
+      const envConfigured = envStatus?.providers[key]?.configured ?? false
+      const initialVal = key === "deepseek" ? initialDeepseekKey?.trim() ?? "" : ""
+      return !!browserVal || envConfigured || !!initialVal
+    })
+  }
+
+  const hasCredentials = hasRequiredCredentials()
+  const visibleSubmitError = hasCredentials ? null : submitError
+
   const [showHistory, setShowHistory] = useState(false)
   const [csvFile, setCsvFile] = useState<File | null>(initialCsvFile)
   const [csvMode, setCsvMode] = useState<CsvMode>(initialCsvMode)
@@ -748,14 +736,17 @@ function QuestionStage({
     return () => document.removeEventListener("mousedown", handler)
   }, [showHistory])
 
-  const useServerCredentials = credentialMode === "server" && serverReady
-  const hasCredentials = useServerCredentials || !!deepseekKey.trim()
-
   async function handleGenerate(generationProfile: GenerationProfile = "standard") {
-    if (!question.trim() || !hasCredentials) return
+    if (!question.trim()) return
+    if (!hasRequiredCredentials()) {
+      setSubmitError("Add at least one LLM API key in Settings before generating a config.")
+      return
+    }
+    setSubmitError(null)
+    const savedKey = loadApiKeys()?.deepseek ?? ""
     onGenerateRequested({
       question: question.trim(),
-      deepseekKey: useServerCredentials ? "" : deepseekKey.trim(),
+      deepseekKey: envStatus?.server_ready ? "" : (initialDeepseekKey || savedKey).trim(),
       csvFile: csvFile ?? undefined,
       csvMode,
       generationProfile,
@@ -763,139 +754,73 @@ function QuestionStage({
   }
 
   const completedRuns = history.filter((h) => h.status === "completed").slice(0, 10)
-  const canGenerate = !!question.trim() && hasCredentials
+  const canGenerate = !!question.trim()
 
   return (
-    <div className="flex flex-col gap-5">
+    <div className="flex flex-col gap-6">
       {/* Hero */}
-      <div className="text-center pt-6 pb-2">
-        <div className="inline-flex items-center justify-center w-11 h-11 rounded-xl bg-violet-600/20 border border-violet-500/30 mb-4">
-          <Wand2 className="h-5 w-5 text-violet-400" />
-        </div>
-        <h2 className="text-lg font-semibold text-zinc-100 mb-1">New Systematic Review</h2>
-        <p className="text-sm text-zinc-500 max-w-sm mx-auto leading-relaxed">
-          Describe your research question. We generate the PICO framework, search keywords,
-          inclusion and exclusion criteria automatically.
+      <div className="text-center pt-4 pb-1">
+        <p className="text-sm text-zinc-400 max-w-sm mx-auto leading-relaxed">
+          Describe your review question to generate PICO, search keywords, and screening criteria.
         </p>
       </div>
 
-      <CsvDropZone file={csvFile} onFile={setCsvFile} mode={csvMode} onModeChange={setCsvMode} />
-
       {/* Research question */}
       <div>
-        <label className="block label-caps font-semibold mb-2">
-          Research Question
-        </label>
         <Textarea
           value={question}
-          onChange={(e) => setQuestion(e.target.value)}
-          rows={4}
-          placeholder="e.g. What is the effect of [intervention] on [outcome] in [population]? Describe your research question in plain language."
-          className="resize-none text-sm bg-zinc-900 border-zinc-800 text-zinc-200 placeholder:text-zinc-600 focus-visible:ring-violet-500/50 leading-relaxed"
+          onChange={(e) => {
+            setQuestion(e.target.value)
+            if (submitError) setSubmitError(null)
+          }}
+          rows={3}
+          placeholder="What is the effect of [intervention] on [outcome] in [population]?"
+          className="resize-none text-sm bg-zinc-900 border-zinc-800 text-zinc-200 placeholder:text-zinc-600 focus-visible:ring-intent-primary-border leading-relaxed"
           onKeyDown={(e) => {
             if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) void handleGenerate("standard")
           }}
         />
-        <p className="text-xs text-zinc-600 mt-1.5">Cmd+Enter to generate</p>
+        <p className="text-xs text-zinc-600 mt-1.5">Press Cmd/Ctrl+Enter to generate config.</p>
       </div>
 
-      {/* LLM credentials: prefer server .env; optional browser override */}
-      <div>
-        <label className="block label-caps font-semibold mb-2">LLM credentials</label>
-        {serverReady ? (
-          <div className="rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-3 py-2.5 text-sm text-emerald-200/90">
-            Using <span className="font-medium">{llmProviderLabel("deepseek")}</span> from server{" "}
-            <code className="text-xs text-emerald-300/80">.env</code>
-            {serverMasked ? (
-              <span className="text-emerald-300/70"> ({serverMasked})</span>
-            ) : null}
-          </div>
-        ) : (
-          <p className="text-xs text-amber-400/90 mb-2">
-            Add <code className="text-amber-200/80">DEEPSEEK_API_KEY</code> to project{" "}
-            <code className="text-amber-200/80">.env</code> or enter an override below.
-          </p>
-        )}
-        <div className="flex gap-2 mt-2">
-          <button
-            type="button"
-            disabled={!serverReady}
-            onClick={() => setCredentialMode("server")}
-            className={`flex-1 h-8 text-xs rounded-md border transition-colors ${
-              credentialMode === "server"
-                ? "border-violet-500/50 bg-violet-500/15 text-violet-200"
-                : "border-zinc-700 text-zinc-500 hover:text-zinc-300"
-            } ${!serverReady ? "opacity-40 cursor-not-allowed" : ""}`}
-          >
-            Server .env
-          </button>
-          <button
-            type="button"
-            onClick={() => setCredentialMode("override")}
-            className={`flex-1 h-8 text-xs rounded-md border transition-colors ${
-              credentialMode === "override"
-                ? "border-violet-500/50 bg-violet-500/15 text-violet-200"
-                : "border-zinc-700 text-zinc-500 hover:text-zinc-300"
-            }`}
-          >
-            Browser override
-          </button>
-        </div>
-        {credentialMode === "override" && (
-          <div className="relative mt-2">
-            <Input
-              type={showKey ? "text" : "password"}
-              value={deepseekKey}
-              onChange={(e) => setDeepseekKey(e.target.value)}
-              placeholder="sk-..."
-              autoComplete="off"
-              className="pr-9 h-10 text-sm bg-zinc-900 border-zinc-800 text-zinc-200 placeholder:text-zinc-600 focus-visible:ring-violet-500/50"
-            />
-            <button
-              type="button"
-              onClick={() => setShowKey((v) => !v)}
-              className="absolute right-2.5 top-1/2 -translate-y-1/2 text-zinc-500 hover:text-zinc-300 transition-colors"
-            >
-              {showKey ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
-            </button>
-          </div>
-        )}
-        <p className="text-xs text-zinc-600 mt-1.5">
-          Keys in <code className="text-zinc-500">.env</code> are the source of truth. Browser overrides apply
-          only to this session and are not written back to disk.
-        </p>
-      </div>
+      <CsvDropZone file={csvFile} onFile={setCsvFile} mode={csvMode} onModeChange={setCsvMode} />
 
       {loadError && (
         <FetchError message={loadError} onRetry={onClearError} />
       )}
+      {visibleSubmitError && (
+        <FetchError message={visibleSubmitError} onRetry={() => setSubmitError(null)} />
+      )}
 
       {/* CTA */}
-      <Button
-        type="button"
-        onClick={() => void handleGenerate()}
-        disabled={!canGenerate}
-        className="w-full h-11 bg-violet-600 hover:bg-violet-500 disabled:opacity-40 text-white font-semibold gap-2 transition-colors"
-      >
-        <Sparkles className="h-4 w-4" />
-        Generate Review Config
-      </Button>
-      <Button
-        type="button"
-        onClick={() => void handleGenerate("health_sdg")}
-        disabled={!canGenerate}
-        className="w-full h-12 bg-emerald-600/90 hover:bg-emerald-500 disabled:opacity-40 text-white font-semibold gap-2.5 transition-colors border border-emerald-400/30"
-      >
-        <HeartPulse className="h-5 w-5" />
-        Generate Health + SDG Config
-      </Button>
-      <p className="text-xs text-zinc-500 -mt-2 leading-relaxed">
-        Hybrid framing mode: keeps your core topic while adding health-impact pathways and UN SDG alignment.
-      </p>
+      <div className="space-y-2.5">
+        <div className="grid grid-cols-2 gap-2.5">
+        <Button
+          type="button"
+          onClick={() => void handleGenerate()}
+          disabled={!canGenerate}
+          className="h-11 bg-intent-primary hover:bg-intent-primary/90 disabled:opacity-40 text-white font-semibold gap-2 transition-colors"
+        >
+          <Sparkles className="h-4 w-4" />
+          Generate Config
+        </Button>
+        <Button
+          type="button"
+          onClick={() => void handleGenerate("health_sdg")}
+          disabled={!canGenerate}
+          className="h-11 bg-intent-success hover:bg-intent-success/90 disabled:opacity-40 text-white font-semibold gap-2 transition-colors border border-intent-success-border"
+        >
+          <HeartPulse className="h-4.5 w-4.5" />
+          Health + SDG Config
+        </Button>
+        </div>
+        <p className="text-[11px] text-zinc-600 text-center leading-relaxed">
+          Health mode adds health-impact pathways and UN SDG alignment.
+        </p>
+      </div>
 
       {/* Secondary actions */}
       <div className="flex items-center justify-between pt-1">
-        {/* Load from past run */}
         <div className="relative" ref={dropdownRef}>
           {completedRuns.length > 0 && (
             <button
@@ -905,7 +830,7 @@ function QuestionStage({
               className="flex items-center gap-1.5 text-xs text-zinc-500 hover:text-zinc-300 transition-colors"
             >
               <RotateCcw className={`h-3.5 w-3.5 ${loadingHistoryId ? "animate-spin" : ""}`} />
-              {loadingHistoryId ? "Loading..." : "Load config from a past run"}
+              {loadingHistoryId ? "Loading..." : "Reuse past config"}
               <ChevronDown className={`h-3 w-3 transition-transform ${showHistory ? "rotate-180" : ""}`} />
             </button>
           )}
@@ -936,14 +861,13 @@ function QuestionStage({
           )}
         </div>
 
-        {/* Skip to YAML */}
         <button
           type="button"
           onClick={onPasteYaml}
           className="flex items-center gap-1.5 text-xs text-zinc-600 hover:text-zinc-400 transition-colors"
         >
           <FileCode2 className="h-3.5 w-3.5" />
-          Paste YAML directly
+          Paste YAML
         </button>
       </div>
     </div>
@@ -1078,9 +1002,9 @@ export function ConfigReviewStage({
           </Button>
           <span className="text-zinc-600">|</span>
           <span className="text-xs text-zinc-500">
-            <span className="text-emerald-500/80 font-medium">1. Question</span>
+            <span className="text-intent-success/80 font-medium">1. Question</span>
             <span className="text-zinc-600 mx-1.5">/</span>
-            <span className="text-violet-300 font-medium">2. Config</span>
+            <span className="text-intent-primary font-medium">2. Config</span>
           </span>
         </div>
         <div>
@@ -1094,11 +1018,11 @@ export function ConfigReviewStage({
       </div>
 
       {csvFile && (
-        <div className="flex items-start gap-2.5 px-3 py-2.5 bg-blue-500/10 border border-blue-500/20 rounded-xl text-xs text-blue-300">
+        <div className="flex items-start gap-2.5 px-3 py-2.5 bg-intent-info-subtle border border-intent-info-border rounded-xl text-xs text-intent-info">
           <Upload className="h-3.5 w-3.5 flex-shrink-0 mt-0.5" />
           <span className="leading-relaxed">
             {csvMode === "masterlist" ? "Master list CSV" : "Supplementary CSV"}:{" "}
-            <span className="font-medium text-blue-200">{csvFile.name}</span>{" "}
+            <span className="font-medium text-intent-info-fg">{csvFile.name}</span>{" "}
             {csvMode === "masterlist"
               ? "will be used as the primary study list for this run."
               : "will be merged with connector search results before screening."}
@@ -1108,7 +1032,7 @@ export function ConfigReviewStage({
 
       {/* Generated banner */}
       {question && (
-        <div className="flex items-start gap-2.5 px-3 py-2.5 bg-emerald-500/10 border border-emerald-500/20 rounded-xl text-xs text-emerald-400">
+        <div className="flex items-start gap-2.5 px-3 py-2.5 bg-intent-success-subtle border border-intent-success-border rounded-xl text-xs text-zinc-200">
           <Sparkles className="h-3.5 w-3.5 flex-shrink-0 mt-0.5" />
           <span className="leading-relaxed">
             {isGeneratingConfig
@@ -1166,7 +1090,7 @@ export function ConfigReviewStage({
         type="button"
         onClick={() => void handleLaunch()}
         disabled={disabled || submitting || isGeneratingConfig || !yaml.trim() || !hasAllRequiredLlmKeys}
-        className="w-full h-11 bg-violet-600 hover:bg-violet-500 disabled:opacity-40 text-white font-semibold gap-2 transition-colors"
+        className="w-full h-11 bg-intent-primary hover:bg-intent-primary/90 disabled:opacity-40 text-white font-semibold gap-2 transition-colors"
       >
         {submitting ? (
           <>

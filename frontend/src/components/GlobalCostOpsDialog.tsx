@@ -74,7 +74,7 @@ function formatInteger(value: number): string {
 
 const fieldLabelClass = "space-y-1.5 text-sm"
 const fieldControlClass =
-  "h-10 w-full min-w-0 rounded-lg border border-zinc-800 bg-zinc-950/90 px-3 text-sm text-zinc-100 shadow-sm outline-none transition-colors hover:border-zinc-700 focus:border-violet-500"
+  "h-10 w-full min-w-0 rounded-lg border border-zinc-800 bg-zinc-950/90 px-3 text-sm text-zinc-100 shadow-sm outline-none transition-colors hover:border-zinc-700 focus:border-intent-primary"
 const statCardClass = "rounded-xl border border-zinc-800/80 bg-zinc-950/60 px-4 py-4"
 const loadingStages = [
   "Preparing filters",
@@ -271,7 +271,7 @@ function CostsLoadingSkeleton() {
             className={`${statCardClass} flex items-center justify-center`}
           >
             <div className="flex items-center gap-2 text-sm text-zinc-400">
-              <Loader2 className="h-4 w-4 animate-spin text-violet-400" />
+              <Loader2 className="h-4 w-4 animate-spin text-intent-primary" />
               <span>Loading metric</span>
             </div>
           </div>
@@ -288,7 +288,7 @@ function CostsLoadingSkeleton() {
               Loading chart
             </div>
             <div className="flex h-40 items-center justify-center">
-              <Loader2 className="h-7 w-7 animate-spin text-violet-400" />
+              <Loader2 className="h-7 w-7 animate-spin text-intent-primary" />
             </div>
           </div>
         ))}
@@ -304,7 +304,7 @@ function CostsLoadingSkeleton() {
               Loading breakdown
             </div>
             <div className="flex h-40 items-center justify-center">
-              <Loader2 className="h-7 w-7 animate-spin text-violet-400" />
+              <Loader2 className="h-7 w-7 animate-spin text-intent-primary" />
             </div>
           </div>
         ))}
@@ -313,7 +313,11 @@ function CostsLoadingSkeleton() {
   )
 }
 
-export function GlobalCostOpsDialog({ open, onOpenChange }: GlobalCostOpsDialogProps) {
+/**
+ * Standalone costs content panel -- can be rendered inside any container
+ * (the SettingsDialog embeds it in its "Costs" tab).
+ */
+export function CostsPanel() {
   const defaultRange = useMemo(() => buildPresetRange(30), [])
   const [preset, setPreset] = useState<PresetKey>("30d")
   const [startDate, setStartDate] = useState(defaultRange.startDate)
@@ -366,9 +370,8 @@ export function GlobalCostOpsDialog({ open, onOpenChange }: GlobalCostOpsDialogP
   }, [])
 
   useEffect(() => {
-    if (!open) return
     void loadAggregates()
-  }, [loadAggregates, open])
+  }, [loadAggregates])
 
   function applyPreset(nextPreset: Exclude<PresetKey, "custom">) {
     const days = nextPreset === "5d" ? 5 : nextPreset === "30d" ? 30 : 90
@@ -392,13 +395,172 @@ export function GlobalCostOpsDialog({ open, onOpenChange }: GlobalCostOpsDialogP
   const totals = data?.totals
 
   return (
+    <div className="space-y-5">
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-[300px_170px_170px_140px_110px_130px] lg:items-end">
+        <div className="inline-flex h-10 flex-wrap items-center gap-1.5 rounded-2xl border border-zinc-800/80 bg-zinc-950/50 p-1">
+          <Button
+            type="button"
+            variant={preset === "5d" ? "default" : "ghost"}
+            size="sm"
+            className={preset === "5d" ? "h-8 rounded-xl px-3 shadow-sm" : "h-8 rounded-xl px-3 text-zinc-300 hover:bg-zinc-800/80 hover:text-zinc-100"}
+            onClick={() => applyPreset("5d")}
+          >
+            Last 5 days
+          </Button>
+          <Button
+            type="button"
+            variant={preset === "30d" ? "default" : "ghost"}
+            size="sm"
+            className={preset === "30d" ? "h-8 rounded-xl px-3 shadow-sm" : "h-8 rounded-xl px-3 text-zinc-300 hover:bg-zinc-800/80 hover:text-zinc-100"}
+            onClick={() => applyPreset("30d")}
+          >
+            Last 30 days
+          </Button>
+          <Button
+            type="button"
+            variant={preset === "90d" ? "default" : "ghost"}
+            size="sm"
+            className={preset === "90d" ? "h-8 rounded-xl px-3 shadow-sm" : "h-8 rounded-xl px-3 text-zinc-300 hover:bg-zinc-800/80 hover:text-zinc-100"}
+            onClick={() => applyPreset("90d")}
+          >
+            Last 90 days
+          </Button>
+        </div>
+        <label className={`${fieldLabelClass} min-w-0`}>
+          <span className="text-zinc-400">Start date</span>
+          <input
+            type="date"
+            value={startDate}
+            onChange={(event) => {
+              setPreset("custom")
+              setStartDate(event.target.value)
+            }}
+            className={fieldControlClass}
+          />
+        </label>
+        <label className={`${fieldLabelClass} min-w-0`}>
+          <span className="text-zinc-400">End date</span>
+          <input
+            type="date"
+            value={endDate}
+            onChange={(event) => {
+              setPreset("custom")
+              setEndDate(event.target.value)
+            }}
+            className={fieldControlClass}
+          />
+        </label>
+        <label className={`${fieldLabelClass} min-w-0`}>
+          <span className="text-zinc-400">Export</span>
+          <select
+            value={exportGranularity}
+            onChange={(event) => setExportGranularity(event.target.value as DbCostExportGranularity)}
+            className={fieldControlClass}
+          >
+            <option value="day">Daily CSV</option>
+            <option value="week">Weekly CSV</option>
+            <option value="month">Monthly CSV</option>
+          </select>
+        </label>
+        <Button
+          type="button"
+          variant="secondary"
+          onClick={() => void loadAggregates()}
+          disabled={loading}
+          className="h-10 rounded-lg border border-zinc-700 bg-zinc-900/80 px-3.5 text-zinc-100 hover:bg-zinc-800"
+        >
+          {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
+          Refresh
+        </Button>
+        <Button type="button" asChild className="h-10 rounded-lg px-3.5 shadow-sm">
+          <a href={exportUrl} download>
+            <Download className="h-4 w-4" />
+            Export CSV
+          </a>
+        </Button>
+      </div>
+
+      {loading && (
+        <div className="rounded-lg border border-zinc-800/80 bg-zinc-950/70 px-3 py-2">
+          <div className="mb-1.5 flex items-center justify-between gap-3">
+            <div className="flex items-center gap-2 text-sm text-zinc-200">
+              <Loader2 className="h-4 w-4 animate-spin text-intent-primary" />
+              <span>Loading cost analytics</span>
+            </div>
+            <span className="text-xs text-zinc-400">{loadingStages[loadingStageIndex]}</span>
+          </div>
+          <div className="h-1.5 overflow-hidden rounded-full bg-zinc-900">
+            <div
+              className="h-full rounded-full bg-intent-primary transition-all duration-300"
+              style={{ width: `${((loadingStageIndex + 1) / loadingStages.length) * 100}%` }}
+            />
+          </div>
+        </div>
+      )}
+
+      {error && (
+        <div className="rounded-lg border border-intent-danger-border bg-intent-danger-subtle px-4 py-3 text-sm text-intent-danger">
+          {error}
+        </div>
+      )}
+
+      {loading ? (
+        <CostsLoadingSkeleton />
+      ) : (
+        <>
+          <div className="grid gap-3 md:grid-cols-4">
+            <div className={statCardClass}>
+              <div className="text-xs uppercase tracking-wide text-zinc-500">Total cost</div>
+              <div className="mt-2 text-2xl font-semibold text-zinc-50">
+                {totals ? formatUsd(totals.total_cost_usd) : "--"}
+              </div>
+            </div>
+            <div className={statCardClass}>
+              <div className="text-xs uppercase tracking-wide text-zinc-500">Total calls</div>
+              <div className="mt-2 text-2xl font-semibold text-zinc-50">
+                {totals ? formatInteger(totals.total_calls) : "--"}
+              </div>
+            </div>
+            <div className={statCardClass}>
+              <div className="text-xs uppercase tracking-wide text-zinc-500">Input tokens</div>
+              <div className="mt-2 text-2xl font-semibold text-zinc-50">
+                {totals ? formatInteger(totals.total_tokens_in) : "--"}
+              </div>
+            </div>
+            <div className={statCardClass}>
+              <div className="text-xs uppercase tracking-wide text-zinc-500">Workflows</div>
+              <div className="mt-2 text-2xl font-semibold text-zinc-50">
+                {data ? formatInteger(data.workflow_count) : "--"}
+              </div>
+            </div>
+          </div>
+
+          <div className="grid gap-4 xl:grid-cols-3">
+            <BucketSection title="Daily spend" rows={data?.by_day ?? []} />
+            <BucketSection title="Weekly spend" rows={data?.by_week ?? []} />
+            <BucketSection title="Monthly spend" rows={data?.by_month ?? []} />
+          </div>
+
+          <div className="grid gap-4 xl:grid-cols-3">
+            <GroupSection title="Top workflows" rows={data?.by_workflow ?? []} />
+            <GroupSection title="Top phases" rows={data?.by_phase ?? []} />
+            <GroupSection title="Top models" rows={data?.by_model ?? []} />
+          </div>
+        </>
+      )}
+    </div>
+  )
+}
+
+export function GlobalCostOpsDialog({ open, onOpenChange }: GlobalCostOpsDialogProps) {
+  return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-6xl border-zinc-800 bg-zinc-900 p-0 text-zinc-100">
         <DialogHeader className="border-b border-zinc-800 px-6 py-5">
           <div className="flex items-start justify-between gap-4">
             <div>
               <DialogTitle className="flex items-center gap-2 text-zinc-100">
-                <CalendarDays className="h-5 w-5 text-violet-300" />
+                <CalendarDays className="h-5 w-5 text-intent-primary" />
                 Costs
               </DialogTitle>
               <DialogDescription className="mt-1 text-zinc-400">
@@ -422,158 +584,7 @@ export function GlobalCostOpsDialog({ open, onOpenChange }: GlobalCostOpsDialogP
         </DialogHeader>
 
         <div className="space-y-5 px-6 py-5">
-          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-[300px_170px_170px_140px_110px_130px] lg:items-end">
-            <div className="inline-flex h-10 flex-wrap items-center gap-1.5 rounded-2xl border border-zinc-800/80 bg-zinc-950/50 p-1">
-              <Button
-                type="button"
-                variant={preset === "5d" ? "default" : "ghost"}
-                size="sm"
-                className={preset === "5d" ? "h-8 rounded-xl px-3 shadow-sm" : "h-8 rounded-xl px-3 text-zinc-300 hover:bg-zinc-800/80 hover:text-zinc-100"}
-                onClick={() => applyPreset("5d")}
-              >
-                Last 5 days
-              </Button>
-              <Button
-                type="button"
-                variant={preset === "30d" ? "default" : "ghost"}
-                size="sm"
-                className={preset === "30d" ? "h-8 rounded-xl px-3 shadow-sm" : "h-8 rounded-xl px-3 text-zinc-300 hover:bg-zinc-800/80 hover:text-zinc-100"}
-                onClick={() => applyPreset("30d")}
-              >
-                Last 30 days
-              </Button>
-              <Button
-                type="button"
-                variant={preset === "90d" ? "default" : "ghost"}
-                size="sm"
-                className={preset === "90d" ? "h-8 rounded-xl px-3 shadow-sm" : "h-8 rounded-xl px-3 text-zinc-300 hover:bg-zinc-800/80 hover:text-zinc-100"}
-                onClick={() => applyPreset("90d")}
-              >
-                Last 90 days
-              </Button>
-            </div>
-            <label className={`${fieldLabelClass} min-w-0`}>
-              <span className="text-zinc-400">Start date</span>
-              <input
-                type="date"
-                value={startDate}
-                onChange={(event) => {
-                  setPreset("custom")
-                  setStartDate(event.target.value)
-                }}
-                className={fieldControlClass}
-              />
-            </label>
-            <label className={`${fieldLabelClass} min-w-0`}>
-              <span className="text-zinc-400">End date</span>
-              <input
-                type="date"
-                value={endDate}
-                onChange={(event) => {
-                  setPreset("custom")
-                  setEndDate(event.target.value)
-                }}
-                className={fieldControlClass}
-              />
-            </label>
-            <label className={`${fieldLabelClass} min-w-0`}>
-              <span className="text-zinc-400">Export</span>
-              <select
-                value={exportGranularity}
-                onChange={(event) => setExportGranularity(event.target.value as DbCostExportGranularity)}
-                className={fieldControlClass}
-              >
-                <option value="day">Daily CSV</option>
-                <option value="week">Weekly CSV</option>
-                <option value="month">Monthly CSV</option>
-              </select>
-            </label>
-            <Button
-              type="button"
-              variant="secondary"
-              onClick={() => void loadAggregates()}
-              disabled={loading}
-              className="h-10 rounded-lg border border-zinc-700 bg-zinc-900/80 px-3.5 text-zinc-100 hover:bg-zinc-800"
-            >
-              {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
-              Refresh
-            </Button>
-            <Button type="button" asChild className="h-10 rounded-lg px-3.5 shadow-sm">
-              <a href={exportUrl} download>
-                <Download className="h-4 w-4" />
-                Export CSV
-              </a>
-            </Button>
-          </div>
-
-          {loading && (
-            <div className="rounded-lg border border-zinc-800/80 bg-zinc-950/70 px-3 py-2">
-              <div className="mb-1.5 flex items-center justify-between gap-3">
-                <div className="flex items-center gap-2 text-sm text-zinc-200">
-                  <Loader2 className="h-4 w-4 animate-spin text-violet-300" />
-                  <span>Loading cost analytics</span>
-                </div>
-                <span className="text-xs text-zinc-400">{loadingStages[loadingStageIndex]}</span>
-              </div>
-              <div className="h-1.5 overflow-hidden rounded-full bg-zinc-900">
-                <div
-                  className="h-full rounded-full bg-violet-500 transition-all duration-300"
-                  style={{ width: `${((loadingStageIndex + 1) / loadingStages.length) * 100}%` }}
-                />
-              </div>
-            </div>
-          )}
-
-          {error && (
-            <div className="rounded-lg border border-red-900/80 bg-red-950/40 px-4 py-3 text-sm text-red-200">
-              {error}
-            </div>
-          )}
-
-          {loading ? (
-            <CostsLoadingSkeleton />
-          ) : (
-            <>
-              <div className="grid gap-3 md:grid-cols-4">
-                <div className={statCardClass}>
-                  <div className="text-xs uppercase tracking-wide text-zinc-500">Total cost</div>
-                  <div className="mt-2 text-2xl font-semibold text-zinc-50">
-                    {totals ? formatUsd(totals.total_cost_usd) : "--"}
-                  </div>
-                </div>
-                <div className={statCardClass}>
-                  <div className="text-xs uppercase tracking-wide text-zinc-500">Total calls</div>
-                  <div className="mt-2 text-2xl font-semibold text-zinc-50">
-                    {totals ? formatInteger(totals.total_calls) : "--"}
-                  </div>
-                </div>
-                <div className={statCardClass}>
-                  <div className="text-xs uppercase tracking-wide text-zinc-500">Input tokens</div>
-                  <div className="mt-2 text-2xl font-semibold text-zinc-50">
-                    {totals ? formatInteger(totals.total_tokens_in) : "--"}
-                  </div>
-                </div>
-                <div className={statCardClass}>
-                  <div className="text-xs uppercase tracking-wide text-zinc-500">Workflows</div>
-                  <div className="mt-2 text-2xl font-semibold text-zinc-50">
-                    {data ? formatInteger(data.workflow_count) : "--"}
-                  </div>
-                </div>
-              </div>
-
-              <div className="grid gap-4 xl:grid-cols-3">
-                <BucketSection title="Daily spend" rows={data?.by_day ?? []} />
-                <BucketSection title="Weekly spend" rows={data?.by_week ?? []} />
-                <BucketSection title="Monthly spend" rows={data?.by_month ?? []} />
-              </div>
-
-              <div className="grid gap-4 xl:grid-cols-3">
-                <GroupSection title="Top workflows" rows={data?.by_workflow ?? []} />
-                <GroupSection title="Top phases" rows={data?.by_phase ?? []} />
-                <GroupSection title="Top models" rows={data?.by_model ?? []} />
-              </div>
-            </>
-          )}
+          <CostsPanel />
         </div>
       </DialogContent>
     </Dialog>

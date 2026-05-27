@@ -2,13 +2,17 @@ import { useEffect, useMemo, useRef, useState, Suspense, lazy, Component } from 
 import type { ReactNode, ErrorInfo } from "react"
 import { useNavigate, useLocation } from "react-router-dom"
 import { Toaster, toast } from "sonner"
-import { AlertTriangle, BarChart3, Menu } from "lucide-react"
+import { AlertTriangle, Menu, Settings } from "lucide-react"
 import { Sidebar } from "@/components/Sidebar"
 import type { LiveRun } from "@/components/Sidebar"
-import { GlobalCostOpsDialog } from "@/components/GlobalCostOpsDialog"
+import { SettingsDialog } from "@/components/SettingsDialog"
 import { computePhaseProgress } from "@/lib/phaseProgress"
 import { computeFunnelStages } from "@/lib/funnelStages"
-import { isSameRunSelection, isTerminalHistoricalStatus } from "@/lib/runSelection"
+import {
+  isSameRunSelection,
+  isSameWorkflowSelection,
+  isTerminalHistoricalStatus,
+} from "@/lib/runSelection"
 import { useSSEStream } from "@/hooks/useSSEStream"
 import { useCostStats } from "@/hooks/useCostStats"
 import { useBackendHealth } from "@/hooks/useBackendHealth"
@@ -79,8 +83,8 @@ export class AppErrorBoundary extends Component<{ children: ReactNode }, ErrorBo
     if (this.state.hasError) {
       return (
         <div className="flex flex-col items-center justify-center h-screen bg-background text-zinc-100 gap-4 p-8">
-          <AlertTriangle className="h-10 w-10 text-red-400" />
-          <h1 className="text-xl font-semibold text-red-400">Something went wrong</h1>
+          <AlertTriangle className="h-10 w-10 text-intent-danger" />
+          <h1 className="text-xl font-semibold text-intent-danger">Something went wrong</h1>
           <p className="text-zinc-400 text-sm max-w-md text-center">{this.state.message}</p>
           <button
             className="mt-2 px-4 py-2 text-sm rounded bg-zinc-800 hover:bg-zinc-700 text-zinc-100 transition-colors"
@@ -118,7 +122,7 @@ interface DraftConfigState {
 function ViewLoader() {
   return (
     <div className="flex items-center justify-center h-48">
-      <Spinner size="md" className="text-violet-500" />
+      <Spinner size="md" className="text-intent-primary" />
     </div>
   )
 }
@@ -151,7 +155,7 @@ export default function App() {
   const [draftConfig, setDraftConfig] = useState<DraftConfigState | null>(null)
   const [submissionFocusTarget, setSubmissionFocusTarget] = useState<"reference-papers" | null>(null)
   const [submissionFocusToken, setSubmissionFocusToken] = useState(0)
-  const [costOpsOpen, setCostOpsOpen] = useState(false)
+  const [settingsOpen, setSettingsOpen] = useState(false)
 
   // Artifacts for historical ResultsView
   const [historyOutputs, setHistoryOutputs] = useState<Record<string, string>>({})
@@ -482,14 +486,14 @@ export default function App() {
   // Fetch artifacts for ResultsView when viewing a completed historical run.
   // ---------------------------------------------------------------------------
   useEffect(() => {
-    if (!selectedRun?.isDone || isViewingLiveRun) {
+    if (!selectedRun?.isDone || isViewingLiveRun || selectedRun.attachPending) {
       setHistoryOutputs({})
       return
     }
     fetchArtifacts(selectedRun.runId)
       .then((artifacts) => setHistoryOutputs(artifacts))
       .catch(() => setHistoryOutputs({}))
-  }, [selectedRun?.runId, selectedRun?.isDone, isViewingLiveRun])
+  }, [selectedRun?.runId, selectedRun?.isDone, selectedRun?.attachPending, isViewingLiveRun])
 
   // ---------------------------------------------------------------------------
   // Poll for CLI-initiated resume: when viewing a run, check if it became active.
@@ -828,8 +832,48 @@ export default function App() {
       setActiveRunTab("activity")
       navigate(`/run/${entry.workflow_id}/activity`, { replace: true })
     }
-    // Always probe the backend for an active run first. Sidebar history can lag
-    // briefly after CLI resume and miss live_run_id on a running workflow.
+
+    if (isSameWorkflowSelection(selectedRun?.workflowId, entry.workflow_id)) {
+      focusSelectedWorkflow()
+      return
+    }
+
+    const terminalHistorical =
+      isTerminalHistoricalStatus(entry.status) && !entry.live_run_id
+
+    if (terminalHistorical) {
+      clearLiveRunUi()
+      const isCompleted = isTerminalHistoricalStatus(entry.status)
+      setSelectedRun({
+        runId: entry.workflow_id,
+        workflowId: entry.workflow_id,
+        topic: entry.topic,
+        dbPath: entry.db_path,
+        isDone: isCompleted,
+        historicalStatus: entry.status,
+        startedAt: null,
+        createdAt: entry.created_at,
+        papersFound: entry.papers_found ?? null,
+        papersIncluded: entry.papers_included ?? null,
+        historicalCost: entry.total_cost ?? null,
+        attachPending: true,
+      })
+      focusSelectedWorkflow()
+      try {
+        const res = await attachHistory(entry)
+        setSelectedRun((current) =>
+          current?.workflowId === entry.workflow_id
+            ? { ...current, runId: res.run_id, attachPending: false }
+            : current,
+        )
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err)
+        toast.error(`Could not open run: ${msg}`)
+      }
+      return
+    }
+
+    // Probe active run for in-flight workflows. Completed runs skip this (404 is normal).
     const active = await fetchActiveRun(entry.workflow_id).catch(() => null)
     if (active) {
       if (
@@ -1076,8 +1120,8 @@ export default function App() {
     }
   }
 
-  function handleOpenCostOps() {
-    setCostOpsOpen(true)
+  function handleOpenSettings() {
+    setSettingsOpen(true)
   }
 
   // ---------------------------------------------------------------------------
@@ -1253,12 +1297,12 @@ export default function App() {
 
         {/* Backend offline banner */}
         {!isOnline && (
-          <div className="flex items-center gap-2.5 bg-amber-500/10 border-b border-amber-500/20 px-6 py-2.5 text-xs text-amber-400 shrink-0">
+          <div className="flex items-center gap-2.5 bg-intent-warning-subtle border-b border-intent-warning-border px-6 py-2.5 text-xs text-intent-warning shrink-0">
             <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
             <span className="font-medium">Backend offline.</span>
-            <span className="text-amber-500/70">
+            <span className="text-intent-warning/70">
               Start it with:{" "}
-              <code className="font-mono bg-amber-500/10 px-1 py-0.5 rounded">
+              <code className="font-mono bg-intent-warning-subtle px-1 py-0.5 rounded">
                 pm2 start ecosystem.config.js
               </code>
             </span>
@@ -1278,15 +1322,14 @@ export default function App() {
 
         <button
           type="button"
-          onClick={handleOpenCostOps}
-          className="fixed bottom-4 right-4 z-40 inline-flex items-center gap-2 rounded-full border border-zinc-700 bg-zinc-900/95 px-4 py-2 text-xs font-medium text-zinc-100 shadow-lg hover:bg-zinc-800 transition-colors"
-          aria-label="Open costs view"
-          title="Open Costs"
+          onClick={handleOpenSettings}
+          className="fixed bottom-4 right-4 z-40 inline-flex items-center justify-center h-10 w-10 rounded-full border border-zinc-700 bg-zinc-900/95 text-zinc-400 shadow-lg hover:bg-zinc-800 hover:text-zinc-100 transition-colors"
+          aria-label="Open settings"
+          title="Settings"
         >
-          <BarChart3 className="h-3.5 w-3.5" />
-          Costs
+          <Settings className="h-4 w-4" />
         </button>
-        <GlobalCostOpsDialog open={costOpsOpen} onOpenChange={setCostOpsOpen} />
+        <SettingsDialog open={settingsOpen} onOpenChange={setSettingsOpen} />
       </main>
     </div>
   )

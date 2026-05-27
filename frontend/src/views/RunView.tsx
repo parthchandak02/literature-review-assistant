@@ -6,8 +6,7 @@ import { Spinner } from "@/components/ui/feedback"
 import { GlassTabs } from "@/components/ui/glass-tabs"
 import { ActivityView } from "@/views/ActivityView"
 import type { ReviewEvent } from "@/lib/api"
-import { fetchRunEvents, fetchWorkflowEvents } from "@/lib/api"
-import { shouldFallbackToWorkflowEvents } from "@/lib/runSelection"
+import { fetchHistoricalReviewEvents } from "@/lib/api"
 import type { CostStats } from "@/hooks/useCostStats"
 import { computeFunnelStages } from "@/lib/funnelStages"
 import type { DraftConfigContext } from "@/views/ConfigView"
@@ -55,6 +54,8 @@ export interface SelectedRun {
   historicalCost?: number | null
   /** Raw backend status string for historical runs (e.g. "running", "failed", "completed"). */
   historicalStatus?: string | null
+  /** True while POST /history/attach is in flight for a completed workflow. */
+  attachPending?: boolean
 }
 
 /** Tab order follows the review workflow: Config (YAML) -> Activity -> Data -> Cost -> Results -> Quality -> References */
@@ -71,7 +72,7 @@ const TAB_ITEMS: { id: RunTab; label: string; icon: React.ElementType }[] = [
 function ViewLoader() {
   return (
     <div className="flex items-center justify-center h-48">
-      <Spinner size="md" className="text-violet-500" />
+      <Spinner size="md" className="text-intent-primary" />
     </div>
   )
 }
@@ -172,20 +173,17 @@ export function RunView({
     }
     let cancelled = false
     setHistoricalEventsLoading(true)
-    void fetchRunEvents(run.runId)
-      .then(async (evts) => {
-        let resolved = evts
-        const workflowId = run.workflowId
-        if (workflowId && shouldFallbackToWorkflowEvents(resolved.length, workflowId, run.runId)) {
-          resolved = await fetchWorkflowEvents(workflowId)
-        }
+    void fetchHistoricalReviewEvents(run.workflowId, run.runId, {
+      attachPending: run.attachPending,
+    })
+      .then((resolved) => {
         if (!cancelled) setHistoricalEvents(resolved)
       })
       .finally(() => {
         if (!cancelled) setHistoricalEventsLoading(false)
       })
     return () => { cancelled = true }
-  }, [run.runId, run.workflowId, isHistorical])
+  }, [run.runId, run.workflowId, run.attachPending, isHistorical])
 
   // Use live SSE events when available; fall back to replayed historical events.
   const effectiveEvents = isHistorical ? historicalEvents : events
@@ -237,7 +235,7 @@ export function RunView({
       key: "included",
       label: "included",
       count: canonicalIncluded,
-      colorClass: "text-emerald-400",
+      colorClass: "text-intent-success",
     })
     return next
   }, [funnelStages, canonicalIncluded])
@@ -273,15 +271,15 @@ export function RunView({
 
   const statusClass =
     isAwaitingReview && !isDone
-      ? "text-amber-400"
+      ? "text-intent-warning"
       : isRunning
-        ? "text-violet-400"
+        ? "text-intent-primary"
         : isCancelled
-          ? "text-amber-400"
+          ? "text-intent-warning"
           : isFailed
-            ? "text-red-400"
+            ? "text-intent-danger"
             : status === "done" || isDone
-              ? "text-emerald-400"
+              ? "text-intent-success"
               : "text-zinc-500"
 
   return (
@@ -345,7 +343,7 @@ export function RunView({
               <>
                 <InfoPill dim>|</InfoPill>
                 <InfoPill>
-                  <span className="text-blue-400">{fallbackFound.toLocaleString()}</span>
+                  <span className="text-intent-info">{fallbackFound.toLocaleString()}</span>
                   <span> found</span>
                 </InfoPill>
               </>
@@ -354,7 +352,7 @@ export function RunView({
               <>
                 <InfoPill dim>|</InfoPill>
                 <InfoPill>
-                  <span className="text-emerald-400">{fallbackIncluded.toLocaleString()}</span>
+                  <span className="text-intent-success">{fallbackIncluded.toLocaleString()}</span>
                   <span> included</span>
                 </InfoPill>
               </>
@@ -367,7 +365,7 @@ export function RunView({
             <InfoPill>
               <button
                 onClick={() => onTabChange("cost")}
-                className="text-amber-400 hover:text-amber-300 transition-colors"
+                className="text-intent-warning hover:text-intent-warning transition-colors"
               >
                 ${displayCost.toFixed(3)}
               </button>
@@ -400,6 +398,7 @@ export function RunView({
               prefetchedHistoricalEvents={isHistorical ? historicalEvents : null}
               historicalEventsLoading={isHistorical ? historicalEventsLoading : false}
               allowHistoricalFallback={isHistorical}
+              attachPending={run.attachPending}
               status={status}
               runId={run.runId}
               workflowId={run.workflowId}

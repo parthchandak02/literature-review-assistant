@@ -12,12 +12,19 @@ export function isSameRunSelection(
   )
 }
 
+/** Use workflow-scoped replay when in-memory run replay is empty or not yet attached. */
 export function shouldFallbackToWorkflowEvents(
   runEventsCount: number,
   workflowId: string | null,
-  runId: string,
 ): boolean {
-  return runEventsCount === 0 && Boolean(workflowId) && workflowId !== runId
+  return runEventsCount === 0 && Boolean(workflowId)
+}
+
+export function isSameWorkflowSelection(
+  currentWorkflowId: string | null | undefined,
+  targetWorkflowId: string,
+): boolean {
+  return Boolean(currentWorkflowId) && currentWorkflowId === targetWorkflowId
 }
 
 export function shouldUsePrefetchedHistorical(

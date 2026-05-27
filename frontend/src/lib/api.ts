@@ -1,5 +1,6 @@
 // Typed API wrappers for the FastAPI backend
 import { downloadUrl, studyFilesZipUrl, submissionZipUrl } from "./api/urls"
+import { shouldFallbackToWorkflowEvents } from "./runSelection"
 
 export interface RunRequest {
   review_yaml: string
@@ -794,8 +795,13 @@ export interface GradeSofResponse {
   rows: GradeSofRow[]
 }
 
-export async function fetchGradeSof(runId: string): Promise<GradeSofResponse> {
+export async function fetchGradeSof(
+  runId: string,
+  options?: { attachPending?: boolean },
+): Promise<GradeSofResponse | null> {
+  if (options?.attachPending) return null
   const res = await fetch(`${BASE}/run/${encodeURIComponent(runId)}/grade-sof`)
+  if (res.status === 404) return null
   if (!res.ok) throw await _apiError(res, "GRADE SoF fetch failed")
   return (await res.json()) as GradeSofResponse
 }
@@ -1018,6 +1024,25 @@ export async function fetchWorkflowEvents(workflowId: string): Promise<ReviewEve
   if (!res.ok) return []
   const data = await res.json() as { events?: ReviewEvent[] }
   return data.events ?? []
+}
+
+/**
+ * Load events for a historical run view. Before attach completes, uses
+ * workflow-scoped SQLite replay only (never hits /api/run/{id}/events).
+ */
+export async function fetchHistoricalReviewEvents(
+  workflowId: string | null | undefined,
+  runId: string,
+  options?: { attachPending?: boolean },
+): Promise<ReviewEvent[]> {
+  if (options?.attachPending) {
+    return workflowId ? fetchWorkflowEvents(workflowId) : []
+  }
+  const runEvents = await fetchRunEvents(runId)
+  if (workflowId && shouldFallbackToWorkflowEvents(runEvents.length, workflowId)) {
+    return fetchWorkflowEvents(workflowId)
+  }
+  return runEvents
 }
 
 export interface LogsStreamUrlParams {
