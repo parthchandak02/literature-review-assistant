@@ -36,7 +36,7 @@ interface PhaseState {
   doneTss?: string
 }
 
-function buildPhaseStates(events: ReviewEvent[], isRunComplete: boolean): Record<string, PhaseState> {
+function buildPhaseStates(events: ReviewEvent[], workflowCompleted: boolean): Record<string, PhaseState> {
   const states: Record<string, PhaseState> = {}
   for (const ev of events) {
     if (ev.type === "phase_start") {
@@ -63,16 +63,11 @@ function buildPhaseStates(events: ReviewEvent[], isRunComplete: boolean): Record
       }
     }
   }
-  if (isRunComplete) {
-    const hasTerminal =
-      events.some((e) => e.type === "done" || e.type === "error" || e.type === "cancelled") ||
-      Boolean(states.finalize?.status === "done")
-    if (hasTerminal) {
-      for (const phase of PHASE_ORDER) {
-        const s = states[phase]
-        if (s?.status === "running") {
-          states[phase] = { ...s, status: "done", doneTss: s.doneTss ?? s.startedTs }
-        }
+  if (workflowCompleted) {
+    for (const phase of PHASE_ORDER) {
+      const s = states[phase]
+      if (s?.status === "running") {
+        states[phase] = { ...s, status: "done", doneTss: s.doneTss ?? s.startedTs }
       }
     }
   }
@@ -101,6 +96,7 @@ function isPhaseEligibleForResume(
 function buildMilestoneState(
   phases: readonly string[],
   phaseStates: Record<string, PhaseState>,
+  completedWorkflow: boolean,
 ): PhaseState {
   const states = phases.map((phase) => phaseStates[phase] ?? { status: "pending" as const })
   if (states.some((s) => s.status === "error")) {
@@ -111,6 +107,18 @@ function buildMilestoneState(
     const firstStarted = states.find((s) => s.startedTs)?.startedTs
     const lastDone = [...states].reverse().find((s) => s.doneTss)?.doneTss
     return { status: "done", startedTs: firstStarted, doneTss: lastDone }
+  }
+  if (completedWorkflow) {
+    const completedState = states.find((s) => s.status === "done" || s.status === "running")
+    if (completedState) {
+      return {
+        status: "done",
+        progress: completedState.progress,
+        startedTs: completedState.startedTs,
+        doneTss: completedState.doneTss ?? completedState.startedTs,
+      }
+    }
+    return { status: "pending" }
   }
   const runningState = states.find((s) => s.status === "running" || s.status === "done")
   if (runningState) {
@@ -260,6 +268,7 @@ function PhaseStep({
 function HorizontalStepperContent({
   phaseStates,
   loading,
+  completedWorkflow,
   canResumeFromTimeline,
   isPhaseResumeSelectable,
   armedResumePhase,
@@ -268,6 +277,7 @@ function HorizontalStepperContent({
 }: {
   phaseStates: Record<string, PhaseState>
   loading: boolean
+  completedWorkflow: boolean
   canResumeFromTimeline: boolean
   isPhaseResumeSelectable: (phase: string) => boolean
   armedResumePhase: string | null
@@ -302,7 +312,7 @@ function HorizontalStepperContent({
               key={milestone.key}
               phase={targetPhase}
               label={milestone.label}
-              state={buildMilestoneState(milestone.phases, phaseStates)}
+              state={buildMilestoneState(milestone.phases, phaseStates, completedWorkflow)}
               isLast={i === PHASE_MILESTONES.length - 1}
               isResumeSelectable={canResumeFromTimeline && isPhaseResumeSelectable(targetPhase)}
               isArmed={armedResumePhase === targetPhase}
@@ -334,7 +344,6 @@ export interface ActivityViewProps {
   runId: string
   workflowId?: string | null
   historicalStatus?: string | null
-  isDone: boolean
   onCancel: () => void
   onResumeFromPhase?: (phase: string) => Promise<void>
   resumeModeActive?: boolean
@@ -350,7 +359,6 @@ export function ActivityView({
   runId,
   workflowId,
   historicalStatus,
-  isDone,
   onCancel,
   onResumeFromPhase,
   resumeModeActive = false,
@@ -426,16 +434,16 @@ export function ActivityView({
   const activeHistoricalEvents = hasPrefetchedHistorical ? (prefetchedHistoricalEvents ?? []) : historicalEvents
   const activeEvents = isFallbackMode ? activeHistoricalEvents : events
   const effectiveLoadingHistory = hasPrefetchedHistorical ? historicalEventsLoading : loadingHistory
-  const phaseStates = useMemo(
-    () => buildPhaseStates(activeEvents, isDone),
-    [activeEvents, isDone],
-  )
-  const isRunning = status === "streaming" || status === "connecting"
   const normalizedHistoricalStatus = (historicalStatus ?? "").toLowerCase()
   const completedWorkflow =
     normalizedHistoricalStatus === "completed" ||
     normalizedHistoricalStatus === "done" ||
     status === "done"
+  const phaseStates = useMemo(
+    () => buildPhaseStates(activeEvents, completedWorkflow),
+    [activeEvents, completedWorkflow],
+  )
+  const isRunning = status === "streaming" || status === "connecting"
   const resumeBlockedReason = (() => {
     if (!onResumeFromPhase) return "Resume controls are not available for this run."
     if (
@@ -577,6 +585,7 @@ export function ActivityView({
           <HorizontalStepperContent
             phaseStates={phaseStates}
             loading={effectiveLoadingHistory}
+            completedWorkflow={completedWorkflow}
             canResumeFromTimeline={canResumeFromTimeline}
             isPhaseResumeSelectable={isPhaseResumeSelectable}
             armedResumePhase={armedResumePhase}
