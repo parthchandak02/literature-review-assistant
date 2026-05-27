@@ -801,6 +801,16 @@ class GatesConfig(BaseModel):
 class WritingConfig(BaseModel):
     humanization: bool = True
     humanization_iterations: int = Field(ge=1, le=5, default=2)
+    humanization_verification_repair: bool = Field(
+        default=True,
+        description="Allow one bounded humanizer repair pass when high-severity AI-style flags remain.",
+    )
+    humanization_repair_max_per_pass: int = Field(
+        ge=0,
+        le=2,
+        default=1,
+        description="Maximum targeted repair calls for each humanizer pass.",
+    )
     checkpoint_per_section: bool = True
     llm_timeout: int = 120
     ratchet_max_iterations: int = Field(

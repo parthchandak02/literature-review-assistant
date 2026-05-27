@@ -218,6 +218,8 @@ manuscript_audit:
 writing:
   humanization: true
   humanization_iterations: 2
+  humanization_verification_repair: true
+  humanization_repair_max_per_pass: 1
   checkpoint_per_section: true
   llm_timeout: 120
   ratchet_max_iterations: 2

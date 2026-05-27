@@ -36,6 +36,32 @@ _AI_LEXICON_REPLACEMENTS: tuple[tuple[re.Pattern[str], str], ...] = (
     (re.compile(r"\bdelving into\b", re.IGNORECASE), "examining"),
     (re.compile(r"\btapestry of\b", re.IGNORECASE), "range of"),
     (re.compile(r"\bunderscores the importance of\b", re.IGNORECASE), "emphasizes"),
+    (re.compile(r"\bcrucial\b", re.IGNORECASE), "important"),
+    (re.compile(r"\bpivotal\b", re.IGNORECASE), "key"),
+    (re.compile(r"\bcomprehensive\b", re.IGNORECASE), "detailed"),
+    (re.compile(r"\bmoreover\b", re.IGNORECASE), "and"),
+    (re.compile(r"\bfurthermore\b", re.IGNORECASE), "and"),
+    (re.compile(r"\bnevertheless\b", re.IGNORECASE), "but"),
+    (re.compile(r"\bconsequently\b", re.IGNORECASE), "so"),
+    (re.compile(r"\bleverage\b", re.IGNORECASE), "use"),
+    (re.compile(r"\bfacilitate\b", re.IGNORECASE), "help"),
+    (re.compile(r"\bseamless\b", re.IGNORECASE), "smooth"),
+    (re.compile(r"\bholistic\b", re.IGNORECASE), "complete"),
+    (re.compile(r"\butilize\b", re.IGNORECASE), "use"),
+    (re.compile(r"\bnavigate\b", re.IGNORECASE), "handle"),
+)
+
+_BLACKLIST_SUBSTITUTIONS: tuple[tuple[re.Pattern[str], str], ...] = (
+    (re.compile(r"\bstate-of-the-art\b", re.IGNORECASE), "advanced"),
+    (re.compile(r"\bcutting-edge\b", re.IGNORECASE), "advanced"),
+    (re.compile(r"\bgroundbreaking\b", re.IGNORECASE), "notable"),
+    (re.compile(r"\bworld-class\b", re.IGNORECASE), "high-quality"),
+    (re.compile(r"\bunparalleled\b", re.IGNORECASE), "distinctive"),
+    (re.compile(r"\bgame-changer\b", re.IGNORECASE), "major shift"),
+    (re.compile(r"\btapestry\b", re.IGNORECASE), "range"),
+    (re.compile(r"\bnexus\b", re.IGNORECASE), "connection"),
+    (re.compile(r"\brevolutionary\b", re.IGNORECASE), "new"),
+    (re.compile(r"\btransformative\b", re.IGNORECASE), "substantial"),
 )
 
 # ASCII hyphen-minus U+002D only; integer and decimal ranges (e.g. 1.12-1.63, 18-65).
@@ -120,6 +146,14 @@ def _clean_prose_chunk(chunk: str) -> str:
     return out
 
 
+def apply_blacklist_substitutions(text: str) -> str:
+    """Replace high-signal blacklist terms conservatively."""
+    out = text
+    for pattern, replacement in _BLACKLIST_SUBSTITUTIONS:
+        out = pattern.sub(replacement, out)
+    return out
+
+
 def apply_deterministic_guardrails(text: str) -> str:
     """Apply generic phrase-level guardrails without changing citations/numerics."""
     numeric_before = Counter(extract_numeric_tokens(text))
@@ -133,6 +167,7 @@ def apply_deterministic_guardrails(text: str) -> str:
         else:
             rebuilt.append(_clean_prose_chunk(part))
     out = "".join(rebuilt)
+    out = apply_blacklist_substitutions(out)
     out = _MULTISPACE_RE.sub(" ", out)
 
     # If deterministic pass changes protected content, revert.

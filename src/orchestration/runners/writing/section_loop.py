@@ -190,6 +190,8 @@ async def run_section_writing_loop(
     # --- Section writing setup ---
     do_humanize = getattr(writing_cfg, "humanization", False)
     humanize_iters = getattr(writing_cfg, "humanization_iterations", 1)
+    humanize_verify_repair = getattr(writing_cfg, "humanization_verification_repair", True)
+    humanize_repair_max = getattr(writing_cfg, "humanization_repair_max_per_pass", 1)
     use_llm_write = _llm_available(settings_cfg=state.settings) and (rc is None or not rc.offline)
     _write_concurrency = getattr(writing_cfg, "writing_concurrency", 3)
     _write_sem = asyncio.Semaphore(_write_concurrency)
@@ -324,16 +326,20 @@ async def run_section_writing_loop(
                     _rc_print(rc, f"    Humanizing {section} ({humanize_iters} pass(es))...")
                 for _ in range(humanize_iters):
                     _before_h = _content
+                    _content = apply_deterministic_guardrails(_content)
                     if provider is not None:
                         await provider.reserve_call_slot("humanizer")
                     try:
                         _content = await asyncio.wait_for(
                             humanize_async(
                                 _content,
+                                section=section,
                                 model=h_model,
                                 temperature=h_temp,
                                 max_chars=12000,
                                 provider=provider if use_llm_write else None,
+                                enable_verification_repair=bool(humanize_verify_repair),
+                                repair_max_per_pass=int(humanize_repair_max),
                             ),
                             timeout=_humanizer_timeout,
                         )
