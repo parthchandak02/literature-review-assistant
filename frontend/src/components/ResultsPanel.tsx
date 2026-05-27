@@ -8,6 +8,7 @@ import hljs from "highlight.js/lib/core"
 import latex from "highlight.js/lib/languages/latex"
 // highlight.js theme loaded as a side-effect CSS import (Vite resolves npm CSS)
 import "highlight.js/styles/github-dark.css"
+import { ManuscriptImage } from "@/components/ManuscriptImage"
 import { Button } from "@/components/ui/button"
 import { Th } from "@/components/ui/table"
 import { EmptyState } from "@/components/ui/feedback"
@@ -89,16 +90,16 @@ function fileIcon(file: OutputFile): { icon: React.ElementType; className: strin
 
   // Submission and references
   if (path.includes("/studies-files.zip") || lower.includes("reference papers only")) {
-    return { icon: FolderArchive, className: "text-emerald-400" }
+    return { icon: FolderArchive, className: "text-intent-success" }
   }
-  if (/\.zip$/i.test(name)) return { icon: FileArchive, className: "text-emerald-500" }
-  if (/\.bib$/i.test(name)) return { icon: BookMarked, className: "text-violet-400" }
+  if (/\.zip$/i.test(name)) return { icon: FileArchive, className: "text-intent-success" }
+  if (/\.bib$/i.test(name)) return { icon: BookMarked, className: "text-intent-primary" }
 
   // Protocol and search docs
-  if (lower.startsWith("doc_search")) return { icon: Search, className: "text-cyan-400" }
-  if (lower.startsWith("doc_protocol")) return { icon: ClipboardList, className: "text-amber-400" }
-  if (lower.startsWith("doc_fulltext")) return { icon: FileSearch, className: "text-blue-400" }
-  if (lower.startsWith("doc_prospero")) return { icon: BadgeCheck, className: "text-emerald-400" }
+  if (lower.startsWith("doc_search")) return { icon: Search, className: "text-intent-info" }
+  if (lower.startsWith("doc_protocol")) return { icon: ClipboardList, className: "text-intent-warning" }
+  if (lower.startsWith("doc_fulltext")) return { icon: FileSearch, className: "text-intent-info" }
+  if (lower.startsWith("doc_prospero")) return { icon: BadgeCheck, className: "text-intent-success" }
 
   // Data artifacts
   if (lower === "data_narrative_synthesis.json") return { icon: ScrollText, className: "text-indigo-400" }
@@ -106,17 +107,17 @@ function fileIcon(file: OutputFile): { icon: React.ElementType; className: strin
   if (lower === "run_summary.json") return { icon: ClipboardList, className: "text-zinc-300" }
 
   // Figure semantics by filename for faster visual scan.
-  if (lower.includes("forest")) return { icon: BarChart3, className: "text-cyan-400" }
-  if (lower.includes("funnel")) return { icon: Filter, className: "text-amber-400" }
+  if (lower.includes("forest")) return { icon: BarChart3, className: "text-intent-info" }
+  if (lower.includes("funnel")) return { icon: Filter, className: "text-intent-warning" }
   if (lower.includes("rob") || lower.includes("risk_of_bias")) {
-    return { icon: ShieldCheck, className: "text-emerald-400" }
+    return { icon: ShieldCheck, className: "text-intent-success" }
   }
-  if (lower.includes("network")) return { icon: Network, className: "text-violet-400" }
+  if (lower.includes("network")) return { icon: Network, className: "text-intent-primary" }
 
-  if (/\.docx$/i.test(name)) return { icon: FileType, className: "text-blue-400" }
-  if (/\.pdf$/i.test(name)) return { icon: FileText, className: "text-rose-400" }
+  if (/\.docx$/i.test(name)) return { icon: FileType, className: "text-intent-info" }
+  if (/\.pdf$/i.test(name)) return { icon: FileText, className: "text-intent-danger" }
   if (/\.json$/i.test(name)) return { icon: FileJson, className: "text-zinc-500" }
-  if (/\.csv$/i.test(name)) return { icon: FileSpreadsheet, className: "text-emerald-500" }
+  if (/\.csv$/i.test(name)) return { icon: FileSpreadsheet, className: "text-intent-success" }
   if (/\.tex$/i.test(name)) return { icon: FileCode, className: "text-zinc-500" }
   if (/\.bib$/i.test(name)) return { icon: BookMarked, className: "text-zinc-500" }
   if (/\.md$/i.test(name)) return { icon: FileText, className: "text-zinc-500" }
@@ -384,23 +385,14 @@ function InlineDocRow({ file }: { file: OutputFile }) {
   const headings = file.isMarkdown && content ? extractHeadings(content) : []
 
   const markdownComponents = {
-    img({ src, alt }: { src?: string; alt?: string }) {
-      return (
-        <img
-          src={src}
-          alt={alt ?? ""}
-          className="max-w-full rounded border border-zinc-800 my-4 mx-auto block"
-          loading="lazy"
-        />
-      )
-    },
+    img: ManuscriptImage,
   }
 
   function renderContent() {
     if (content === null) return null
     if (file.isMarkdown) {
       return (
-        <div className="prose prose-invert prose-zinc max-w-none manuscript-viewer">
+        <div className="prose prose-zinc max-w-none manuscript-viewer">
           <ReactMarkdown
             remarkPlugins={[remarkGfm]}
             rehypePlugins={[rehypeSlug, [rehypeAutolinkHeadings, { behavior: "wrap" }], rehypeHighlight]}
@@ -459,7 +451,7 @@ function InlineDocRow({ file }: { file: OutputFile }) {
         </div>
       </div>
       {fetchError && (
-        <p className="text-xs text-red-400 px-1">Could not load file content.</p>
+        <p className="text-xs text-intent-danger px-1">Could not load file content.</p>
       )}
       {open && content !== null && (
         <div className="rounded-lg border border-zinc-800 bg-zinc-950 overflow-hidden flex flex-col">
@@ -528,7 +520,7 @@ export function ResultsPanel({
   useEffect(() => {
     if (submissionFocusTarget !== "reference-papers") return
     const targetKey = REFERENCE_PAPERS_ZIP_KEY
-    const highlightClasses = ["ring-1", "ring-violet-500/70", "bg-violet-900/10", "p-1", "rounded-md"]
+    const highlightClasses = ["ring-1", "ring-intent-primary-border", "bg-intent-primary-subtle", "p-1", "rounded-md"]
     const raf = window.requestAnimationFrame(() => {
       const el = document.querySelector(`[data-download-key="${targetKey}"]`)
       if (el instanceof HTMLElement) {

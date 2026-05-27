@@ -16,6 +16,7 @@ import {
   Download,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
+import { ManuscriptImage } from "@/components/ManuscriptImage"
 import { ResultsPanel } from "@/components/ResultsPanel"
 import { EvidenceNetworkViz } from "@/components/EvidenceNetworkViz"
 import {
@@ -188,7 +189,7 @@ function ManuscriptViewer({ filePath }: { filePath: string }) {
     return (
       <div className="overflow-hidden">
         <div className="px-6 py-4 border-b border-zinc-800 flex items-center gap-2">
-          <Loader2 className="h-4 w-4 animate-spin text-violet-400" />
+          <Loader2 className="h-4 w-4 animate-spin text-intent-primary" />
           <span className="text-sm text-zinc-400">Loading manuscript...</span>
         </div>
         <div className="p-6 space-y-4">
@@ -275,7 +276,7 @@ function ManuscriptViewer({ filePath }: { filePath: string }) {
 
       {/* Manuscript body */}
       <div ref={viewerRef} className="overflow-auto max-h-[70vh] p-6 md:p-10">
-        <div className="prose prose-invert prose-zinc max-w-3xl mx-auto" style={{ fontSize: `${zoom}%` }}>
+        <div className="prose prose-zinc max-w-3xl mx-auto manuscript-viewer" style={{ fontSize: `${zoom}%` }}>
           <ReactMarkdown
             remarkPlugins={[remarkGfm]}
             rehypePlugins={[
@@ -284,6 +285,9 @@ function ManuscriptViewer({ filePath }: { filePath: string }) {
               rehypeHighlight,
             ]}
             urlTransform={makeUrlTransform(filePath)}
+            components={{
+              img: ManuscriptImage,
+            }}
           >
             {content}
           </ReactMarkdown>
@@ -321,7 +325,8 @@ function GradeSofCard({ runId }: { runId: string }) {
     setLoading(true)
     setError(null)
     try {
-      setData(await fetchGradeSof(runId))
+      const payload = await fetchGradeSof(runId)
+      setData(payload)
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e))
     } finally {
@@ -382,13 +387,13 @@ function ProsperoDownloadsCard({ runId }: { runId: string }) {
       <div className="p-4 flex flex-wrap gap-2">
         <Button size="sm" variant="outline" asChild className="h-8 gap-1 text-xs border-zinc-700 text-zinc-300">
           <a href={prosperoFormDocxUrl(runId)}>
-            <FileType className="h-3 w-3 text-blue-400" />
+            <FileType className="h-3 w-3 text-intent-info" />
             PROSPERO DOCX
           </a>
         </Button>
         <Button size="sm" variant="outline" asChild className="h-8 gap-1 text-xs border-zinc-700 text-zinc-300">
           <a href={prosperoFormMarkdownUrl(runId)}>
-            <FileCode className="h-3 w-3 text-emerald-400" />
+            <FileCode className="h-3 w-3 text-intent-success" />
             PROSPERO Markdown
           </a>
         </Button>
@@ -513,11 +518,11 @@ function ManuscriptActions({
             onClick={() => void handleExport()}
             className={sharedCls}
           >
-            <AlertTriangle className="h-3 w-3 text-red-400" />
+            <AlertTriangle className="h-3 w-3 text-intent-danger" />
             Retry export
           </Button>
           {exportError && (
-            <span className="text-xs text-red-400 max-w-[28rem] truncate" title={exportError}>
+            <span className="text-xs text-intent-danger max-w-[28rem] truncate" title={exportError}>
               {exportError}
             </span>
           )}
@@ -538,7 +543,7 @@ function ManuscriptActions({
           {exportRunId && (
             <Button size="sm" variant="outline" asChild className={sharedCls}>
               <a href={`/api/run/${exportRunId}/manuscript.docx`}>
-                <FileType className="h-3 w-3 text-blue-400" />
+                <FileType className="h-3 w-3 text-intent-info" />
                 DOCX
               </a>
             </Button>
@@ -550,7 +555,7 @@ function ManuscriptActions({
               className="h-7 gap-1 text-xs bg-zinc-800 hover:bg-zinc-700 text-zinc-300 hover:text-zinc-100 border-0 shadow-none"
               title="Regenerate manuscript .tex and DOCX"
             >
-              <RefreshCw className="h-3 w-3 text-emerald-400" />
+              <RefreshCw className="h-3 w-3 text-intent-success" />
               Refresh
             </Button>
           )}
@@ -696,7 +701,7 @@ export function ResultsView({
               <Button
                 size="sm"
                 asChild
-                className="h-7 gap-1 text-xs bg-emerald-600 hover:bg-emerald-500 text-zinc-950 border-0 shadow-none"
+                className="h-7 gap-1 text-xs bg-intent-success hover:bg-intent-success text-zinc-950 border-0 shadow-none"
               >
                 <a href={submissionZipUrl(exportRunId)} download>
                   <Download className="h-3 w-3" />
