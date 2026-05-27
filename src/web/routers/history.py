@@ -50,6 +50,40 @@ _logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["history"])
 
+# ---------------------------------------------------------------------------
+# One-time registry migration flag + stats cache
+# ---------------------------------------------------------------------------
+
+_registry_migrated: set[str] = set()
+
+_TERMINAL_STATUSES = frozenset({"completed", "failed", "interrupted"})
+_stats_cache: dict[str, dict[str, Any]] = {}
+
+
+async def _ensure_registry_columns(db: aiosqlite.Connection, registry_key: str) -> None:
+    """Run ALTER TABLE migrations once per registry DB per process lifetime."""
+    if registry_key in _registry_migrated:
+        return
+    _columns = [
+        ("is_archived", "INTEGER NOT NULL DEFAULT 0"),
+        ("archived_at", "TEXT"),
+        ("notes", "TEXT"),
+        ("is_completed_hidden", "INTEGER NOT NULL DEFAULT 0"),
+        ("completed_hidden_at", "TEXT"),
+    ]
+    for col_name, col_type in _columns:
+        try:
+            await db.execute(f"ALTER TABLE workflows_registry ADD COLUMN {col_name} {col_type}")
+        except Exception:
+            pass
+    await db.commit()
+    _registry_migrated.add(registry_key)
+
+
+def invalidate_stats_cache(workflow_id: str) -> None:
+    """Remove cached stats so the next list_history re-fetches them."""
+    _stats_cache.pop(workflow_id, None)
+
 
 # ---------------------------------------------------------------------------
 # Helpers local to this router
@@ -215,29 +249,7 @@ async def list_history(response: Response, run_root: str = "runs") -> list[Histo
     try:
         async with _open_registry_db(str(registry)) as db:
             db.row_factory = aiosqlite.Row
-            try:
-                await db.execute("ALTER TABLE workflows_registry ADD COLUMN is_archived INTEGER NOT NULL DEFAULT 0")
-            except Exception:
-                pass
-            try:
-                await db.execute("ALTER TABLE workflows_registry ADD COLUMN archived_at TEXT")
-            except Exception:
-                pass
-            try:
-                await db.execute("ALTER TABLE workflows_registry ADD COLUMN notes TEXT")
-            except Exception:
-                pass
-            try:
-                await db.execute(
-                    "ALTER TABLE workflows_registry ADD COLUMN is_completed_hidden INTEGER NOT NULL DEFAULT 0"
-                )
-            except Exception:
-                pass
-            try:
-                await db.execute("ALTER TABLE workflows_registry ADD COLUMN completed_hidden_at TEXT")
-            except Exception:
-                pass
-            await db.commit()
+            await _ensure_registry_columns(db, str(registry))
             async with db.execute(
                 """SELECT workflow_id, topic, status, db_path,
                           COALESCE(created_at, '') AS created_at,
@@ -258,22 +270,55 @@ async def list_history(response: Response, run_root: str = "runs") -> list[Histo
     if not rows:
         return []
 
-    stat_results = await asyncio.gather(
-        *[_fetch_run_stats(str(r["db_path"])) for r in rows],
-        return_exceptions=True,
-    )
-
     active_run_id_by_workflow: dict[str, str] = {
         r.workflow_id: r.run_id
         for r in _active_runs.values()
         if r.workflow_id and not r.done and (r.task is None or not r.task.done())
     }
 
+    # Separate rows into cached (terminal) and uncached (need fresh stats).
+    # Terminal workflows whose stats are already cached skip DB access entirely.
+    async def _get_stats_and_status(
+        row: aiosqlite.Row,
+    ) -> tuple[dict[str, Any], str, dict[str, Any]]:
+        wf_id = str(row["workflow_id"])
+        db_path = str(row["db_path"])
+        live_run_id = active_run_id_by_workflow.get(wf_id)
+        reg_status = _normalize_status(str(row["status"]))
+        is_terminal = reg_status in _TERMINAL_STATUSES and not live_run_id
+
+        # Stats: use cache for terminal workflows
+        if is_terminal and wf_id in _stats_cache:
+            stats = _stats_cache[wf_id]
+        else:
+            try:
+                stats = await _fetch_run_stats(db_path)
+            except Exception as exc:
+                stats = {"ok": False, "error": str(exc)}
+            if is_terminal and stats.get("ok"):
+                _stats_cache[wf_id] = stats
+
+        # Status: skip expensive evidence collection for known-terminal workflows
+        if is_terminal:
+            diag: dict[str, Any] = {"registry_status": reg_status, "source": "registry_cached"}
+            return stats, reg_status, diag
+        else:
+            effective_status, diag = await _resolve_effective_status(row, live_run_id, run_root)
+            return stats, effective_status, diag
+
+    results = await asyncio.gather(
+        *[_get_stats_and_status(r) for r in rows],
+        return_exceptions=True,
+    )
+
     enriched: list[HistoryEntry] = []
-    for row, stats in zip(rows, stat_results):
-        s = stats if isinstance(stats, dict) else {}
-        live_run_id = active_run_id_by_workflow.get(row["workflow_id"])
-        effective_status, diag = await _resolve_effective_status(row, live_run_id, run_root)
+    for row, result in zip(rows, results):
+        if isinstance(result, BaseException):
+            s: dict[str, Any] = {}
+            effective_status = _normalize_status(str(row["status"]))
+            diag = {}
+        else:
+            s, effective_status, diag = result
         if diag.get("override"):
             _logger.info(
                 "Lifecycle reconcile override workflow=%s override=%s source=%s metrics=%s",
@@ -296,7 +341,7 @@ async def list_history(response: Response, run_root: str = "runs") -> list[Histo
                 artifacts_count=s.get("artifacts_count"),
                 stats_ok=s.get("ok"),
                 stats_error=s.get("error"),
-                live_run_id=live_run_id,
+                live_run_id=active_run_id_by_workflow.get(row["workflow_id"]),
                 notes=row["notes"] if row["notes"] is not None else None,
                 is_archived=bool(row["is_archived"]),
                 archived_at=row["archived_at"] if row["archived_at"] is not None else None,
@@ -491,6 +536,8 @@ async def delete_run(workflow_id: str, run_root: str = "runs") -> dict[str, bool
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
+    invalidate_stats_cache(workflow_id)
+
     try:
         if run_dir.exists():
             shutil.rmtree(run_dir)
@@ -509,6 +556,7 @@ async def archive_history_run(workflow_id: str, run_root: str = "runs") -> dict[
     if not db_path:
         raise HTTPException(status_code=404, detail="Workflow not found in registry")
     await _archive_registry_workflow(run_root, workflow_id)
+    invalidate_stats_cache(workflow_id)
     return {"ok": True}
 
 
@@ -521,6 +569,7 @@ async def restore_history_run(workflow_id: str, run_root: str = "runs") -> dict[
     if not db_path:
         raise HTTPException(status_code=404, detail="Workflow not found in registry")
     await _restore_registry_workflow(run_root, workflow_id)
+    invalidate_stats_cache(workflow_id)
     return {"ok": True}
 
 
@@ -535,6 +584,7 @@ async def hide_completed_history_run(workflow_id: str, run_root: str = "runs") -
     if not db_path:
         raise HTTPException(status_code=404, detail="Workflow not found in registry")
     await _hide_completed_registry_workflow(run_root, workflow_id)
+    invalidate_stats_cache(workflow_id)
     return {"ok": True}
 
 
@@ -547,6 +597,7 @@ async def restore_completed_history_run(workflow_id: str, run_root: str = "runs"
     if not db_path:
         raise HTTPException(status_code=404, detail="Workflow not found in registry")
     await _restore_completed_registry_workflow(run_root, workflow_id)
+    invalidate_stats_cache(workflow_id)
     return {"ok": True}
 
 
