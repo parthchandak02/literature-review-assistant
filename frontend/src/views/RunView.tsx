@@ -403,7 +403,6 @@ export function RunView({
               runId={run.runId}
               workflowId={run.workflowId}
               historicalStatus={run.historicalStatus}
-              isDone={isDone}
               onCancel={onCancel}
               onResumeFromPhase={onResumeFromPhase}
               resumeModeActive={resumeModeActive}
