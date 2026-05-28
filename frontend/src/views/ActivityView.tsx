@@ -3,19 +3,14 @@ import {
   AlertTriangle,
   CheckCircle,
   Circle,
-  Loader,
-  Loader2,
   Search,
-  Square,
   XCircle,
 } from "lucide-react"
-import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { LogStream } from "@/components/LogStream"
-import { StructuredLogViewer } from "@/components/StructuredLogViewer"
 import type { LogStreamHandle } from "@/components/LogStream"
 import { eventToLogEntry } from "@/lib/logLine"
-import { FetchError } from "@/components/ui/feedback"
+import { FetchError, Spinner } from "@/components/ui/feedback"
 import { Skeleton } from "@/components/ui/skeleton"
 import { fetchHistoricalReviewEvents } from "@/lib/api"
 import { shouldUsePrefetchedHistorical } from "@/lib/runSelection"
@@ -243,7 +238,7 @@ function PhaseStep({
           {state.status === "done" ? (
             <CheckCircle className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
           ) : state.status === "running" ? (
-            <Loader className="h-3.5 w-3.5 sm:h-4 sm:w-4 animate-spin" />
+            <Spinner size="md" />
           ) : state.status === "error" ? (
             <XCircle className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
           ) : (
@@ -344,7 +339,6 @@ export interface ActivityViewProps {
   runId: string
   workflowId?: string | null
   historicalStatus?: string | null
-  onCancel: () => void
   onResumeFromPhase?: (phase: string) => Promise<void>
   resumeModeActive?: boolean
 }
@@ -359,7 +353,6 @@ export function ActivityView({
   runId,
   workflowId,
   historicalStatus,
-  onCancel,
   onResumeFromPhase,
   resumeModeActive = false,
 }: ActivityViewProps) {
@@ -369,7 +362,6 @@ export function ActivityView({
   const [armedResumePhase, setArmedResumePhase] = useState<string | null>(null)
   const [resumeHint, setResumeHint] = useState<string | null>(null)
   const [isSubmittingResume, setIsSubmittingResume] = useState(false)
-  const [showStructuredLog, setShowStructuredLog] = useState(false)
   const logRef = useRef<LogStreamHandle>(null)
 
   const hasPrefetchedHistorical = shouldUsePrefetchedHistorical(prefetchedHistoricalEvents)
@@ -525,36 +517,6 @@ export function ActivityView({
 
   return (
     <div className="flex flex-col gap-4">
-      {/* Live run controls */}
-      {isRunning && (
-        <div className="flex items-center justify-between gap-3">
-          <div className="flex items-center gap-1.5 text-xs">
-            {status === "connecting" ? (
-              <>
-                <Loader2 className="h-3.5 w-3.5 animate-spin text-intent-active" />
-                <span className="text-intent-active">Connecting to event stream...</span>
-              </>
-            ) : (
-              <>
-                <span className="relative flex h-2 w-2 shrink-0">
-                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-intent-active opacity-75" />
-                  <span className="relative inline-flex rounded-full h-2 w-2 bg-intent-active" />
-                </span>
-                <span className="text-intent-active">Live stream active</span>
-              </>
-            )}
-          </div>
-          <Button
-            size="sm"
-            onClick={onCancel}
-            className="bg-intent-danger hover:bg-intent-danger text-white gap-1.5 shrink-0"
-          >
-            <Square className="h-3.5 w-3.5 fill-white" />
-            Stop
-          </Button>
-        </div>
-      )}
-
       {/* Error banner */}
       {status === "error" && (
         <div className="flex items-start gap-2.5 bg-intent-danger-subtle border border-intent-danger-border rounded-xl px-4 py-3 text-sm text-intent-danger">
@@ -598,29 +560,16 @@ export function ActivityView({
           <div className="glass-toolbar flex items-center gap-2 px-4 h-11 border-b border-border/70 shrink-0 overflow-hidden">
             <span className="label-caps shrink-0">Activity Log</span>
 
-            {effectiveLoadingHistory && !showStructuredLog ? (
+            {effectiveLoadingHistory ? (
               <span className="flex items-center gap-1.5 text-xs text-muted">
-                <Loader2 className="h-3 w-3 animate-spin" />
+                <Spinner size="sm" />
                 Loading...
               </span>
-            ) : eventCountLabel && !showStructuredLog ? (
+            ) : eventCountLabel ? (
               <span className="text-xs text-muted tabular-nums shrink-0">
                 {eventCountLabel}
               </span>
             ) : null}
-
-            <Button
-              type="button"
-              size="sm"
-              variant="outline"
-              className={cn(
-                "h-7 px-2 text-[11px] shrink-0 border-border",
-                showStructuredLog && "bg-intent-active-subtle text-intent-active border-intent-active-border",
-              )}
-              onClick={() => setShowStructuredLog((v) => !v)}
-            >
-              {showStructuredLog ? "Short logs" : "Verbose logs"}
-            </Button>
 
             <div className="relative flex-1 min-w-0">
               <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted pointer-events-none" />
@@ -635,11 +584,7 @@ export function ActivityView({
           </div>
 
           <div className="flex-1 overflow-y-auto min-h-0">
-            {showStructuredLog ? (
-              <StructuredLogViewer runId={runId} workflowId={workflowId} searchQuery={searchQuery} />
-            ) : null}
-
-            {fetchError && !showStructuredLog && (
+            {fetchError && (
               <div className="p-4">
                 <FetchError
                   message={fetchError}
@@ -652,7 +597,7 @@ export function ActivityView({
               </div>
             )}
 
-            {!showStructuredLog && !effectiveLoadingHistory && filtered.length === 0 && !fetchError && (
+            {!effectiveLoadingHistory && filtered.length === 0 && !fetchError && (
               <div className="py-12 flex items-center justify-center">
                 <p className="text-muted text-sm">
                   Events will appear here once the review starts.
@@ -660,7 +605,7 @@ export function ActivityView({
               </div>
             )}
 
-            {!showStructuredLog && filtered.length > 0 && (
+            {filtered.length > 0 && (
               <LogStream ref={logRef} events={filtered} autoScroll={!searchQuery.trim()} />
             )}
           </div>

@@ -646,8 +646,12 @@ export interface ExportResult {
  * Fetch run_summary.json artifacts for any run (live or historically attached).
  * Returns the `artifacts` map of label -> absolute file path.
  */
-export async function fetchArtifacts(runId: string): Promise<Record<string, string>> {
-  const res = await fetch(`${BASE}/run/${runId}/artifacts`)
+export async function fetchArtifacts(
+  runId: string,
+  options?: { workflowIdFallback?: string | null },
+): Promise<Record<string, string>> {
+  const targetId = options?.workflowIdFallback || runId
+  const res = await fetch(`${BASE}/run/${targetId}/artifacts`)
   if (!res.ok) throw await _apiError(res, "Artifacts fetch failed")
   const data = await res.json() as { artifacts?: Record<string, string>; outputs?: Record<string, string> }
   return (data.artifacts ?? data.outputs ?? {}) as Record<string, string>
@@ -1043,31 +1047,6 @@ export async function fetchHistoricalReviewEvents(
     return fetchWorkflowEvents(workflowId)
   }
   return runEvents
-}
-
-export interface LogsStreamUrlParams {
-  runId?: string | null
-  workflowId?: string | null
-  runRoot?: string
-  process?: string
-  logType?: "out" | "err"
-}
-
-/** Build URL for /api/logs/stream with run/workflow scoping and PM2 fallback. */
-export function buildLogsStreamUrl({
-  runId,
-  workflowId,
-  runRoot = "runs",
-  process = "backend",
-  logType = "out",
-}: LogsStreamUrlParams): string {
-  const params = new URLSearchParams()
-  if (runId) params.set("run_id", runId)
-  if (workflowId) params.set("workflow_id", workflowId)
-  params.set("run_root", runRoot)
-  params.set("process", process)
-  params.set("log_type", logType)
-  return `${BASE}/logs/stream?${params.toString()}`
 }
 
 // ---------------------------------------------------------------------------

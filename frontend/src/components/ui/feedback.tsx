@@ -6,7 +6,7 @@
  * FetchError  - red alert box with optional retry button
  * LoadingPane - centred spinner for full-pane loading states
  */
-import { AlertTriangle, Loader2 } from "lucide-react"
+import { AlertTriangle, Loader } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import type { LucideIcon } from "lucide-react"
 import { cn } from "@/lib/utils"
@@ -16,21 +16,24 @@ import { cn } from "@/lib/utils"
 // ---------------------------------------------------------------------------
 
 interface SpinnerProps {
-  /** "sm" = 16px, "md" = 20px (default), "lg" = 32px */
-  size?: "sm" | "md" | "lg"
+  /** xs = 10px, sm = 12px, md = 14–16px (phase timeline), lg = 24px, xl = 32px */
+  size?: "xs" | "sm" | "md" | "lg" | "xl"
   className?: string
 }
 
-const SPINNER_SIZE: Record<string, string> = {
-  sm: "h-4 w-4",
-  md: "h-5 w-5",
-  lg: "h-8 w-8",
+const SPINNER_SIZE: Record<NonNullable<SpinnerProps["size"]>, string> = {
+  xs: "h-2.5 w-2.5",
+  sm: "h-3 w-3",
+  md: "h-3.5 w-3.5 sm:h-4 sm:w-4",
+  lg: "h-6 w-6",
+  xl: "h-8 w-8",
 }
 
+/** Matches the phase-timeline running indicator (Lucide Loader + intent-active). */
 export function Spinner({ size = "md", className }: SpinnerProps) {
   return (
-    <Loader2
-      className={cn("animate-spin text-muted", SPINNER_SIZE[size], className)}
+    <Loader
+      className={cn("animate-spin text-intent-active", SPINNER_SIZE[size], className)}
     />
   )
 }
@@ -114,7 +117,7 @@ export function LoadingPane({ message, className }: LoadingPaneProps) {
         className,
       )}
     >
-      <Loader2 className="h-6 w-6 animate-spin text-muted" />
+      <Spinner size="lg" />
       {message && <p className="text-xs text-muted">{message}</p>}
     </div>
   )

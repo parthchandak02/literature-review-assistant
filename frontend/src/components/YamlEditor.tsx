@@ -2,7 +2,7 @@ import { useState, useMemo } from "react"
 import { Pencil, Eye } from "lucide-react"
 import hljs from "highlight.js/lib/core"
 import yaml from "highlight.js/lib/languages/yaml"
-import "highlight.js/styles/github-dark.css"
+import "highlight.js/styles/github.css"
 import { Button } from "@/components/ui/button"
 import { Textarea } from "@/components/ui/textarea"
 import { ScrollArea } from "@/components/ui/scroll-area"
@@ -33,10 +33,6 @@ export function YamlEditor({
   loadingLabel = "Generating review YAML...",
 }: YamlEditorProps) {
   const [editMode, setEditMode] = useState(false)
-  const previewTokenStyle = `
-    .yaml-preview-pre .hljs-literal { color: #f59e0b; }
-    .yaml-preview-pre .hljs-number { color: #f97316; }
-  `
 
   const highlighted = useMemo(() => {
     if (!value.trim()) return ""
@@ -50,7 +46,6 @@ export function YamlEditor({
   if (editMode && !isLoading) {
     return (
       <div className={`flex flex-col gap-2 ${className}`}>
-        <style>{previewTokenStyle}</style>
         <div className="flex justify-end">
           <Button
             type="button"
@@ -77,7 +72,6 @@ export function YamlEditor({
 
   return (
     <div className={`flex flex-col gap-2 ${className}`}>
-      <style>{previewTokenStyle}</style>
       <div className="flex justify-end">
         {isLoading ? (
           <span className="text-xs text-muted">{loadingLabel}</span>

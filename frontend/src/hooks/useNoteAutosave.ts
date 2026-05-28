@@ -11,6 +11,7 @@ interface UseNoteAutosaveArgs {
 
 export function useNoteAutosave({ workflowId, value, onChange }: UseNoteAutosaveArgs) {
   const [localValue, setLocalValue] = useState(value)
+  const [expanded, setExpanded] = useState(() => value.trim().length > 0)
   const [saveState, setSaveState] = useState<SaveState>("idle")
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -27,12 +28,21 @@ export function useNoteAutosave({ workflowId, value, onChange }: UseNoteAutosave
     if (document.activeElement !== textareaRef.current) {
       // eslint-disable-next-line react-hooks/set-state-in-effect
       setLocalValue(value)
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setExpanded(value.trim().length > 0)
     }
   }, [value])
 
   useEffect(() => {
+    const el = textareaRef.current
+    if (!el) return
+    if (!expanded) {
+      el.style.height = "1.4rem"
+      el.style.overflowY = "hidden"
+      return
+    }
     recalcHeight()
-  }, [localValue])
+  }, [localValue, expanded])
 
   async function persistNote(val: string) {
     try {
@@ -66,6 +76,7 @@ export function useNoteAutosave({ workflowId, value, onChange }: UseNoteAutosave
       debounceRef.current = null
       void persistNote(localValue)
     }
+    if (!localValue.trim()) setExpanded(false)
   }
 
   function handleKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
@@ -89,12 +100,27 @@ export function useNoteAutosave({ workflowId, value, onChange }: UseNoteAutosave
     }
   }
 
+  function handleFocus() {
+    setExpanded(true)
+  }
+
+  function expandForEditing() {
+    setExpanded(true)
+    requestAnimationFrame(() => {
+      textareaRef.current?.focus()
+      recalcHeight()
+    })
+  }
+
   return {
+    expanded,
     localValue,
     saveState,
     textareaRef,
     handleChange,
+    handleFocus,
     handleBlur,
     handleKeyDown,
+    expandForEditing,
   }
 }

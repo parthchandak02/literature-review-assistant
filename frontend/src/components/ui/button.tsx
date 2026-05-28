@@ -14,6 +14,8 @@ const buttonVariants = cva(
           "bg-intent-danger text-intent-danger-fg hover:bg-intent-danger/85",
         success:
           "bg-intent-success text-intent-success-fg hover:bg-intent-success/85",
+        warning:
+          "bg-intent-warning text-intent-warning-fg hover:bg-intent-warning/85",
         outline:
           "glass-panel border-border text-foreground hover:text-foreground",
         secondary:

@@ -22,16 +22,16 @@ import type { KnowledgeGraph, KnowledgeGraphNode, KnowledgeGraphEdge } from "@/l
 import { Spinner, FetchError, EmptyState } from "@/components/ui/feedback"
 
 const COMMUNITY_COLORS = [
-  "#7c3aed", "#2563eb", "#059669", "#d97706", "#dc2626",
-  "#0891b2", "#7c3aed", "#16a34a", "#9333ea", "#f59e0b",
+  "var(--color-graph-community-0)", "var(--color-graph-community-1)", "var(--color-graph-community-2)", "var(--color-graph-community-3)", "var(--color-graph-community-4)",
+  "var(--color-graph-community-5)", "var(--color-graph-community-6)", "var(--color-graph-community-7)", "var(--color-graph-community-8)", "var(--color-graph-community-9)",
 ]
 
 const EDGE_COLORS: Record<string, string> = {
-  shared_outcome: "#6ee7b7",
-  shared_intervention: "#93c5fd",
-  shared_population: "#fcd34d",
-  embedding_similarity: "#d8b4fe",
-  citation: "#f9a8d4",
+  shared_outcome: "var(--color-graph-edge-shared-outcome)",
+  shared_intervention: "var(--color-graph-edge-shared-intervention)",
+  shared_population: "var(--color-graph-edge-shared-population)",
+  embedding_similarity: "var(--color-graph-edge-embedding-similarity)",
+  citation: "var(--color-graph-edge-citation)",
 }
 
 const GAP_TYPE_LABELS: Record<string, string> = {
@@ -171,7 +171,7 @@ function GraphCanvas({ graph, width, height, gapPaperIds, selectedId, onSelect, 
   if (!positions.size) {
     return (
       <div className="flex items-center justify-center h-full">
-        <Spinner size="md" className="text-intent-primary" />
+        <Spinner size="md" />
       </div>
     )
   }
@@ -182,11 +182,11 @@ function GraphCanvas({ graph, width, height, gapPaperIds, selectedId, onSelect, 
       width={width}
       height={height}
       className="absolute inset-0"
-      style={{ background: "#09090b" }}
+      style={{ background: "var(--color-graph-canvas)" }}
     >
       <defs>
         <marker id="arrowhead" markerWidth="6" markerHeight="4" refX="6" refY="2" orient="auto">
-          <polygon points="0 0, 6 2, 0 4" fill="#52525b" />
+          <polygon points="0 0, 6 2, 0 4" fill="var(--color-graph-edge-default)" />
         </marker>
       </defs>
 
@@ -195,7 +195,7 @@ function GraphCanvas({ graph, width, height, gapPaperIds, selectedId, onSelect, 
         const src = positions.get(edge.source)
         const tgt = positions.get(edge.target)
         if (!src || !tgt) return null
-        const color = EDGE_COLORS[edge.rel_type] || "#52525b"
+        const color = EDGE_COLORS[edge.rel_type] || "var(--color-graph-edge-default)"
         const isHighlighted =
           selectedId
             ? edge.source === selectedId || edge.target === selectedId
@@ -222,7 +222,7 @@ function GraphCanvas({ graph, width, height, gapPaperIds, selectedId, onSelect, 
       {graph.nodes.map((node) => {
         const pos = positions.get(node.id)
         if (!pos) return null
-        const communityColor = COMMUNITY_COLORS[node.community_id % COMMUNITY_COLORS.length] || "#6b7280"
+        const communityColor = COMMUNITY_COLORS[node.community_id % COMMUNITY_COLORS.length] || "var(--color-graph-edge-default)"
         const isHovered = hovered === node.id
         const isSelected = selectedId === node.id
         const isGap = gapPaperIds.has(node.id)
@@ -242,7 +242,7 @@ function GraphCanvas({ graph, width, height, gapPaperIds, selectedId, onSelect, 
               <circle
                 r={nodeR + 5}
                 fill="none"
-                stroke="#f59e0b"
+                stroke="var(--color-intent-warning)"
                 strokeWidth={1.5}
                 strokeDasharray="3 2"
                 strokeOpacity={0.85}
@@ -254,7 +254,7 @@ function GraphCanvas({ graph, width, height, gapPaperIds, selectedId, onSelect, 
               r={nodeR}
               fill={communityColor}
               fillOpacity={0.88}
-              stroke={isSelected ? "#fff" : isHovered ? "#d4d4d8" : communityColor}
+              stroke={isSelected ? "var(--color-graph-node-stroke)" : isHovered ? "var(--color-graph-node-stroke)" : communityColor}
               strokeWidth={isSelected ? 2.5 : isHovered ? 1.5 : 0.8}
             />
 
@@ -263,7 +263,7 @@ function GraphCanvas({ graph, width, height, gapPaperIds, selectedId, onSelect, 
               y={nodeR + 11}
               textAnchor="middle"
               fontSize={10}
-              fill="#a1a1aa"
+              fill="var(--color-graph-label)"
               className="pointer-events-none select-none"
               style={{ userSelect: "none" }}
             >
@@ -277,7 +277,7 @@ function GraphCanvas({ graph, width, height, gapPaperIds, selectedId, onSelect, 
                   y={-(nodeR + 14)}
                   textAnchor="middle"
                   fontSize={10}
-                  fill="#e4e4e7"
+                  fill="var(--color-graph-tooltip)"
                   className="pointer-events-none select-none"
                   style={{ userSelect: "none" }}
                 >
@@ -288,7 +288,7 @@ function GraphCanvas({ graph, width, height, gapPaperIds, selectedId, onSelect, 
                     y={-(nodeR + 2)}
                     textAnchor="middle"
                     fontSize={9}
-                    fill="#a1a1aa"
+                    fill="var(--color-graph-label)"
                     className="pointer-events-none select-none"
                     style={{ userSelect: "none" }}
                   >
@@ -312,7 +312,7 @@ interface DetailSidebarProps {
 }
 
 function DetailSidebar({ node, graph, gapPaperIds, onClose }: DetailSidebarProps) {
-  const communityColor = COMMUNITY_COLORS[node.community_id % COMMUNITY_COLORS.length] || "#6b7280"
+  const communityColor = COMMUNITY_COLORS[node.community_id % COMMUNITY_COLORS.length] || "var(--color-graph-edge-default)"
   const community = graph.communities.find((c) => c.paper_ids.includes(node.id))
   const connectedEdges = graph.edges.filter(
     (e) => e.source === node.id || e.target === node.id,
@@ -369,7 +369,7 @@ function DetailSidebar({ node, graph, gapPaperIds, onClose }: DetailSidebarProps
               const edgeToP = connectedEdges.find(
                 (e) => (e.source === p.id || e.target === p.id),
               )
-              const color = edgeToP ? (EDGE_COLORS[edgeToP.rel_type] || "#71717a") : "#71717a"
+              const color = edgeToP ? (EDGE_COLORS[edgeToP.rel_type] || "var(--color-graph-edge-default)") : "var(--color-graph-edge-default)"
               return (
                 <li key={p.id} className="flex items-center gap-1.5 text-xs text-muted">
                   <span className="w-2 h-0.5 rounded-full flex-shrink-0" style={{ backgroundColor: color }} />
@@ -444,7 +444,7 @@ export function EvidenceNetworkViz({ runId }: EvidenceNetworkVizProps) {
   if (loading) {
     return (
       <div className="flex items-center justify-center h-48">
-        <Spinner size="md" className="text-intent-primary" />
+        <Spinner size="md" />
       </div>
     )
   }
@@ -512,7 +512,7 @@ export function EvidenceNetworkViz({ runId }: EvidenceNetworkVizProps) {
             <span key={t} className="flex items-center gap-1">
               <span
                 className="inline-block w-3 h-1 rounded-full"
-                style={{ backgroundColor: EDGE_COLORS[t] || "#52525b" }}
+                style={{ backgroundColor: EDGE_COLORS[t] || "var(--color-graph-edge-default)" }}
               />
               {t.replace(/_/g, " ")}
             </span>

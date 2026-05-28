@@ -7,7 +7,7 @@ import rehypeHighlight from "rehype-highlight"
 import hljs from "highlight.js/lib/core"
 import latex from "highlight.js/lib/languages/latex"
 // highlight.js theme loaded as a side-effect CSS import (Vite resolves npm CSS)
-import "highlight.js/styles/github-dark.css"
+import "highlight.js/styles/github.css"
 import { ManuscriptImage } from "@/components/ManuscriptImage"
 import { Button } from "@/components/ui/button"
 import { Th } from "@/components/ui/table"
@@ -102,8 +102,8 @@ function fileIcon(file: OutputFile): { icon: React.ElementType; className: strin
   if (lower.startsWith("doc_prospero")) return { icon: BadgeCheck, className: "text-intent-success" }
 
   // Data artifacts
-  if (lower === "data_narrative_synthesis.json") return { icon: ScrollText, className: "text-indigo-400" }
-  if (lower === "data_papers_manifest.json") return { icon: Database, className: "text-fuchsia-400" }
+  if (lower === "data_narrative_synthesis.json") return { icon: ScrollText, className: "text-intent-primary" }
+  if (lower === "data_papers_manifest.json") return { icon: Database, className: "text-intent-active" }
   if (lower === "run_summary.json") return { icon: ClipboardList, className: "text-foreground" }
 
   // Figure semantics by filename for faster visual scan.

@@ -27,7 +27,10 @@ export function applyTheme(theme: Theme): void {
   document.documentElement.style.colorScheme = resolved
   const meta = document.querySelector('meta[name="theme-color"]')
   if (meta) {
-    meta.setAttribute("content", theme === "light" ? "#f3f3f3" : "#7c3aed")
+    const root = getComputedStyle(document.documentElement)
+    const surface = root.getPropertyValue("--color-surface-1").trim()
+    const accent = root.getPropertyValue("--color-intent-primary").trim()
+    meta.setAttribute("content", resolved === "light" ? surface : accent)
   }
 }
 

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react"
-import { AlertTriangle, Clock, FileCode, Loader2, Sparkles } from "lucide-react"
+import { AlertTriangle, Clock, FileCode, Sparkles } from "lucide-react"
+import { Spinner } from "@/components/ui/feedback"
 import { fetchRunConfig } from "@/lib/api"
 import { formatRunDate } from "@/lib/format"
 import { EmptyState } from "@/components/ui/feedback"
@@ -144,7 +145,7 @@ export function ConfigView({
   if (loading && !isDraft) {
     return (
       <div className="flex flex-col items-center justify-center gap-3 py-16 text-muted">
-        <Loader2 className="h-8 w-8 animate-spin" />
+        <Spinner size="xl" />
         <p className="text-sm">Loading config...</p>
       </div>
     )

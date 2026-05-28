@@ -7,7 +7,6 @@ import rehypeHighlight from "rehype-highlight"
 import {
   FileText,
   Lock,
-  Loader2,
   AlertTriangle,
   BookOpen,
   FileType,
@@ -16,6 +15,7 @@ import {
   Download,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
+import { Spinner } from "@/components/ui/feedback"
 import { ManuscriptImage } from "@/components/ManuscriptImage"
 import { ResultsPanel } from "@/components/ResultsPanel"
 import { EvidenceNetworkViz } from "@/components/EvidenceNetworkViz"
@@ -189,7 +189,7 @@ function ManuscriptViewer({ filePath }: { filePath: string }) {
     return (
       <div className="overflow-hidden">
         <div className="px-6 py-4 border-b border-border flex items-center gap-2">
-          <Loader2 className="h-4 w-4 animate-spin text-intent-primary" />
+          <Spinner size="sm" />
           <span className="text-sm text-muted">Loading manuscript...</span>
         </div>
         <div className="p-6 space-y-4">
@@ -406,7 +406,7 @@ function PrismaDiagramCard({ filePath }: { filePath: string }) {
   return (
     <CollapsibleSection icon={FileText} title="PRISMA Diagram" defaultOpen={false}>
       <div className="p-4">
-        <div className="rounded-xl border border-border bg-white p-2">
+        <div className="rounded-xl border border-border bg-card p-2">
           <img src={downloadUrl(filePath)} alt="PRISMA flow diagram" className="w-full h-auto rounded-lg" />
         </div>
       </div>
@@ -504,7 +504,7 @@ function ManuscriptActions({
       {/* Packaging spinner shown while auto-export is in flight */}
       {exportState === "loading" && (
         <span className="flex items-center gap-1 text-xs text-muted">
-          <Loader2 className="h-3 w-3 animate-spin" />
+          <Spinner size="sm" />
           Packaging...
         </span>
       )}

@@ -138,6 +138,140 @@ export const STATUS_TEXT: Record<RunStatus, string> = {
   stale: "text-intent-warning",
 }
 
+/** Semantic progress-bar fill class for run cards and headers. */
+export const STATUS_PROGRESS: Record<RunStatus, string> = {
+  idle: "bg-surface-4",
+  connecting: "bg-intent-active",
+  streaming: "bg-intent-active",
+  done: "bg-intent-success",
+  error: "bg-intent-danger",
+  cancelled: "bg-intent-warning",
+  stale: "bg-intent-warning",
+}
+
+export type ScreeningDecision = "include" | "exclude" | "uncertain"
+
+export const SCREENING_DECISION_VARIANT: Record<ScreeningDecision, BadgeVariant> = {
+  include: "success",
+  exclude: "danger",
+  uncertain: "warning",
+}
+
+export function screeningDecisionToVariant(decision: string | null | undefined): BadgeVariant {
+  if (!decision) return "neutral"
+  return SCREENING_DECISION_VARIANT[decision as ScreeningDecision] ?? "neutral"
+}
+
+export function confidenceToVariant(confidence: number | null | undefined): BadgeVariant {
+  if (confidence == null) return "neutral"
+  const pct = Math.round(confidence * 100)
+  if (pct >= 80) return "success"
+  if (pct >= 60) return "warning"
+  return "danger"
+}
+
+const AUDIT_STATUS_VARIANT: Record<string, BadgeVariant> = {
+  passed: "success",
+  blocked: "danger",
+  completed_with_findings: "warning",
+  review: "warning",
+  pending: "neutral",
+}
+
+export function auditStatusToVariant(status: string | null | undefined): BadgeVariant {
+  if (!status) return "neutral"
+  return AUDIT_STATUS_VARIANT[status] ?? "neutral"
+}
+
+const PRISMA_STATUS_VARIANT: Record<string, BadgeVariant> = {
+  REPORTED: "success",
+  PARTIAL: "warning",
+  MISSING: "danger",
+  NOT_APPLICABLE: "neutral",
+}
+
+export function prismaStatusToVariant(status: string | null | undefined): BadgeVariant {
+  if (!status) return "neutral"
+  return PRISMA_STATUS_VARIANT[status] ?? "neutral"
+}
+
+export interface RunHeaderStatusInput {
+  status: string
+  isDone: boolean
+  isRunning: boolean
+  isCancelled: boolean
+  isFailed: boolean
+  isAwaitingReview: boolean
+}
+
+/** Run info strip label + text class (canonical status presentation). */
+export function resolveRunHeaderStatus(input: RunHeaderStatusInput): {
+  label: string
+  className: string
+} {
+  const { status, isDone, isRunning, isCancelled, isFailed, isAwaitingReview } = input
+  if (isAwaitingReview && !isDone) {
+    return { label: "Awaiting Review", className: "text-intent-warning" }
+  }
+  if (isRunning) {
+    return { label: STATUS_LABEL.streaming, className: STATUS_TEXT.streaming }
+  }
+  if (isCancelled) {
+    return { label: STATUS_LABEL.cancelled, className: STATUS_TEXT.cancelled }
+  }
+  if (isFailed) {
+    return { label: STATUS_LABEL.error, className: STATUS_TEXT.error }
+  }
+  if (status === "done" || isDone) {
+    return { label: STATUS_LABEL.done, className: STATUS_TEXT.done }
+  }
+  return { label: STATUS_LABEL.idle, className: STATUS_TEXT.idle }
+}
+
+/** Recharts-friendly theme tokens (no hex in TSX). */
+export const CHART_THEME = {
+  tickFill: "var(--color-chart-tick)",
+  seriesPrimary: "var(--color-chart-series)",
+  cursorFill: "var(--color-chart-cursor)",
+} as const
+
+/** Canonical reason label map aligned with backend RunContext labels. */
+export const REASON_LABELS: Record<string, string> = {
+  insufficient_content_heuristic: "Skipped: abstract missing or too short",
+  protocol_only_heuristic: "Skipped: protocol-only publication",
+  fulltext_no_pdf_heuristic: "Skipped: full text PDF unavailable",
+  metadata_incomplete: "Skipped: missing required metadata",
+  keyword_filter: "Skipped: no intervention keyword match",
+  low_relevance_score: "Skipped: low BM25 relevance score",
+  batch_screened_low: "Skipped: low pre-ranker score",
+  timeout: "Full text retrieval timed out",
+  publisher_403: "Full text blocked by publisher",
+  publisher_401: "Full text requires authentication",
+  rate_limited: "Full text retrieval rate-limited",
+  doi_unresolved: "DOI did not resolve to full text",
+  no_pdf_signal: "No downloadable PDF detected",
+  no_identifier: "No URL or DOI for full text retrieval",
+  no_oa_path: "No open-access full text path found",
+  oa_recovered: "Full text successfully retrieved",
+  connector_degraded: "Connector degraded; fallback path used",
+  no_full_text: "Full text unavailable",
+  wrong_population: "Wrong population",
+  wrong_intervention: "Wrong intervention",
+  wrong_comparator: "Wrong comparator",
+  wrong_outcome: "Wrong outcome",
+  wrong_study_design: "Wrong study design",
+  not_peer_reviewed: "Not peer-reviewed",
+  duplicate: "Duplicate",
+  insufficient_data: "Insufficient data",
+  wrong_language: "Wrong language",
+  protocol_only: "Protocol-only",
+}
+
+export function humanizeReason(reasonCode: string | null | undefined): string {
+  if (!reasonCode) return "unspecified reason"
+  return REASON_LABELS[reasonCode] ?? reasonCode.replace(/_/g, " ")
+}
+
 // ---------------------------------------------------------------------------
 // Phase colors (theme-backed CSS variables) used by charts and visualizations
 // ---------------------------------------------------------------------------
@@ -161,25 +295,6 @@ export const PHASE_COLOR_VARS: Record<string, string> = {
   finalize: "--color-finalize",
 }
 
-const PHASE_COLOR_FALLBACKS: Record<string, string> = {
-  phase_2_search: "#3b82f6",
-  phase_3_screening: "#8b5cf6",
-  screening_calibration: "#a78bfa",
-  fulltext_pdf_retrieval: "#c4b5fd",
-  phase_4_extraction: "#f59e0b",
-  phase_4_extraction_quality: "#d97706",
-  phase_4b_embedding: "#f59e0b",
-  phase_5_synthesis: "#10b981",
-  phase_5b_knowledge_graph: "#14b8a6",
-  phase_5c_pre_writing_gate: "#0f766e",
-  phase_6_writing: "#ef4444",
-  phase_6_humanizer: "#f97316",
-  quality_rob2: "#06b6d4",
-  quality_robins_i: "#0ea5e9",
-  quality_casp: "#38bdf8",
-  finalize: "#6b7280",
-}
-
 function resolvePhaseColorToken(phaseKey: string): string | null {
   const exact = PHASE_COLOR_VARS[phaseKey]
   if (exact) return exact
@@ -189,22 +304,11 @@ function resolvePhaseColorToken(phaseKey: string): string | null {
   return null
 }
 
-function resolvePhaseColorFallback(phaseKey: string): string {
-  if (phaseKey in PHASE_COLOR_FALLBACKS) return PHASE_COLOR_FALLBACKS[phaseKey]
-  for (const [key, color] of Object.entries(PHASE_COLOR_FALLBACKS)) {
-    if (phaseKey.startsWith(key)) return color
-  }
-  return PHASE_COLOR_FALLBACKS.finalize
-}
-
 /** Resolve the chart color for a phase key, falling back to prefix matching. */
 export function phaseColor(phase: string): string {
   const cssVar = resolvePhaseColorToken(phase)
-  if (cssVar && typeof document !== "undefined") {
-    const computed = getComputedStyle(document.documentElement).getPropertyValue(cssVar).trim()
-    if (computed) return computed
-  }
-  return resolvePhaseColorFallback(phase)
+  if (cssVar) return `var(${cssVar})`
+  return "var(--color-finalize)"
 }
 
 export const PHASE_LABEL_MAP: Record<string, string> = {

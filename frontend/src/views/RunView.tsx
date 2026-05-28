@@ -1,8 +1,19 @@
 import { Suspense, lazy, useEffect, useMemo, useState } from "react"
-import { Activity, BarChart3, BookOpen, Database, FileText, FileCode2, ClipboardCheck, ShieldCheck } from "lucide-react"
+import {
+  Activity,
+  BarChart3,
+  BookOpen,
+  ClipboardCheck,
+  Database,
+  FileCode2,
+  FileText,
+  ShieldCheck,
+} from "lucide-react"
 import { cn } from "@/lib/utils"
 import { formatRunDate, formatWorkflowId } from "@/lib/format"
 import { Spinner } from "@/components/ui/feedback"
+import { LiveStreamStatus } from "@/components/run-status"
+import { resolveRunHeaderStatus } from "@/lib/constants"
 import { GlassTabs } from "@/components/ui/glass-tabs"
 import { ActivityView } from "@/views/ActivityView"
 import type { ReviewEvent } from "@/lib/api"
@@ -72,7 +83,7 @@ const TAB_ITEMS: { id: RunTab; label: string; icon: React.ElementType }[] = [
 function ViewLoader() {
   return (
     <div className="flex items-center justify-center h-48">
-      <Spinner size="md" className="text-intent-primary" />
+      <Spinner size="md" />
     </div>
   )
 }
@@ -87,11 +98,7 @@ interface InfoPillProps {
 }
 
 function InfoPill({ children, dim }: InfoPillProps) {
-  return (
-    <span className={cn("shrink-0", dim ? "text-muted" : "text-muted")}>
-      {children}
-    </span>
-  )
+  return <span className={cn("shrink-0", dim && "text-muted")}>{children}</span>
 }
 
 // ---------------------------------------------------------------------------
@@ -109,7 +116,6 @@ interface RunViewProps {
   costStats: CostStats
   activeTab: RunTab
   onTabChange: (tab: RunTab) => void
-  onCancel: () => void
   /** Artifacts from run_summary.json for historical completed runs. */
   historyOutputs: Record<string, string>
   /** Outputs from the live "done" SSE event. */
@@ -140,7 +146,6 @@ export function RunView({
   costStats,
   activeTab,
   onTabChange,
-  onCancel,
   historyOutputs,
   liveOutputs,
   dbUnlocked,
@@ -256,36 +261,23 @@ export function RunView({
     return total > 0 ? total : null
   })()
 
-  const statusLabel =
-    isAwaitingReview && !isDone
-      ? "Awaiting Review"
-      : isRunning
-        ? "Running"
-        : isCancelled
-          ? "Cancelled"
-          : isFailed
-            ? "Failed"
-            : status === "done" || isDone
-              ? "Completed"
-              : "Ready"
-
-  const statusClass =
-    isAwaitingReview && !isDone
-      ? "text-intent-warning"
-      : isRunning
-        ? "text-intent-primary"
-        : isCancelled
-          ? "text-intent-warning"
-          : isFailed
-            ? "text-intent-danger"
-            : status === "done" || isDone
-              ? "text-intent-success"
-              : "text-muted"
+  const { label: statusLabel, className: statusClass } = resolveRunHeaderStatus({
+    status,
+    isDone,
+    isRunning,
+    isCancelled,
+    isFailed,
+    isAwaitingReview,
+  })
 
   return (
     <div className="flex flex-col gap-0 h-full">
       {/* Run info strip */}
-      <div className="glass-toolbar flex items-center gap-2 px-6 py-2 border-b border-border/60 shrink-0 overflow-x-auto scrollbar-none text-meta" style={{ touchAction: 'pan-x' }}>
+      <div
+        className="glass-toolbar flex items-center justify-between gap-3 px-6 py-2 border-b border-border/60 shrink-0 text-meta"
+        style={{ touchAction: "pan-x" }}
+      >
+        <div className="flex items-center gap-2 min-w-0 overflow-x-auto scrollbar-none">
         <span className={cn("font-semibold shrink-0", statusClass)}>
           {statusLabel}
         </span>
@@ -372,6 +364,13 @@ export function RunView({
             </InfoPill>
           </>
         )}
+        </div>
+
+        {isViewingLiveRun && isRunning && (
+          <div className="flex items-center gap-2 shrink-0">
+            <LiveStreamStatus mode={status === "connecting" ? "connecting" : "streaming"} />
+          </div>
+        )}
       </div>
 
       {/* Glass tabs module */}
@@ -403,7 +402,6 @@ export function RunView({
               runId={run.runId}
               workflowId={run.workflowId}
               historicalStatus={run.historicalStatus}
-              onCancel={onCancel}
               onResumeFromPhase={onResumeFromPhase}
               resumeModeActive={resumeModeActive}
             />

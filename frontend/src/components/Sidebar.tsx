@@ -27,6 +27,8 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip"
 import { DeleteConfirmDialog } from "@/components/DeleteConfirmDialog"
+import { StatusPulse } from "@/components/run-status"
+import { Spinner } from "@/components/ui/feedback"
 import { ThemeToggle } from "@/components/ThemeToggle"
 import {
   FRONTEND_BUILD_STAMP,
@@ -35,7 +37,7 @@ import {
 import {
   type RunStatus,
   STATUS_LABEL,
-  STATUS_DOT,
+  STATUS_PROGRESS,
   STATUS_TEXT,
   resolveRunStatus,
 } from "@/lib/constants"
@@ -95,16 +97,6 @@ interface SidebarProps {
 // ---------------------------------------------------------------------------
 // Sidebar
 // ---------------------------------------------------------------------------
-
-const PROGRESS_BAR_COLOR: Record<RunStatus, string> = {
-  idle: "bg-surface-4",
-  connecting: "bg-intent-active",
-  streaming: "bg-intent-active",
-  done: "bg-intent-success",
-  error: "bg-intent-danger",
-  cancelled: "bg-intent-warning",
-  stale: "bg-intent-warning",
-}
 
 export function Sidebar({
   liveRun,
@@ -453,7 +445,7 @@ export function Sidebar({
           className="pointer-events-none absolute inset-0 z-0"
           aria-hidden
           style={{
-            background: "radial-gradient(ellipse 80% 60% at 50% 110%, rgba(139,92,246,0.10) 0%, transparent 70%)",
+            background: "var(--sidebar-ambient-gradient)",
           }}
         />
 
@@ -532,9 +524,11 @@ export function Sidebar({
                   aria-label="Refresh history"
                   className="text-muted hover:text-foreground transition-colors"
                 >
-                  <RefreshCw
-                    className={cn("h-3 w-3", loadingHistory && "animate-spin")}
-                  />
+                  {loadingHistory ? (
+                    <Spinner size="sm" />
+                  ) : (
+                    <RefreshCw className="h-3 w-3" />
+                  )}
                 </button>
               </div>
             )}
@@ -606,7 +600,7 @@ export function Sidebar({
                             />
                             <div className="flex items-center justify-between gap-2 min-w-0 text-meta">
                               <div className="flex items-center gap-1.5 shrink-0">
-                                <RunDot status={liveRun.status} animate={isRunning} />
+                                <StatusPulse status={liveRun.status} animate={isRunning} size="xs" />
                                 <span
                                   className={cn(
                                     "font-semibold uppercase tracking-wide",
@@ -631,9 +625,9 @@ export function Sidebar({
                           }}
                           aria-label="Stop run"
                           title="Stop run"
-                          className="absolute top-0 right-0 flex items-center justify-center h-8 w-8 rounded-bl-md bg-intent-danger hover:bg-intent-danger-fg text-white transition-colors"
+                          className="absolute top-0 right-0 flex items-center justify-center h-8 w-8 rounded-bl-md bg-intent-danger hover:bg-intent-danger/85 text-intent-danger-fg transition-colors"
                         >
-                          <Square className="h-2.5 w-2.5 fill-white" />
+                          <Square className="h-2.5 w-2.5 fill-current" />
                         </button>
                       )}
                       {!collapsed && onArchive && liveRun.workflowId && !isRunning && (
@@ -649,7 +643,7 @@ export function Sidebar({
                           )}
                         >
                           {archivingId === liveRun.workflowId ? (
-                            <div className="h-2.5 w-2.5 border border-muted border-t-foreground rounded-full animate-spin" />
+                            <Spinner size="xs" />
                           ) : (
                             <Archive className="h-3 w-3" />
                           )}
@@ -770,9 +764,9 @@ export function Sidebar({
                               <div className="flex items-center justify-between gap-2 min-w-0 text-meta">
                                 <div className="flex items-center gap-1.5 shrink-0">
                                   {isOpening ? (
-                                    <div className="h-1.5 w-1.5 rounded-full border border-muted animate-spin" />
+                                    <Spinner size="xs" />
                                   ) : (
-                                    <RunDot status={statusKey} animate={rowIsRunning} />
+                                    <StatusPulse status={statusKey} animate={rowIsRunning} size="xs" />
                                   )}
                                   <span
                                     className={cn(
@@ -805,10 +799,10 @@ export function Sidebar({
                                 aria-label="Stop run"
                                 title="Stop run"
                                 className={cn(
-                                  "flex items-center justify-center h-7 w-7 rounded-md bg-intent-danger hover:bg-intent-danger-fg text-white transition-colors",
+                                  "flex items-center justify-center h-7 w-7 rounded-md bg-intent-danger hover:bg-intent-danger/85 text-intent-danger-fg transition-colors",
                                 )}
                               >
-                                <Square className="h-2.5 w-2.5 fill-white" />
+                                <Square className="h-2.5 w-2.5 fill-current" />
                               </button>
                             )}
                             {onArchive && !rowIsRunning && (
@@ -824,7 +818,7 @@ export function Sidebar({
                                 )}
                               >
                                 {archivingId === entry.workflow_id ? (
-                                  <div className="h-2.5 w-2.5 border border-muted border-t-foreground rounded-full animate-spin" />
+                                  <Spinner size="xs" />
                                 ) : (
                                   <Archive className="h-3 w-3" />
                                 )}
@@ -843,7 +837,7 @@ export function Sidebar({
                                 )}
                               >
                                 {completingId === entry.workflow_id ? (
-                                  <div className="h-2.5 w-2.5 border border-intent-success border-t-intent-success-fg rounded-full animate-spin" />
+                                  <Spinner size="xs" />
                                 ) : (
                                   <div className="flex h-3.5 w-3.5 items-center justify-center rounded-[3px] border border-current">
                                     <Check className="h-2.5 w-2.5" />
@@ -864,7 +858,7 @@ export function Sidebar({
                                 )}
                               >
                                 {isResuming ? (
-                                  <div className="h-2.5 w-2.5 border border-intent-primary/50 border-t-intent-primary-fg rounded-full animate-spin" />
+                                  <Spinner size="xs" />
                                 ) : (
                                   <Play className="h-2.5 w-2.5 fill-current" />
                                 )}
@@ -972,7 +966,7 @@ export function Sidebar({
                               />
                               <div className="flex items-center justify-between gap-2 min-w-0 text-meta">
                                 <div className="flex items-center gap-1.5 shrink-0">
-                                  <RunDot status={statusKey} />
+                                  <StatusPulse status={statusKey} size="xs" />
                                   <span
                                     className={cn(
                                       "font-semibold uppercase tracking-wide",
@@ -1004,7 +998,7 @@ export function Sidebar({
                                 )}
                               >
                                 {archivingId === entry.workflow_id ? (
-                                  <div className="h-2.5 w-2.5 border border-muted border-t-foreground rounded-full animate-spin" />
+                                  <Spinner size="xs" />
                                 ) : (
                                   <Archive className="h-3 w-3" />
                                 )}
@@ -1022,7 +1016,7 @@ export function Sidebar({
                                 )}
                               >
                                 {restoringCompletedId === entry.workflow_id ? (
-                                  <div className="h-2.5 w-2.5 border border-intent-success/70 border-t-intent-success-fg rounded-full animate-spin" />
+                                  <Spinner size="xs" />
                                 ) : (
                                   <RotateCcw className="h-3 w-3" />
                                 )}
@@ -1102,7 +1096,7 @@ export function Sidebar({
                               />
                               <div className="flex items-center justify-between gap-2 min-w-0 text-meta">
                                 <div className="flex items-center gap-1.5 shrink-0">
-                                  <RunDot status={statusKey} />
+                                  <StatusPulse status={statusKey} size="xs" />
                                   <span
                                     className={cn(
                                       "font-semibold uppercase tracking-wide",
@@ -1134,7 +1128,7 @@ export function Sidebar({
                                 )}
                               >
                                 {completingId === entry.workflow_id ? (
-                                  <div className="h-2.5 w-2.5 border border-intent-success border-t-intent-success-fg rounded-full animate-spin" />
+                                  <Spinner size="xs" />
                                 ) : (
                                   <div className="flex h-3.5 w-3.5 items-center justify-center rounded-[3px] border border-current">
                                     <Check className="h-2.5 w-2.5" />
@@ -1154,7 +1148,7 @@ export function Sidebar({
                                 )}
                               >
                                 {restoringId === entry.workflow_id ? (
-                                  <div className="h-2.5 w-2.5 border border-muted border-t-foreground rounded-full animate-spin" />
+                                  <Spinner size="xs" />
                                 ) : (
                                   <RotateCcw className="h-3 w-3" />
                                 )}
@@ -1358,7 +1352,7 @@ function CardProgressBar({
   status: RunStatus
   progress?: number
 }) {
-  const colorClass = PROGRESS_BAR_COLOR[status] ?? "bg-surface-4"
+  const colorClass = STATUS_PROGRESS[status] ?? "bg-surface-4"
   // progress === -1 is the indeterminate sentinel: active background run with no live SSE data
   const isIndeterminate = progress === -1
   const showFill =
@@ -1434,30 +1428,6 @@ function ExpandedWorkflowBadge({
   )
 }
 
-function RunDot({
-  status,
-  animate = false,
-}: {
-  status: RunStatus | "idle"
-  animate?: boolean
-}) {
-  const color = STATUS_DOT[status] ?? "bg-surface-4"
-  if (animate) {
-    return (
-      <span className="relative flex h-1.5 w-1.5 shrink-0">
-        <span
-          className={cn(
-            "animate-ping absolute inline-flex h-full w-full rounded-full opacity-75",
-            color,
-          )}
-        />
-        <span className={cn("relative inline-flex rounded-full h-1.5 w-1.5", color)} />
-      </span>
-    )
-  }
-  return <span className={cn("inline-flex rounded-full h-1.5 w-1.5 shrink-0", color)} />
-}
-
 function SidebarTooltip({
   label,
   collapsed,
@@ -1502,12 +1472,15 @@ function NoteField({
   onChange: (val: string) => void
 }) {
   const {
+    expanded,
     localValue,
     saveState,
     textareaRef,
     handleChange,
+    handleFocus,
     handleBlur,
     handleKeyDown,
+    expandForEditing,
   } = useNoteAutosave({ workflowId, value, onChange })
   const wrapperRef = useRef<HTMLDivElement>(null)
 
@@ -1530,13 +1503,17 @@ function NoteField({
     <div
       ref={wrapperRef}
       className="mx-2 my-1 px-2 py-1 rounded"
-      onClick={(e) => e.stopPropagation()}
+      onClick={(e) => {
+        e.stopPropagation()
+        if (!expanded) expandForEditing()
+      }}
     >
       <textarea
         ref={textareaRef}
         rows={1}
         value={localValue}
         onChange={handleChange}
+        onFocus={handleFocus}
         onBlur={handleBlur}
         onKeyDown={handleKeyDown}
         onClick={(e) => e.stopPropagation()}
@@ -1546,8 +1523,13 @@ function NoteField({
           "text-intent-warning/90 placeholder-muted",
           "border-none outline-none focus:outline-none",
           "scrollbar-none block",
+          !expanded && "cursor-text overflow-hidden",
         )}
-        style={{ minHeight: "1.4rem", overflowY: "hidden" }}
+        style={
+          expanded
+            ? { minHeight: "1.4rem", overflowY: "hidden" }
+            : { minHeight: "1.4rem", height: "1.4rem", overflowY: "hidden" }
+        }
       />
       {saveState !== "idle" && (
         <span className="text-[10px] text-muted tabular-nums">

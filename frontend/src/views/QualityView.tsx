@@ -17,6 +17,8 @@ import {
 import { Skeleton } from "@/components/ui/skeleton"
 import { EmptyState, FetchError } from "@/components/ui/feedback"
 import { CollapsibleSection } from "@/components/ui/section"
+import { Badge } from "@/components/ui/badge"
+import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
 import type {
   ManuscriptAuditFinding,
@@ -32,6 +34,7 @@ import {
   describeManuscriptGate,
   selectManuscriptAuditRun,
 } from "@/lib/manuscriptAudit"
+import { auditStatusToVariant, prismaStatusToVariant } from "@/lib/constants"
 
 function formatLabel(value: string): string {
   return value
@@ -44,13 +47,6 @@ function PrismaStatusIcon({ status }: { status: string }) {
   if (status === "PARTIAL") return <AlertTriangle className="h-3.5 w-3.5 text-intent-warning shrink-0" />
   if (status === "NOT_APPLICABLE") return <BookOpen className="h-3.5 w-3.5 text-muted shrink-0" />
   return <XCircle className="h-3.5 w-3.5 text-intent-danger shrink-0" />
-}
-
-function auditStatusBadgeClass(status: string): string {
-  if (status === "passed") return "text-intent-success border-intent-success-border bg-intent-success-subtle"
-  if (status === "blocked") return "text-intent-danger border-intent-danger-border bg-intent-danger-subtle"
-  if (status === "completed_with_findings") return "text-intent-warning border-intent-warning-border bg-intent-warning-subtle"
-  return "text-foreground border-border bg-surface-2/40"
 }
 
 function ReadinessCard({ runId, workflowId }: { runId: string; workflowId?: string | null }) {
@@ -111,15 +107,15 @@ function ReadinessCard({ runId, workflowId }: { runId: string; workflowId?: stri
                   : "No fallback events recorded."}
               </div>
               <div className="mt-2 flex flex-wrap gap-2 text-[11px]">
-                <span className={cn("rounded-full border px-2 py-0.5", contractReady ? "border-intent-success-border bg-intent-success-subtle text-intent-success" : "border-intent-warning-border bg-intent-warning-subtle text-intent-warning")}>
+                <Badge variant={contractReady ? "success" : "warning"} size="sm">
                   Contract {contractReady ? "ready" : "blocked"}
-                </span>
-                <span className={cn("rounded-full border px-2 py-0.5", auditReady ? "border-intent-success-border bg-intent-success-subtle text-intent-success" : "border-intent-warning-border bg-intent-warning-subtle text-intent-warning")}>
+                </Badge>
+                <Badge variant={auditReady ? "success" : "warning"} size="sm">
                   Audit {auditReady ? "ready" : "blocked"}
-                </span>
-                <span className={cn("rounded-full border px-2 py-0.5", exportReady ? "border-intent-success-border bg-intent-success-subtle text-intent-success" : "border-intent-warning-border bg-intent-warning-subtle text-intent-warning")}>
+                </Badge>
+                <Badge variant={exportReady ? "success" : "warning"} size="sm">
                   Submission {exportReady ? "ready" : "blocked"}
-                </span>
+                </Badge>
               </div>
             </div>
             <div className="grid gap-2">
@@ -205,16 +201,9 @@ function PrismaCard({ runId }: { runId: string }) {
 
   const scoreChip =
     data && data.total > 0 ? (
-      <span
-        className={cn(
-          "text-[10px] font-mono px-1.5 py-0.5 rounded border shrink-0",
-          data.passed
-            ? "text-intent-success border-intent-success-border bg-intent-success-subtle"
-            : "text-intent-warning border-intent-warning-border bg-intent-warning-subtle",
-        )}
-      >
+      <Badge variant={data.passed ? "success" : "warning"} size="sm" className="font-mono shrink-0">
         {data.reported_count}/{data.total} {data.passed ? "PASS" : "review"}
-      </span>
+      </Badge>
     ) : null
 
   return (
@@ -253,18 +242,20 @@ function PrismaCard({ runId }: { runId: string }) {
 
             <div className="flex items-center gap-1 flex-wrap">
               {sections.map((section) => (
-                <button
+                <Button
                   key={section}
                   onClick={() => setSectionFilter(section)}
+                  variant="ghost"
+                  size="sm"
                   className={cn(
-                    "px-2.5 py-1 rounded-full text-xs border transition-colors",
+                    "h-7 px-2.5 rounded-full text-xs border",
                     sectionFilter === section
                       ? "border-intent-primary-border bg-intent-primary-subtle text-intent-primary"
                       : "border-border text-muted hover:text-foreground",
                   )}
                 >
                   {section}
-                </button>
+                </Button>
               ))}
             </div>
 
@@ -288,6 +279,9 @@ function PrismaCard({ runId }: { runId: string }) {
                     <div className="flex items-center gap-2 flex-wrap">
                       <span className="font-mono text-muted shrink-0">{item.item_id}</span>
                       <span className="text-muted font-medium leading-snug">{item.description}</span>
+                      <Badge variant={prismaStatusToVariant(item.status)} size="sm" className="capitalize shrink-0">
+                        {item.status.replace(/_/g, " ").toLowerCase()}
+                      </Badge>
                       <span className="text-muted ml-auto shrink-0">{item.section}</span>
                     </div>
                     {item.rationale && <p className="text-muted mt-0.5 leading-relaxed">{item.rationale}</p>}
@@ -398,14 +392,9 @@ function ManuscriptAuditCard({ runId }: { runId: string }) {
       onToggle={handleToggle}
       badge={
         selectedRun ? (
-          <span
-            className={cn(
-              "text-[10px] font-mono px-1.5 py-0.5 rounded border shrink-0",
-              auditStatusBadgeClass(auditStatus),
-            )}
-          >
+          <Badge variant={auditStatusToVariant(auditStatus)} size="sm" className="font-mono shrink-0">
             {auditStatus}
-          </span>
+          </Badge>
         ) : null
       }
     >

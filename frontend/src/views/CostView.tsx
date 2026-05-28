@@ -10,6 +10,7 @@ import {
 } from "recharts"
 import { DollarSign, Zap, ArrowUpDown, Activity } from "lucide-react"
 import { cn } from "@/lib/utils"
+import { CHART_THEME } from "@/lib/constants"
 import {
   fetchDbCostAggregates,
   fetchDbCosts,
@@ -322,7 +323,7 @@ export function CostView({ costStats, dbRunId, workflowId, isLive }: CostViewPro
               <XAxis
                 type="number"
                 tickFormatter={(v: number) => `$${v.toFixed(3)}`}
-                tick={{ fill: "var(--color-muted)", fontSize: 10 }}
+                tick={{ fill: CHART_THEME.tickFill, fontSize: 10 }}
                 axisLine={false}
                 tickLine={false}
               />
@@ -330,11 +331,11 @@ export function CostView({ costStats, dbRunId, workflowId, isLive }: CostViewPro
                 type="category"
                 dataKey="name"
                 width={110}
-                tick={{ fill: "var(--color-text-dim)", fontSize: 11 }}
+                tick={{ fill: CHART_THEME.tickFill, fontSize: 11 }}
                 axisLine={false}
                 tickLine={false}
               />
-              <Tooltip content={<CostChartTooltip />} cursor={{ fill: "rgb(113 113 122 / 0.22)" }} />
+              <Tooltip content={<CostChartTooltip />} cursor={{ fill: CHART_THEME.cursorFill }} />
               <Bar dataKey="cost" radius={[0, 4, 4, 0]} label={{ position: "right", formatter: (v: unknown) => `$${(v as number).toFixed(4)}`, fill: "var(--color-muted-foreground)", fontSize: 10 }}>
                 {chartData.map((entry) => (
                   <Cell

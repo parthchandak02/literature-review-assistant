@@ -18,6 +18,7 @@ import {
   X,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
+import { Spinner } from "@/components/ui/feedback"
 import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
 import { PageSection } from "@/components/ui/section"
@@ -585,7 +586,7 @@ function CsvDropZone({ file, onFile, mode, onModeChange }: CsvDropZoneProps) {
         <div className="mt-2 rounded-xl border border-border bg-card/80 overflow-hidden">
           {analysing && (
             <div className="flex items-center gap-2 px-4 py-3 text-xs text-muted">
-              <div className="h-3 w-3 rounded-full border border-border border-t-muted animate-spin shrink-0" />
+              <Spinner size="sm" className="shrink-0" />
               Analysing CSV...
             </div>
           )}
@@ -799,7 +800,7 @@ function QuestionStage({
           type="button"
           onClick={() => void handleGenerate()}
           disabled={!canGenerate}
-          className="h-11 bg-intent-primary hover:bg-intent-primary/90 disabled:opacity-40 text-white font-semibold gap-2 transition-colors"
+          className="h-11 disabled:opacity-40 font-semibold gap-2 transition-colors"
         >
           <Sparkles className="h-4 w-4" />
           Generate Config
@@ -808,7 +809,8 @@ function QuestionStage({
           type="button"
           onClick={() => void handleGenerate("health_sdg")}
           disabled={!canGenerate}
-          className="h-11 bg-intent-success hover:bg-intent-success/90 disabled:opacity-40 text-white font-semibold gap-2 transition-colors border border-intent-success-border"
+          variant="success"
+          className="h-11 disabled:opacity-40 font-semibold gap-2 transition-colors"
         >
           <HeartPulse className="h-4.5 w-4.5" />
           Health + SDG Config
@@ -829,7 +831,11 @@ function QuestionStage({
               disabled={!!loadingHistoryId}
               className="flex items-center gap-1.5 text-xs text-muted hover:text-foreground transition-colors"
             >
-              <RotateCcw className={`h-3.5 w-3.5 ${loadingHistoryId ? "animate-spin" : ""}`} />
+              {loadingHistoryId ? (
+                <Spinner size="sm" />
+              ) : (
+                <RotateCcw className="h-3.5 w-3.5" />
+              )}
               {loadingHistoryId ? "Loading..." : "Reuse past config"}
               <ChevronDown className={`h-3 w-3 transition-transform ${showHistory ? "rotate-180" : ""}`} />
             </button>
@@ -1090,11 +1096,11 @@ export function ConfigReviewStage({
         type="button"
         onClick={() => void handleLaunch()}
         disabled={disabled || submitting || isGeneratingConfig || !yaml.trim() || !hasAllRequiredLlmKeys}
-        className="w-full h-11 bg-intent-primary hover:bg-intent-primary/90 disabled:opacity-40 text-white font-semibold gap-2 transition-colors"
+        className="w-full h-11 disabled:opacity-40 font-semibold gap-2 transition-colors"
       >
         {submitting ? (
           <>
-            <div className="h-4 w-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+            <Spinner size="sm" className="text-intent-primary-fg" />
             Starting...
           </>
         ) : (
