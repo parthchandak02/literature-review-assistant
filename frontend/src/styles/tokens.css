@@ -1,6 +1,7 @@
 @theme {
   --font-sans: "Inter", system-ui, -apple-system, sans-serif;
   --text-xs: 0.75rem;
+  --text-micro: 0.625rem;
   --text-sm: 0.875rem;
   --text-base: 1rem;
   --text-lg: 1.125rem;

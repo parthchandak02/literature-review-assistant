@@ -33,7 +33,7 @@ async def test_retrieve_maps_403_to_reason_code():
 
         return FullTextResult(text="", source="abstract")
 
-    with patch("src.extraction.table_extraction.fetch_full_text", new=AsyncMock(side_effect=_fake_fetch_full_text)):
+    with patch("src.fulltext.fetch_full_text", new=AsyncMock(side_effect=_fake_fetch_full_text)):
         result = await retriever.retrieve(_paper())
 
     assert result.success is False
@@ -91,7 +91,7 @@ async def test_retrieve_pdf_parse_failed_on_corrupt_pdf_bytes():
             pdf_bytes=b"%PDF-1.4\x00\x01 corrupt binary payload " * 80,
         )
 
-    with patch("src.extraction.table_extraction.fetch_full_text", new=AsyncMock(side_effect=_fake_fetch_full_text)):
+    with patch("src.fulltext.fetch_full_text", new=AsyncMock(side_effect=_fake_fetch_full_text)):
         result = await retriever.retrieve(_paper())
 
     assert result.success is False
@@ -114,7 +114,7 @@ async def test_retrieve_parses_pdf_bytes_successfully():
 
         return FullTextResult(text=prose, source="unpaywall", pdf_bytes=pdf_bytes)
 
-    with patch("src.extraction.table_extraction.fetch_full_text", new=AsyncMock(side_effect=_fake_fetch_full_text)):
+    with patch("src.fulltext.fetch_full_text", new=AsyncMock(side_effect=_fake_fetch_full_text)):
         result = await retriever.retrieve(_paper())
 
     assert result.success is True

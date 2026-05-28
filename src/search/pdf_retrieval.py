@@ -106,7 +106,7 @@ class PDFRetriever:
         # with a DOI or URL.
         if paper.doi or paper.url:
             try:
-                from src.extraction.table_extraction import fetch_full_text
+                from src.fulltext import fetch_full_text
 
                 _diag: list[str] = []
                 _ext = self._ext_cfg
@@ -232,7 +232,7 @@ class PDFRetriever:
                 # real PDF link.  Do NOT accept raw publisher HTML as article text
                 # -- it is typically boilerplate (paywall page, journal index, etc.)
                 if "text/html" in content_type or "html" in content_type:
-                    from src.extraction.table_extraction import _resolve_landing_page
+                    from src.fulltext import resolve_landing_page as _resolve_landing_page
 
                     lp = await _resolve_landing_page(url)
                     if lp:

@@ -15,6 +15,7 @@ import aiosqlite
 from fastapi import APIRouter, HTTPException, Request, Response
 from sse_starlette.sse import EventSourceResponse
 
+from src.db.database import open_runtime_db
 from src.db.source_of_truth import RUN_STATS_PRECEDENCE
 from src.db.workflow_registry import _open_registry as _open_registry_db
 from src.db.workflow_registry import archive_workflow as _archive_registry_workflow
@@ -92,114 +93,12 @@ def invalidate_stats_cache(workflow_id: str) -> None:
 
 async def _fetch_run_stats(db_path: str) -> dict[str, Any]:
     """Open a run's runtime.db and return lightweight aggregate stats."""
+    from src.db.stats import RunStatsResolver
+
+    resolver = RunStatsResolver()
     try:
-        async with aiosqlite.connect(db_path) as db:
-            await db.execute("PRAGMA journal_mode=WAL")
-            papers_found = (await (await db.execute("SELECT COUNT(*) FROM papers")).fetchone())[0]
-
-            _workflow_row = await (
-                await db.execute("SELECT workflow_id FROM workflows ORDER BY rowid DESC LIMIT 1")
-            ).fetchone()
-            _workflow_id = str(_workflow_row[0]) if (_workflow_row and _workflow_row[0]) else ""
-
-            included_from_cohort = await (
-                await db.execute(
-                    """
-                    SELECT COUNT(DISTINCT scm.paper_id)
-                    FROM study_cohort_membership scm
-                    WHERE scm.workflow_id = ?
-                      AND scm.synthesis_eligibility = 'included_primary'
-                    """,
-                    (_workflow_id,),
-                )
-            ).fetchone()
-            included_from_dual = await (
-                await db.execute(
-                    """
-                    SELECT COUNT(DISTINCT paper_id)
-                    FROM dual_screening_results
-                    WHERE stage = 'fulltext' AND final_decision IN ('include', 'uncertain')
-                    """
-                )
-            ).fetchone()
-            included_source = "study_cohort_membership_synthesis_included_primary"
-            if included_from_cohort and included_from_cohort[0] is not None and int(included_from_cohort[0]) > 0:
-                papers_included = int(included_from_cohort[0])
-            elif included_from_dual and included_from_dual[0] is not None and int(included_from_dual[0]) > 0:
-                papers_included = int(included_from_dual[0])
-                included_source = "dual_screening_results_fulltext"
-            else:
-                included_from_event = await (
-                    await db.execute(
-                        """
-                        SELECT json_extract(payload, '$.summary.included')
-                        FROM event_log
-                        WHERE event_type = 'phase_done'
-                          AND json_extract(payload, '$.phase') = 'phase_3_screening'
-                        ORDER BY id DESC
-                        LIMIT 1
-                        """
-                    )
-                ).fetchone()
-                if included_from_event and included_from_event[0] is not None:
-                    papers_included = int(included_from_event[0])
-                    included_source = "event_log_phase_done_phase_3_screening"
-                else:
-                    fallback_row = await (await db.execute("SELECT COUNT(*) FROM extraction_records")).fetchone()
-                    papers_included = int(fallback_row[0]) if fallback_row else 0
-                    included_source = "extraction_records"
-
-            try:
-                _event_inc_row = await (
-                    await db.execute(
-                        """
-                        SELECT json_extract(payload, '$.summary.included')
-                        FROM event_log
-                        WHERE event_type = 'phase_done'
-                          AND json_extract(payload, '$.phase') = 'phase_3_screening'
-                        ORDER BY id DESC
-                        LIMIT 1
-                        """
-                    )
-                ).fetchone()
-                _event_inc = int(_event_inc_row[0]) if (_event_inc_row and _event_inc_row[0] is not None) else None
-                _cohort_inc = (
-                    int(included_from_cohort[0])
-                    if (included_from_cohort and included_from_cohort[0] is not None)
-                    else 0
-                )
-                _dual_inc = (
-                    int(included_from_dual[0]) if (included_from_dual and included_from_dual[0] is not None) else 0
-                )
-                if (
-                    included_source == "dual_screening_results_fulltext"
-                    and _event_inc is not None
-                    and _dual_inc > 0
-                    and _event_inc != _dual_inc
-                ):
-                    _logger.warning(
-                        "run-stats divergence: dual_screening_results=%s event_log=%s for db=%s",
-                        _dual_inc,
-                        _event_inc,
-                        db_path,
-                    )
-                if (
-                    included_source == "study_cohort_membership_synthesis_included_primary"
-                    and _cohort_inc > _dual_inc
-                    and _dual_inc > 0
-                ):
-                    _logger.warning(
-                        "run-stats divergence: cohort=%s exceeds dual_screening_results=%s for db=%s",
-                        _cohort_inc,
-                        _dual_inc,
-                        db_path,
-                    )
-            except Exception:
-                pass
-
-            total_cost = (await (await db.execute("SELECT COALESCE(SUM(cost_usd), 0.0) FROM cost_records")).fetchone())[
-                0
-            ]
+        async with open_runtime_db(db_path, readonly=True) as db:
+            stats = await resolver.aggregate(db)
 
         artifacts_count: int | None = None
         summary_path = pathlib.Path(db_path).parent / "run_summary.json"
@@ -212,11 +111,7 @@ async def _fetch_run_stats(db_path: str) -> dict[str, Any]:
 
         return {
             "ok": True,
-            "papers_found": int(papers_found),
-            "papers_included": int(papers_included),
-            "total_cost": float(total_cost),
-            "papers_included_source": included_source,
-            "papers_included_precedence": list(RUN_STATS_PRECEDENCE.papers_included_order),
+            **stats,
             "artifacts_count": artifacts_count,
         }
     except Exception as exc:

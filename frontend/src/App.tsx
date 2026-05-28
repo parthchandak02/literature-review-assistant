@@ -9,6 +9,10 @@ import { SettingsDialog } from "@/components/SettingsDialog"
 import { computePhaseProgress } from "@/lib/phaseProgress"
 import { computeFunnelStages } from "@/lib/funnelStages"
 import {
+  beginLiveRun,
+  runRequestToStoredKeys,
+} from "@/lib/runSession"
+import {
   isSameRunSelection,
   isSameWorkflowSelection,
   isTerminalHistoricalStatus,
@@ -48,7 +52,7 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip"
-import type { HistoryEntry, RunRequest, RunResponse, StoredApiKeys } from "@/lib/api"
+import type { HistoryEntry, RunRequest, RunResponse } from "@/lib/api"
 import { RunView } from "@/views/RunView"
 import type { RunTab, SelectedRun } from "@/views/RunView"
 import type { ConfigGenerateRequest } from "@/views/SetupView"
@@ -705,116 +709,63 @@ export default function App() {
 
   async function handleStart(req: RunRequest) {
     setDraftConfig(null)
-    reset()
-    wasStreamingRef.current = false
-    liveRunNavigatedRef.current = null
-    const now = new Date()
     const res = await startRun(req)
-    setLiveRunId(res.run_id)
-    setLiveTopic(res.topic)
-    setLiveStartedAt(now)
-    setLiveWorkflowId(null)
-    saveLiveRun({ runId: res.run_id, topic: res.topic, startedAt: now.toISOString() })
-    const run: SelectedRun = {
-      runId: res.run_id,
-      workflowId: null,
-      topic: res.topic,
-      dbPath: null,
-      isDone: false,
-      startedAt: now,
-      createdAt: now.toISOString(),
-    }
-    setSelectedRun(run)
-    setActiveRunTab("activity")
-    // URL will update once workflow_id_ready fires and liveWorkflowId is set.
+    beginLiveRun({
+      res,
+      reset,
+      setLiveRunId,
+      setLiveTopic,
+      setLiveStartedAt,
+      setLiveWorkflowId,
+      setSelectedRun,
+      setActiveRunTab,
+      liveRunNavigatedRef,
+      wasStreamingRef,
+    })
   }
 
   async function handleStartWithSupplementaryCsv(csvFile: File, req: RunRequest) {
     setDraftConfig(null)
-    reset()
-    wasStreamingRef.current = false
-    liveRunNavigatedRef.current = null
-    const now = new Date()
-    const keys: StoredApiKeys = {
-      gemini: req.gemini_api_key ?? "",
-      deepseek: req.deepseek_api_key,
-      openrouter: req.openrouter_api_key ?? "",
-      openai: req.openai_api_key ?? "",
-      anthropic: req.anthropic_api_key ?? "",
-      groq: req.groq_api_key ?? "",
-      mistral: req.mistral_api_key ?? "",
-      cohere: req.cohere_api_key ?? "",
-      openalex: req.openalex_api_key ?? "",
-      ieee: req.ieee_api_key ?? "",
-      pubmedEmail: req.pubmed_email ?? "",
-      pubmedApiKey: req.pubmed_api_key ?? "",
-      perplexity: req.perplexity_api_key ?? "",
-      semanticScholar: req.semantic_scholar_api_key ?? "",
-      crossrefEmail: req.crossref_email ?? "",
-      wos: req.wos_api_key ?? "",
-      scopus: req.scopus_api_key ?? "",
-    }
-    const res = await startRunWithSupplementaryCsv(csvFile, req.review_yaml, keys, req.run_root)
-    setLiveRunId(res.run_id)
-    setLiveTopic(res.topic)
-    setLiveStartedAt(now)
-    setLiveWorkflowId(null)
-    saveLiveRun({ runId: res.run_id, topic: res.topic, startedAt: now.toISOString() })
-    const run: SelectedRun = {
-      runId: res.run_id,
-      workflowId: null,
-      topic: res.topic,
-      dbPath: null,
-      isDone: false,
-      startedAt: now,
-      createdAt: now.toISOString(),
-    }
-    setSelectedRun(run)
-    setActiveRunTab("activity")
+    const res = await startRunWithSupplementaryCsv(
+      csvFile,
+      req.review_yaml,
+      runRequestToStoredKeys(req),
+      req.run_root,
+    )
+    beginLiveRun({
+      res,
+      reset,
+      setLiveRunId,
+      setLiveTopic,
+      setLiveStartedAt,
+      setLiveWorkflowId,
+      setSelectedRun,
+      setActiveRunTab,
+      liveRunNavigatedRef,
+      wasStreamingRef,
+    })
   }
 
   async function handleStartWithMasterlistCsv(csvFile: File, req: RunRequest) {
     setDraftConfig(null)
-    reset()
-    wasStreamingRef.current = false
-    liveRunNavigatedRef.current = null
-    const now = new Date()
-    const keys: StoredApiKeys = {
-      gemini: req.gemini_api_key ?? "",
-      deepseek: req.deepseek_api_key,
-      openrouter: req.openrouter_api_key ?? "",
-      openai: req.openai_api_key ?? "",
-      anthropic: req.anthropic_api_key ?? "",
-      groq: req.groq_api_key ?? "",
-      mistral: req.mistral_api_key ?? "",
-      cohere: req.cohere_api_key ?? "",
-      openalex: req.openalex_api_key ?? "",
-      ieee: req.ieee_api_key ?? "",
-      pubmedEmail: req.pubmed_email ?? "",
-      pubmedApiKey: req.pubmed_api_key ?? "",
-      perplexity: req.perplexity_api_key ?? "",
-      semanticScholar: req.semantic_scholar_api_key ?? "",
-      crossrefEmail: req.crossref_email ?? "",
-      wos: req.wos_api_key ?? "",
-      scopus: req.scopus_api_key ?? "",
-    }
-    const res = await startRunWithMasterlist(csvFile, req.review_yaml, keys, req.run_root)
-    setLiveRunId(res.run_id)
-    setLiveTopic(res.topic)
-    setLiveStartedAt(now)
-    setLiveWorkflowId(null)
-    saveLiveRun({ runId: res.run_id, topic: res.topic, startedAt: now.toISOString() })
-    const run: SelectedRun = {
-      runId: res.run_id,
-      workflowId: null,
-      topic: res.topic,
-      dbPath: null,
-      isDone: false,
-      startedAt: now,
-      createdAt: now.toISOString(),
-    }
-    setSelectedRun(run)
-    setActiveRunTab("activity")
+    const res = await startRunWithMasterlist(
+      csvFile,
+      req.review_yaml,
+      runRequestToStoredKeys(req),
+      req.run_root,
+    )
+    beginLiveRun({
+      res,
+      reset,
+      setLiveRunId,
+      setLiveTopic,
+      setLiveStartedAt,
+      setLiveWorkflowId,
+      setSelectedRun,
+      setActiveRunTab,
+      liveRunNavigatedRef,
+      wasStreamingRef,
+    })
   }
 
   async function handleCancel() {
@@ -881,11 +832,14 @@ export default function App() {
       focusSelectedWorkflow()
       try {
         const res = await attachHistory(entry)
-        setSelectedRun((current) =>
-          current?.workflowId === entry.workflow_id
-            ? { ...current, runId: res.run_id, attachPending: false }
-            : current,
-        )
+        setSelectedRun((current) => {
+          if (current?.workflowId !== entry.workflow_id) return current
+          return {
+            ...current,
+            runId: res.run_id,
+            attachPending: false,
+          }
+        })
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err)
         toast.error(`Could not open run: ${msg}`)

@@ -1,4 +1,4 @@
-import { Suspense, lazy, useEffect, useMemo, useState } from "react"
+import { Suspense, lazy, useMemo, useState } from "react"
 import {
   Activity,
   BarChart3,
@@ -17,7 +17,7 @@ import { resolveRunHeaderStatus } from "@/lib/constants"
 import { GlassTabs } from "@/components/ui/glass-tabs"
 import { ActivityView } from "@/views/ActivityView"
 import type { ReviewEvent } from "@/lib/api"
-import { fetchHistoricalReviewEvents } from "@/lib/api"
+import { useHistoricalEvents } from "@/hooks/useHistoricalEvents"
 import type { CostStats } from "@/hooks/useCostStats"
 import { computeFunnelStages } from "@/lib/funnelStages"
 import type { DraftConfigContext } from "@/views/ConfigView"
@@ -160,35 +160,13 @@ export function RunView({
   onLaunchDraft,
 }: RunViewProps) {
   const [wfIdCopied, setWfIdCopied] = useState(false)
-  // For historical runs, fetch stored events so the funnel can be computed.
-  const [historicalEvents, setHistoricalEvents] = useState<ReviewEvent[]>([])
-  const [historicalEventsLoading, setHistoricalEventsLoading] = useState(false)
   const isHistorical = !isViewingLiveRun
-
-  useEffect(() => {
-    if (!isHistorical) {
-      // Clearing stale historical events when a live run starts is the intended
-      // side effect -- the linter flags it but this is the correct React pattern
-      // for resetting derived state when a condition changes.
-      // eslint-disable-next-line react-hooks/set-state-in-effect
-      setHistoricalEvents([])
-
-      setHistoricalEventsLoading(false)
-      return
-    }
-    let cancelled = false
-    setHistoricalEventsLoading(true)
-    void fetchHistoricalReviewEvents(run.workflowId, run.runId, {
-      attachPending: run.attachPending,
-    })
-      .then((resolved) => {
-        if (!cancelled) setHistoricalEvents(resolved)
-      })
-      .finally(() => {
-        if (!cancelled) setHistoricalEventsLoading(false)
-      })
-    return () => { cancelled = true }
-  }, [run.runId, run.workflowId, run.attachPending, isHistorical])
+  const historicalQuery = useHistoricalEvents(run.workflowId, run.runId, {
+    enabled: isHistorical,
+    attachPending: run.attachPending,
+  })
+  const historicalEvents = historicalQuery.data ?? []
+  const historicalEventsLoading = historicalQuery.isPending
 
   // Use live SSE events when available; fall back to replayed historical events.
   const effectiveEvents = isHistorical ? historicalEvents : events
@@ -272,6 +250,14 @@ export function RunView({
 
   return (
     <div className="flex flex-col gap-0 h-full">
+      {run.attachPending && (
+        <div
+          className="shrink-0 border-b border-intent-warning/40 bg-intent-warning-subtle px-6 py-2 text-sm text-intent-warning"
+          role="status"
+        >
+          Connecting to run session… Event replay uses workflow SQLite until attach completes.
+        </div>
+      )}
       {/* Run info strip */}
       <div
         className="glass-toolbar flex items-center justify-between gap-3 px-6 py-2 border-b border-border/60 shrink-0 text-meta"

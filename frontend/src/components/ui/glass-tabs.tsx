@@ -35,6 +35,7 @@ export function GlassTabs<T extends string>({
 }: GlassTabsProps<T>) {
   return (
     <div
+      role="tablist"
       className={cn(
         "items-center gap-2 overflow-x-auto scrollbar-none",
         equalWidth
@@ -51,6 +52,10 @@ export function GlassTabs<T extends string>({
           <button
             key={item.id}
             type="button"
+            role="tab"
+            aria-selected={active}
+            id={`tab-${item.id}`}
+            aria-controls={`tabpanel-${item.id}`}
             onClick={() => onTabChange(item.id)}
             className={cn(
               "glass-interactive inline-flex items-center gap-1.5 rounded-lg border px-3 py-2 text-sm font-medium whitespace-nowrap shrink-0 transition-colors",
@@ -59,7 +64,6 @@ export function GlassTabs<T extends string>({
                 : "",
               accentClasses(accent, active),
             )}
-            aria-pressed={active}
           >
             {Icon && <Icon className="h-3.5 w-3.5" />}
             <span>{item.label}</span>

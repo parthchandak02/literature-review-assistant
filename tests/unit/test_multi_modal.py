@@ -43,15 +43,15 @@ async def test_fetch_full_text_uses_unpaywall_first_then_sciencedirect(monkeypat
     monkeypatch.setenv("SCOPUS_API_KEY", "test-key")
     with (
         patch(
-            "src.extraction.table_extraction._fetch_unpaywall",
+            "src.fulltext.retrieval._fetch_unpaywall",
             new=AsyncMock(return_value=None),
         ) as mock_uw,
         patch(
-            "src.extraction.table_extraction._fetch_sciencedirect",
+            "src.fulltext.retrieval._fetch_sciencedirect",
             new=AsyncMock(return_value=sd_result),
         ) as mock_sd,
         patch(
-            "src.extraction.table_extraction._fetch_pmc",
+            "src.fulltext.retrieval._fetch_pmc",
             new=AsyncMock(return_value=None),
         ) as mock_pmc,
     ):
@@ -72,15 +72,15 @@ async def test_fetch_full_text_falls_to_unpaywall_when_sd_misses(monkeypatch):
     monkeypatch.setenv("SCOPUS_API_KEY", "test-key")
     with (
         patch(
-            "src.extraction.table_extraction._fetch_sciencedirect",
+            "src.fulltext.retrieval._fetch_sciencedirect",
             new=AsyncMock(return_value=None),
         ),
         patch(
-            "src.extraction.table_extraction._fetch_unpaywall",
+            "src.fulltext.retrieval._fetch_unpaywall",
             new=AsyncMock(return_value=uw_result),
         ) as mock_uw,
         patch(
-            "src.extraction.table_extraction._fetch_pmc",
+            "src.fulltext.retrieval._fetch_pmc",
             new=AsyncMock(return_value=None),
         ) as mock_pmc,
     ):
@@ -98,9 +98,9 @@ async def test_fetch_full_text_falls_to_pmc_when_unpaywall_misses(monkeypatch):
 
     monkeypatch.setenv("SCOPUS_API_KEY", "test-key")
     with (
-        patch("src.extraction.table_extraction._fetch_sciencedirect", new=AsyncMock(return_value=None)),
-        patch("src.extraction.table_extraction._fetch_unpaywall", new=AsyncMock(return_value=None)),
-        patch("src.extraction.table_extraction._fetch_pmc", new=AsyncMock(return_value=pmc_result)) as mock_pmc,
+        patch("src.fulltext.retrieval._fetch_sciencedirect", new=AsyncMock(return_value=None)),
+        patch("src.fulltext.retrieval._fetch_unpaywall", new=AsyncMock(return_value=None)),
+        patch("src.fulltext.retrieval._fetch_pmc", new=AsyncMock(return_value=pmc_result)) as mock_pmc,
     ):
         result = await fetch_full_text(doi="10.1000/test")
 
@@ -113,9 +113,9 @@ async def test_fetch_full_text_returns_abstract_fallback_when_all_tiers_miss(mon
     """All 3 tiers miss -> fallback FullTextResult with empty text and source='abstract'."""
     monkeypatch.setenv("SCOPUS_API_KEY", "test-key")
     with (
-        patch("src.extraction.table_extraction._fetch_sciencedirect", new=AsyncMock(return_value=None)),
-        patch("src.extraction.table_extraction._fetch_unpaywall", new=AsyncMock(return_value=None)),
-        patch("src.extraction.table_extraction._fetch_pmc", new=AsyncMock(return_value=None)),
+        patch("src.fulltext.retrieval._fetch_sciencedirect", new=AsyncMock(return_value=None)),
+        patch("src.fulltext.retrieval._fetch_unpaywall", new=AsyncMock(return_value=None)),
+        patch("src.fulltext.retrieval._fetch_pmc", new=AsyncMock(return_value=None)),
     ):
         result = await fetch_full_text(doi="10.1000/test")
 
@@ -131,9 +131,9 @@ async def test_fetch_full_text_skips_sd_when_no_api_key(monkeypatch):
     uw_result = _ft(text="D" * 600, source="unpaywall_text")
 
     with (
-        patch("src.extraction.table_extraction._fetch_sciencedirect", new=AsyncMock(return_value=None)) as mock_sd,
-        patch("src.extraction.table_extraction._fetch_unpaywall", new=AsyncMock(return_value=uw_result)),
-        patch("src.extraction.table_extraction._fetch_pmc", new=AsyncMock(return_value=None)),
+        patch("src.fulltext.retrieval._fetch_sciencedirect", new=AsyncMock(return_value=None)) as mock_sd,
+        patch("src.fulltext.retrieval._fetch_unpaywall", new=AsyncMock(return_value=uw_result)),
+        patch("src.fulltext.retrieval._fetch_pmc", new=AsyncMock(return_value=None)),
     ):
         result = await fetch_full_text(doi="10.1000/test")
 
@@ -148,9 +148,9 @@ async def test_fetch_full_text_disable_tiers_via_flags(monkeypatch):
     """When use_unpaywall=False and use_pmc=False, skip tiers 2+3 even with misses."""
     monkeypatch.setenv("SCOPUS_API_KEY", "test-key")
     with (
-        patch("src.extraction.table_extraction._fetch_sciencedirect", new=AsyncMock(return_value=None)),
-        patch("src.extraction.table_extraction._fetch_unpaywall", new=AsyncMock()) as mock_uw,
-        patch("src.extraction.table_extraction._fetch_pmc", new=AsyncMock()) as mock_pmc,
+        patch("src.fulltext.retrieval._fetch_sciencedirect", new=AsyncMock(return_value=None)),
+        patch("src.fulltext.retrieval._fetch_unpaywall", new=AsyncMock()) as mock_uw,
+        patch("src.fulltext.retrieval._fetch_pmc", new=AsyncMock()) as mock_pmc,
     ):
         result = await fetch_full_text(doi="10.1000/test", use_unpaywall=False, use_pmc=False)
 
@@ -167,9 +167,9 @@ async def test_fetch_full_text_returns_pdf_bytes_from_unpaywall(monkeypatch):
 
     monkeypatch.setenv("SCOPUS_API_KEY", "test-key")
     with (
-        patch("src.extraction.table_extraction._fetch_sciencedirect", new=AsyncMock(return_value=None)),
-        patch("src.extraction.table_extraction._fetch_unpaywall", new=AsyncMock(return_value=uw_result)),
-        patch("src.extraction.table_extraction._fetch_pmc", new=AsyncMock(return_value=None)),
+        patch("src.fulltext.retrieval._fetch_sciencedirect", new=AsyncMock(return_value=None)),
+        patch("src.fulltext.retrieval._fetch_unpaywall", new=AsyncMock(return_value=uw_result)),
+        patch("src.fulltext.retrieval._fetch_pmc", new=AsyncMock(return_value=None)),
     ):
         result = await fetch_full_text(doi="10.1000/test")
 
@@ -187,20 +187,20 @@ async def test_fetch_full_text_resolves_doi_from_url_for_oa_race(monkeypatch):
     resolved_doi = "10.3390/bioengineering9090540"
     with (
         patch(
-            "src.extraction.table_extraction._resolve_doi_from_url_crossref",
+            "src.fulltext.retrieval._resolve_doi_from_url_crossref",
             new=AsyncMock(return_value=resolved_doi),
         ),
-        patch("src.extraction.table_extraction._fetch_url_direct", new=AsyncMock(return_value=None)),
-        patch("src.extraction.table_extraction._quick_citation_pdf_url", new=AsyncMock(return_value=None)),
-        patch("src.extraction.table_extraction._fetch_unpaywall", new=AsyncMock(return_value=uw_result)) as mock_uw,
-        patch("src.extraction.table_extraction._fetch_semanticscholar", new=AsyncMock(return_value=None)),
-        patch("src.extraction.table_extraction._fetch_biorxiv_medrxiv", new=AsyncMock(return_value=None)),
-        patch("src.extraction.table_extraction._fetch_core", new=AsyncMock(return_value=None)),
-        patch("src.extraction.table_extraction._fetch_openalex_content", new=AsyncMock(return_value=None)),
-        patch("src.extraction.table_extraction._fetch_europepmc", new=AsyncMock(return_value=None)),
-        patch("src.extraction.table_extraction._fetch_pmc", new=AsyncMock(return_value=None)),
-        patch("src.extraction.table_extraction._fetch_crossref_links", new=AsyncMock(return_value=None)),
-        patch("src.extraction.table_extraction._resolve_landing_page", new=AsyncMock(return_value=None)),
+        patch("src.fulltext.retrieval._fetch_url_direct", new=AsyncMock(return_value=None)),
+        patch("src.fulltext.retrieval._quick_citation_pdf_url", new=AsyncMock(return_value=None)),
+        patch("src.fulltext.retrieval._fetch_unpaywall", new=AsyncMock(return_value=uw_result)) as mock_uw,
+        patch("src.fulltext.retrieval._fetch_semanticscholar", new=AsyncMock(return_value=None)),
+        patch("src.fulltext.retrieval._fetch_biorxiv_medrxiv", new=AsyncMock(return_value=None)),
+        patch("src.fulltext.retrieval._fetch_core", new=AsyncMock(return_value=None)),
+        patch("src.fulltext.retrieval._fetch_openalex_content", new=AsyncMock(return_value=None)),
+        patch("src.fulltext.retrieval._fetch_europepmc", new=AsyncMock(return_value=None)),
+        patch("src.fulltext.retrieval._fetch_pmc", new=AsyncMock(return_value=None)),
+        patch("src.fulltext.retrieval._fetch_crossref_links", new=AsyncMock(return_value=None)),
+        patch("src.fulltext.retrieval._resolve_landing_page", new=AsyncMock(return_value=None)),
     ):
         result = await fetch_full_text(url=mdpi_url)
 

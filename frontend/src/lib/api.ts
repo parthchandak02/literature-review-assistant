@@ -1,66 +1,54 @@
 // Typed API wrappers for the FastAPI backend
 import { downloadUrl, studyFilesZipUrl, submissionZipUrl } from "./api/urls"
-import { shouldFallbackToWorkflowEvents } from "./runSelection"
+import { apiError as _apiError } from "./api/internal"
+import type { StoredApiKeys } from "./api/storage"
+import type { RunRequest } from "./api/types"
+export { APIResponseError, API_BASE, apiFetch } from "./api/client"
+export {
+  clearApiKeys,
+  clearLiveRun,
+  emptyStoredApiKeys,
+  loadApiKeys,
+  loadLiveRun,
+  resolveStoredApiKeys,
+  saveApiKeys,
+  saveLiveRun,
+  type StoredApiKeys,
+  type StoredLiveRun,
+} from "./api/storage"
+export {
+  fetchRunEvents,
+  fetchWorkflowEvents,
+  fetchHistoricalReviewEvents,
+} from "./api/events"
+export {
+  fetchHistory,
+  attachHistory,
+  fetchActiveRun,
+  resumeRun,
+  deleteRun,
+  archiveRun,
+  restoreRun,
+  hideCompletedRun,
+  restoreCompletedRun,
+  saveNote,
+} from "./api/history"
+export {
+  startRun,
+  startRunWithMasterlist,
+  startRunWithSupplementaryCsv,
+  cancelRun,
+} from "./api/runs"
+export { fetchArtifactText } from "./api/artifacts"
+export { subscribeNotesStream, type NotesStreamEvent } from "./api/notes"
 
-export interface RunRequest {
-  review_yaml: string
-  deepseek_api_key: string
-  gemini_api_key?: string
-  openrouter_api_key?: string
-  openai_api_key?: string
-  anthropic_api_key?: string
-  groq_api_key?: string
-  mistral_api_key?: string
-  cohere_api_key?: string
-  openalex_api_key?: string
-  ieee_api_key?: string
-  pubmed_email?: string
-  pubmed_api_key?: string
-  perplexity_api_key?: string
-  semantic_scholar_api_key?: string
-  crossref_email?: string
-  wos_api_key?: string
-  scopus_api_key?: string
-  run_root?: string
-}
-
-export interface RunResponse {
-  run_id: string
-  topic: string
-}
-
-
-// SSE event types emitted by WebRunContext
-type ReviewEventIdentity = { id?: string }
-
-/** Present on SSE events when the backend labels durability for replay contracts. */
-export type EventDurability = "durable" | "eventual"
-
-export type ReviewEvent = (
-  | ({ type: "phase_start"; phase: string; description: string; total: number | null; ts: string; reason_code?: string | null; reason_label?: string | null; action?: string | null; entity_type?: string | null; entity_id?: string | null } & ReviewEventIdentity)
-  | ({ type: "phase_done"; phase: string; summary: Record<string, unknown>; total: number | null; completed: number | null; ts: string; reason_code?: string | null; reason_label?: string | null; action?: string | null; entity_type?: string | null; entity_id?: string | null } & ReviewEventIdentity)
-  | ({ type: "progress"; phase: string; current: number; total: number; ts: string } & ReviewEventIdentity)
-  | ({ type: "api_call"; source: string; status: string; phase: string; call_type: string; model: string | null; paper_id: string | null; latency_ms: number | null; tokens_in: number | null; tokens_out: number | null; cost_usd: number | null; records: number | null; details: string | null; section_name: string | null; word_count: number | null; ts: string; reason_code?: string | null; reason_label?: string | null; action?: string | null; entity_type?: string | null; entity_id?: string | null } & ReviewEventIdentity)
-  | ({ type: "connector_result"; name: string; status: string; records: number; query?: string; error: string | null; ts: string; reason_code?: string | null; reason_label?: string | null; action?: string | null; entity_type?: string | null; entity_id?: string | null } & ReviewEventIdentity)
-  | ({ type: "screening_decision"; paper_id: string; stage: string; decision: string; confidence?: number; title?: string; reason?: string; method?: "llm" | "heuristic"; ts: string; reason_code?: string | null; reason_label?: string | null; action?: string | null; entity_type?: string | null; entity_id?: string | null } & ReviewEventIdentity)
-  | ({ type: "extraction_paper"; paper_id: string; design: string; rob_judgment: string; ts: string } & ReviewEventIdentity)
-  | ({ type: "synthesis"; feasible: boolean; groups: number; n_studies: number; direction: string; ts: string } & ReviewEventIdentity)
-  | ({ type: "rate_limit_wait"; tier: string; slots_used: number; limit: number; waited_seconds?: number; ts: string } & ReviewEventIdentity)
-  | ({ type: "rate_limit_resolved"; tier: string; waited_seconds: number; ts: string } & ReviewEventIdentity)
-  | ({ type: "search_override_status"; database: string; status: "applied" | "miss" | "absent"; detail: string; ts: string } & ReviewEventIdentity)
-  | ({ type: "status"; message: string; ts: string } & ReviewEventIdentity)
-  | ({ type: "screening_prefilter_done"; deduped: number; metadata_rejected: number; after_metadata: number; automation_excluded: number; to_llm: number; dual_review_cap?: number | null; bm25_validation_forwarded?: number; empty_abstract_pool?: number; empty_abstract_excluded?: number; empty_abstract_rescued?: number; reason_breakdown?: Record<string, number>; ts: string; reason_code?: string | null; reason_label?: string | null; action?: string | null; entity_type?: string | null; entity_id?: string | null } & ReviewEventIdentity)
-  | ({ type: "deterministic_exclusion_qa_sample"; sample_size: number; pool_size: number; items: Array<{ paper_id: string; reason_code: string; title: string }>; ts: string; reason_code?: string | null; reason_label?: string | null; action?: string | null; entity_type?: string | null; entity_id?: string | null } & ReviewEventIdentity)
-  | ({ type: "batch_screen_done"; scored: number; forwarded: number; excluded: number; skipped_resume: number; threshold: number; ts: string; reason_code?: string | null; reason_label?: string | null; action?: string | null; entity_type?: string | null; entity_id?: string | null } & ReviewEventIdentity)
-  | ({ type: "screening_cap_overflow"; trigger: string; validation_tail_n: number; validation_tail_forwarded: number; validation_tail_forward_rate: number; trigger_threshold: number; overflow_candidates: number; overflow_evaluated: number; overflow_forwarded: number; ts: string; reason_code?: string | null; reason_label?: string | null; action?: string | null; entity_type?: string | null; entity_id?: string | null } & ReviewEventIdentity)
-  | ({ type: "screening_calibration"; include_threshold: number; exclude_threshold: number; kappa: number; iterations: number; sample_size: number; ts: string } & ReviewEventIdentity)
-  | ({ type: "pdf_result"; paper_id: string; title: string; source: string; success: boolean; ts: string; reason_code?: string | null; reason_label?: string | null; action?: string | null; entity_type?: string | null; entity_id?: string | null } & ReviewEventIdentity)
-  | ({ type: "db_ready"; ts: string } & ReviewEventIdentity)
-  | ({ type: "workflow_id_ready"; workflow_id: string } & ReviewEventIdentity)
-  | ({ type: "done"; outputs: Record<string, unknown>; ts?: string } & ReviewEventIdentity)
-  | ({ type: "error"; msg: string; traceback?: string; ts?: string } & ReviewEventIdentity)
-  | ({ type: "cancelled"; ts?: string } & ReviewEventIdentity)
-) & { durability?: EventDurability }
+export type {
+  EventDurability,
+  HistoryEntry,
+  ReviewEvent,
+  RunRequest,
+  RunResponse,
+} from "./api/types"
 
 // Database explorer types
 
@@ -199,45 +187,8 @@ export interface ValidationCheck {
   created_at: string
 }
 
-export interface HistoryEntry {
-  workflow_id: string
-  topic: string
-  status: string
-  db_path: string
-  created_at: string
-  updated_at?: string | null
-  papers_found?: number | null
-  papers_included?: number | null
-  total_cost?: number | null
-  artifacts_count?: number | null
-  stats_ok?: boolean | null
-  stats_error?: string | null
-  /** Set when the workflow has an active in-process task. The frontend uses
-   *  this to connect a live SSE stream instead of replaying historical DB events. */
-  live_run_id?: string | null
-  /** User-authored annotation persisted in the central registry. */
-  notes?: string | null
-  /** Soft archive metadata for sidebar grouping. */
-  is_archived?: boolean
-  archived_at?: string | null
-  /** Soft completed-lane metadata for sidebar grouping of completed runs. */
-  is_completed_hidden?: boolean
-  completed_hidden_at?: string | null
-}
 
 const BASE = "/api"
-
-export class APIResponseError extends Error {
-  status: number
-  detail: unknown
-
-  constructor(message: string, status: number, detail: unknown) {
-    super(message)
-    this.name = "APIResponseError"
-    this.status = status
-    this.detail = detail
-  }
-}
 
 function _sanitizePageNumber(value: number, fallback: number, minValue = 0): number {
   if (!Number.isFinite(value)) return fallback
@@ -245,111 +196,6 @@ function _sanitizePageNumber(value: number, fallback: number, minValue = 0): num
   if (normalized < minValue) return fallback
   return normalized
 }
-
-export async function startRun(req: RunRequest): Promise<RunResponse> {
-  const res = await fetch(`${BASE}/run`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(req),
-  })
-  if (!res.ok) {
-    const text = await res.text()
-    throw new Error(`Failed to start run: ${text}`)
-  }
-  return res.json() as Promise<RunResponse>
-}
-
-/**
- * Start a review run from a pre-assembled master list CSV.
- * The CSV is uploaded as multipart/form-data alongside the review YAML and API keys.
- * SearchNode will load papers from the CSV instead of querying databases.
- * Every downstream phase (screening, extraction, synthesis, writing) runs identically.
- */
-export async function startRunWithMasterlist(
-  csvFile: File,
-  reviewYaml: string,
-  keys: StoredApiKeys,
-  runRoot = "runs",
-): Promise<RunResponse> {
-  const form = new FormData()
-  form.append("csv_file", csvFile)
-  form.append("review_yaml", reviewYaml)
-  form.append("deepseek_api_key", keys.deepseek)
-  if (keys.gemini) form.append("gemini_api_key", keys.gemini)
-  if (keys.openrouter) form.append("openrouter_api_key", keys.openrouter)
-  if (keys.openai) form.append("openai_api_key", keys.openai)
-  if (keys.anthropic) form.append("anthropic_api_key", keys.anthropic)
-  if (keys.groq) form.append("groq_api_key", keys.groq)
-  if (keys.mistral) form.append("mistral_api_key", keys.mistral)
-  if (keys.cohere) form.append("cohere_api_key", keys.cohere)
-  if (keys.openalex) form.append("openalex_api_key", keys.openalex)
-  if (keys.ieee) form.append("ieee_api_key", keys.ieee)
-  if (keys.pubmedEmail) form.append("pubmed_email", keys.pubmedEmail)
-  if (keys.pubmedApiKey) form.append("pubmed_api_key", keys.pubmedApiKey)
-  if (keys.perplexity) form.append("perplexity_api_key", keys.perplexity)
-  if (keys.semanticScholar) form.append("semantic_scholar_api_key", keys.semanticScholar)
-  if (keys.crossrefEmail) form.append("crossref_email", keys.crossrefEmail)
-  if (keys.wos) form.append("wos_api_key", keys.wos)
-  if (keys.scopus) form.append("scopus_api_key", keys.scopus)
-  if (runRoot) form.append("run_root", runRoot)
-  const res = await fetch(`${BASE}/run-with-masterlist`, {
-    method: "POST",
-    body: form,
-  })
-  if (!res.ok) {
-    const text = await res.text()
-    throw new Error(`Failed to start master list run: ${text}`)
-  }
-  return res.json() as Promise<RunResponse>
-}
-
-/**
- * Start a review run with connector search plus one supplementary CSV import.
- * The uploaded CSV is merged with connector results before dedup and screening.
- */
-export async function startRunWithSupplementaryCsv(
-  csvFile: File,
-  reviewYaml: string,
-  keys: StoredApiKeys,
-  runRoot = "runs",
-): Promise<RunResponse> {
-  const form = new FormData()
-  form.append("csv_file", csvFile)
-  form.append("review_yaml", reviewYaml)
-  form.append("deepseek_api_key", keys.deepseek)
-  if (keys.gemini) form.append("gemini_api_key", keys.gemini)
-  if (keys.openrouter) form.append("openrouter_api_key", keys.openrouter)
-  if (keys.openai) form.append("openai_api_key", keys.openai)
-  if (keys.anthropic) form.append("anthropic_api_key", keys.anthropic)
-  if (keys.groq) form.append("groq_api_key", keys.groq)
-  if (keys.mistral) form.append("mistral_api_key", keys.mistral)
-  if (keys.cohere) form.append("cohere_api_key", keys.cohere)
-  if (keys.openalex) form.append("openalex_api_key", keys.openalex)
-  if (keys.ieee) form.append("ieee_api_key", keys.ieee)
-  if (keys.pubmedEmail) form.append("pubmed_email", keys.pubmedEmail)
-  if (keys.pubmedApiKey) form.append("pubmed_api_key", keys.pubmedApiKey)
-  if (keys.perplexity) form.append("perplexity_api_key", keys.perplexity)
-  if (keys.semanticScholar) form.append("semantic_scholar_api_key", keys.semanticScholar)
-  if (keys.crossrefEmail) form.append("crossref_email", keys.crossrefEmail)
-  if (keys.wos) form.append("wos_api_key", keys.wos)
-  if (keys.scopus) form.append("scopus_api_key", keys.scopus)
-  if (runRoot) form.append("run_root", runRoot)
-  const res = await fetch(`${BASE}/run-with-supplementary-csv`, {
-    method: "POST",
-    body: form,
-  })
-  if (!res.ok) {
-    const text = await res.text()
-    throw new Error(`Failed to start supplementary CSV run: ${text}`)
-  }
-  return res.json() as Promise<RunResponse>
-}
-
-export async function cancelRun(runId: string): Promise<void> {
-  const res = await fetch(`${BASE}/cancel/${runId}`, { method: "POST" })
-  if (!res.ok) throw await _apiError(res, "Cancel failed")
-}
-
 
 export async function getDefaultReviewConfig(): Promise<string> {
   const res = await fetch(`${BASE}/config/review`)
@@ -447,31 +293,6 @@ export async function fetchRunConfig(workflowId: string, runRoot = "runs"): Prom
 export { downloadUrl, studyFilesZipUrl, submissionZipUrl }
 
 // Database explorer fetchers
-
-/** Extract a human-readable message from a non-OK response. */
-async function _apiError(res: Response, label: string): Promise<Error> {
-  let detail: unknown = `HTTP ${res.status}`
-  let message = `HTTP ${res.status}`
-  try {
-    const body = await res.json() as { detail?: unknown }
-    if ("detail" in body) {
-      detail = body.detail
-      if (typeof body.detail === "string") {
-        message = body.detail
-      } else if (
-        body.detail &&
-        typeof body.detail === "object" &&
-        "message" in body.detail &&
-        typeof (body.detail as { message?: unknown }).message === "string"
-      ) {
-        message = (body.detail as { message: string }).message
-      }
-    }
-  } catch {
-    // ignore parse error; use status code
-  }
-  return new APIResponseError(`${label}: ${message}`, res.status, detail)
-}
 
 async function _fetchWithWorkflowFallback(
   runId: string,
@@ -1008,120 +829,8 @@ export async function triggerExport(runId: string, force = false): Promise<Expor
   return res.json() as Promise<ExportResult>
 }
 
-// Run event log (replay buffer for reconnect and historical views)
+// Run event log helpers live in ./api/events.ts (re-exported above).
 
-export async function fetchRunEvents(runId: string): Promise<ReviewEvent[]> {
-  const res = await fetch(`${BASE}/run/${runId}/events`)
-  if (!res.ok) return []
-  const data = await res.json() as { events?: ReviewEvent[] }
-  return data.events ?? []
-}
-
-/**
- * Fetch the full event log for a completed workflow directly from SQLite,
- * without needing a prior POST /api/history/attach call.  Use this to load
- * historical events after a page refresh when the run is no longer in the
- * in-memory _active_runs registry.
- */
-export async function fetchWorkflowEvents(workflowId: string): Promise<ReviewEvent[]> {
-  const res = await fetch(`${BASE}/workflow/${workflowId}/events`)
-  if (!res.ok) return []
-  const data = await res.json() as { events?: ReviewEvent[] }
-  return data.events ?? []
-}
-
-/**
- * Load events for a historical run view. Before attach completes, uses
- * workflow-scoped SQLite replay only (never hits /api/run/{id}/events).
- */
-export async function fetchHistoricalReviewEvents(
-  workflowId: string | null | undefined,
-  runId: string,
-  options?: { attachPending?: boolean },
-): Promise<ReviewEvent[]> {
-  if (options?.attachPending) {
-    return workflowId ? fetchWorkflowEvents(workflowId) : []
-  }
-  const runEvents = await fetchRunEvents(runId)
-  if (workflowId && shouldFallbackToWorkflowEvents(runEvents.length, workflowId)) {
-    return fetchWorkflowEvents(workflowId)
-  }
-  return runEvents
-}
-
-// ---------------------------------------------------------------------------
-// localStorage helpers -- persist the live run across page refreshes so SSE
-// can reconnect and the user does not lose progress tracking on reload.
-// ---------------------------------------------------------------------------
-
-export interface StoredLiveRun {
-  runId: string
-  topic: string
-  startedAt: string  // ISO string
-  workflowId?: string | null
-}
-
-const LIVE_RUN_KEY = "litreview_live_run"
-
-export function saveLiveRun(run: StoredLiveRun): void {
-  try {
-    localStorage.setItem(LIVE_RUN_KEY, JSON.stringify(run))
-  } catch {
-    // ignore quota / security errors
-  }
-}
-
-export function loadLiveRun(): StoredLiveRun | null {
-  try {
-    const raw = localStorage.getItem(LIVE_RUN_KEY)
-    return raw ? (JSON.parse(raw) as StoredLiveRun) : null
-  } catch {
-    return null
-  }
-}
-
-export function clearLiveRun(): void {
-  try {
-    localStorage.removeItem(LIVE_RUN_KEY)
-  } catch {
-    // ignore
-  }
-}
-
-// ---------------------------------------------------------------------------
-// localStorage helpers -- persist API keys locally (never sent to any server
-// other than the user's own local backend).
-// ---------------------------------------------------------------------------
-
-export function emptyStoredApiKeys(): StoredApiKeys {
-  return {
-    gemini: "",
-    deepseek: "",
-    openrouter: "",
-    openai: "",
-    anthropic: "",
-    groq: "",
-    mistral: "",
-    cohere: "",
-    openalex: "",
-    ieee: "",
-    pubmedEmail: "",
-    pubmedApiKey: "",
-    perplexity: "",
-    semanticScholar: "",
-    crossrefEmail: "",
-    wos: "",
-    scopus: "",
-  }
-}
-
-/** Merge persisted keys with defaults; optional overrides (e.g. Stage-1 DeepSeek key). */
-export function resolveStoredApiKeys(overrides?: Partial<StoredApiKeys>): StoredApiKeys {
-  const saved = loadApiKeys()
-  return { ...emptyStoredApiKeys(), ...(saved ?? {}), ...(overrides ?? {}) }
-}
-
-/** Build a run request from stored keys + review YAML (single source for launch payloads). */
 export function buildRunRequest(
   reviewYaml: string,
   keys: StoredApiKeys,
@@ -1147,53 +856,6 @@ export function buildRunRequest(
     wos_api_key: keys.wos || undefined,
     scopus_api_key: keys.scopus || undefined,
     run_root: runRoot,
-  }
-}
-
-export interface StoredApiKeys {
-  gemini: string
-  deepseek: string
-  openrouter: string
-  openai: string
-  anthropic: string
-  groq: string
-  mistral: string
-  cohere: string
-  openalex: string
-  ieee: string
-  pubmedEmail: string
-  pubmedApiKey: string
-  perplexity: string
-  semanticScholar: string
-  crossrefEmail: string
-  wos: string
-  scopus: string
-}
-
-const API_KEYS_KEY = "litreview_api_keys"
-
-export function saveApiKeys(keys: StoredApiKeys): void {
-  try {
-    localStorage.setItem(API_KEYS_KEY, JSON.stringify(keys))
-  } catch {
-    // ignore quota / security errors
-  }
-}
-
-export function loadApiKeys(): StoredApiKeys | null {
-  try {
-    const raw = localStorage.getItem(API_KEYS_KEY)
-    return raw ? (JSON.parse(raw) as StoredApiKeys) : null
-  } catch {
-    return null
-  }
-}
-
-export function clearApiKeys(): void {
-  try {
-    localStorage.removeItem(API_KEYS_KEY)
-  } catch {
-    // ignore
   }
 }
 
@@ -1521,128 +1183,4 @@ export async function fetchWorkflowManuscriptAuditFindings(
   return res.json() as Promise<WorkflowManuscriptAuditFindings>
 }
 
-// History endpoints
-
-export async function fetchHistory(runRoot = "runs"): Promise<HistoryEntry[]> {
-  const params = new URLSearchParams({ run_root: runRoot })
-  const res = await fetch(`${BASE}/history?${params}`, { cache: "no-store" })
-  if (!res.ok) return []
-  return res.json() as Promise<HistoryEntry[]>
-}
-
-export async function attachHistory(entry: HistoryEntry): Promise<RunResponse> {
-  const res = await fetch(`${BASE}/history/attach`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      workflow_id: entry.workflow_id,
-      topic: entry.topic,
-      db_path: entry.db_path,
-      status: entry.status,
-    }),
-  })
-  if (!res.ok) {
-    const text = await res.text()
-    throw new Error(`Failed to attach history: ${text}`)
-  }
-  return res.json() as Promise<RunResponse>
-}
-
-/** Check if a workflow is actively running (e.g. resumed from CLI). Returns run_id if so. */
-export async function fetchActiveRun(
-  workflowId: string,
-): Promise<RunResponse | null> {
-  const res = await fetch(`${BASE}/history/active-run?workflow_id=${encodeURIComponent(workflowId)}`)
-  if (res.status === 404) return null
-  if (!res.ok) return null
-  return res.json() as Promise<RunResponse>
-}
-
-export async function resumeRun(
-  entry: HistoryEntry,
-  fromPhase?: string | null,
-): Promise<RunResponse> {
-  const res = await fetch(`${BASE}/history/resume`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      workflow_id: entry.workflow_id,
-      db_path: entry.db_path,
-      topic: entry.topic,
-      ...(fromPhase != null && fromPhase !== "" && { from_phase: fromPhase }),
-    }),
-  })
-  if (!res.ok) {
-    const text = await res.text()
-    throw new Error(`Failed to resume run: ${text}`)
-  }
-  return res.json() as Promise<RunResponse>
-}
-
-export async function deleteRun(workflowId: string, runRoot = "runs"): Promise<void> {
-  const params = new URLSearchParams({ run_root: runRoot })
-  const res = await fetch(`${BASE}/history/${workflowId}?${params}`, {
-    method: "DELETE",
-  })
-  if (!res.ok) {
-    const text = await res.text()
-    throw new Error(`Failed to delete run: ${text}`)
-  }
-}
-
-export async function archiveRun(workflowId: string, runRoot = "runs"): Promise<void> {
-  const params = new URLSearchParams({ run_root: runRoot })
-  const res = await fetch(`${BASE}/history/${workflowId}/archive?${params}`, {
-    method: "POST",
-  })
-  if (!res.ok) {
-    const text = await res.text()
-    throw new Error(`Failed to archive run: ${text}`)
-  }
-}
-
-export async function restoreRun(workflowId: string, runRoot = "runs"): Promise<void> {
-  const params = new URLSearchParams({ run_root: runRoot })
-  const res = await fetch(`${BASE}/history/${workflowId}/restore?${params}`, {
-    method: "POST",
-  })
-  if (!res.ok) {
-    const text = await res.text()
-    throw new Error(`Failed to restore run: ${text}`)
-  }
-}
-
-export async function hideCompletedRun(workflowId: string, runRoot = "runs"): Promise<void> {
-  const params = new URLSearchParams({ run_root: runRoot })
-  const res = await fetch(`${BASE}/history/${workflowId}/complete-hide?${params}`, {
-    method: "POST",
-  })
-  if (!res.ok) {
-    const text = await res.text()
-    throw new Error(`Failed to move completed run: ${text}`)
-  }
-}
-
-export async function restoreCompletedRun(workflowId: string, runRoot = "runs"): Promise<void> {
-  const params = new URLSearchParams({ run_root: runRoot })
-  const res = await fetch(`${BASE}/history/${workflowId}/complete-restore?${params}`, {
-    method: "POST",
-  })
-  if (!res.ok) {
-    const text = await res.text()
-    throw new Error(`Failed to restore completed run: ${text}`)
-  }
-}
-
-/** Persist a user note for a workflow. Broadcasts to all connected note-stream clients. */
-export async function saveNote(workflowId: string, note: string, runRoot = "runs"): Promise<void> {
-  const res = await fetch(`${BASE}/notes/${workflowId}`, {
-    method: "PATCH",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ note, run_root: runRoot }),
-  })
-  if (!res.ok) {
-    const text = await res.text()
-    throw new Error(`Failed to save note: ${text}`)
-  }
-}
+// History endpoints live in ./api/history.ts (re-exported above).

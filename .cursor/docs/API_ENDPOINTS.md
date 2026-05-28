@@ -19,6 +19,8 @@ When API routes change in `src/web/app.py`, update this table in the same change
 | GET | /api/config/review | Default review.yaml content (pre-fills Setup form) |
 | POST | /api/config/generate/stream | SSE-streamed config generation (`research_question`, `gemini_api_key`, optional `generation_profile=standard|health_sdg`) |
 | GET | /api/config/env-keys | API keys already set in server .env; used to pre-fill Setup form |
+| GET | /api/config/env-keys/required | Required LLM provider UI keys for the active settings profile |
+| GET | /api/config/env-keys/status | Masked env-key presence map for Setup diagnostics |
 | GET | /api/health | Health check; polled every 6s by useBackendHealth hook |
 | GET | /api/history | Past runs from workflows_registry.db |
 | GET | /api/history/active-run | Whether a run for the given workflow_id is currently active (requires `workflow_id` query param) |

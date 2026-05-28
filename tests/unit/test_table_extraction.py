@@ -35,12 +35,14 @@ async def test_extract_tables_from_pdf_uses_validated_multimodal_client() -> Non
     )
 
     with patch(
-        "src.extraction.table_extraction.PydanticAIClient.complete_validated_parts",
-        new=AsyncMock(return_value=(stub_response, 10, 5, 0, 0, 0)),
-    ) as mocked:
+        "src.extraction.table_extraction.get_chat_client",
+    ) as get_client_mock:
+        client = AsyncMock()
+        client.complete_validated_parts = AsyncMock(return_value=(stub_response, 10, 5, 0, 0, 0))
+        get_client_mock.return_value = client
         results = await extract_tables_from_pdf(b"%PDF-1.4 fake bytes", model_name="google:gemini-2.5-flash-lite")
 
-    assert mocked.await_count == 1
+    assert client.complete_validated_parts.await_count == 1
     assert len(results) == 1
     assert results[0].name == "Exam score"
     assert results[0].effect_size == "0.42"

@@ -47,13 +47,22 @@ interface EmptyStateProps {
   heading: string
   sub?: string
   className?: string
+  /** compact reduces vertical padding for dense data views */
+  density?: "default" | "compact"
 }
 
-export function EmptyState({ icon: Icon, heading, sub, className }: EmptyStateProps) {
+export function EmptyState({
+  icon: Icon,
+  heading,
+  sub,
+  className,
+  density = "default",
+}: EmptyStateProps) {
   return (
     <div
       className={cn(
-        "flex flex-col items-center justify-center py-20 gap-3 text-center",
+        "flex flex-col items-center justify-center gap-3 text-center",
+        density === "compact" ? "py-8" : "py-20",
         className,
       )}
     >
