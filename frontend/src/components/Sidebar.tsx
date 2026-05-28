@@ -15,59 +15,39 @@ import {
   Trash2,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
-import { formatCollapsedWorkflowBadge, formatRunDate, formatWorkflowId } from "@/lib/format"
+import { formatRunDate } from "@/lib/format"
 import { fetchHistory, type NotesStreamEvent } from "@/lib/api"
 import type { HistoryEntry } from "@/lib/api"
 import { useNotesStream } from "@/hooks/useNotesStream"
-import type { FunnelStage } from "@/lib/funnelStages"
-import { useNoteAutosave } from "@/hooks/useNoteAutosave"
 import {
-  Tooltip,
-  TooltipContent,
   TooltipProvider,
-  TooltipTrigger,
 } from "@/components/ui/tooltip"
 import { DeleteConfirmDialog } from "@/components/DeleteConfirmDialog"
 import { StatusPulse } from "@/components/run-status"
 import { Spinner } from "@/components/ui/feedback"
 import { ThemeToggle } from "@/components/ThemeToggle"
+import { CardProgressBar } from "@/components/sidebar/CardProgressBar"
+import { LiveRunCard } from "@/components/sidebar/LiveRunCard"
+import { NoteField } from "@/components/sidebar/NoteField"
+import { RunCardMetrics } from "@/components/sidebar/RunCardMetrics"
+import { SidebarTooltip } from "@/components/sidebar/SidebarTooltip"
+import {
+  CollapsedWorkflowBadge,
+  ExpandedWorkflowBadge,
+} from "@/components/sidebar/WorkflowBadges"
+import type { LiveRun } from "@/components/sidebar/types"
+export type { LiveRun, PhaseProgress } from "@/components/sidebar/types"
 import {
   FRONTEND_BUILD_STAMP,
   shouldShowFrontendBuildStamp,
 } from "@/lib/buildStamp"
 import {
-  type RunStatus,
   STATUS_LABEL,
-  STATUS_PROGRESS,
   STATUS_TEXT,
   resolveRunStatus,
 } from "@/lib/constants"
 
-// Sidebar uses resolveRunStatus under its local alias for readability
 const resolveStatus = resolveRunStatus
-
-function fmtNum(n: number): string {
-  return n.toLocaleString()
-}
-
-export interface PhaseProgress {
-  value: number
-  completedPhases: number
-  currentPhaseFraction?: number
-}
-
-export interface LiveRun {
-  runId: string
-  topic: string
-  status: RunStatus
-  cost: number
-  workflowId?: string | null
-  phaseProgress?: PhaseProgress
-  startedAt?: string | null
-  papersFound?: number | null
-  papersIncluded?: number | null
-  funnelStages?: FunnelStage[]
-}
 
 interface SidebarProps {
   liveRun: LiveRun | null
@@ -537,111 +517,24 @@ export function Sidebar({
             <div className="space-y-2">
               {/* Live run card - first in the unified list, handles both collapsed and expanded */}
               {shouldShowStandaloneLiveCard && liveRun && (
-                <SidebarTooltip label={liveRun.topic} collapsed={collapsed} side="right">
-                  <div className={cn(
-                    "sidebar-card",
-                    isLiveRunSelected ? "sidebar-card-selected" : "sidebar-card-hover",
-                  )}>
-                    <div className="relative">
-                      <button
-                        onClick={() => { onSelectLiveRun(); if (isMobile) onToggle() }}
-                        className={cn(
-                          "w-full transition-colors text-left",
-                          collapsed
-                            ? "flex justify-center items-center h-9 w-9 mx-auto rounded-xl"
-                            : "pl-2.5 pr-2 py-2.5",
-                        )}
-                      >
-                        {collapsed ? (
-                          <CollapsedWorkflowBadge workflowId={liveRun.workflowId} />
-                        ) : (
-                          <div className="flex flex-col gap-1 min-w-0">
-                            <div className="flex items-start gap-2 min-w-0">
-                              <ExpandedWorkflowBadge workflowId={liveRun.workflowId} />
-                              <span
-                                className={cn(
-                                  "text-xs text-foreground line-clamp-2 leading-snug min-w-0",
-                                  ((onArchive && liveRun.workflowId && !isRunning) || (isRunning && onCancel)) && "pr-12",
-                                )}
-                              >
-                                {liveRun.topic}
-                              </span>
-                            </div>
-                            <RunCardMetrics
-                              papersFound={liveRun.papersFound}
-                              papersIncluded={liveRun.papersIncluded}
-                              funnelStages={liveRun.funnelStages}
-                              cost={liveRun.cost}
-                              workflowId={liveRun.workflowId}
-                              copiedWorkflowId={wfIdCopied}
-                              onCopyWorkflowId={async (id) => {
-                                if (id) {
-                                  await navigator.clipboard.writeText(id)
-                                  setWfIdCopied(id)
-                                  setTimeout(() => setWfIdCopied(null), 1500)
-                                }
-                              }}
-                            />
-                            <div className="flex items-center justify-between gap-2 min-w-0 text-meta">
-                              <div className="flex items-center gap-1.5 shrink-0">
-                                <StatusPulse status={liveRun.status} animate={isRunning} size="xs" />
-                                <span
-                                  className={cn(
-                                    "font-semibold uppercase tracking-wide",
-                                    STATUS_TEXT[liveRun.status],
-                                  )}
-                                >
-                                  {STATUS_LABEL[liveRun.status]}
-                                </span>
-                              </div>
-                              <span className="text-muted font-medium tabular-nums shrink-0">
-                                {liveRun.startedAt ? formatRunDate(liveRun.startedAt) : "Now"}
-                              </span>
-                            </div>
-                          </div>
-                        )}
-                      </button>
-                      {!collapsed && isRunning && onCancel && (
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation()
-                            onCancel()
-                          }}
-                          aria-label="Stop run"
-                          title="Stop run"
-                          className="absolute top-0 right-0 flex items-center justify-center h-8 w-8 rounded-bl-md bg-intent-danger hover:bg-intent-danger/85 text-intent-danger-fg transition-colors"
-                        >
-                          <Square className="h-2.5 w-2.5 fill-current" />
-                        </button>
-                      )}
-                      {!collapsed && onArchive && liveRun.workflowId && !isRunning && (
-                        <button
-                          onClick={(e) => handleArchiveClick(e, liveRun.workflowId!)}
-                          disabled={archivingId === liveRun.workflowId}
-                          aria-label="Archive run"
-                          title="Archive run"
-                          className={cn(
-                            "absolute top-0 right-0 flex items-center justify-center h-8 w-8 rounded-bl-md",
-                            "text-muted hover:text-intent-warning hover:bg-intent-warning-subtle transition-colors",
-                            archivingId === liveRun.workflowId && "opacity-50 cursor-wait",
-                          )}
-                        >
-                          {archivingId === liveRun.workflowId ? (
-                            <Spinner size="xs" />
-                          ) : (
-                            <Archive className="h-3 w-3" />
-                          )}
-                        </button>
-                      )}
-                    </div>
-                    {!collapsed && (
-                      <CardProgressBar
-                        status={liveRun.status}
-                        progress={liveRun.phaseProgress?.value}
-                      />
-                    )}
-                  </div>
-                </SidebarTooltip>
+                <LiveRunCard
+                  liveRun={liveRun}
+                  collapsed={collapsed}
+                  isLiveRunSelected={isLiveRunSelected}
+                  isRunning={isRunning}
+                  isMobile={Boolean(isMobile)}
+                  onToggle={onToggle}
+                  onSelectLiveRun={onSelectLiveRun}
+                  onCancel={onCancel}
+                  onArchive={onArchive ? handleArchiveConfirm : undefined}
+                  archivingId={archivingId}
+                  wfIdCopied={wfIdCopied}
+                  onCopyWorkflowId={async (id) => {
+                    await navigator.clipboard.writeText(id)
+                    setWfIdCopied(id)
+                    setTimeout(() => setWfIdCopied(null), 1500)
+                  }}
+                />
               )}
               {inProgressHistory.map((entry) => {
                 const isLiveRow = Boolean(
@@ -1219,307 +1112,5 @@ export function Sidebar({
         />
       )}
     </TooltipProvider>
-  )
-}
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-function RunCardMetrics({
-  papersFound,
-  papersIncluded,
-  funnelStages,
-  cost,
-  workflowId,
-  copiedWorkflowId,
-  onCopyWorkflowId,
-}: {
-  papersFound?: number | null
-  papersIncluded?: number | null
-  funnelStages?: FunnelStage[]
-  cost?: number | null
-  workflowId?: string | null
-  copiedWorkflowId?: string | null
-  onCopyWorkflowId?: (id: string) => void | Promise<void>
-}) {
-  const hasFunnel = funnelStages != null && funnelStages.length > 0
-  const hasStats =
-    hasFunnel ||
-    papersFound != null ||
-    papersIncluded != null ||
-    (cost != null && cost > 0)
-  const hasWfId = workflowId != null && workflowId.length > 0
-
-  if (!hasStats && !hasWfId) return null
-
-  // 2-column layout:
-  //   Left  -- funnel stages stacked vertically (or simple found/included rows)
-  //   Right -- cost + workflow ID, right-aligned
-  // Vertical stacking eliminates the need for inline arrows; order implies the flow.
-  return (
-    <div className="flex justify-between items-start gap-x-2 min-w-0 text-meta w-full">
-      {/* Left column: pipeline stages */}
-      <div className="flex flex-col gap-y-0.5 min-w-0">
-        {hasFunnel ? (
-          funnelStages!.map((stage) => (
-            <span key={stage.key} className="flex items-baseline gap-1 leading-none">
-              <span className={cn("font-semibold tabular-nums", stage.colorClass)}>
-                {fmtNum(stage.count)}
-              </span>
-              <span className="text-muted font-normal">{stage.label}</span>
-            </span>
-          ))
-        ) : (
-          <>
-            {papersFound != null && (
-              <span className="flex items-baseline gap-1 leading-none">
-                <span className="font-semibold tabular-nums text-intent-info">{fmtNum(papersFound)}</span>
-                <span className="text-muted font-normal">found</span>
-              </span>
-            )}
-            {papersIncluded != null && (
-              <span className="flex items-baseline gap-1 leading-none">
-                <span className="font-semibold tabular-nums text-intent-success">{fmtNum(papersIncluded)}</span>
-                <span className="text-muted font-normal">included</span>
-              </span>
-            )}
-          </>
-        )}
-      </div>
-
-      {/* Right column: cost + wf ID, right-aligned */}
-      <div className="flex flex-col items-end gap-y-0.5 shrink-0">
-        {cost != null && cost > 0 && (
-          <span className="font-semibold text-intent-warning whitespace-nowrap">
-            ${cost.toFixed(3)}
-          </span>
-        )}
-        {hasWfId && (
-          onCopyWorkflowId ? (
-            <span
-              role="button"
-              tabIndex={0}
-              onClick={(e) => {
-                e.stopPropagation()
-                void onCopyWorkflowId(workflowId!)
-              }}
-              onKeyDown={(e) => {
-                if (e.key === "Enter" || e.key === " ") {
-                  e.stopPropagation()
-                  void onCopyWorkflowId(workflowId!)
-                }
-              }}
-              className="text-muted whitespace-nowrap hover:text-foreground transition-colors cursor-pointer"
-              title="Copy workflow ID"
-            >
-              {copiedWorkflowId === workflowId ? "Copied!" : formatWorkflowId(workflowId!)}
-            </span>
-          ) : (
-            <span
-              className="text-muted whitespace-nowrap"
-              title={workflowId ?? undefined}
-            >
-              {formatWorkflowId(workflowId!)}
-            </span>
-          )
-        )}
-      </div>
-    </div>
-  )
-}
-
-function CardProgressBar({
-  status,
-  progress,
-}: {
-  status: RunStatus
-  progress?: number
-}) {
-  const colorClass = STATUS_PROGRESS[status] ?? "bg-surface-4"
-  // progress === -1 is the indeterminate sentinel: active background run with no live SSE data
-  const isIndeterminate = progress === -1
-  const showFill =
-    !isIndeterminate &&
-    (status === "streaming" || status === "connecting" || status === "done")
-  const fillPercent = showFill ? (progress != null ? progress * 100 : status === "done" ? 100 : 0) : 0
-
-  if (isIndeterminate) {
-    return (
-      <div className="h-0.5 overflow-hidden bg-surface-3/40">
-        <div className="h-full w-1/3 rounded-full bg-intent-active/70 animate-pulse" />
-      </div>
-    )
-  }
-
-  return (
-    <div
-      className={cn(
-        "h-0.5 overflow-hidden",
-        showFill ? "bg-surface-3/40" : colorClass,
-      )}
-    >
-      {showFill && (
-        <div
-          className={cn("h-full transition-all duration-300", colorClass)}
-          style={{ width: `${fillPercent}%` }}
-        />
-      )}
-    </div>
-  )
-}
-
-function CollapsedWorkflowBadge({
-  workflowId,
-}: {
-  workflowId?: string | null
-}) {
-  const badge = formatCollapsedWorkflowBadge(workflowId)
-  if (!badge) {
-    return (
-      <span
-        className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-intent-danger-border bg-intent-danger-subtle text-[10px] font-bold text-intent-danger"
-        title={workflowId ?? "Invalid workflow id"}
-      >
-        ERR
-      </span>
-    )
-  }
-  return (
-    <span
-      className="sidebar-wf-badge-collapsed inline-flex h-7 w-7 items-center justify-center rounded-md text-[15px] font-bold tabular-nums"
-      title={workflowId ?? undefined}
-    >
-      #{badge}
-    </span>
-  )
-}
-
-function ExpandedWorkflowBadge({
-  workflowId,
-}: {
-  workflowId?: string | null
-}) {
-  const badge = formatCollapsedWorkflowBadge(workflowId)
-  if (!badge) return null
-  return (
-    <span
-      className="sidebar-wf-badge inline-flex h-6 min-w-8 items-center justify-center rounded-[7px] px-1.5 text-xs font-bold tabular-nums shrink-0"
-      title={workflowId ?? undefined}
-    >
-      #{badge}
-    </span>
-  )
-}
-
-function SidebarTooltip({
-  label,
-  collapsed,
-  side,
-  children,
-}: {
-  label: string
-  collapsed: boolean
-  side?: "right" | "left" | "top" | "bottom"
-  children: React.ReactNode
-}) {
-  if (!collapsed) return <>{children}</>
-  return (
-    <Tooltip>
-      <TooltipTrigger asChild>{children}</TooltipTrigger>
-      <TooltipContent
-        side={side ?? "right"}
-        className="bg-card border-border text-foreground text-xs max-w-[200px]"
-      >
-        {label}
-      </TooltipContent>
-    </Tooltip>
-  )
-}
-
-// ---------------------------------------------------------------------------
-// NoteField: inline per-workflow annotation with debounced autosave + flash
-// ---------------------------------------------------------------------------
-
-function NoteField({
-  workflowId,
-  value,
-  flashKey,
-  onChange,
-}: {
-  workflowId: string
-  value: string
-  /** Incremented by the parent each time a remote SSE update arrives.
-   *  The component stays mounted (stable key); this prop drives an imperative
-   *  CSS animation retrigger on the wrapper div without touching the textarea. */
-  flashKey: number
-  onChange: (val: string) => void
-}) {
-  const {
-    expanded,
-    localValue,
-    saveState,
-    textareaRef,
-    handleChange,
-    handleFocus,
-    handleBlur,
-    handleKeyDown,
-    expandForEditing,
-  } = useNoteAutosave({ workflowId, value, onChange })
-  const wrapperRef = useRef<HTMLDivElement>(null)
-
-  // Retrigger the amber flash animation imperatively on the wrapper div.
-  // This avoids remounting the component (which would lose focus) while still
-  // restarting the CSS animation for each incoming remote update.
-  // Pattern: remove class -> force reflow -> re-add class (CSS-Tricks standard).
-  useEffect(() => {
-    if (flashKey === 0) return
-    const el = wrapperRef.current
-    if (!el) return
-    el.classList.remove("animate-note-flash")
-    void el.offsetWidth  // force reflow
-    el.classList.add("animate-note-flash")
-    const t = setTimeout(() => el.classList.remove("animate-note-flash"), 750)
-    return () => clearTimeout(t)
-  }, [flashKey])
-
-  return (
-    <div
-      ref={wrapperRef}
-      className="mx-2 my-1 px-2 py-1 rounded"
-      onClick={(e) => {
-        e.stopPropagation()
-        if (!expanded) expandForEditing()
-      }}
-    >
-      <textarea
-        ref={textareaRef}
-        rows={1}
-        value={localValue}
-        onChange={handleChange}
-        onFocus={handleFocus}
-        onBlur={handleBlur}
-        onKeyDown={handleKeyDown}
-        onClick={(e) => e.stopPropagation()}
-        placeholder="Add a note..."
-        className={cn(
-          "w-full bg-transparent resize-none text-[11px] leading-relaxed",
-          "text-intent-warning/90 placeholder-muted",
-          "border-none outline-none focus:outline-none",
-          "scrollbar-none block",
-          !expanded && "cursor-text overflow-hidden",
-        )}
-        style={
-          expanded
-            ? { minHeight: "1.4rem", overflowY: "hidden" }
-            : { minHeight: "1.4rem", height: "1.4rem", overflowY: "hidden" }
-        }
-      />
-      {saveState !== "idle" && (
-        <span className="text-[10px] text-muted tabular-nums">
-          {saveState === "saving" ? "Saving..." : "Saved"}
-        </span>
-      )}
-    </div>
   )
 }
