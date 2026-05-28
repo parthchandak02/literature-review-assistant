@@ -8,10 +8,14 @@ from src.visualization.research_diagram_placement import plan_inline_diagram_pla
 
 @pytest.mark.asyncio
 async def test_plan_inline_diagram_placements_falls_back_when_agent_fails(monkeypatch: pytest.MonkeyPatch) -> None:
-    async def _raise(*args, **kwargs):  # type: ignore[no-untyped-def]
-        raise RuntimeError("boom")
+    class _Client:
+        async def complete_validated(self, *args, **kwargs):  # noqa: ANN002, ARG002
+            raise RuntimeError("boom")
 
-    monkeypatch.setattr("src.visualization.research_diagram_placement.PydanticAIClient.complete_validated", _raise)
+    monkeypatch.setattr(
+        "src.visualization.research_diagram_placement.get_chat_client",
+        lambda: _Client(),
+    )
 
     brief_pack = DiagramBriefPack(
         workflow_id="wf-0083",

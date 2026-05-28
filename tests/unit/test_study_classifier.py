@@ -61,7 +61,11 @@ def _settings() -> SettingsConfig:
             "quality_assessment": {
                 "model": "google:gemini-2.5-pro",
                 "temperature": 0.1,
-            }
+            },
+            "study_type_detection": {
+                "model": "google:gemini-2.5-flash",
+                "temperature": 0.2,
+            },
         }
     )
 

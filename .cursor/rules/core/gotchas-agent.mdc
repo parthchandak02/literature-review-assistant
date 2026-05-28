@@ -25,6 +25,17 @@ before expecting run-scoped results views to resolve.
 Run endpoints resolve either active in-memory session ids or workflow ids from
 `runs/workflows_registry.db`.
 
+### RunSession URL restore probes active run before trusting localStorage
+On refresh at `/run/:workflowId`, if `loadLiveRun()` matches the URL workflow,
+`useRunSessionSync` calls `GET /api/history/active-run?workflow_id=...` first.
+When the stored `run_id` no longer matches, it clears localStorage and falls back
+to `fetchHistory` + `attachHistory` instead of reconnecting stale SSE.
+
+### Live sidebar card after terminal SSE (`wasStreamingRef`)
+`useLiveRunStream` clears `localStorage` on terminal SSE status always, but only
+clears React `liveRunId` when the run never reached `streaming` (prefetch-detected
+terminal). After a truly live run finishes, the card stays until the next start.
+
 ## API and UI Contracts
 
 ### Readiness and diagnostics are separate
@@ -39,6 +50,11 @@ CSV uploads use dedicated multipart endpoints, not `POST /api/run`.
 
 ### Setup flow shape
 Setup UI is a single question-first flow (not tabbed mode variants).
+
+### Outline/LLM unit tests patch `get_chat_client`, not `PydanticAIClient`
+Writing-phase tests monkeypatch `src.writing.outline_generator.get_chat_client` (and
+the calling module's import) to return a fake client with `complete_validated`. Patching
+`PydanticAIClient.complete_validated` directly no longer works after the chat-client seam.
 
 ## Runtime and Operations
 

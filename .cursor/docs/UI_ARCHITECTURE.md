@@ -3,9 +3,14 @@
 ## Frontend Source of Truth
 
 - App shell and routing: `frontend/src/App.tsx`
-- API client: `frontend/src/lib/api.ts`
+- Run session provider and hook: `frontend/src/context/RunSessionProvider.tsx`, `frontend/src/hooks/useRunSession.ts`
+- Run session composition: `frontend/src/hooks/useRunSessionState.ts`, `useLiveRunStream.ts`, `useRunSessionSync.ts`, `useRunSessionActions.ts`
+- Run session types: `frontend/src/context/runSessionTypes.ts`
+- Run URL parsing: `frontend/src/lib/runSessionUrl.ts`
+- API client: `frontend/src/lib/api/` (barrel: `frontend/src/lib/api.ts`)
 - Phase constants: `frontend/src/lib/constants.ts`
 - SSE hook: `frontend/src/hooks/useSSEStream.ts`
+- Sidebar: `frontend/src/components/Sidebar.tsx`, row model `frontend/src/components/sidebar/historyRowModel.ts`
 - Sidebar note autosave hook: `frontend/src/hooks/useNoteAutosave.ts`
 
 ## Run Experience Model

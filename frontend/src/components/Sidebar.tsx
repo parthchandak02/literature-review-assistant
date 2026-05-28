@@ -6,16 +6,10 @@ import {
   ChevronLeft,
   ChevronRight,
   Clock,
-  MoreHorizontal,
-  Play,
   Plus,
   RefreshCw,
-  RotateCcw,
-  Square,
-  Trash2,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
-import { formatRunDate } from "@/lib/format"
 import { fetchHistory, type NotesStreamEvent } from "@/lib/api"
 import type { HistoryEntry } from "@/lib/api"
 import { useNotesStream } from "@/hooks/useNotesStream"
@@ -23,50 +17,21 @@ import {
   TooltipProvider,
 } from "@/components/ui/tooltip"
 import { DeleteConfirmDialog } from "@/components/DeleteConfirmDialog"
-import { StatusPulse } from "@/components/run-status"
 import { Spinner } from "@/components/ui/feedback"
 import { ThemeToggle } from "@/components/ThemeToggle"
-import { CardProgressBar } from "@/components/sidebar/CardProgressBar"
 import { LiveRunCard } from "@/components/sidebar/LiveRunCard"
-import { NoteField } from "@/components/sidebar/NoteField"
-import { RunCardMetrics } from "@/components/sidebar/RunCardMetrics"
+import { InProgressHistoryRow } from "@/components/sidebar/InProgressHistoryRow"
+import { LaneHistoryRow } from "@/components/sidebar/LaneHistoryRow"
+import { buildInProgressRowModel } from "@/components/sidebar/historyRowModel"
 import { SidebarTooltip } from "@/components/sidebar/SidebarTooltip"
-import {
-  CollapsedWorkflowBadge,
-  ExpandedWorkflowBadge,
-} from "@/components/sidebar/WorkflowBadges"
-import type { LiveRun } from "@/components/sidebar/types"
+import { useRunSession } from "@/hooks/useRunSession"
 export type { LiveRun, PhaseProgress } from "@/components/sidebar/types"
 import {
   FRONTEND_BUILD_STAMP,
   shouldShowFrontendBuildStamp,
 } from "@/lib/buildStamp"
-import {
-  STATUS_LABEL,
-  STATUS_TEXT,
-  resolveRunStatus,
-} from "@/lib/constants"
-
-const resolveStatus = resolveRunStatus
 
 interface SidebarProps {
-  liveRun: LiveRun | null
-  /** workflowId of the historical run being viewed (null when viewing live run or setup). */
-  selectedWorkflowId: string | null
-  /** True when the live run is currently being viewed in the main area. */
-  isLiveRunSelected: boolean
-  onSelectLiveRun: () => void
-  onSelectHistory: (entry: HistoryEntry) => void
-  onNewReview: () => void
-  onResume?: (entry: HistoryEntry) => Promise<void>
-  onArchive?: (workflowId: string) => Promise<void>
-  onRestore?: (workflowId: string) => Promise<void>
-  onHideCompleted?: (workflowId: string) => Promise<void>
-  onRestoreCompleted?: (workflowId: string) => Promise<void>
-  onDelete?: (workflowId: string) => Promise<void>
-  onCancel?: () => void
-  isRunning?: boolean
-  onGoHome?: () => void
   collapsed: boolean
   onToggle: () => void
   width: number
@@ -80,27 +45,31 @@ interface SidebarProps {
 // ---------------------------------------------------------------------------
 
 export function Sidebar({
-  liveRun,
-  selectedWorkflowId,
-  isLiveRunSelected,
-  onSelectLiveRun,
-  onSelectHistory,
-  onNewReview,
-  onResume,
-  onArchive,
-  onRestore,
-  onHideCompleted,
-  onRestoreCompleted,
-  onDelete,
-  onCancel,
-  isRunning: isRunningProp,
-  onGoHome,
   collapsed,
   onToggle,
   width,
   onWidthChange,
   isMobile = false,
 }: SidebarProps) {
+  const {
+    liveRunForSidebar: liveRun,
+    selectedRun,
+    isViewingLiveRun: isLiveRunSelected,
+    isRunning,
+    handleSelectLiveRun: onSelectLiveRun,
+    handleSelectHistory: onSelectHistory,
+    handleNewReview: onNewReview,
+    handleSidebarResumeLauncher: onResume,
+    handleSidebarArchive: onArchive,
+    handleSidebarRestore: onRestore,
+    handleSidebarHideCompleted: onHideCompleted,
+    handleSidebarRestoreCompleted: onRestoreCompleted,
+    handleSidebarDelete: onDelete,
+    handleCancel: onCancel,
+    handleGoHome: onGoHome,
+  } = useRunSession()
+
+  const selectedWorkflowId = selectedRun?.workflowId ?? null
   const [history, setHistory] = useState<HistoryEntry[]>([])
   const [loadingHistory, setLoadingHistory] = useState(false)
   const [historyError, setHistoryError] = useState<string | null>(null)
@@ -204,9 +173,6 @@ export function Sidebar({
     }
   }, [isDragging, onWidthChange])
 
-  const isRunning =
-    isRunningProp ?? (liveRun?.status === "streaming" || liveRun?.status === "connecting")
-
   const liveRunHasHistoryRow = Boolean(
     liveRun && history.some((entry) => {
       if (liveRun.workflowId && entry.workflow_id === liveRun.workflowId) return true
@@ -229,14 +195,7 @@ export function Sidebar({
     }
   }
 
-  function handleResumeClick(e: React.MouseEvent, entry: HistoryEntry) {
-    e.stopPropagation()
-    if (!onResume) return
-    void handleResumeLauncher(entry)
-  }
-
   async function handleResumeLauncher(entry: HistoryEntry) {
-    if (!onResume) return
     setResumingId(entry.workflow_id)
     try {
       await onResume(entry)
@@ -245,14 +204,7 @@ export function Sidebar({
     }
   }
 
-  function handleArchiveClick(e: React.MouseEvent, workflowId: string) {
-    e.stopPropagation()
-    if (!onArchive) return
-    void handleArchiveConfirm(workflowId)
-  }
-
   async function handleArchiveConfirm(workflowId: string) {
-    if (!onArchive) return
     setArchivingId(workflowId)
     // Optimistic: move to archived immediately
     setHistory((prev) =>
@@ -270,14 +222,7 @@ export function Sidebar({
     }
   }
 
-  function handleRestoreClick(e: React.MouseEvent, workflowId: string) {
-    e.stopPropagation()
-    if (!onRestore) return
-    void handleRestoreConfirm(workflowId)
-  }
-
   async function handleRestoreConfirm(workflowId: string) {
-    if (!onRestore) return
     setRestoringId(workflowId)
     // Optimistic: move out of archived immediately
     setHistory((prev) =>
@@ -296,14 +241,7 @@ export function Sidebar({
     }
   }
 
-  function handleCompleteClick(e: React.MouseEvent, workflowId: string) {
-    e.stopPropagation()
-    if (!onHideCompleted) return
-    void handleCompleteConfirm(workflowId)
-  }
-
   async function handleCompleteConfirm(workflowId: string) {
-    if (!onHideCompleted) return
     setCompletingId(workflowId)
     // Optimistic: move to completed section immediately
     setHistory((prev) =>
@@ -321,14 +259,7 @@ export function Sidebar({
     }
   }
 
-  function handleRestoreCompletedClick(e: React.MouseEvent, workflowId: string) {
-    e.stopPropagation()
-    if (!onRestoreCompleted) return
-    void handleRestoreCompletedConfirm(workflowId)
-  }
-
   async function handleRestoreCompletedConfirm(workflowId: string) {
-    if (!onRestoreCompleted) return
     setRestoringCompletedId(workflowId)
     // Optimistic: move out of completed section immediately
     setHistory((prev) =>
@@ -346,14 +277,7 @@ export function Sidebar({
     }
   }
 
-  function handleDeleteClick(e: React.MouseEvent, workflowId: string) {
-    e.stopPropagation()
-    if (!onDelete) return
-    setDeleteConfirmWorkflowId(workflowId)
-  }
-
   async function handleDeleteConfirm(workflowId: string) {
-    if (!onDelete) return
     setDeletingId(workflowId)
     // Optimistic: remove from list immediately
     setHistory((prev) => prev.filter((e) => e.workflow_id !== workflowId))
@@ -371,6 +295,12 @@ export function Sidebar({
     dragStartWidth.current = width
     setIsDragging(true)
   }
+
+  const handleCopyWorkflowId = useCallback(async (id: string) => {
+    await navigator.clipboard.writeText(id)
+    setWfIdCopied(id)
+    setTimeout(() => setWfIdCopied(null), 1500)
+  }, [])
 
   const activeHistory = history.filter((entry) => !entry.is_archived)
   const completedHistory = activeHistory.filter((entry) => Boolean(entry.is_completed_hidden))
@@ -526,242 +456,40 @@ export function Sidebar({
                   onToggle={onToggle}
                   onSelectLiveRun={onSelectLiveRun}
                   onCancel={onCancel}
-                  onArchive={onArchive ? handleArchiveConfirm : undefined}
+                  onArchive={handleArchiveConfirm}
                   archivingId={archivingId}
                   wfIdCopied={wfIdCopied}
-                  onCopyWorkflowId={async (id) => {
-                    await navigator.clipboard.writeText(id)
-                    setWfIdCopied(id)
-                    setTimeout(() => setWfIdCopied(null), 1500)
-                  }}
+                  onCopyWorkflowId={handleCopyWorkflowId}
                 />
               )}
-              {inProgressHistory.map((entry) => {
-                const isLiveRow = Boolean(
-                  liveRun && (
-                    (entry.live_run_id && entry.live_run_id === liveRun.runId) ||
-                    (liveRun.workflowId && entry.workflow_id === liveRun.workflowId)
-                  ),
-                )
-                const statusKey = isLiveRow && liveRun ? liveRun.status : resolveStatus(entry.status)
-                const isReconnectingRow =
-                  !isLiveRow &&
-                  !entry.live_run_id &&
-                  (statusKey === "streaming" || statusKey === "connecting")
-                const isSelected = selectedWorkflowId === entry.workflow_id
-                const isOpening = openingId === entry.workflow_id
-                const canOpen = Boolean(entry.db_path)
-                const rowIsRunning = isLiveRow
-                  ? statusKey === "streaming" || statusKey === "connecting"
-                  : Boolean(entry.live_run_id) || isReconnectingRow
-                const isCompletedLaneEligible =
-                  !rowIsRunning &&
-                  !entry.is_completed_hidden &&
-                  onHideCompleted !== undefined
-                // Metadata in run info strip order: Status, Time, Found, Included, Cost, WF ID (omit "out")
-
-                // Entries with live_run_id are actively running in-process -- clicking
-                // the card connects live SSE. They do NOT need a Resume button.
-                const isResumable = onResume !== undefined &&
-                  !entry.live_run_id &&
-                  !["streaming", "connecting"].includes(statusKey) &&
-                  ["cancelled", "error", "stale"].includes(statusKey)
-                const actionPadClass = isResumable && (onArchive || isCompletedLaneEligible)
-                  ? "pr-24"
-                  : (onArchive || isResumable || isCompletedLaneEligible)
-                    ? "pr-14"
-                    : ""
-                const isResuming = resumingId === entry.workflow_id
-
-                const progressValue = isLiveRow && liveRun
-                  ? (liveRun.phaseProgress?.value ?? (rowIsRunning ? -1 : undefined))
-                  : statusKey === "done"
-                    ? 1
-                    : (entry.live_run_id || isReconnectingRow)
-                      ? -1
-                      : undefined
-
-                return (
-                  <SidebarTooltip
-                    key={entry.workflow_id}
-                    label={entry.topic}
-                    collapsed={collapsed}
-                    side="right"
-                  >
-                    <div className={cn(
-                      "sidebar-card",
-                      isSelected
-                        ? "sidebar-card-selected"
-                        : canOpen
-                          ? "sidebar-card-hover"
-                          : "opacity-50",
-                    )}>
-                      <div className="relative">
-                        <button
-                          onClick={() => canOpen && void handleSelectHistory(entry)}
-                          disabled={!canOpen}
-                          className={cn(
-                            "w-full transition-colors text-left",
-                            collapsed
-                              ? "flex justify-center items-center h-9 w-9 mx-auto rounded-xl"
-                              : "pl-2.5 pr-2 py-2.5",
-                            !canOpen && "cursor-not-allowed",
-                          )}
-                        >
-                          {collapsed ? (
-                            <CollapsedWorkflowBadge workflowId={entry.workflow_id} />
-                          ) : (
-                            <div className="flex flex-col gap-1 min-w-0">
-                              <div className="flex items-start gap-2 min-w-0">
-                                <ExpandedWorkflowBadge workflowId={entry.workflow_id} />
-                                <span
-                                  className={cn(
-                                    "text-xs text-foreground line-clamp-2 leading-snug min-w-0",
-                                    actionPadClass,
-                                  )}
-                                >
-                                  {entry.topic}
-                                </span>
-                              </div>
-                              <RunCardMetrics
-                                papersFound={isLiveRow && liveRun ? (liveRun.papersFound ?? entry.papers_found) : entry.papers_found}
-                                papersIncluded={isLiveRow && liveRun ? (liveRun.papersIncluded ?? entry.papers_included) : entry.papers_included}
-                                funnelStages={isLiveRow && liveRun ? liveRun.funnelStages : undefined}
-                                cost={isLiveRow && liveRun ? liveRun.cost : entry.total_cost}
-                                workflowId={entry.workflow_id}
-                                copiedWorkflowId={wfIdCopied}
-                                onCopyWorkflowId={async (id) => {
-                                  if (id) {
-                                    await navigator.clipboard.writeText(id)
-                                    setWfIdCopied(id)
-                                    setTimeout(() => setWfIdCopied(null), 1500)
-                                  }
-                                }}
-                              />
-                              <div className="flex items-center justify-between gap-2 min-w-0 text-meta">
-                                <div className="flex items-center gap-1.5 shrink-0">
-                                  {isOpening ? (
-                                    <Spinner size="xs" />
-                                  ) : (
-                                    <StatusPulse status={statusKey} animate={rowIsRunning} size="xs" />
-                                  )}
-                                  <span
-                                    className={cn(
-                                      "font-semibold uppercase tracking-wide",
-                                      STATUS_TEXT[statusKey],
-                                    )}
-                                  >
-                                    {isReconnectingRow ? "RECONNECTING" : STATUS_LABEL[statusKey]}
-                                  </span>
-                                </div>
-                                {entry.created_at && (
-                                  <span className="text-muted font-medium tabular-nums shrink-0">
-                                    {formatRunDate(entry.created_at)}
-                                  </span>
-                                )}
-                              </div>
-                            </div>
-                          )}
-                        </button>
-
-                        {/* Action buttons: archive + resume */}
-                        {!collapsed && (
-                          <div className="absolute top-1.5 right-1.5 flex items-center gap-0.5">
-                            {isLiveRow && rowIsRunning && onCancel && (
-                              <button
-                                onClick={(e) => {
-                                  e.stopPropagation()
-                                  onCancel()
-                                }}
-                                aria-label="Stop run"
-                                title="Stop run"
-                                className={cn(
-                                  "flex items-center justify-center h-7 w-7 rounded-md bg-intent-danger hover:bg-intent-danger/85 text-intent-danger-fg transition-colors",
-                                )}
-                              >
-                                <Square className="h-2.5 w-2.5 fill-current" />
-                              </button>
-                            )}
-                            {onArchive && !rowIsRunning && (
-                              <button
-                                onClick={(e) => handleArchiveClick(e, entry.workflow_id)}
-                                disabled={archivingId === entry.workflow_id}
-                                aria-label="Archive run"
-                                title="Archive run"
-                                className={cn(
-                                  "flex items-center justify-center h-7 w-7 rounded-md",
-                                  "text-muted hover:text-intent-warning hover:bg-intent-warning-subtle transition-colors",
-                                  archivingId === entry.workflow_id && "opacity-50 cursor-wait",
-                                )}
-                              >
-                                {archivingId === entry.workflow_id ? (
-                                  <Spinner size="xs" />
-                                ) : (
-                                  <Archive className="h-3 w-3" />
-                                )}
-                              </button>
-                            )}
-                            {isCompletedLaneEligible && (
-                              <button
-                                onClick={(e) => handleCompleteClick(e, entry.workflow_id)}
-                                disabled={completingId === entry.workflow_id}
-                                aria-label="Move to completed"
-                                title="Move to completed"
-                                className={cn(
-                                  "flex items-center justify-center h-7 w-7 rounded-md",
-                                  "text-intent-success hover:text-intent-success-fg hover:bg-intent-success-subtle transition-colors",
-                                  completingId === entry.workflow_id && "opacity-50 cursor-wait",
-                                )}
-                              >
-                                {completingId === entry.workflow_id ? (
-                                  <Spinner size="xs" />
-                                ) : (
-                                  <div className="flex h-3.5 w-3.5 items-center justify-center rounded-[3px] border border-current">
-                                    <Check className="h-2.5 w-2.5" />
-                                  </div>
-                                )}
-                              </button>
-                            )}
-                            {isResumable && (
-                              <button
-                                onClick={(e) => handleResumeClick(e, entry)}
-                                disabled={isResuming}
-                                aria-label="Resume from last checkpoint"
-                                title="Resume from last checkpoint"
-                                className={cn(
-                                  "flex items-center justify-center h-7 w-7 rounded-md border border-intent-primary-border bg-intent-primary-subtle text-intent-primary",
-                                  "hover:border-intent-primary-border hover:bg-intent-primary-subtle hover:text-intent-primary-fg transition-colors",
-                                  isResuming && "opacity-80 cursor-wait",
-                                )}
-                              >
-                                {isResuming ? (
-                                  <Spinner size="xs" />
-                                ) : (
-                                  <Play className="h-2.5 w-2.5 fill-current" />
-                                )}
-                              </button>
-                            )}
-                          </div>
-                        )}
-                      </div>
-                      {!collapsed && (
-                        <CardProgressBar status={statusKey} progress={progressValue} />
-                      )}
-                      {!collapsed && (
-                        <NoteField
-                          key={`note-${entry.workflow_id}`}
-                          workflowId={entry.workflow_id}
-                          value={notes[entry.workflow_id] ?? ""}
-                          flashKey={noteFlashCounters[entry.workflow_id] ?? 0}
-                          onChange={(val) =>
-                            setNotes((prev) => ({ ...prev, [entry.workflow_id]: val }))
-                          }
-                        />
-                      )}
-                    </div>
-                  </SidebarTooltip>
-                )
-              })}
+              {inProgressHistory.map((entry) => (
+                <InProgressHistoryRow
+                  key={entry.workflow_id}
+                  model={buildInProgressRowModel(
+                    entry,
+                    liveRun,
+                    selectedWorkflowId,
+                    openingId,
+                    resumingId,
+                    { onResume, onArchive, onHideCompleted },
+                  )}
+                  collapsed={collapsed}
+                  wfIdCopied={wfIdCopied}
+                  noteValue={notes[entry.workflow_id] ?? ""}
+                  noteFlashKey={noteFlashCounters[entry.workflow_id] ?? 0}
+                  archivingId={archivingId}
+                  completingId={completingId}
+                  onSelect={(row) => void handleSelectHistory(row)}
+                  onCopyWorkflowId={handleCopyWorkflowId}
+                  onNoteChange={(val) =>
+                    setNotes((prev) => ({ ...prev, [entry.workflow_id]: val }))
+                  }
+                  onArchive={(id) => void handleArchiveConfirm(id)}
+                  onComplete={(id) => void handleCompleteConfirm(id)}
+                  onResume={(row) => void handleResumeLauncher(row)}
+                  onCancel={onCancel}
+                />
+              ))}
             </div>
 
             {!collapsed && !loadingHistory && inProgressHistory.length === 0 && !shouldShowStandaloneLiveCard && (
@@ -802,108 +530,22 @@ export function Sidebar({
                     No runs in completed.
                   </p>
                 ) : (
-                  completedHistory.map((entry) => {
-                    const statusKey = resolveStatus(entry.status)
-                    const isSelected = selectedWorkflowId === entry.workflow_id
-                    return (
-                      <SidebarTooltip
-                        key={`completed-${entry.workflow_id}`}
-                        label={entry.topic}
-                        collapsed={collapsed}
-                        side="right"
-                      >
-                        <div
-                          className={cn(
-                            "sidebar-card sidebar-card-hover relative min-h-[120px]",
-                            "opacity-90 bg-intent-success-subtle border-intent-success-border",
-                            isSelected && "sidebar-card-selected opacity-100",
-                          )}
-                        >
-                          <button
-                            onClick={() => void handleSelectHistory(entry)}
-                            className="w-full transition-colors text-left pl-2.5 pr-10 pt-3 pb-2.5"
-                          >
-                            <div className="flex flex-col gap-1 min-w-0">
-                              <span className="text-xs text-foreground line-clamp-2 leading-snug">
-                                {entry.topic}
-                              </span>
-                              <RunCardMetrics
-                                papersFound={entry.papers_found}
-                                papersIncluded={entry.papers_included}
-                                cost={entry.total_cost}
-                                workflowId={entry.workflow_id}
-                                copiedWorkflowId={wfIdCopied}
-                                onCopyWorkflowId={async (id) => {
-                                  if (id) {
-                                    await navigator.clipboard.writeText(id)
-                                    setWfIdCopied(id)
-                                    setTimeout(() => setWfIdCopied(null), 1500)
-                                  }
-                                }}
-                              />
-                              <div className="flex items-center justify-between gap-2 min-w-0 text-meta">
-                                <div className="flex items-center gap-1.5 shrink-0">
-                                  <StatusPulse status={statusKey} size="xs" />
-                                  <span
-                                    className={cn(
-                                      "font-semibold uppercase tracking-wide",
-                                      STATUS_TEXT[statusKey],
-                                    )}
-                                  >
-                                    {STATUS_LABEL[statusKey]}
-                                  </span>
-                                </div>
-                                {entry.created_at && (
-                                  <span className="text-intent-success-fg/60 font-medium tabular-nums shrink-0">
-                                    {formatRunDate(entry.created_at)}
-                                  </span>
-                                )}
-                              </div>
-                            </div>
-                          </button>
-
-                          <div className="absolute right-1.5 top-1.5 flex flex-col items-center gap-0.5">
-                            {onArchive && (
-                              <button
-                                onClick={(e) => handleArchiveClick(e, entry.workflow_id)}
-                                disabled={archivingId === entry.workflow_id}
-                                aria-label="Move run to archived"
-                                title="Move run to archived"
-                                className={cn(
-                                  "h-7 w-7 flex items-center justify-center rounded-md text-muted hover:text-intent-warning hover:bg-intent-warning-subtle transition-colors",
-                                  archivingId === entry.workflow_id && "opacity-50 cursor-wait",
-                                )}
-                              >
-                                {archivingId === entry.workflow_id ? (
-                                  <Spinner size="xs" />
-                                ) : (
-                                  <Archive className="h-3 w-3" />
-                                )}
-                              </button>
-                            )}
-                            {onRestoreCompleted && (
-                              <button
-                                onClick={(e) => handleRestoreCompletedClick(e, entry.workflow_id)}
-                                disabled={restoringCompletedId === entry.workflow_id}
-                                aria-label="Restore completed run"
-                                title="Restore completed run"
-                                className={cn(
-                                  "h-7 w-7 flex items-center justify-center rounded-md text-intent-success/70 hover:text-intent-success-fg hover:bg-intent-success-subtle transition-colors",
-                                  restoringCompletedId === entry.workflow_id && "opacity-50 cursor-wait",
-                                )}
-                              >
-                                {restoringCompletedId === entry.workflow_id ? (
-                                  <Spinner size="xs" />
-                                ) : (
-                                  <RotateCcw className="h-3 w-3" />
-                                )}
-                              </button>
-                            )}
-                          </div>
-                        </div>
-                      </SidebarTooltip>
-                    )
-                  })
+                  completedHistory.map((entry) => (
+                    <LaneHistoryRow
+                      key={`completed-${entry.workflow_id}`}
+                      entry={entry}
+                      variant="completed"
+                      collapsed={collapsed}
+                      isSelected={selectedWorkflowId === entry.workflow_id}
+                      wfIdCopied={wfIdCopied}
+                      archivingId={archivingId}
+                      restoringCompletedId={restoringCompletedId}
+                      onSelect={(row) => void handleSelectHistory(row)}
+                      onCopyWorkflowId={handleCopyWorkflowId}
+                      onArchive={(id) => void handleArchiveConfirm(id)}
+                      onRestoreCompleted={(id) => void handleRestoreCompletedConfirm(id)}
+                    />
+                  ))
                 )}
               </div>
             )}
@@ -932,142 +574,30 @@ export function Sidebar({
                     No archived chats.
                   </p>
                 ) : (
-                  archivedHistory.map((entry) => {
-                    const statusKey = resolveStatus(entry.status)
-                    const isSelected = selectedWorkflowId === entry.workflow_id
-                    return (
-                      <SidebarTooltip
-                        key={`archived-${entry.workflow_id}`}
-                        label={entry.topic}
-                        collapsed={collapsed}
-                        side="right"
-                      >
-                        <div
-                          className={cn(
-                            "sidebar-card sidebar-card-hover relative min-h-[120px]",
-                            "sidebar-card-archived opacity-85",
-                            isSelected && "sidebar-card-selected opacity-100",
-                          )}
-                        >
-                          <button
-                            onClick={() => void handleSelectHistory(entry)}
-                            className="w-full transition-colors text-left pl-2.5 pr-10 pt-3 pb-2.5"
-                          >
-                            <div className="flex flex-col gap-1 min-w-0">
-                              <span className="text-xs text-foreground line-clamp-2 leading-snug">
-                                {entry.topic}
-                              </span>
-                              <RunCardMetrics
-                                papersFound={entry.papers_found}
-                                papersIncluded={entry.papers_included}
-                                cost={entry.total_cost}
-                                workflowId={entry.workflow_id}
-                                copiedWorkflowId={wfIdCopied}
-                                onCopyWorkflowId={async (id) => {
-                                  if (id) {
-                                    await navigator.clipboard.writeText(id)
-                                    setWfIdCopied(id)
-                                    setTimeout(() => setWfIdCopied(null), 1500)
-                                  }
-                                }}
-                              />
-                              <div className="flex items-center justify-between gap-2 min-w-0 text-meta">
-                                <div className="flex items-center gap-1.5 shrink-0">
-                                  <StatusPulse status={statusKey} size="xs" />
-                                  <span
-                                    className={cn(
-                                      "font-semibold uppercase tracking-wide",
-                                      STATUS_TEXT[statusKey],
-                                    )}
-                                  >
-                                    {STATUS_LABEL[statusKey]}
-                                  </span>
-                                </div>
-                                {entry.created_at && (
-                                  <span className="text-muted font-medium tabular-nums shrink-0">
-                                    {formatRunDate(entry.created_at)}
-                                  </span>
-                                )}
-                              </div>
-                            </div>
-                          </button>
-
-                          <div className="absolute right-1.5 top-1.5 flex flex-col items-center gap-0.5">
-                            {onHideCompleted && (
-                              <button
-                                onClick={(e) => handleCompleteClick(e, entry.workflow_id)}
-                                disabled={completingId === entry.workflow_id}
-                                aria-label="Move run to completed"
-                                title="Move run to completed"
-                                className={cn(
-                                  "h-7 w-7 flex items-center justify-center rounded-md text-intent-success/80 hover:text-intent-success hover:bg-intent-success-subtle transition-colors",
-                                  completingId === entry.workflow_id && "opacity-50 cursor-wait",
-                                )}
-                              >
-                                {completingId === entry.workflow_id ? (
-                                  <Spinner size="xs" />
-                                ) : (
-                                  <div className="flex h-3.5 w-3.5 items-center justify-center rounded-[3px] border border-current">
-                                    <Check className="h-2.5 w-2.5" />
-                                  </div>
-                                )}
-                              </button>
-                            )}
-                            {onRestore && (
-                              <button
-                                onClick={(e) => handleRestoreClick(e, entry.workflow_id)}
-                                disabled={restoringId === entry.workflow_id}
-                                aria-label="Restore run"
-                                title="Restore run"
-                                className={cn(
-                                  "h-7 w-7 flex items-center justify-center rounded-md text-muted hover:text-intent-success hover:bg-intent-success-subtle transition-colors",
-                                  restoringId === entry.workflow_id && "opacity-50 cursor-wait",
-                                )}
-                              >
-                                {restoringId === entry.workflow_id ? (
-                                  <Spinner size="xs" />
-                                ) : (
-                                  <RotateCcw className="h-3 w-3" />
-                                )}
-                              </button>
-                            )}
-                            {onDelete && (
-                              <div className="relative">
-                                <button
-                                  onClick={(e) => {
-                                    e.stopPropagation()
-                                    setOpenArchivedMenuId((prev) =>
-                                      prev === entry.workflow_id ? null : entry.workflow_id,
-                                    )
-                                  }}
-                                  aria-label="More actions"
-                                  title="More actions"
-                                  className="h-7 w-7 flex items-center justify-center rounded-md text-muted hover:text-foreground hover:bg-surface-2 transition-colors"
-                                >
-                                  <MoreHorizontal className="h-3 w-3" />
-                                </button>
-                                {openArchivedMenuId === entry.workflow_id && (
-                                  <div className="absolute right-9 top-0 z-40 min-w-[172px] rounded-lg border border-border/80 bg-card/95 shadow-xl backdrop-blur-sm p-1.5">
-                                    <button
-                                      type="button"
-                                      onClick={(e) => {
-                                        setOpenArchivedMenuId(null)
-                                        handleDeleteClick(e, entry.workflow_id)
-                                      }}
-                                      className="w-full text-left px-2.5 py-2 text-xs font-medium rounded-md transition-colors text-intent-danger hover:text-intent-danger-fg hover:bg-intent-danger-subtle flex items-center gap-2"
-                                    >
-                                      <Trash2 className="h-3.5 w-3.5 shrink-0" />
-                                      Delete permanently
-                                    </button>
-                                  </div>
-                                )}
-                              </div>
-                            )}
-                          </div>
-                        </div>
-                      </SidebarTooltip>
-                    )
-                  })
+                  archivedHistory.map((entry) => (
+                    <LaneHistoryRow
+                      key={`archived-${entry.workflow_id}`}
+                      entry={entry}
+                      variant="archived"
+                      collapsed={collapsed}
+                      isSelected={selectedWorkflowId === entry.workflow_id}
+                      wfIdCopied={wfIdCopied}
+                      completingId={completingId}
+                      restoringId={restoringId}
+                      openArchivedMenuId={openArchivedMenuId}
+                      onSelect={(row) => void handleSelectHistory(row)}
+                      onCopyWorkflowId={handleCopyWorkflowId}
+                      onComplete={(id) => void handleCompleteConfirm(id)}
+                      onRestore={(id) => void handleRestoreConfirm(id)}
+                      onToggleArchivedMenu={(id) =>
+                        setOpenArchivedMenuId((prev) => (prev === id ? null : id))
+                      }
+                      onDelete={(id) => {
+                        setOpenArchivedMenuId(null)
+                        setDeleteConfirmWorkflowId(id)
+                      }}
+                    />
+                  ))
                 )}
               </div>
             )}
@@ -1103,14 +633,12 @@ export function Sidebar({
         )}
       </aside>
 
-      {onDelete && (
-        <DeleteConfirmDialog
+      <DeleteConfirmDialog
           open={deleteConfirmWorkflowId !== null}
           onOpenChange={(open) => !open && setDeleteConfirmWorkflowId(null)}
           workflowId={deleteConfirmWorkflowId}
           onConfirm={handleDeleteConfirm}
         />
-      )}
     </TooltipProvider>
   )
 }

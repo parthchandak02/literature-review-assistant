@@ -91,12 +91,12 @@ def test_hyde_prompt_no_pico_renders_cleanly() -> None:
 
 @pytest.mark.asyncio
 async def test_hyde_abstract_returns_empty_without_calling_llm(monkeypatch: pytest.MonkeyPatch) -> None:
-    """generate_hyde_document for 'abstract' returns '' before constructing any Agent."""
+    """generate_hyde_document for 'abstract' returns '' before constructing any LLM client."""
 
-    def _no_agent(*args: object, **kwargs: object) -> None:
-        raise AssertionError("Agent should not be constructed for the abstract section")
+    def _no_client(*args: object, **kwargs: object) -> None:
+        raise AssertionError("get_chat_client should not be called for the abstract section")
 
-    monkeypatch.setattr("src.rag.hyde.Agent", _no_agent)
+    monkeypatch.setattr("src.rag.hyde.get_chat_client", _no_client)
 
     result = await generate_hyde_document(
         section="abstract",
