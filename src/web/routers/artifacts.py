@@ -828,7 +828,7 @@ async def get_workflow_events(workflow_id: str, run_root: str = "runs") -> dict[
     db_path = await _resolve_db_path(run_root, workflow_id)
     if not db_path:
         raise HTTPException(status_code=404, detail="Workflow not found in registry")
-    events = await _load_event_log_from_db(db_path)
+    events = await _load_event_log_from_db(db_path, workflow_id)
     return {"events": events}
 
 

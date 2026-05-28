@@ -512,7 +512,7 @@ async def attach_history(req: AttachRequest) -> RunResponse:
             record.outputs = _json.loads(summary_path.read_text(encoding="utf-8"))
         except Exception:
             pass
-    record.event_log = await _load_event_log_from_db(req.db_path)
+    record.event_log = await _load_event_log_from_db(req.db_path, req.workflow_id)
     try:
         evidence = await _collect_terminal_evidence(req.db_path)
     except Exception:

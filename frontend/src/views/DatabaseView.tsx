@@ -194,7 +194,10 @@ export function DatabaseView({ runId, isDone, dbAvailable, isLive }: DatabaseVie
       })
       .catch((e) => { if (!cancelled) handleFetchError(e) })
       .finally(() => { if (!cancelled) setLoading(false) })
-    return () => { cancelled = true }
+    return () => {
+      cancelled = true
+      setLoading(false)
+    }
   }, [runId, titleFilter, authorFilter, taFilter, ftFilter, primaryStatusFilter, yearFilter, sourceFilter, countryFilter, dbAvailable])
 
   // Effect 2: pagination only (page > 0).
@@ -223,7 +226,10 @@ export function DatabaseView({ runId, isDone, dbAvailable, isLive }: DatabaseVie
       })
       .catch((e) => { if (!cancelled) handleFetchError(e) })
       .finally(() => { if (!cancelled) setLoading(false) })
-    return () => { cancelled = true }
+    return () => {
+      cancelled = true
+      setLoading(false)
+    }
   }, [page, dbAvailable])
 
   const activeRef = useRef(true)

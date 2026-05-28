@@ -13,6 +13,7 @@ export const PHASE_ORDER = [
   "phase_5b_knowledge_graph",
   "phase_5c_pre_writing_gate",
   "phase_6_writing",
+  "phase_7_audit",
   "finalize",
 ] as const
 
@@ -31,6 +32,7 @@ export const PHASE_LABELS: Record<string, string> = {
   phase_5b_knowledge_graph: "Knowledge Graph",
   phase_5c_pre_writing_gate: "Pre-Writing Gate",
   phase_6_writing: "Writing",
+  phase_7_audit: "Audit",
   finalize: "Finalize",
 }
 
@@ -58,11 +60,11 @@ export const PHASE_MILESTONES = [
   {
     key: "finalize",
     label: "Finalize",
-    phases: ["finalize"],
+    phases: ["phase_7_audit", "finalize"],
   },
 ] as const
 
-/** Phase order for resume-from-phase (matches backend PHASE_ORDER). */
+/** Phase order for resume-from-phase (matches backend USER_RESUMABLE_PHASE_ORDER). */
 export const RESUME_PHASE_ORDER = [
   "phase_2_search",
   "phase_3_screening",
