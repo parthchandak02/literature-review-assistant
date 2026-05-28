@@ -10,6 +10,7 @@ from pathlib import Path
 import aiosqlite
 
 SCHEMA_PATH = Path(__file__).with_name("schema.sql")
+RUNTIME_BUSY_TIMEOUT_MS = 5000
 _logger = logging.getLogger(__name__)
 
 
@@ -19,6 +20,7 @@ async def _init_connection(db: aiosqlite.Connection) -> None:
     await db.execute("PRAGMA foreign_keys = ON")
     await db.execute("PRAGMA cache_size = 10000")
     await db.execute("PRAGMA temp_store = MEMORY")
+    await db.execute(f"PRAGMA busy_timeout = {RUNTIME_BUSY_TIMEOUT_MS}")
 
 
 async def run_migrations(db: aiosqlite.Connection) -> None:
@@ -707,6 +709,23 @@ async def repair_foreign_key_integrity(db: aiosqlite.Connection) -> int:
         await db.commit()
         _logger.info("repair_foreign_key_integrity: inserted %d stub rows for orphaned refs", inserted)
     return inserted
+
+
+@asynccontextmanager
+async def open_runtime_db(db_path: str | Path, *, readonly: bool = False) -> AsyncIterator[aiosqlite.Connection]:
+    """Open a per-run runtime.db with WAL, FK enforcement, and busy-timeout."""
+    path = Path(db_path)
+    connect_timeout = RUNTIME_BUSY_TIMEOUT_MS / 1000.0
+    if readonly:
+        db = await aiosqlite.connect(f"file:{path}?mode=ro", uri=True, timeout=connect_timeout)
+    else:
+        db = await aiosqlite.connect(str(path), timeout=connect_timeout)
+    try:
+        db.row_factory = aiosqlite.Row
+        await _init_connection(db)
+        yield db
+    finally:
+        await db.close()
 
 
 @asynccontextmanager

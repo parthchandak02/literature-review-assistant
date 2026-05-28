@@ -861,3 +861,37 @@ async def test_generation_aware_writing_reads_use_active_generation(tmp_path) ->
         manifests = await repo.get_writing_manifests("wf-gen")
         assert [m.section_key for m in manifests] == ["discussion"]
         assert await repo.count_fallback_events("wf-gen") == 1
+
+
+@pytest.mark.asyncio
+async def test_open_runtime_db_sets_busy_timeout_pragma(tmp_path: Path) -> None:
+    from src.db.database import RUNTIME_BUSY_TIMEOUT_MS, open_runtime_db
+
+    db_path = tmp_path / "runtime.db"
+    async with get_db(str(db_path)) as db:
+        await db.commit()
+
+    async with open_runtime_db(db_path) as db:
+        row = await (await db.execute("PRAGMA busy_timeout")).fetchone()
+        assert row is not None
+        assert int(row[0]) == RUNTIME_BUSY_TIMEOUT_MS
+
+
+@pytest.mark.asyncio
+async def test_validate_schema_contract_fails_on_missing_columns(tmp_path: Path) -> None:
+    from src.db.database import _validate_schema_contract
+
+    db_path = tmp_path / "broken.db"
+    async with aiosqlite.connect(str(db_path)) as db:
+        await db.execute(
+            """
+            CREATE TABLE event_log (
+                id INTEGER PRIMARY KEY,
+                workflow_id TEXT NOT NULL,
+                event_type TEXT NOT NULL
+            )
+            """
+        )
+        await db.commit()
+        with pytest.raises(RuntimeError, match="event_log missing columns"):
+            await _validate_schema_contract(db)

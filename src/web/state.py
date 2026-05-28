@@ -21,6 +21,7 @@ import aiosqlite
 from fastapi import HTTPException
 
 from src.config.loader import load_configs as _load_configs
+from src.db.database import open_runtime_db
 from src.db.workflow_registry import _open_registry as _open_registry_db
 from src.db.workflow_registry import update_heartbeat as _update_registry_heartbeat
 from src.db.workflow_registry import update_status as _update_registry_status
@@ -288,7 +289,7 @@ async def _persist_event_log(db_path: str, workflow_id: str, events: list[dict[s
     if not events or not workflow_id:
         return
     try:
-        async with aiosqlite.connect(db_path) as db:
+        async with open_runtime_db(db_path) as db:
             await db.executemany(
                 "INSERT INTO event_log (workflow_id, event_type, payload, ts) VALUES (?, ?, ?, ?)",
                 [
@@ -302,8 +303,8 @@ async def _persist_event_log(db_path: str, workflow_id: str, events: list[dict[s
                 ],
             )
             await db.commit()
-    except Exception:
-        pass
+    except Exception as exc:
+        _logger.warning("Failed to persist event log for %s: %s", workflow_id, exc)
 
 
 async def _notify_new_event(record: _RunRecord) -> None:
