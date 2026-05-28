@@ -47,7 +47,7 @@ from src.screening.prompts import (
     reviewer_a_prompt,
     reviewer_b_prompt,
 )
-from src.search.pdf_retrieval import FullTextCoverageSummary, PDFRetriever
+from src.search.pdf_retrieval import FullTextCoverageSummary, PDFRetrievalResult, PDFRetriever
 
 ScreeningResponse = ScreeningResponsePayload
 _BatchScreeningItem = BatchScreeningItemPayload
@@ -370,16 +370,68 @@ class DualReviewerScreener:
                 _pdf_concurrency = self.settings.screening.pdf_retrieval_concurrency
                 _pdf_timeout = self.settings.screening.pdf_retrieval_per_paper_timeout
                 if to_process:
-                    retrieval_results, coverage = await active_retriever.retrieve_batch(
-                        to_process,
-                        on_progress=on_pdf_progress,
-                        concurrency=_pdf_concurrency,
-                        per_paper_timeout=_pdf_timeout,
-                        on_result=on_pdf_result,
-                    )
-                    full_text_by_paper = {
-                        paper_id: result.full_text for paper_id, result in retrieval_results.items() if result.success
-                    }
+                    total_fulltext = len(to_process)
+                    full_text_by_paper = {}
+                    processed_so_far = 0
+                    # Process retrieval in chunks so a single non-cooperative provider call
+                    # cannot block the entire phase indefinitely.
+                    chunk_size = max(1, _pdf_concurrency)
+                    for chunk_start in range(0, total_fulltext, chunk_size):
+                        chunk = to_process[chunk_start : chunk_start + chunk_size]
+                        chunk_len = len(chunk)
+                        chunk_timeout_s = max(
+                            float(_pdf_timeout + 15),
+                            (float(_pdf_timeout) * float(chunk_len) / float(max(1, _pdf_concurrency))) + 15.0,
+                        )
+
+                        def _chunk_progress(done: int, _chunk_total: int) -> None:
+                            if on_pdf_progress:
+                                on_pdf_progress(processed_so_far + done, total_fulltext)
+
+                        chunk_results: dict[str, PDFRetrievalResult] = {}
+                        try:
+                            chunk_results, _ = await asyncio.wait_for(
+                                active_retriever.retrieve_batch(
+                                    chunk,
+                                    on_progress=_chunk_progress if on_pdf_progress else None,
+                                    concurrency=_pdf_concurrency,
+                                    per_paper_timeout=_pdf_timeout,
+                                    on_result=on_pdf_result,
+                                ),
+                                timeout=chunk_timeout_s,
+                            )
+                        except TimeoutError:
+                            _log.warning(
+                                "PDF retrieval chunk timed out after %.1fs for workflow %s (%d papers). "
+                                "Marking chunk as timeout and continuing.",
+                                chunk_timeout_s,
+                                workflow_id,
+                                chunk_len,
+                            )
+                            for idx, paper in enumerate(chunk, start=1):
+                                chunk_results[paper.paper_id] = PDFRetrievalResult(
+                                    paper_id=paper.paper_id,
+                                    reason_code="timeout",
+                                    success=False,
+                                    error=f"chunk timeout after {chunk_timeout_s:.1f}s",
+                                )
+                                if on_pdf_result:
+                                    on_pdf_result(
+                                        paper.paper_id,
+                                        paper.title,
+                                        "abstract",
+                                        False,
+                                        "timeout",
+                                    )
+                                if on_pdf_progress:
+                                    on_pdf_progress(processed_so_far + idx, total_fulltext)
+
+                        for paper_id, result in chunk_results.items():
+                            if result.success and result.full_text.strip():
+                                full_text_by_paper[paper_id] = result.full_text
+                        processed_so_far += chunk_len
+
+                    coverage = self._coverage_from_map(to_process, full_text_by_paper)
                     skip_no_pdf = self.settings.screening.skip_fulltext_if_no_pdf
                     if not skip_no_pdf:
                         for paper in to_process:

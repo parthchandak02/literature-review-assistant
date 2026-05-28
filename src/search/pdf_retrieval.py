@@ -6,6 +6,7 @@ import asyncio
 import io
 import logging
 import os
+import time
 from collections.abc import Callable, Sequence
 from urllib.parse import quote, urlparse
 
@@ -350,26 +351,10 @@ class PDFRetriever:
         done_count: list[int] = [0]
         total = len(papers)
         sem = asyncio.Semaphore(concurrency)
+        # If no task completes for this long, assume one provider call wedged.
+        stall_timeout_seconds = max(float(per_paper_timeout) + 20.0, 60.0)
 
-        async def _fetch_one(paper: CandidatePaper) -> None:
-            async with sem:
-                try:
-                    outcome = await asyncio.wait_for(self.retrieve(paper), timeout=per_paper_timeout)
-                except TimeoutError:
-                    outcome = PDFRetrievalResult(
-                        paper_id=paper.paper_id,
-                        reason_code="timeout",
-                        success=False,
-                        error=f"per-paper timeout after {per_paper_timeout}s",
-                    )
-                except Exception as exc:
-                    logger.warning("PDFRetriever: unhandled retrieval error for %s: %s", paper.paper_id, exc)
-                    outcome = PDFRetrievalResult(
-                        paper_id=paper.paper_id,
-                        reason_code="unexpected_error",
-                        success=False,
-                        error=str(exc)[:400],
-                    )
+        def _record_outcome(paper: CandidatePaper, outcome: PDFRetrievalResult) -> None:
             # asyncio is single-threaded: dict/list mutations here are safe
             results[paper.paper_id] = outcome
             if not outcome.success:
@@ -386,7 +371,84 @@ class PDFRetriever:
                 except Exception as exc:
                     logger.warning("PDFRetriever: on_result callback failed for %s: %s", paper.paper_id, exc)
 
-        await asyncio.gather(*[_fetch_one(p) for p in papers], return_exceptions=True)
+        async def _fetch_one(paper: CandidatePaper) -> PDFRetrievalResult:
+            async with sem:
+                try:
+                    return await asyncio.wait_for(self.retrieve(paper), timeout=per_paper_timeout)
+                except TimeoutError:
+                    return PDFRetrievalResult(
+                        paper_id=paper.paper_id,
+                        reason_code="timeout",
+                        success=False,
+                        error=f"per-paper timeout after {per_paper_timeout}s",
+                    )
+                except Exception as exc:
+                    logger.warning("PDFRetriever: unhandled retrieval error for %s: %s", paper.paper_id, exc)
+                    return PDFRetrievalResult(
+                        paper_id=paper.paper_id,
+                        reason_code="unexpected_error",
+                        success=False,
+                        error=str(exc)[:400],
+                    )
+
+        task_to_paper: dict[asyncio.Task[PDFRetrievalResult], CandidatePaper] = {
+            asyncio.create_task(_fetch_one(paper)): paper for paper in papers
+        }
+        pending: set[asyncio.Task[PDFRetrievalResult]] = set(task_to_paper)
+        last_completion_at = time.monotonic()
+
+        while pending:
+            done, pending = await asyncio.wait(
+                pending,
+                timeout=5.0,
+                return_when=asyncio.FIRST_COMPLETED,
+            )
+            if not done:
+                if (time.monotonic() - last_completion_at) >= stall_timeout_seconds:
+                    logger.error(
+                        "PDFRetriever: stall watchdog triggered after %.1fs with %d pending tasks. "
+                        "Marking pending papers as timeout and continuing.",
+                        stall_timeout_seconds,
+                        len(pending),
+                    )
+                    for task in list(pending):
+                        paper = task_to_paper[task]
+                        _record_outcome(
+                            paper,
+                            PDFRetrievalResult(
+                                paper_id=paper.paper_id,
+                                reason_code="timeout",
+                                success=False,
+                                error=f"stall watchdog timeout after {stall_timeout_seconds:.1f}s",
+                            ),
+                        )
+                        task.cancel()
+                    break
+                continue
+
+            last_completion_at = time.monotonic()
+            for task in done:
+                paper = task_to_paper[task]
+                try:
+                    outcome = task.result()
+                except Exception as exc:
+                    logger.warning("PDFRetriever: task result failed for %s: %s", paper.paper_id, exc)
+                    outcome = PDFRetrievalResult(
+                        paper_id=paper.paper_id,
+                        reason_code="unexpected_error",
+                        success=False,
+                        error=str(exc)[:400],
+                    )
+                _record_outcome(paper, outcome)
+
+        if pending:
+            for task in pending:
+                task.cancel()
+            try:
+                await asyncio.wait_for(asyncio.gather(*pending, return_exceptions=True), timeout=1.0)
+            except TimeoutError:
+                logger.warning("PDFRetriever: pending tasks did not cancel promptly; detached from batch")
+
         attempted = len(papers)
         succeeded = attempted - len(failed_ids)
         failed = len(failed_ids)

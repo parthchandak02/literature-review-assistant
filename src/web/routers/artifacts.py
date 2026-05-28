@@ -30,7 +30,6 @@ from src.web.shared import (
 )
 from src.web.state import (
     _active_runs,
-    _get_db_path,
     _resolve_db_path_from_run_or_workflow,
 )
 
@@ -365,7 +364,7 @@ def _extract_topic(review_yaml: str) -> str:
 
 @router.get("/api/run/{run_id}/artifacts")
 async def get_run_artifacts(run_id: str) -> dict[str, Any]:
-    db_path = _get_db_path(run_id)
+    db_path = await _resolve_db_path_from_run_or_workflow(run_id)
     summary = pathlib.Path(db_path).parent / "run_summary.json"
     if not summary.exists():
         raise HTTPException(status_code=404, detail="run_summary.json not found")
