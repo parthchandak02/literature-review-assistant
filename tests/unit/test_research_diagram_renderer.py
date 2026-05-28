@@ -4,17 +4,46 @@ from pathlib import Path
 
 import pytest
 
-from src.models.diagrams import DiagramEvidenceClaim, DiagramStyleGuide, ResearchDiagramBrief
+from src.llm.registry import supports_native_image_generation
+from src.models.diagrams import DiagramBriefPack, DiagramEvidenceClaim, DiagramStyleGuide, ResearchDiagramBrief
 from src.visualization import research_diagram_renderer as renderer
 
 
-def test_extract_inline_image_b64_supports_camel_and_snake_case() -> None:
-    payload_camel = {"candidates": [{"content": {"parts": [{"inlineData": {"data": "AAA", "mimeType": "image/png"}}]}}]}
-    payload_snake = {
-        "candidates": [{"content": {"parts": [{"inline_data": {"data": "BBB", "mime_type": "image/png"}}]}}]
-    }
-    assert renderer._extract_inline_image_b64(payload_camel) == "AAA"
-    assert renderer._extract_inline_image_b64(payload_snake) == "BBB"
+def test_supports_native_image_generation_only_for_google_image_models() -> None:
+    assert supports_native_image_generation("google:gemini-3.1-flash-image-preview")
+    assert supports_native_image_generation("google-gla:imagen-3.0-generate-002")
+    assert not supports_native_image_generation("deepseek:deepseek-v4-flash")
+    assert not supports_native_image_generation("google:gemini-2.5-flash")
+
+
+def _minimal_brief(diagram_id: str) -> ResearchDiagramBrief:
+    return ResearchDiagramBrief(
+        diagram_id=diagram_id,
+        diagram_type="layered_architecture",
+        title="Architecture",
+        objective="Summarize evidence flow.",
+        required_labels=["Input"],
+        key_entities=["studies"],
+        relationships=["Input -> Output"],
+    )
+
+
+@pytest.mark.asyncio
+async def test_render_custom_diagrams_skips_when_drawing_model_unsupported() -> None:
+    pack = DiagramBriefPack(
+        workflow_id="wf-test",
+        source_included_count=3,
+        diagrams=[_minimal_brief("diagram-01"), _minimal_brief("diagram-02")],
+    )
+    report = await renderer.render_custom_research_diagrams(
+        brief_pack=pack,
+        out_dir=Path("/tmp/unused"),
+        drawing_model="deepseek:deepseek-v4-flash",
+        critic_model="deepseek:deepseek-v4-pro",
+        style_guide=DiagramStyleGuide(),
+    )
+    assert report.results == []
+    assert any("does not support native image generation" in w for w in report.warnings)
 
 
 def test_build_generation_prompt_includes_required_constraints() -> None:
@@ -33,22 +62,6 @@ def test_build_generation_prompt_includes_required_constraints() -> None:
     assert "Input Studies" in prompt
     assert "black-and-white" not in prompt.lower() or "monochrome" in prompt.lower()
     assert "Uniform line weight" in prompt
-
-
-def test_extract_usage_tokens_reads_usage_metadata() -> None:
-    payload = {
-        "usageMetadata": {
-            "promptTokenCount": 11,
-            "candidatesTokenCount": 7,
-            "cacheReadTokenCount": 3,
-            "cacheWriteTokenCount": 2,
-        }
-    }
-    usage = renderer._extract_usage_tokens(payload)
-    assert usage["tokens_in"] == 11
-    assert usage["tokens_out"] == 7
-    assert usage["cache_read_tokens"] == 3
-    assert usage["cache_write_tokens"] == 2
 
 
 @pytest.mark.asyncio
@@ -71,15 +84,3 @@ async def test_log_usage_cost_persists_row_even_with_zero_tokens() -> None:
     )
     assert len(repo.rows) == 1
     assert repo.rows[0].phase == "phase_6f_custom_diagram_drawing"
-
-
-def test_read_reference_parts_supports_webp_and_skips_unsupported(tmp_path: Path) -> None:
-    webp = tmp_path / "style.webp"
-    webp.write_bytes(b"WEBP")
-    svg = tmp_path / "style.svg"
-    svg.write_text("<svg></svg>", encoding="utf-8")
-
-    parts = renderer._read_reference_parts([str(webp), str(svg), str(tmp_path / "missing.png")])
-
-    assert len(parts) == 1
-    assert parts[0]["inline_data"]["mime_type"] == "image/webp"

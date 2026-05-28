@@ -86,12 +86,13 @@ def test_fallback_outline_headings_parse_existing_prompt_structure() -> None:
 
 @pytest.mark.asyncio
 async def test_generate_section_outline_uses_deterministic_fallback_on_llm_failure(monkeypatch) -> None:
-    async def _boom(*args, **kwargs):
-        raise RuntimeError("outline llm unavailable")
+    class _Client:
+        async def complete_validated(self, *args, **kwargs):
+            raise RuntimeError("outline llm unavailable")
 
     monkeypatch.setattr(
-        "src.writing.outline_generator.PydanticAIClient.complete_validated",
-        _boom,
+        "src.writing.outline_generator.get_chat_client",
+        lambda **kwargs: _Client(),
     )
 
     outline = await generate_section_outline(
@@ -115,31 +116,34 @@ async def test_generate_section_outline_uses_deterministic_fallback_on_llm_failu
 
 @pytest.mark.asyncio
 async def test_generate_results_outline_merges_authoritative_evidence_nodes(monkeypatch) -> None:
-    async def _ok(self, prompt, *, model, temperature, response_model, json_schema=None, max_validation_retries=2):
-        _ = (self, prompt, model, temperature, response_model, json_schema, max_validation_retries)
-        return (
-            SectionOutline(
-                section_key="results",
-                nodes=[
-                    OutlineNode(
-                        node_id="risk_of_bias",
-                        heading="Risk of Bias Assessment",
-                        intent="Summarize appraisal findings.",
-                        required_citekeys=[],
-                        evidence_chunk_ids=[],
-                    )
-                ],
-            ),
-            10,
-            20,
-            0,
-            0,
-            0,
-        )
+    class _Client:
+        async def complete_validated(
+            self, prompt, *, model, temperature, response_model, json_schema=None, max_validation_retries=2
+        ):
+            _ = (prompt, model, temperature, response_model, json_schema, max_validation_retries)
+            return (
+                SectionOutline(
+                    section_key="results",
+                    nodes=[
+                        OutlineNode(
+                            node_id="risk_of_bias",
+                            heading="Risk of Bias Assessment",
+                            intent="Summarize appraisal findings.",
+                            required_citekeys=[],
+                            evidence_chunk_ids=[],
+                        )
+                    ],
+                ),
+                10,
+                20,
+                0,
+                0,
+                0,
+            )
 
     monkeypatch.setattr(
-        "src.writing.outline_generator.PydanticAIClient.complete_validated",
-        _ok,
+        "src.writing.outline_generator.get_chat_client",
+        lambda **kwargs: _Client(),
     )
 
     outline = await generate_section_outline(

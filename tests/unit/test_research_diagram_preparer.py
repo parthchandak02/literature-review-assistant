@@ -8,10 +8,11 @@ from src.visualization import research_diagram_preparer as preparer
 
 @pytest.mark.asyncio
 async def test_prepare_research_diagram_briefs_falls_back_on_client_error(monkeypatch: pytest.MonkeyPatch) -> None:
-    async def _boom(self, *args, **kwargs):  # noqa: ANN001, ANN002, ARG001
-        raise RuntimeError("forced failure")
+    class _Client:
+        async def complete_validated(self, *args, **kwargs):  # noqa: ANN002, ARG002
+            raise RuntimeError("forced failure")
 
-    monkeypatch.setattr(preparer.PydanticAIClient, "complete_validated", _boom)
+    monkeypatch.setattr(preparer, "get_chat_client", lambda: _Client())
 
     pack, usage = await preparer.prepare_research_diagram_briefs(
         workflow_id="wf-0083",
@@ -55,10 +56,11 @@ async def test_prepare_research_diagram_briefs_normalizes_returned_pack(monkeypa
         ],
     )
 
-    async def _ok(self, *args, **kwargs):  # noqa: ANN001, ANN002, ARG001
-        return fake, 10, 20, 1, 2, 0
+    class _Client:
+        async def complete_validated(self, *args, **kwargs):  # noqa: ANN002, ARG002
+            return fake, 10, 20, 1, 2, 0
 
-    monkeypatch.setattr(preparer.PydanticAIClient, "complete_validated", _ok)
+    monkeypatch.setattr(preparer, "get_chat_client", lambda: _Client())
 
     pack, usage = await preparer.prepare_research_diagram_briefs(
         workflow_id="wf-0083",
