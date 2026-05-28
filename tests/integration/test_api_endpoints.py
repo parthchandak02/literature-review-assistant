@@ -2996,6 +2996,29 @@ async def test_artifacts_for_unknown_run_returns_404(client: httpx.AsyncClient) 
     assert response.status_code == 404
 
 
+@pytest.mark.asyncio
+async def test_artifacts_resolve_workflow_id_without_active_run(
+    client: httpx.AsyncClient,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    run_dir = tmp_path / "run_case"
+    run_dir.mkdir(parents=True, exist_ok=True)
+    db_path = run_dir / "runtime.db"
+    db_path.write_text("", encoding="utf-8")
+    payload = {"artifacts": {"manuscript_md": str(run_dir / "doc_manuscript.md")}}
+    (run_dir / "run_summary.json").write_text(json.dumps(payload), encoding="utf-8")
+
+    async def _resolve(_run_id: str, run_root: str = "runs") -> str:
+        return str(db_path)
+
+    monkeypatch.setattr("src.web.routers.artifacts._resolve_db_path_from_run_or_workflow", _resolve)
+
+    response = await client.get("/api/run/wf-1234/artifacts")
+    assert response.status_code == 200
+    assert response.json() == payload
+
+
 # ---------------------------------------------------------------------------
 # Test: GET /api/history/costs/aggregates returns valid response
 # ---------------------------------------------------------------------------
