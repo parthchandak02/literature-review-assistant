@@ -1,5 +1,5 @@
 import type { ReviewEvent } from "@/lib/api"
-import { PHASE_LABELS } from "@/lib/constants"
+import { PHASE_LABELS, humanizeReason } from "@/lib/constants"
 
 // ---------------------------------------------------------------------------
 // Timestamp helpers
@@ -77,40 +77,6 @@ export interface LogRenderEntry {
   groupKey?: string
   isResumeRelated: boolean
   isResumeNoOp: boolean
-}
-
-const REASON_LABELS: Record<string, string> = {
-  insufficient_content_heuristic: "auto-excluded: abstract missing or too short",
-  protocol_only_heuristic: "auto-excluded: protocol-only publication",
-  fulltext_no_pdf_heuristic: "auto-excluded: full-text PDF unavailable",
-  metadata_incomplete: "auto-excluded: missing required metadata",
-  keyword_filter: "auto-excluded: no intervention keyword match",
-  low_relevance_score: "auto-excluded: low BM25 relevance score",
-  batch_screened_low: "auto-excluded: low pre-ranker score",
-  no_full_text: "full text unavailable",
-  wrong_population: "wrong population",
-  wrong_intervention: "wrong intervention",
-  wrong_comparator: "wrong comparator",
-  wrong_outcome: "wrong outcome",
-  wrong_study_design: "wrong study design",
-  not_peer_reviewed: "not peer-reviewed",
-  duplicate: "duplicate",
-  insufficient_data: "insufficient data",
-  wrong_language: "wrong language",
-  protocol_only: "protocol-only",
-  timeout: "retrieval timeout",
-  publisher_403: "publisher blocked access",
-  publisher_401: "publisher authentication required",
-  rate_limited: "rate-limited",
-  doi_unresolved: "DOI unresolved",
-  no_pdf_signal: "no PDF link detected",
-  no_identifier: "no DOI/URL available",
-  no_oa_path: "no open-access path",
-}
-
-function humanizeReason(reasonCode: string | null | undefined): string {
-  if (!reasonCode) return "unspecified reason"
-  return REASON_LABELS[reasonCode] ?? reasonCode.replace(/_/g, " ")
 }
 
 function topReasonSummary(reasonBreakdown: Record<string, number>, topN = 3): string {

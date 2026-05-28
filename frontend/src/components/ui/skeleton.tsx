@@ -2,7 +2,7 @@ import { cn } from "@/lib/utils"
 
 /**
  * Skeleton -- pulse placeholder used for loading states across all views.
- * Replaces the mix of Spinner / LoadingPane / Loader2+animate-spin patterns.
+ * Replaces ad-hoc Spinner / LoadingPane patterns for structural placeholders.
  */
 interface SkeletonProps {
   className?: string

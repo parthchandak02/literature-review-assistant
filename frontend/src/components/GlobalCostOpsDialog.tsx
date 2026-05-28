@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
-import { CalendarDays, Download, Loader2, RefreshCw, Table2, X } from "lucide-react"
+import { CalendarDays, Download, RefreshCw, Table2, X } from "lucide-react"
+import { Spinner } from "@/components/ui/feedback"
+import { CHART_THEME } from "@/lib/constants"
 import {
   BarChart,
   Bar,
@@ -184,18 +186,18 @@ function ChartOrTableSection({
             <BarChart data={chartData} margin={{ top: 12, right: 8, left: 0, bottom: 4 }}>
               <XAxis
                 dataKey="label"
-                tick={{ fill: "#a1a1aa", fontSize: 11 }}
+                tick={{ fill: CHART_THEME.tickFill, fontSize: 11 }}
                 tickFormatter={(value: string) => (value.length > 12 ? `${value.slice(0, 12)}...` : value)}
                 interval="preserveStartEnd"
                 height={20}
               />
               <YAxis
-                tick={{ fill: "#a1a1aa", fontSize: 11 }}
+                tick={{ fill: CHART_THEME.tickFill, fontSize: 11 }}
                 tickFormatter={formatAxisCost}
                 width={70}
               />
               <Tooltip content={<CostTooltip />} />
-              <Bar dataKey="cost_usd" fill="#8b5cf6" radius={[6, 6, 0, 0]} />
+              <Bar dataKey="cost_usd" fill={CHART_THEME.seriesPrimary} radius={[6, 6, 0, 0]} />
             </BarChart>
           </ResponsiveContainer>
         </div>
@@ -271,7 +273,7 @@ function CostsLoadingSkeleton() {
             className={`${statCardClass} flex items-center justify-center`}
           >
             <div className="flex items-center gap-2 text-sm text-muted">
-              <Loader2 className="h-4 w-4 animate-spin text-intent-primary" />
+              <Spinner size="sm" />
               <span>Loading metric</span>
             </div>
           </div>
@@ -288,7 +290,7 @@ function CostsLoadingSkeleton() {
               Loading chart
             </div>
             <div className="flex h-40 items-center justify-center">
-              <Loader2 className="h-7 w-7 animate-spin text-intent-primary" />
+              <Spinner size="lg" />
             </div>
           </div>
         ))}
@@ -304,7 +306,7 @@ function CostsLoadingSkeleton() {
               Loading breakdown
             </div>
             <div className="flex h-40 items-center justify-center">
-              <Loader2 className="h-7 w-7 animate-spin text-intent-primary" />
+              <Spinner size="lg" />
             </div>
           </div>
         ))}
@@ -469,7 +471,7 @@ export function CostsPanel() {
           disabled={loading}
           className="h-10 rounded-lg border border-border bg-surface-2/80 px-3.5 text-foreground hover:bg-surface-3"
         >
-          {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
+          {loading ? <Spinner size="sm" /> : <RefreshCw className="h-4 w-4" />}
           Refresh
         </Button>
         <Button type="button" asChild className="h-10 rounded-lg px-3.5 shadow-sm">
@@ -484,7 +486,7 @@ export function CostsPanel() {
         <div className="rounded-lg border border-border/80 bg-card/70 px-3 py-2">
           <div className="mb-1.5 flex items-center justify-between gap-3">
             <div className="flex items-center gap-2 text-sm text-foreground">
-              <Loader2 className="h-4 w-4 animate-spin text-intent-primary" />
+              <Spinner size="sm" />
               <span>Loading cost analytics</span>
             </div>
             <span className="text-xs text-muted">{loadingStages[loadingStageIndex]}</span>

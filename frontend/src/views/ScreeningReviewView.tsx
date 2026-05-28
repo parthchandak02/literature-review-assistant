@@ -1,48 +1,51 @@
 import { useState, useEffect, useCallback } from "react"
 import { CheckCircle, XCircle, HelpCircle, ChevronDown, ChevronUp, Filter } from "lucide-react"
 import { cn } from "@/lib/utils"
+import { Badge } from "@/components/ui/badge"
+import { Button } from "@/components/ui/button"
+import { Input } from "@/components/ui/input"
 import { Spinner, FetchError, EmptyState } from "@/components/ui/feedback"
 import { fetchScreeningSummary, approveScreening } from "@/lib/api"
 import type { ScreenedPaper, ScreeningSummary, ScreeningOverride } from "@/lib/api"
+import { confidenceToVariant, screeningDecisionToVariant } from "@/lib/constants"
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
 function DecisionBadge({ decision }: { decision: string }) {
+  const variant = screeningDecisionToVariant(decision)
   if (decision === "include") {
     return (
-      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium bg-intent-success-subtle text-intent-success border border-intent-success-border">
+      <Badge variant={variant}>
         <CheckCircle className="h-3 w-3" />
         Include
-      </span>
+      </Badge>
     )
   }
   if (decision === "exclude") {
     return (
-      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium bg-intent-danger-subtle text-intent-danger border border-intent-danger-border">
+      <Badge variant={variant}>
         <XCircle className="h-3 w-3" />
         Exclude
-      </span>
+      </Badge>
     )
   }
   return (
-      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium bg-intent-warning-subtle text-intent-warning border border-intent-warning-border">
+    <Badge variant={variant}>
       <HelpCircle className="h-3 w-3" />
       Uncertain
-    </span>
+    </Badge>
   )
 }
 
 function ConfidencePill({ confidence }: { confidence: number | null }) {
   if (confidence == null) return null
   const pct = Math.round(confidence * 100)
-  const color =
-    pct >= 80 ? "text-intent-success" : pct >= 60 ? "text-intent-warning" : "text-intent-danger"
   return (
-    <span className={cn("text-xs font-mono", color)}>
+    <Badge variant={confidenceToVariant(confidence)} size="sm" className="font-mono">
       {pct}% conf.
-    </span>
+    </Badge>
   )
 }
 
@@ -84,9 +87,9 @@ function PaperRow({ paper, override, onOverride }: PaperRowProps) {
           <div className="flex items-center gap-2 flex-wrap mb-1">
             <DecisionBadge decision={paper.decision} />
             {override && (
-              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium bg-intent-primary-subtle text-intent-primary border border-intent-primary-border">
+              <Badge variant="primary">
                 Override: {override.decision}
-              </span>
+              </Badge>
             )}
             <ConfidencePill confidence={paper.confidence} />
             {paper.year && (
@@ -149,45 +152,46 @@ function PaperRow({ paper, override, onOverride }: PaperRowProps) {
           <div className="pt-2 border-t border-border">
             <p className="text-xs font-semibold text-muted mb-2">Override AI Decision</p>
             <div className="flex items-center gap-2 flex-wrap">
-              <button
+              <Button
                 onClick={(e) => { e.stopPropagation(); handleOverride("include") }}
+                size="sm"
+                variant={override?.decision === "include" ? "success" : "outline"}
                 className={cn(
-                  "px-2.5 py-1 rounded text-xs font-medium border transition-colors",
-                  override?.decision === "include"
-                    ? "bg-intent-success border-intent-success-border text-white"
-                    : "bg-surface-2 border-border text-foreground hover:border-intent-success-border"
+                  "h-7 px-2.5 text-xs",
+                  override?.decision !== "include" && "hover:border-intent-success-border"
                 )}
               >
                 Force Include
-              </button>
-              <button
+              </Button>
+              <Button
                 onClick={(e) => { e.stopPropagation(); handleOverride("exclude") }}
+                size="sm"
+                variant={override?.decision === "exclude" ? "destructive" : "outline"}
                 className={cn(
-                  "px-2.5 py-1 rounded text-xs font-medium border transition-colors",
-                  override?.decision === "exclude"
-                    ? "bg-intent-danger border-intent-danger-border text-white"
-                    : "bg-surface-2 border-border text-foreground hover:border-intent-danger-border"
+                  "h-7 px-2.5 text-xs",
+                  override?.decision !== "exclude" && "hover:border-intent-danger-border"
                 )}
               >
                 Force Exclude
-              </button>
+              </Button>
               {override && (
-                <button
+                <Button
                   onClick={(e) => { e.stopPropagation(); onOverride(null); setReason("") }}
-                  className="px-2.5 py-1 rounded text-xs font-medium border border-border bg-surface-2 text-muted hover:text-foreground"
+                  variant="outline"
+                  size="sm"
+                  className="h-7 px-2.5 text-xs text-muted hover:text-foreground"
                 >
                   Clear Override
-                </button>
+                </Button>
               )}
             </div>
             {override && (
-              <input
-                type="text"
+              <Input
                 placeholder="Reason for override (optional)..."
                 value={reason}
                 onChange={(e) => handleReasonChange(e.target.value)}
                 onClick={(e) => e.stopPropagation()}
-                className="mt-2 w-full px-2 py-1.5 rounded text-xs bg-surface-2 border border-border text-foreground placeholder:text-muted focus:outline-none focus:border-intent-primary-border"
+                className="mt-2 h-8 text-xs bg-surface-2 border-border placeholder:text-muted focus-visible:ring-intent-primary-border"
               />
             )}
           </div>
@@ -257,7 +261,7 @@ export function ScreeningReviewView({ runId }: { runId: string }) {
   if (loading) {
     return (
       <div className="flex items-center justify-center h-48">
-        <Spinner size="md" className="text-intent-primary" />
+        <Spinner size="md" />
       </div>
     )
   }
@@ -315,19 +319,18 @@ export function ScreeningReviewView({ runId }: { runId: string }) {
         </div>
       ) : (
         <div className="flex items-center gap-3 flex-wrap">
-          <button
+          <Button
             onClick={() => void handleApprove()}
             disabled={approving}
+            variant="warning"
             className={cn(
-              "flex items-center gap-2 px-4 py-2.5 rounded-lg text-sm font-medium transition-colors",
-              approving
-                ? "bg-surface-2 text-muted cursor-not-allowed"
-                : "bg-intent-warning hover:bg-intent-warning text-white",
+              "h-10 px-4 rounded-lg text-sm",
+              approving && "cursor-not-allowed",
             )}
           >
-            {approving && <Spinner size="sm" className="text-muted" />}
+            {approving && <Spinner size="sm" />}
             {approving ? "Approving..." : "Approve Screening and Resume Extraction"}
-          </button>
+          </Button>
           {overrides.size > 0 && (
             <span className="text-xs text-intent-primary font-medium">
               {overrides.size} override{overrides.size !== 1 ? "s" : ""} will be sent for active learning
@@ -339,11 +342,13 @@ export function ScreeningReviewView({ runId }: { runId: string }) {
       {/* Filter tabs */}
       <div className="flex items-center gap-1 border-b border-border pb-0">
         {(["all", "include", "uncertain"] as const).map((f) => (
-          <button
+          <Button
             key={f}
             onClick={() => setFilter(f)}
+            variant="ghost"
+            size="sm"
             className={cn(
-              "px-3 py-2 text-xs font-medium border-b-2 -mb-px capitalize transition-colors",
+              "px-3 h-8 text-xs font-medium border-b-2 -mb-px capitalize rounded-none",
               filter === f
                 ? "border-intent-primary text-intent-primary"
                 : "border-transparent text-muted hover:text-foreground",
@@ -354,7 +359,7 @@ export function ScreeningReviewView({ runId }: { runId: string }) {
               : f === "include"
                 ? `Include (${includedCount})`
                 : `Uncertain (${uncertainCount})`}
-          </button>
+          </Button>
         ))}
       </div>
 

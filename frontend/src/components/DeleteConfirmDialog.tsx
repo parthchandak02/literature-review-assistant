@@ -1,5 +1,5 @@
 import { useState } from "react"
-import { Loader2 } from "lucide-react"
+import { Spinner } from "@/components/ui/feedback"
 import {
   Dialog,
   DialogContent,
@@ -67,7 +67,7 @@ export function DeleteConfirmDialog({
           >
             {deleting ? (
               <>
-                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                <Spinner size="sm" className="mr-2" />
                 Deleting...
               </>
             ) : (

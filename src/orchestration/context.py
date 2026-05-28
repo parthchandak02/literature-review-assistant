@@ -13,28 +13,29 @@ from rich.panel import Panel
 
 from src.utils import structured_log
 
+REASON_LABELS: dict[str, str] = {
+    "insufficient_content_heuristic": "Skipped: abstract missing or too short",
+    "protocol_only_heuristic": "Skipped: protocol-only publication",
+    "fulltext_no_pdf_heuristic": "Skipped: full text PDF unavailable",
+    "metadata_incomplete": "Skipped: missing required metadata",
+    "keyword_filter": "Skipped: no intervention keyword match",
+    "low_relevance_score": "Skipped: low BM25 relevance score",
+    "batch_screened_low": "Skipped: low pre-ranker score",
+    "timeout": "Full text retrieval timed out",
+    "publisher_403": "Full text blocked by publisher",
+    "publisher_401": "Full text requires authentication",
+    "rate_limited": "Full text retrieval rate-limited",
+    "doi_unresolved": "DOI did not resolve to full text",
+    "no_pdf_signal": "No downloadable PDF detected",
+    "no_identifier": "No URL or DOI for full text retrieval",
+    "no_oa_path": "No open-access full text path found",
+    "oa_recovered": "Full text successfully retrieved",
+    "connector_degraded": "Connector degraded; fallback path used",
+}
+
 
 def _reason_label_from_code(reason_code: str) -> str:
-    labels = {
-        "insufficient_content_heuristic": "Skipped: abstract missing or too short",
-        "protocol_only_heuristic": "Skipped: protocol-only publication",
-        "fulltext_no_pdf_heuristic": "Skipped: full text PDF unavailable",
-        "metadata_incomplete": "Skipped: missing required metadata",
-        "keyword_filter": "Skipped: no intervention keyword match",
-        "low_relevance_score": "Skipped: low BM25 relevance score",
-        "batch_screened_low": "Skipped: low pre-ranker score",
-        "timeout": "Full text retrieval timed out",
-        "publisher_403": "Full text blocked by publisher",
-        "publisher_401": "Full text requires authentication",
-        "rate_limited": "Full text retrieval rate-limited",
-        "doi_unresolved": "DOI did not resolve to full text",
-        "no_pdf_signal": "No downloadable PDF detected",
-        "no_identifier": "No URL or DOI for full text retrieval",
-        "no_oa_path": "No open-access full text path found",
-        "oa_recovered": "Full text successfully retrieved",
-        "connector_degraded": "Connector degraded; fallback path used",
-    }
-    return labels.get(reason_code, reason_code.replace("_", " "))
+    return REASON_LABELS.get(reason_code, reason_code.replace("_", " "))
 
 
 def _screening_reason_code(reason: str | None) -> str | None:

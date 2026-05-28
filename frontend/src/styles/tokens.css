@@ -117,6 +117,20 @@
   --ambient-orange-alpha: 0.10;
   --ambient-orange-alpha-soft: 0.04;
 
+  /* Sidebar brand/system accents */
+  --color-sidebar-brand-fg: #efe9ff;
+  --color-sidebar-brand-bg: color-mix(in srgb, var(--color-intent-active) 62%, var(--color-foreground) 38%);
+  --color-sidebar-brand-border: color-mix(in srgb, var(--color-intent-active) 42%, transparent);
+  --color-sidebar-new-review-fg: var(--color-intent-primary-fg);
+  --color-sidebar-new-review-border: color-mix(in srgb, var(--color-intent-active) 42%, transparent);
+  --color-sidebar-new-review-bg-start: color-mix(in srgb, var(--color-intent-active) 82%, transparent);
+  --color-sidebar-new-review-bg-end: color-mix(in srgb, var(--color-intent-primary) 82%, transparent);
+  --color-sidebar-new-review-hover-start: color-mix(in srgb, var(--color-intent-active) 90%, transparent);
+  --color-sidebar-new-review-hover-end: color-mix(in srgb, var(--color-intent-primary) 90%, transparent);
+  --color-sidebar-badge-bg: color-mix(in srgb, var(--color-surface-2) 80%, transparent);
+  --color-sidebar-badge-border: color-mix(in srgb, var(--color-surface-3) 70%, transparent);
+  --color-sidebar-badge-fg: color-mix(in srgb, var(--color-foreground) 90%, transparent);
+
   /* Typography + layout semantic tokens */
   --radius: 0.5rem;
   --radius-panel: 0.75rem;
@@ -133,4 +147,51 @@
   --z-header: 30;
   --z-overlay: 40;
   --z-modal: 50;
+
+  /* Chart presentation (Recharts + SVG) */
+  --color-chart-tick: var(--color-text-dim);
+  --color-chart-series: var(--color-intent-primary);
+  --color-chart-cursor: color-mix(in srgb, var(--color-muted) 22%, transparent);
+
+  /* Evidence network graph */
+  --color-graph-canvas: var(--color-surface-0);
+  --color-graph-edge-default: var(--color-surface-4);
+  --color-graph-node-stroke: color-mix(in srgb, var(--color-foreground) 75%, transparent);
+  --color-graph-label: var(--color-text-dim);
+  --color-graph-tooltip: color-mix(in srgb, var(--color-foreground) 90%, transparent);
+  --color-graph-community-0: #7c3aed;
+  --color-graph-community-1: #2563eb;
+  --color-graph-community-2: #059669;
+  --color-graph-community-3: #d97706;
+  --color-graph-community-4: #dc2626;
+  --color-graph-community-5: #0891b2;
+  --color-graph-community-6: #7c3aed;
+  --color-graph-community-7: #16a34a;
+  --color-graph-community-8: #9333ea;
+  --color-graph-community-9: #f59e0b;
+  --color-graph-edge-shared-outcome: #6ee7b7;
+  --color-graph-edge-shared-intervention: #93c5fd;
+  --color-graph-edge-shared-population: #fcd34d;
+  --color-graph-edge-embedding-similarity: #d8b4fe;
+  --color-graph-edge-citation: #f9a8d4;
+
+  --app-ambient-gradient:
+    radial-gradient(
+      52% 38% at 82% 14%,
+      color-mix(in srgb, var(--color-intent-warning) var(--ambient-orange-alpha), transparent) 0%,
+      color-mix(in srgb, var(--color-intent-warning) var(--ambient-orange-alpha-soft), transparent) 34%,
+      transparent 74%
+    ),
+    radial-gradient(
+      46% 34% at 10% 18%,
+      color-mix(in srgb, var(--color-intent-active) 6%, transparent) 0%,
+      color-mix(in srgb, var(--color-intent-active) 2%, transparent) 44%,
+      transparent 72%
+    );
+  --sidebar-ambient-gradient:
+    radial-gradient(
+      ellipse 80% 60% at 50% 110%,
+      color-mix(in srgb, var(--color-intent-active) 10%, transparent) 0%,
+      transparent 70%
+    );
 }

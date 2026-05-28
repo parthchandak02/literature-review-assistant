@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react"
 import { BookOpen, Download, ExternalLink, FileText, FileX, RefreshCw } from "lucide-react"
 import { Button } from "@/components/ui/button"
+import { EmptyState, FetchError, LoadingPane, Spinner } from "@/components/ui/feedback"
 import { fetchPapersReference, fetchPdfsForRun, paperFileUrl } from "@/lib/api"
 import type { FetchPdfsProgressEvent, FetchPdfsResult, PaperReference } from "@/lib/api"
 import { cn } from "@/lib/utils"
@@ -125,36 +126,29 @@ export function ReferencesView({
 
   if (!isDone) {
     return (
-      <div className="flex flex-col items-center justify-center h-48 text-muted gap-2">
-        <BookOpen className="h-8 w-8 opacity-30" />
-        <p className="text-sm">References are available after the run completes.</p>
-      </div>
+      <EmptyState
+        icon={BookOpen}
+        heading="References are available after the run completes."
+        className="h-48 py-0"
+      />
     )
   }
 
   if (loading) {
-    return (
-      <div className="flex items-center justify-center h-48 text-muted text-sm">
-        Loading references...
-      </div>
-    )
+    return <LoadingPane message="Loading references..." className="h-48" />
   }
 
   if (error) {
     return (
-      <div className="flex flex-col items-center justify-center h-48 text-intent-danger gap-2">
-        <FileX className="h-8 w-8 opacity-50" />
-        <p className="text-sm">{error}</p>
+      <div className="py-8">
+        <FetchError message={error} onRetry={() => void fetchPapers()} />
       </div>
     )
   }
 
   if (papers.length === 0) {
     return (
-      <div className="flex flex-col items-center justify-center h-48 text-muted gap-2">
-        <BookOpen className="h-8 w-8 opacity-30" />
-        <p className="text-sm">No included papers found for this run.</p>
-      </div>
+      <EmptyState icon={FileX} heading="No included papers found for this run." className="h-48 py-0" />
     )
   }
 
@@ -209,7 +203,7 @@ export function ReferencesView({
                   : "glass-panel text-foreground hover:text-foreground",
               )}
             >
-              <RefreshCw className={cn("h-3 w-3", fetching && "animate-spin")} />
+              {fetching ? <Spinner size="sm" /> : <RefreshCw className="h-3 w-3" />}
               {fetching ? "Fetching..." : "Fetch PDFs"}
             </button>
           )}

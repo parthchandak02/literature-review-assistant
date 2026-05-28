@@ -17,6 +17,7 @@ import { useSSEStream } from "@/hooks/useSSEStream"
 import { useCostStats } from "@/hooks/useCostStats"
 import { useBackendHealth } from "@/hooks/useBackendHealth"
 import {
+  APIResponseError,
   archiveRun,
   attachHistory,
   cancelRun,
@@ -40,6 +41,7 @@ import {
   startRunWithSupplementaryCsv,
 } from "@/lib/api"
 import { Spinner } from "@/components/ui/feedback"
+import { resolveRunStatus } from "@/lib/constants"
 import {
   Tooltip,
   TooltipContent,
@@ -122,7 +124,7 @@ interface DraftConfigState {
 function ViewLoader() {
   return (
     <div className="flex items-center justify-center h-48">
-      <Spinner size="md" className="text-intent-primary" />
+      <Spinner size="md" />
     </div>
   )
 }
@@ -172,7 +174,7 @@ export default function App() {
 
   const { events, status, abort, reset } = useSSEStream(liveRunId, liveWorkflowId)
   const costStats = useCostStats(events)
-  const { isOnline } = useBackendHealth()
+  const { isOnline } = useBackendHealth(6000, { suppressOffline: status === "streaming" })
 
   const isRunning = status === "streaming" || status === "connecting"
 
@@ -486,14 +488,32 @@ export default function App() {
   // Fetch artifacts for ResultsView when viewing a completed historical run.
   // ---------------------------------------------------------------------------
   useEffect(() => {
-    if (!selectedRun?.isDone || isViewingLiveRun || selectedRun.attachPending) {
+    const run = selectedRun
+    if (!run?.isDone || isViewingLiveRun || run.attachPending) {
       setHistoryOutputs({})
       return
     }
-    fetchArtifacts(selectedRun.runId)
+    if (run.historicalStatus && !isTerminalHistoricalStatus(run.historicalStatus)) {
+      setHistoryOutputs({})
+      return
+    }
+    fetchArtifacts(run.runId, { workflowIdFallback: run.workflowId })
       .then((artifacts) => setHistoryOutputs(artifacts))
-      .catch(() => setHistoryOutputs({}))
-  }, [selectedRun?.runId, selectedRun?.isDone, selectedRun?.attachPending, isViewingLiveRun])
+      .catch((err: unknown) => {
+        if (err instanceof APIResponseError && err.status === 404) {
+          setHistoryOutputs({})
+          return
+        }
+        setHistoryOutputs({})
+      })
+  }, [
+    selectedRun?.runId,
+    selectedRun?.workflowId,
+    selectedRun?.isDone,
+    selectedRun?.attachPending,
+    selectedRun?.historicalStatus,
+    isViewingLiveRun,
+  ])
 
   // ---------------------------------------------------------------------------
   // Poll for CLI-initiated resume: when viewing a run, check if it became active.
@@ -1149,17 +1169,13 @@ export default function App() {
     const draftStatus = draftConfig?.isGenerating ? "streaming" : "awaiting_review"
 
     // Map the registry's raw status string to an SSE-style status for historical runs.
-    const resolvedHistoricalStatus = isDraftRun ? draftStatus : (() => {
-      const s = (selectedRun.historicalStatus ?? "completed").toLowerCase()
-      if (s === "completed" || s === "done") return "done"
-      if (s === "running" || s === "streaming") return "streaming"
-      if (s === "awaiting_review") return "awaiting_review"
-      if (s === "stale") return "error"
-      if (s === "failed" || s === "error") return "error"
-      if (s === "cancelled" || s === "canceled") return "cancelled"
-      if (s === "interrupted") return "cancelled"
-      return "done"
-    })()
+    const resolvedHistoricalStatus = isDraftRun
+      ? draftStatus
+      : (() => {
+          const raw = selectedRun.historicalStatus ?? "completed"
+          if (raw.toLowerCase() === "awaiting_review") return "awaiting_review"
+          return resolveRunStatus(raw)
+        })()
     const completedHistoricalRun =
       !isDraftRun &&
       !isViewingLiveRun &&
@@ -1176,7 +1192,6 @@ export default function App() {
         activeTab={activeRunTab}
         onTabChange={handleTabChange}
         onGoToSubmissionReferencePapers={handleGoToSubmissionReferencePapers}
-        onCancel={handleCancel}
         historyOutputs={historyOutputs}
         liveOutputs={isViewingLiveRun ? liveOutputs : {}}
         dbUnlocked={Boolean(dbUnlocked)}
@@ -1192,11 +1207,7 @@ export default function App() {
     )
   }
 
-  // Breadcrumb
   const breadcrumbTopic = selectedRun?.topic ?? null
-  const breadcrumbTab = selectedRun
-    ? activeRunTab.charAt(0).toUpperCase() + activeRunTab.slice(1)
-    : "New Review"
 
   async function handleCopyTopic() {
     if (!breadcrumbTopic) return
@@ -1243,10 +1254,25 @@ export default function App() {
           className="pointer-events-none absolute inset-0 z-0"
           aria-hidden
           style={{
-            background:
-              "radial-gradient(52% 38% at 82% 14%, rgb(251 146 60 / var(--ambient-orange-alpha)) 0%, rgb(251 146 60 / var(--ambient-orange-alpha-soft)) 34%, transparent 74%), radial-gradient(46% 34% at 10% 18%, rgb(139 92 246 / 0.06) 0%, rgb(139 92 246 / 0.02) 44%, transparent 72%)",
+            background: "var(--app-ambient-gradient)",
           }}
         />
+        {/* Backend offline banner */}
+        {!isOnline && (
+          <div className="flex flex-col items-start gap-1.5 bg-intent-warning-subtle border-b border-intent-warning-border px-6 py-2.5 text-xs text-intent-warning shrink-0">
+            <span className="inline-flex items-center gap-2">
+              <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
+              <span className="font-medium">Cannot reach backend API.</span>
+            </span>
+            <span className="text-intent-warning/70">
+              If this run was detached after a restart, reopen it from History. Start backend with:{" "}
+              <code className="font-mono bg-intent-warning-subtle px-1 py-0.5 rounded">
+                pm2 start ecosystem.config.js
+              </code>
+            </span>
+          </div>
+        )}
+
         {/* Top bar -- paddingTop pushes content below the iOS status bar when viewport-fit=cover is active */}
         <header
           className="sticky top-0 z-30 glass-toolbar border-b border-border/70 shrink-0"
@@ -1267,47 +1293,29 @@ export default function App() {
             <TooltipProvider delayDuration={0}>
               <div className="flex items-center gap-1.5 text-sm flex-1 min-w-0">
                 {breadcrumbTopic ? (
-                  <>
-                    <Tooltip>
-                      <TooltipTrigger asChild>
-                        <button
-                          onClick={() => void handleCopyTopic()}
-                          className="text-muted font-medium truncate flex-1 min-w-0 text-left hover:text-foreground transition-colors cursor-pointer"
-                        >
-                          {breadcrumbTopic}
-                        </button>
-                      </TooltipTrigger>
-                      <TooltipContent
-                        side="bottom"
-                        className="max-w-md break-words bg-card border-border text-foreground"
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <button
+                        onClick={() => void handleCopyTopic()}
+                        className="text-muted font-medium truncate flex-1 min-w-0 text-left hover:text-foreground transition-colors cursor-pointer"
                       >
                         {breadcrumbTopic}
-                      </TooltipContent>
-                    </Tooltip>
-                    <span className="text-border shrink-0">/</span>
-                    <span className="text-foreground font-medium shrink-0">{breadcrumbTab}</span>
-                  </>
-                ) : (
-                  <span className="text-foreground font-medium">{breadcrumbTab}</span>
-                )}
+                      </button>
+                    </TooltipTrigger>
+                    <TooltipContent
+                      side="bottom"
+                      className="max-w-md break-words bg-card border-border text-foreground"
+                    >
+                      {breadcrumbTopic}
+                    </TooltipContent>
+                  </Tooltip>
+                ) : !selectedRun ? (
+                  <span className="text-foreground font-medium">New Review</span>
+                ) : null}
               </div>
             </TooltipProvider>
           </div>
         </header>
-
-        {/* Backend offline banner */}
-        {!isOnline && (
-          <div className="flex items-center gap-2.5 bg-intent-warning-subtle border-b border-intent-warning-border px-6 py-2.5 text-xs text-intent-warning shrink-0">
-            <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
-            <span className="font-medium">Backend offline.</span>
-            <span className="text-intent-warning/70">
-              Start it with:{" "}
-              <code className="font-mono bg-intent-warning-subtle px-1 py-0.5 rounded">
-                pm2 start ecosystem.config.js
-              </code>
-            </span>
-          </div>
-        )}
 
         {/* Main content */}
         <div

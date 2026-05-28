@@ -46,7 +46,7 @@
   }
 
   .glass-interactive:focus-visible {
-    outline: 2px solid rgba(139, 92, 246, 0.45);
+    outline: 2px solid color-mix(in srgb, var(--color-intent-primary) 45%, transparent);
     outline-offset: 1px;
   }
 
@@ -63,7 +63,7 @@
     .glass-panel,
     .glass-panel-strong,
     .glass-toolbar {
-      background-color: rgb(24 24 27 / 0.88);
+      background-color: color-mix(in srgb, var(--color-surface-1) 88%, transparent);
     }
   }
 
@@ -77,7 +77,7 @@
     html[data-theme="light"] .glass-panel,
     html[data-theme="light"] .glass-panel-strong,
     html[data-theme="light"] .glass-toolbar {
-      background-color: rgb(245 243 240 / 0.95);
+      background-color: color-mix(in srgb, var(--color-surface-1) 95%, transparent);
     }
   }
 
@@ -180,104 +180,119 @@
   }
 
   .sidebar-brand-chip {
-    color: #efe9ff;
-    background-color: color-mix(in srgb, #a78bfa 62%, #ffffff 38%);
-    border: 1px solid rgb(196 181 253 / 0.42);
+    color: var(--color-sidebar-brand-fg);
+    background-color: var(--color-sidebar-brand-bg);
+    border: 1px solid var(--color-sidebar-brand-border);
   }
 
   .sidebar-new-review-button {
-    color: #f8f5ff;
-    border: 1px solid rgb(196 181 253 / 0.42);
+    color: var(--color-sidebar-new-review-fg);
+    border: 1px solid var(--color-sidebar-new-review-border);
     background: linear-gradient(
       135deg,
-      rgb(167 139 250 / 0.82) 0%,
-      rgb(147 120 246 / 0.82) 100%
+      var(--color-sidebar-new-review-bg-start) 0%,
+      var(--color-sidebar-new-review-bg-end) 100%
     );
-    box-shadow: 0 1px 1px rgb(0 0 0 / 0.12);
+    box-shadow: 0 1px 1px color-mix(in srgb, var(--color-foreground) 12%, transparent);
   }
 
   .sidebar-new-review-button:hover {
     background: linear-gradient(
       135deg,
-      rgb(177 149 251 / 0.9) 0%,
-      rgb(157 130 247 / 0.9) 100%
+      var(--color-sidebar-new-review-hover-start) 0%,
+      var(--color-sidebar-new-review-hover-end) 100%
     );
   }
 
   html[data-theme="light"] .sidebar-brand-chip {
-    color: #6d28d9;
-    background-color: #ede9fe;
-    border-color: rgb(196 181 253 / 0.75);
+    color: var(--color-sidebar-brand-fg);
+    background-color: var(--color-sidebar-brand-bg);
+    border-color: var(--color-sidebar-brand-border);
   }
 
   html[data-theme="light"] .sidebar-new-review-button {
-    color: #5b21b6;
-    border-color: rgb(196 181 253 / 0.75);
+    color: var(--color-sidebar-new-review-fg);
+    border-color: var(--color-sidebar-new-review-border);
     background: linear-gradient(
       135deg,
-      rgb(237 233 254 / 0.96) 0%,
-      rgb(221 214 254 / 0.96) 100%
+      var(--color-sidebar-new-review-bg-start) 0%,
+      var(--color-sidebar-new-review-bg-end) 100%
     );
-    box-shadow: 0 1px 1px rgb(109 40 217 / 0.08);
+    box-shadow: 0 1px 1px color-mix(in srgb, var(--color-intent-primary) 8%, transparent);
   }
 
   html[data-theme="light"] .sidebar-new-review-button:hover {
     background: linear-gradient(
       135deg,
-      rgb(233 225 253 / 0.98) 0%,
-      rgb(215 205 252 / 0.98) 100%
+      var(--color-sidebar-new-review-hover-start) 0%,
+      var(--color-sidebar-new-review-hover-end) 100%
     );
   }
 
   /* Sidebar workflow number badges */
   .sidebar-wf-badge {
-    background-color: rgb(39 39 42 / 0.8);
-    border: 1px solid rgb(63 63 70 / 0.7);
-    color: #e4e4e7;
+    background-color: var(--color-sidebar-badge-bg);
+    border: 1px solid var(--color-sidebar-badge-border);
+    color: var(--color-sidebar-badge-fg);
   }
 
   .sidebar-wf-badge-collapsed {
-    background-color: rgb(39 39 42 / 0.8);
-    color: #f4f4f5;
+    background-color: var(--color-sidebar-badge-bg);
+    color: var(--color-sidebar-badge-fg);
   }
 
   html[data-theme="light"] .sidebar-wf-badge {
-    background-color: #f5f3f0;
-    border-color: rgb(214 211 209 / 0.85);
-    color: #1c1917;
+    background-color: var(--color-sidebar-badge-bg);
+    border-color: var(--color-sidebar-badge-border);
+    color: var(--color-sidebar-badge-fg);
   }
 
   html[data-theme="light"] .sidebar-wf-badge-collapsed {
-    background-color: #f5f3f0;
-    color: #1c1917;
+    background-color: var(--color-sidebar-badge-bg);
+    color: var(--color-sidebar-badge-fg);
   }
 
   /* ------------------------------------------------------------------ */
   /* Section + layout                                                    */
   /* ------------------------------------------------------------------ */
   .section-trigger {
-    @apply w-full flex items-center justify-between px-4 py-3 hover:bg-zinc-800/30 transition-colors;
+    @apply w-full flex items-center justify-between px-4 py-3 transition-colors;
+    background-color: transparent;
+  }
+  .section-trigger:hover {
+    background-color: color-mix(in srgb, var(--color-surface-2) 45%, transparent);
   }
 
   /* ------------------------------------------------------------------ */
   /* Typography utilities                                                */
   /* ------------------------------------------------------------------ */
   .label-caps {
-    @apply text-[11px] font-medium uppercase tracking-wide text-zinc-500;
+    @apply text-[11px] font-medium uppercase tracking-wide text-muted;
   }
   .label-sub {
-    @apply text-xs text-zinc-500;
+    @apply text-xs text-muted;
   }
   .label-muted {
-    @apply text-xs text-zinc-600;
+    @apply text-xs text-text-dim;
   }
   .text-meta {
-    @apply text-[11px] font-mono tabular-nums;
+    @apply text-[11px] font-mono tabular-nums text-muted;
   }
 
   /* Interactive row hover */
   .row-hover {
-    @apply hover:bg-zinc-800/40 transition-colors duration-150;
+    @apply transition-colors duration-150;
+  }
+  .row-hover:hover {
+    background-color: color-mix(in srgb, var(--color-surface-2) 50%, transparent);
+  }
+
+  /* Live status pulse — respect reduced motion */
+  @media (prefers-reduced-motion: reduce) {
+    .status-pulse-ping {
+      animation: none;
+      opacity: 0.35;
+    }
   }
 
   /* ------------------------------------------------------------------ */
@@ -295,13 +310,13 @@
   }
   .glass-table-row {
     @apply transition-colors duration-150;
-    border-color: rgb(39 39 42 / 0.42);
+    border-color: color-mix(in srgb, var(--color-border) 42%, transparent);
   }
   .glass-table-row:hover {
-    background-color: rgb(39 39 42 / 0.42);
+    background-color: color-mix(in srgb, var(--color-surface-2) 42%, transparent);
   }
   .glass-table-cell-muted {
-    color: rgb(161 161 170 / 0.82);
+    color: color-mix(in srgb, var(--color-text-dim) 82%, transparent);
   }
 
   html[data-theme="light"] .glass-table-cell-muted {

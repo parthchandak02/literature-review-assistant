@@ -5,6 +5,10 @@ export interface BackendHealth {
   checking: boolean
 }
 
+interface BackendHealthOptions {
+  suppressOffline?: boolean
+}
+
 /**
  * Polls /api/health every `intervalMs` milliseconds.
  * Assumes online initially to avoid a flash of the offline banner on startup.
@@ -12,13 +16,25 @@ export interface BackendHealth {
  * Requires 2 consecutive failures before setting isOnline=false to suppress transient
  * QUIC packet-loss blips that resolve on the next poll.
  */
-export function useBackendHealth(intervalMs = 6000): BackendHealth {
+export function useBackendHealth(
+  intervalMs = 6000,
+  options: BackendHealthOptions = {},
+): BackendHealth {
+  const { suppressOffline = false } = options
   const [isOnline, setIsOnline] = useState(true)
   const [checking, setChecking] = useState(false)
   const mountedRef = useRef(true)
   const failStreakRef = useRef(0)
 
   const check = useCallback(async () => {
+    if (suppressOffline) {
+      failStreakRef.current = 0
+      if (mountedRef.current) {
+        setIsOnline(true)
+        setChecking(false)
+      }
+      return
+    }
     if (mountedRef.current) setChecking(true)
     const controller = new AbortController()
     const timer = setTimeout(() => controller.abort(), 8000)
@@ -37,7 +53,7 @@ export function useBackendHealth(intervalMs = 6000): BackendHealth {
       clearTimeout(timer)
       if (mountedRef.current) setChecking(false)
     }
-  }, [])
+  }, [suppressOffline])
 
   useEffect(() => {
     mountedRef.current = true

@@ -8,13 +8,15 @@ import {
   CommandItem,
   CommandList,
 } from "@/components/ui/command"
-import { FetchError, EmptyState, LoadingPane } from "@/components/ui/feedback"
+import { FetchError, EmptyState, LoadingPane, Spinner } from "@/components/ui/feedback"
+import { LiveStreamStatus } from "@/components/run-status"
+import { Badge } from "@/components/ui/badge"
 import { Th, Td, TableSkeleton, Pagination } from "@/components/ui/table"
 import { cn } from "@/lib/utils"
-import { AlertTriangle, Database, ExternalLink, Filter, Loader2, X } from "lucide-react"
-// Loader2 is still used in FilterComboboxPopover
+import { AlertTriangle, Database, ExternalLink, Filter, X } from "lucide-react"
 import { fetchDbTables, fetchPapersAll, fetchPapersFacets, fetchPapersSuggest } from "@/lib/api"
 import type { ExtractedOutcomePaper, PaperAllRow } from "@/lib/api"
+import { confidenceToVariant, screeningDecisionToVariant } from "@/lib/constants"
 
 const LIVE_REFRESH_MS = 10_000
 
@@ -34,12 +36,6 @@ function paperLink(p: PaperAllRow): string | null {
 const PAGE_SIZE = 50
 const SUGGEST_DEBOUNCE_MS = 200
 const FILTER_DEBOUNCE_MS = 350
-
-const DECISION_COLOR: Record<string, string> = {
-  include: "text-intent-success",
-  exclude: "text-intent-danger",
-  uncertain: "text-intent-warning",
-}
 
 interface DatabaseViewProps {
   runId: string
@@ -347,15 +343,7 @@ export function DatabaseView({ runId, isDone, dbAvailable, isLive }: DatabaseVie
               {total.toLocaleString()} papers
             </span>
           )}
-          {isLive && (
-            <div className="flex items-center gap-1.5 text-xs text-intent-active">
-              <span className="relative flex h-2 w-2">
-                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-intent-active opacity-75" />
-                <span className="relative inline-flex rounded-full h-2 w-2 bg-intent-active" />
-              </span>
-              Live
-            </div>
-          )}
+          {isLive && <LiveStreamStatus mode="compact" />}
           {isDone && (
             <span className="text-xs text-intent-success font-medium">Complete</span>
           )}
@@ -719,7 +707,7 @@ function FilterComboboxPopover({
             <CommandList>
               {isLoadingSuggestions && (
                 <div className="py-2 px-3 text-xs text-muted flex items-center gap-2">
-                  <Loader2 className="h-3 w-3 animate-spin" />
+                  <Spinner size="sm" />
                   Loading...
                 </div>
               )}
@@ -783,9 +771,9 @@ function DecisionCell({ value }: { value: string | null }) {
   }
   return (
     <Td>
-      <span className={cn("font-semibold capitalize", DECISION_COLOR[value] ?? "text-muted")}>
+      <Badge variant={screeningDecisionToVariant(value)} size="sm" className="capitalize">
         {value}
-      </span>
+      </Badge>
     </Td>
   )
 }
@@ -795,22 +783,11 @@ function ExtractionConfidenceCell({ value }: { value: number | null }) {
     return <Td className="text-muted">--</Td>
   }
   const pct = Math.round(value * 100)
-  const color =
-    pct >= 80
-      ? "bg-intent-success-subtle text-intent-success border-intent-success-border"
-      : pct >= 60
-        ? "bg-intent-warning-subtle text-intent-warning border-intent-warning-border"
-        : "bg-intent-danger-subtle text-intent-danger border-intent-danger-border"
   return (
     <Td>
-      <span
-        className={cn(
-          "inline-block px-1.5 py-0.5 rounded text-[10px] font-mono font-medium border",
-          color,
-        )}
-      >
+      <Badge variant={confidenceToVariant(value)} size="sm" className="font-mono">
         {pct}%
-      </span>
+      </Badge>
     </Td>
   )
 }
