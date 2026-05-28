@@ -12,7 +12,8 @@ Use one canonical skill per workflow area. Adjacent skills should point back to 
 | Session bootstrap + orientation | `general-rules` | `build-phase`, `research` | `general-rules` owns reusable startup/process defaults; lifecycle routing still comes from `.cursor/docs/INDEX.md`. |
 | Commit/push hygiene | `general-rules` | `setup-pre-commit` | `general-rules` owns commit workflow behavior; `setup-pre-commit` owns hook installation only. |
 | Hook/bootstrap automation | `setup-pre-commit` | `general-rules` | Keep setup mechanics here; avoid repeating commit policy. |
-| Skill authoring and de-duplication | `write-a-skill` | `general-rules` | `write-a-skill` owns skill structure/workflow; `general-rules` only provides global constraints. |
+| Skill authoring and de-duplication | `write-a-skill` | `general-rules`, `inception` | `write-a-skill` owns skill structure/workflow; `inception` extracts learnings into skills/gotchas; `general-rules` only provides global constraints. |
+| Session learning extraction | `inception` | `write-a-skill`, `handoff` | `inception` owns retrospective extraction; `write-a-skill` for authoring structure; `handoff` for one-off session transfer without durable artifacts. |
 | External research grounding | `research` | `grill-with-docs` | `research` owns source-backed discovery; `grill-with-docs` owns plan pressure-testing. |
 | Plan pressure-testing | `grill-with-docs` | `research` | Use code/docs contradiction checks and decision-tree questioning here. |
 | Session transfer/handoff | `handoff` | `general-rules` | Handoff format and next-step packaging live only in `handoff`. |
@@ -49,6 +50,7 @@ Use one canonical skill per workflow area. Adjacent skills should point back to 
 - `grill-with-docs` (one-question-at-a-time plan pressure testing against repo contracts)
 - `handoff` (compact transfer package for next-agent continuation)
 - `write-a-skill` (skill authoring, tailoring, and de-duplication workflow)
+- `inception` (extract session learnings into project skills or gotchas; `/inception` retrospective)
 - `caveman` (ultra-terse response mode on explicit request)
 
 ## Overlap Boundaries
