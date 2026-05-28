@@ -8,7 +8,9 @@ and writing the JSON line to the matching open file handle.
 
 from __future__ import annotations
 
+import asyncio
 import json
+from collections.abc import Sequence
 from pathlib import Path
 from typing import Any, TextIO
 
@@ -21,6 +23,84 @@ _file_handles: dict[str, TextIO] = {}
 
 # True once the global structlog processor chain has been configured (one-time).
 _structlog_configured = False
+
+# Async write queue + background task (lazy-started on first write in a running loop).
+_log_queue: asyncio.Queue[tuple[str, str]] | None = None
+_writer_task: asyncio.Task[None] | None = None
+
+
+def _flush_lines(lines: Sequence[tuple[str, str]]) -> None:
+    """Sync batched write to per-run file handles (runs in a thread pool)."""
+    touched: set[str] = set()
+    for log_dir, line in lines:
+        fh = _file_handles.get(log_dir)
+        if fh is None:
+            continue
+        touched.add(log_dir)
+        try:
+            fh.write(line)
+        except Exception:
+            pass
+    for log_dir in touched:
+        fh = _file_handles.get(log_dir)
+        if fh is None:
+            continue
+        try:
+            fh.flush()
+        except Exception:
+            pass
+
+
+async def _background_writer() -> None:
+    assert _log_queue is not None
+    while True:
+        log_dir, line = await _log_queue.get()
+        batch: list[tuple[str, str]] = [(log_dir, line)]
+        while True:
+            try:
+                batch.append(_log_queue.get_nowait())
+            except asyncio.QueueEmpty:
+                break
+        try:
+            await asyncio.to_thread(_flush_lines, batch)
+        finally:
+            for _ in batch:
+                _log_queue.task_done()
+
+
+def _ensure_writer_started() -> bool:
+    """Start the background writer on the current event loop. Returns False if no loop."""
+    global _log_queue, _writer_task
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        return False
+    if _writer_task is not None and not _writer_task.done():
+        return True
+    if _log_queue is None:
+        _log_queue = asyncio.Queue()
+    _writer_task = loop.create_task(_background_writer())
+    return True
+
+
+async def drain_log_writer() -> None:
+    """Wait until all queued log lines have been written (for tests/shutdown)."""
+    if _log_queue is not None:
+        await _log_queue.join()
+
+
+async def shutdown_log_writer() -> None:
+    """Drain pending writes and stop the background writer task."""
+    global _log_queue, _writer_task
+    await drain_log_writer()
+    if _writer_task is not None and not _writer_task.done():
+        _writer_task.cancel()
+        try:
+            await _writer_task
+        except asyncio.CancelledError:
+            pass
+    _writer_task = None
+    _log_queue = None
 
 
 def _write_to_run_file(
@@ -37,11 +117,13 @@ def _write_to_run_file(
     ctx = structlog.contextvars.get_contextvars()
     log_dir = ctx.get("log_dir")
     if log_dir and log_dir in _file_handles:
-        fh = _file_handles[log_dir]
         try:
             line = json.dumps(event_dict) + "\n"
-            fh.write(line)
-            fh.flush()
+            if _ensure_writer_started():
+                assert _log_queue is not None
+                _log_queue.put_nowait((log_dir, line))
+            else:
+                _flush_lines([(log_dir, line)])
         except Exception:
             pass
     return event_dict

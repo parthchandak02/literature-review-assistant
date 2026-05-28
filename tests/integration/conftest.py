@@ -3,12 +3,13 @@
 Key responsibility: reset global state that would otherwise leak between tests
 and cause cross-test contamination.
 
-Specifically, `src.utils.structured_log` uses a module-level `_configured`
-guard so that `configure_run_logging` only runs once per process. This is
-correct behavior in production (one process, one run), but in tests multiple
-runs in the same process need independent log files.
+Specifically, `src.utils.structured_log` uses module-level `_structlog_configured`
+and `_file_handles` so that `configure_run_logging` only configures structlog once
+per process while opening per-run log files. This is correct behavior in production
+(one process, one run), but in tests multiple runs in the same process need
+independent log files.
 
-The `reset_structured_log` autouse fixture clears that flag before every test,
+The `reset_structured_log` autouse fixture clears that state before every test,
 guaranteeing that each test gets its own `app.jsonl` written to its own
 `tmp_path` rather than silently inheriting a stale configuration from a
 previous test.
@@ -21,6 +22,7 @@ from pathlib import Path
 
 import aiosqlite
 import pytest
+import structlog
 
 from src.db.workflow_registry import candidate_run_roots, resolve_workflow_db_path
 
@@ -57,8 +59,19 @@ def reset_structured_log() -> None:
     """
     import src.utils.structured_log as sl
 
-    sl._configured = False
-    sl._logger = None
+    for fh in sl._file_handles.values():
+        try:
+            fh.close()
+        except OSError:
+            pass
+    sl._file_handles.clear()
+    sl._structlog_configured = False
+    sl._log_queue = None
+    sl._writer_task = None
+    structlog.reset_defaults()
+    yield
+    sl._log_queue = None
+    sl._writer_task = None
 
 
 @pytest.fixture
