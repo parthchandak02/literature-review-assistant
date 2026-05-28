@@ -20,7 +20,7 @@ from src.models import (
 )
 from src.models.enums import ScreeningDecisionType, SourceCategory
 from src.orchestration import workflow as workflow_module
-from src.orchestration.resume import PHASE_ORDER, load_resume_state
+from src.orchestration.resume import PHASE_ORDER, ResumeNotAllowedError, load_resume_state, validate_resume_allowed
 from src.orchestration.state import ReviewState
 from src.orchestration.workflow import _rc_print
 
@@ -629,3 +629,37 @@ def test_phase_order_includes_pre_writing_gate_before_writing() -> None:
     assert "phase_5c_pre_writing_gate" in PHASE_ORDER
     assert PHASE_ORDER.index("phase_5b_knowledge_graph") < PHASE_ORDER.index("phase_5c_pre_writing_gate")
     assert PHASE_ORDER.index("phase_5c_pre_writing_gate") < PHASE_ORDER.index("phase_6_writing")
+
+
+@pytest.mark.asyncio
+async def test_validate_resume_allowed_rejects_from_phase_on_completed_finalize(tmp_path) -> None:
+    run_dir = tmp_path / "run"
+    run_dir.mkdir()
+    db_path = run_dir / "runtime.db"
+    async with get_db(str(db_path)) as db:
+        await db.executescript(Path("src/db/schema.sql").read_text())
+        await db.commit()
+        repo = WorkflowRepository(db)
+        await repo.create_workflow("wf-done", "Completed topic", "hash")
+        for phase in PHASE_ORDER:
+            await repo.save_checkpoint("wf-done", phase, papers_processed=1)
+
+    with pytest.raises(ResumeNotAllowedError, match="finalize checkpoint is completed"):
+        await validate_resume_allowed(str(db_path), "wf-done", from_phase="phase_3_screening")
+
+
+@pytest.mark.asyncio
+async def test_validate_resume_allowed_rejects_resume_when_all_phases_done(tmp_path) -> None:
+    run_dir = tmp_path / "run2"
+    run_dir.mkdir()
+    db_path = run_dir / "runtime.db"
+    async with get_db(str(db_path)) as db:
+        await db.executescript(Path("src/db/schema.sql").read_text())
+        await db.commit()
+        repo = WorkflowRepository(db)
+        await repo.create_workflow("wf-all", "All done topic", "hash")
+        for phase in PHASE_ORDER:
+            await repo.save_checkpoint("wf-all", phase, papers_processed=1)
+
+    with pytest.raises(ResumeNotAllowedError, match="nothing remains to resume"):
+        await validate_resume_allowed(str(db_path), "wf-all", from_phase=None)

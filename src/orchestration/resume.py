@@ -30,6 +30,37 @@ PHASE_ORDER = [
     "finalize",
 ]
 
+USER_RESUMABLE_PHASE_ORDER = [phase for phase in PHASE_ORDER if phase != "phase_7_audit"]
+
+
+class ResumeNotAllowedError(ValueError):
+    """Raised when a resume request would replay a finished workflow."""
+
+
+async def validate_resume_allowed(
+    db_path: str,
+    workflow_id: str,
+    *,
+    from_phase: str | None,
+) -> None:
+    """Reject resume calls that would rewind and replay an already-finished run."""
+    async with get_db(db_path) as db:
+        repo = WorkflowRepository(db)
+        checkpoints = await repo.get_checkpoints(workflow_id)
+
+    finalize_done = checkpoints.get("finalize") == "completed"
+    all_phases_done = all(checkpoints.get(phase) == "completed" for phase in PHASE_ORDER)
+
+    if from_phase is not None and finalize_done:
+        raise ResumeNotAllowedError(
+            "Workflow finalize checkpoint is completed; from_phase resume would replay "
+            "earlier phases and duplicate screening/extraction work. "
+            "Start a fresh run if you need a full rerun."
+        )
+
+    if from_phase is None and all_phases_done:
+        raise ResumeNotAllowedError("All workflow phase checkpoints are completed; nothing remains to resume.")
+
 
 def _next_phase(checkpoints: dict[str, str]) -> str:
     """Return first phase that is missing or not completed.
@@ -93,6 +124,8 @@ async def load_resume_state(
     phases have checkpoints, clear checkpoints for from_phase and later, and
     return next_phase=from_phase.
     """
+    await validate_resume_allowed(db_path, workflow_id, from_phase=from_phase)
+
     run_dir = Path(db_path).resolve().parent
     run_dir.mkdir(parents=True, exist_ok=True)
     review, settings = load_configs(review_path, settings_path)
