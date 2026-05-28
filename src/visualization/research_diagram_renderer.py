@@ -13,6 +13,7 @@ from pydantic_ai.messages import BinaryContent
 
 from src.llm.factory import get_chat_client, get_image_client
 from src.llm.provider import LLMProvider
+from src.llm.registry import supports_native_image_generation
 from src.models import CostRecord
 from src.models.diagrams import (
     DiagramBriefPack,
@@ -209,6 +210,18 @@ async def render_custom_research_diagrams(
         workflow_id=brief_pack.workflow_id,
         style_profile=style_guide.profile_name,
     )
+
+    if not supports_native_image_generation(drawing_model):
+        config_msg = (
+            f"drawing model {drawing_model!r} does not support native image generation; "
+            "set agents.research_diagram_drawing to a Google image model "
+            "(configure a Google image-capable model id in config/settings.yaml)."
+        )
+        logger.error(config_msg)
+        report.warnings.append(config_msg)
+        for brief in brief_pack.diagrams:
+            report.warnings.append(f"{brief.diagram_id}: skipped ({config_msg})")
+        return report
 
     for idx, brief in enumerate(brief_pack.diagrams, start=1):
         artifact_key = f"custom_diagram_{idx:02d}"

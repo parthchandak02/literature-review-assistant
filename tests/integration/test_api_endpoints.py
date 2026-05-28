@@ -1954,6 +1954,40 @@ async def test_export_endpoint_accepts_workflow_identifier_via_resolver(
 
 
 @pytest.mark.asyncio
+async def test_export_returns_409_for_incomplete_submission_without_force(
+    client: httpx.AsyncClient,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workflow_id = "wf-export-incomplete"
+    run_dir = tmp_path / "2026-03-17" / "wf-export-incomplete-topic" / "run_01-00-00PM"
+    db_path = run_dir / "runtime.db"
+    submission_dir = run_dir / "submission"
+    run_dir.mkdir(parents=True, exist_ok=True)
+    submission_dir.mkdir(parents=True, exist_ok=True)
+    (submission_dir / "references.bib").write_text("bib", encoding="utf-8")
+    (run_dir / "run_summary.json").write_text(
+        json.dumps(
+            {
+                "workflow_id": workflow_id,
+                "output_dir": str(run_dir),
+                "artifacts": {},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    async def _resolve(_identifier: str, _run_root: str = "runs") -> str:
+        return str(db_path)
+
+    monkeypatch.setattr("src.web.app._resolve_db_path_from_run_or_workflow", _resolve)
+
+    response = await client.post(f"/api/run/{workflow_id}/export?run_root={tmp_path}")
+    assert response.status_code == 409
+    assert "incomplete" in response.json()["detail"].lower()
+
+
+@pytest.mark.asyncio
 async def test_submission_zip_endpoint_accepts_workflow_identifier_via_resolver(
     client: httpx.AsyncClient,
     tmp_path: Path,

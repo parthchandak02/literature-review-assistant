@@ -73,14 +73,12 @@ agents:
   research_diagram_placement:
     model: "deepseek:deepseek-v4-flash"
     temperature: 0.1
-  # ImageGenerationTool requires a provider with native image output; DeepSeek chat
-  # models are used here for brief/critic text only. Custom diagram PNG rendering may
-  # be skipped when the provider does not support image generation.
+  # ImageGenerationTool requires a Google image-capable model (not DeepSeek chat).
   research_diagram_drawing:
-    model: "deepseek:deepseek-v4-flash"
+    model: "google:gemini-3.1-flash-image-preview"
     temperature: 0.2
   research_diagram_critic:
-    model: "deepseek:deepseek-v4-pro"
+    model: "google:gemini-2.5-flash"
     temperature: 0.1
   narrative:
     model: "deepseek:deepseek-v4-flash"

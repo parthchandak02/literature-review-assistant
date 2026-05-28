@@ -852,6 +852,11 @@ async def trigger_export(run_id: str, run_root: str = "runs", force: bool = Fals
             if all(f.exists() for f in _key_files) and _study_pdfs_dir.exists():
                 files = sorted(str(f) for f in _sub_dir.rglob("*") if f.is_file())
                 return {"submission_dir": str(_sub_dir), "files": files}
+            if _sub_dir.exists() and any(_sub_dir.iterdir()):
+                raise HTTPException(
+                    status_code=409,
+                    detail=("Submission package exists but is incomplete; retry with force=true to rebuild"),
+                )
     try:
         submission_dir = await package_submission(workflow_id, run_root)
     except Exception as exc:
