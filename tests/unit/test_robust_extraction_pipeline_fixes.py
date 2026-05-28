@@ -19,7 +19,7 @@ from src.models import (
 )
 from src.models.enums import GRADECertainty, StudyDesign
 from src.quality.grade import build_sof_table
-from src.search.pdf_retrieval import _is_binary_garbage, _parse_pdf_bytes
+from src.search.pdf_parse import is_binary_garbage, parse_pdf_bytes
 from src.writing.evidence_assembler import ResultsEvidenceStudy, _study_result_sentence
 
 
@@ -64,8 +64,8 @@ def _settings() -> SettingsConfig:
 def test_binary_pdf_fallback_is_rejected() -> None:
     raw = b"%PDF-1.4\x00\x01 binary payload that is not real extracted prose"
     decoded = raw.decode("latin-1", errors="ignore")
-    assert _is_binary_garbage(decoded) is True
-    assert _parse_pdf_bytes(raw) == ""
+    assert is_binary_garbage(decoded) is True
+    assert parse_pdf_bytes(raw) == ""
 
 
 def test_substantive_finding_heuristic_rejects_filler_and_accepts_real_result() -> None:

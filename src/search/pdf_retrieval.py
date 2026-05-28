@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-import io
 import logging
 import os
 import time
@@ -14,6 +13,11 @@ import aiohttp
 from pydantic import BaseModel, Field
 
 from src.models import CandidatePaper
+from src.search.pdf_parse import (
+    DEFAULT_PDF_MAX_CHARS,
+    parse_pdf_bytes_async,
+    validated_full_text,
+)
 from src.utils.ssl_context import tcp_connector_with_certifi
 
 logger = logging.getLogger(__name__)
@@ -21,59 +25,7 @@ logger = logging.getLogger(__name__)
 # Maximum characters to keep from parsed PDF text before passing to the extractor.
 # Gemini 2.5 Pro supports 1M tokens; 32K chars is well within budget and
 # covers most academic papers (8-15 pages ~ 24K-45K chars).
-_PDF_MAX_CHARS = 32_000
-
-
-def _is_binary_garbage(text: str) -> bool:
-    """Return True when decoded text still looks like raw binary content."""
-    sample = str(text or "")[:4000]
-    if not sample:
-        return True
-    stripped = sample.lstrip()
-    if stripped.startswith("%PDF"):
-        return True
-    non_printable = 0
-    total = 0
-    for ch in sample:
-        total += 1
-        code = ord(ch)
-        if ch in "\n\r\t\f":
-            continue
-        if 32 <= code <= 126:
-            continue
-        non_printable += 1
-    if total == 0:
-        return True
-    return (non_printable / total) > 0.15
-
-
-def _validated_full_text(text: str) -> str:
-    cleaned = str(text or "")[:_PDF_MAX_CHARS]
-    if not cleaned.strip():
-        return ""
-    if _is_binary_garbage(cleaned):
-        return ""
-    return cleaned
-
-
-def _parse_pdf_bytes(body: bytes) -> str:
-    """Parse raw PDF bytes into clean markdown text using PyMuPDF.
-
-    Falls back to latin-1 decode if PyMuPDF is unavailable or parsing fails.
-    Returns up to _PDF_MAX_CHARS of markdown text.
-    """
-    try:
-        import fitz  # PyMuPDF
-        import pymupdf4llm
-
-        doc = fitz.open(stream=io.BytesIO(body), filetype="pdf")
-        md_text: str = pymupdf4llm.to_markdown(doc)
-        doc.close()
-        return md_text[:_PDF_MAX_CHARS]
-    except Exception as exc:
-        logger.debug("PyMuPDF parsing failed (%s); falling back to latin-1 decode.", exc)
-        decoded = body[:_PDF_MAX_CHARS].decode("latin-1", errors="ignore")
-        return _validated_full_text(decoded)
+_PDF_MAX_CHARS = DEFAULT_PDF_MAX_CHARS
 
 
 class PDFRetrievalResult(BaseModel):
@@ -186,7 +138,7 @@ class PDFRetriever:
                     **_tier_kwargs,
                 )
                 if ft_result and ft_result.source != "abstract":
-                    validated_text = _validated_full_text(ft_result.text)
+                    validated_text = validated_full_text(ft_result.text, max_chars=_PDF_MAX_CHARS)
                     if validated_text and len(validated_text) >= 500:
                         return PDFRetrievalResult(
                             paper_id=paper.paper_id,
@@ -201,7 +153,7 @@ class PDFRetriever:
                             success=True,
                         )
                     if ft_result.pdf_bytes and len(ft_result.pdf_bytes) > 1000:
-                        parsed = await asyncio.to_thread(_parse_pdf_bytes, ft_result.pdf_bytes)
+                        parsed = await parse_pdf_bytes_async(ft_result.pdf_bytes, max_chars=_PDF_MAX_CHARS)
                         if not parsed:
                             return PDFRetrievalResult(
                                 paper_id=paper.paper_id,
@@ -256,7 +208,7 @@ class PDFRetriever:
                         content_type = response.headers.get("Content-Type", "").lower()
                         body = await response.read()
                 if "application/pdf" in content_type:
-                    parsed_text = await asyncio.to_thread(_parse_pdf_bytes, body)
+                    parsed_text = await parse_pdf_bytes_async(body, max_chars=_PDF_MAX_CHARS)
                     if not parsed_text:
                         return PDFRetrievalResult(
                             paper_id=paper.paper_id,
@@ -284,10 +236,10 @@ class PDFRetriever:
 
                     lp = await _resolve_landing_page(url)
                     if lp:
-                        full_text = _validated_full_text(lp.text)
+                        full_text = validated_full_text(lp.text, max_chars=_PDF_MAX_CHARS)
                         lp_pdf = lp.pdf_bytes if lp.pdf_bytes and len(lp.pdf_bytes) > 1000 else None
                         if not full_text and lp_pdf:
-                            full_text = await asyncio.to_thread(_parse_pdf_bytes, lp_pdf)
+                            full_text = await parse_pdf_bytes_async(lp_pdf, max_chars=_PDF_MAX_CHARS)
                         if full_text and len(full_text.strip()) >= 500:
                             return PDFRetrievalResult(
                                 paper_id=paper.paper_id,
@@ -397,57 +349,64 @@ class PDFRetriever:
         pending: set[asyncio.Task[PDFRetrievalResult]] = set(task_to_paper)
         last_completion_at = time.monotonic()
 
-        while pending:
-            done, pending = await asyncio.wait(
-                pending,
-                timeout=5.0,
-                return_when=asyncio.FIRST_COMPLETED,
-            )
-            if not done:
-                if (time.monotonic() - last_completion_at) >= stall_timeout_seconds:
-                    logger.error(
-                        "PDFRetriever: stall watchdog triggered after %.1fs with %d pending tasks. "
-                        "Marking pending papers as timeout and continuing.",
-                        stall_timeout_seconds,
-                        len(pending),
-                    )
-                    for task in list(pending):
-                        paper = task_to_paper[task]
-                        _record_outcome(
-                            paper,
-                            PDFRetrievalResult(
-                                paper_id=paper.paper_id,
-                                reason_code="timeout",
-                                success=False,
-                                error=f"stall watchdog timeout after {stall_timeout_seconds:.1f}s",
-                            ),
+        try:
+            while pending:
+                done, pending = await asyncio.wait(
+                    pending,
+                    timeout=5.0,
+                    return_when=asyncio.FIRST_COMPLETED,
+                )
+                if not done:
+                    if (time.monotonic() - last_completion_at) >= stall_timeout_seconds:
+                        logger.error(
+                            "PDFRetriever: stall watchdog triggered after %.1fs with %d pending tasks. "
+                            "Marking pending papers as timeout and continuing.",
+                            stall_timeout_seconds,
+                            len(pending),
                         )
-                        task.cancel()
-                    break
-                continue
+                        for task in list(pending):
+                            paper = task_to_paper[task]
+                            _record_outcome(
+                                paper,
+                                PDFRetrievalResult(
+                                    paper_id=paper.paper_id,
+                                    reason_code="timeout",
+                                    success=False,
+                                    error=f"stall watchdog timeout after {stall_timeout_seconds:.1f}s",
+                                ),
+                            )
+                            task.cancel()
+                        pending.clear()
+                        break
+                    continue
 
-            last_completion_at = time.monotonic()
-            for task in done:
-                paper = task_to_paper[task]
+                last_completion_at = time.monotonic()
+                for task in done:
+                    paper = task_to_paper[task]
+                    try:
+                        outcome = task.result()
+                    except asyncio.CancelledError:
+                        raise
+                    except Exception as exc:
+                        logger.warning("PDFRetriever: task result failed for %s: %s", paper.paper_id, exc)
+                        outcome = PDFRetrievalResult(
+                            paper_id=paper.paper_id,
+                            reason_code="unexpected_error",
+                            success=False,
+                            error=str(exc)[:400],
+                        )
+                    _record_outcome(paper, outcome)
+        except asyncio.CancelledError:
+            logger.warning("PDFRetriever: retrieve_batch cancelled with %d pending tasks", len(pending))
+            raise
+        finally:
+            if pending:
+                for task in pending:
+                    task.cancel()
                 try:
-                    outcome = task.result()
-                except Exception as exc:
-                    logger.warning("PDFRetriever: task result failed for %s: %s", paper.paper_id, exc)
-                    outcome = PDFRetrievalResult(
-                        paper_id=paper.paper_id,
-                        reason_code="unexpected_error",
-                        success=False,
-                        error=str(exc)[:400],
-                    )
-                _record_outcome(paper, outcome)
-
-        if pending:
-            for task in pending:
-                task.cancel()
-            try:
-                await asyncio.wait_for(asyncio.gather(*pending, return_exceptions=True), timeout=1.0)
-            except TimeoutError:
-                logger.warning("PDFRetriever: pending tasks did not cancel promptly; detached from batch")
+                    await asyncio.wait_for(asyncio.gather(*pending, return_exceptions=True), timeout=2.0)
+                except TimeoutError:
+                    logger.warning("PDFRetriever: pending tasks did not cancel within 2s after batch end")
 
         attempted = len(papers)
         succeeded = attempted - len(failed_ids)
