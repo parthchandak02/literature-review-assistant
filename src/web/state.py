@@ -8,7 +8,6 @@ circular imports with ``app.py``.
 from __future__ import annotations
 
 import asyncio
-import datetime
 import json as _json
 import logging
 import pathlib
@@ -23,6 +22,7 @@ from src.config.loader import load_configs as _load_configs
 from src.db.workflow_registry import _open_registry as _open_registry_db
 from src.db.workflow_registry import update_heartbeat as _update_registry_heartbeat
 from src.db.workflow_registry import update_status as _update_registry_status
+from src.web.event_replay import load_replay_events
 from src.web.event_store import EventStore
 from src.web.lifecycle_reconciler import TERMINAL_EVENT_TO_STATUS, LifecycleReconciler
 from src.web.shared import (
@@ -150,7 +150,6 @@ _lifecycle_reconciler = LifecycleReconciler(
     bump_metric=_bump_lifecycle_metric,
 )
 _event_store = EventStore()
-
 
 # ---------------------------------------------------------------------------
 # State-dependent helpers
@@ -281,8 +280,8 @@ def _append_event(record: _RunRecord, event: dict[str, Any]) -> None:
     _event_store.append(record, event)
 
 
-async def _load_event_log_from_db(db_path: str) -> list[dict[str, Any]]:
-    return await _event_store.load(db_path)
+async def _load_event_log_from_db(db_path: str, workflow_id: str | None = None) -> list[dict[str, Any]]:
+    return await load_replay_events(db_path, workflow_id)
 
 
 # ---------------------------------------------------------------------------
@@ -478,48 +477,7 @@ async def _resume_wrapper(
         pass
 
     try:
-        record.event_log = await _load_event_log_from_db(db_path)
-    except Exception:
-        pass
-
-    try:
-        from src.db.database import get_db as _get_db
-        from src.db.repositories import WorkflowRepository as _WorkflowRepository
-        from src.orchestration.resume import PHASE_ORDER as _PHASE_ORDER
-
-        async with _get_db(db_path) as _chk_db:
-            _checkpoints = await _WorkflowRepository(_chk_db).get_checkpoints(workflow_id)
-        _phases_with_done = {
-            e["phase"] for e in record.event_log if isinstance(e, dict) and e.get("type") == "phase_done"
-        }
-        _insert_index = len(record.event_log)
-        for _i, _e in enumerate(record.event_log):
-            if isinstance(_e, dict) and _e.get("type") in ("done", "error", "cancelled"):
-                _insert_index = _i
-                break
-        _synthetic_ts = None
-        if _insert_index > 0:
-            _prev = record.event_log[_insert_index - 1]
-            if isinstance(_prev, dict) and "ts" in _prev:
-                _synthetic_ts = _prev["ts"]
-        if _synthetic_ts is None:
-            _synthetic_ts = datetime.datetime.now(tz=datetime.UTC).strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
-        _synthetic_events: list[dict[str, Any]] = []
-        for _phase in _PHASE_ORDER:
-            if _phase in _checkpoints and _phase not in _phases_with_done:
-                _synthetic_events.append(
-                    {
-                        "type": "phase_done",
-                        "phase": _phase,
-                        "summary": {},
-                        "total": None,
-                        "completed": None,
-                        "synthetic": True,
-                        "ts": _synthetic_ts,
-                    }
-                )
-        for _ev in reversed(_synthetic_events):
-            record.event_log.insert(_insert_index, _ev)
+        record.event_log = await _load_event_log_from_db(db_path, workflow_id)
     except Exception:
         pass
 
