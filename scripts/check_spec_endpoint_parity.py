@@ -125,7 +125,7 @@ def _decorator_name(decorator: ast.Call) -> str | None:
         return None
     if not isinstance(decorator.func.value, ast.Name):
         return None
-    if decorator.func.value.id != "app":
+    if decorator.func.value.id not in {"app", "router"}:
         return None
     if decorator.func.attr not in ALLOWED_DECORATORS:
         return None
@@ -162,8 +162,40 @@ def _include_in_schema_is_false(decorator: ast.Call) -> bool:
     return False
 
 
+def _extract_router_prefix(tree: ast.Module) -> str:
+    for node in tree.body:
+        targets: list[ast.expr] = []
+        value: ast.expr | None = None
+        if isinstance(node, ast.Assign):
+            targets = node.targets
+            value = node.value
+        elif isinstance(node, ast.AnnAssign):
+            if node.target is not None:
+                targets = [node.target]
+            value = node.value
+        if value is None or not isinstance(value, ast.Call):
+            continue
+        if not any(isinstance(t, ast.Name) and t.id == "router" for t in targets):
+            continue
+        func = value.func
+        if not (
+            isinstance(func, ast.Name)
+            and func.id == "APIRouter"
+            or isinstance(func, ast.Attribute)
+            and func.attr == "APIRouter"
+        ):
+            continue
+        for keyword in value.keywords:
+            if keyword.arg == "prefix" and isinstance(keyword.value, ast.Constant):
+                prefix = keyword.value.value
+                if isinstance(prefix, str):
+                    return prefix.rstrip("/")
+    return ""
+
+
 def extract_fastapi_endpoints(app_source: str) -> set[Endpoint]:
     tree = ast.parse(app_source)
+    prefix = _extract_router_prefix(tree)
     endpoints: set[Endpoint] = set()
     for node in ast.walk(tree):
         if not isinstance(node, (ast.AsyncFunctionDef, ast.FunctionDef)):
@@ -179,6 +211,8 @@ def extract_fastapi_endpoints(app_source: str) -> set[Endpoint]:
             path = _extract_literal_path(dec)
             if path is None:
                 continue
+            if prefix:
+                path = f"{prefix}{path}" if path.startswith("/") else f"{prefix}/{path}"
             if not path.startswith("/api"):
                 continue
             if CATCH_ALL_PATH_PATTERN.search(path):
@@ -189,6 +223,18 @@ def extract_fastapi_endpoints(app_source: str) -> set[Endpoint]:
                 methods = [dec_name]
             for method in methods:
                 endpoints.add(normalize_endpoint(method, path))
+    return endpoints
+
+
+def extract_fastapi_endpoints_from_tree(source_paths: list[Path]) -> set[Endpoint]:
+    """Collect /api/* endpoints from multiple FastAPI source files (app + routers)."""
+    endpoints: set[Endpoint] = set()
+    for path in source_paths:
+        try:
+            source = path.read_text(encoding="utf-8")
+        except OSError:
+            continue
+        endpoints |= extract_fastapi_endpoints(source)
     return endpoints
 
 
@@ -208,9 +254,12 @@ def _render_endpoint_set(title: str, values: set[Endpoint]) -> None:
 def run_parity_check(endpoints_doc_path: Path, app_path: Path) -> int:
     try:
         document_text = endpoints_doc_path.read_text(encoding="utf-8")
-        app_source = app_path.read_text(encoding="utf-8")
+        source_paths = [app_path]
+        routers_dir = app_path.parent / "routers"
+        if routers_dir.is_dir():
+            source_paths.extend(sorted(routers_dir.glob("*.py")))
+        app_endpoints = extract_fastapi_endpoints_from_tree(source_paths)
         documented_endpoints = parse_documented_endpoints(document_text)
-        app_endpoints = extract_fastapi_endpoints(app_source)
         diff = compare_endpoint_sets(documented_endpoints, app_endpoints)
     except ValueError as exc:
         console.print(f"ERROR: {exc}")

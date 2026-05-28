@@ -334,4 +334,19 @@
   .pb-safe { padding-bottom: env(safe-area-inset-bottom); }
   .pl-safe { padding-left: env(safe-area-inset-left); }
   .pr-safe { padding-right: env(safe-area-inset-right); }
+
+  /* Opaque panels for tables/logs — glass reserved for chrome */
+  .data-surface {
+    @apply rounded-lg border border-border/80;
+    background-color: color-mix(in srgb, var(--surface-1) 96%, black 4%);
+  }
+
+  .text-micro {
+    font-size: var(--text-micro, 0.625rem);
+    line-height: 1.25;
+  }
+
+  .tabular-nums {
+    font-variant-numeric: tabular-nums;
+  }
 }

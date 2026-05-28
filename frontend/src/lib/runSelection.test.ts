@@ -4,6 +4,7 @@ import {
   isSameRunSelection,
   isSameWorkflowSelection,
   shouldFallbackToWorkflowEvents,
+  shouldShowHistoricalLoading,
   shouldUsePrefetchedHistorical,
 } from "./runSelection"
 
@@ -31,6 +32,13 @@ describe("runSelection guards", () => {
     expect(shouldUsePrefetchedHistorical(null)).toBe(false)
     expect(shouldUsePrefetchedHistorical([])).toBe(false)
     expect(shouldUsePrefetchedHistorical([{ type: "phase_start" }])).toBe(true)
+  })
+
+  it("shows historical loading skeleton only when replay buffer is empty", () => {
+    expect(shouldShowHistoricalLoading(true, false, 0)).toBe(true)
+    expect(shouldShowHistoricalLoading(false, true, 0)).toBe(true)
+    expect(shouldShowHistoricalLoading(true, true, 12)).toBe(false)
+    expect(shouldShowHistoricalLoading(false, false, 0)).toBe(false)
   })
 
   it("treats failed historical rows as terminal", () => {

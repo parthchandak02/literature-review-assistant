@@ -13,7 +13,6 @@ import json as _json
 import logging
 import pathlib
 import time
-import uuid
 from collections.abc import Iterator
 from typing import Any
 
@@ -21,10 +20,11 @@ import aiosqlite
 from fastapi import HTTPException
 
 from src.config.loader import load_configs as _load_configs
-from src.db.database import open_runtime_db
 from src.db.workflow_registry import _open_registry as _open_registry_db
 from src.db.workflow_registry import update_heartbeat as _update_registry_heartbeat
 from src.db.workflow_registry import update_status as _update_registry_status
+from src.web.event_store import EventStore
+from src.web.lifecycle_reconciler import TERMINAL_EVENT_TO_STATUS, LifecycleReconciler
 from src.web.shared import (
     RunRequest,
     _normalize_status,
@@ -128,11 +128,6 @@ _STALE_THRESHOLD_SECONDS = 2 * 60
 _STALE_GRACE_SECONDS = 2 * 60
 
 _TERMINAL_REGISTRY_STATUSES = {"completed", "failed", "interrupted", "stale"}
-_TERMINAL_EVENT_TO_STATUS = {
-    "done": "completed",
-    "error": "failed",
-    "cancelled": "interrupted",
-}
 
 _lifecycle_metrics: dict[str, int] = {
     "stale_detections": 0,
@@ -142,21 +137,19 @@ _lifecycle_metrics: dict[str, int] = {
 
 _allowed_roots: set[str] = set()
 
-_RESUME_PHASE_ORDER = [
-    "phase_2_search",
-    "phase_3_screening",
-    "phase_4_extraction_quality",
-    "phase_4b_embedding",
-    "phase_5_synthesis",
-    "phase_5b_knowledge_graph",
-    "phase_5c_pre_writing_gate",
-    "phase_6_writing",
-    "finalize",
-]
-
 
 def _bump_lifecycle_metric(name: str) -> None:
     _lifecycle_metrics[name] = _lifecycle_metrics.get(name, 0) + 1
+
+
+_TERMINAL_EVENT_TO_STATUS = TERMINAL_EVENT_TO_STATUS
+
+_lifecycle_reconciler = LifecycleReconciler(
+    stale_threshold_seconds=_STALE_THRESHOLD_SECONDS,
+    stale_grace_seconds=_STALE_GRACE_SECONDS,
+    bump_metric=_bump_lifecycle_metric,
+)
+_event_store = EventStore()
 
 
 # ---------------------------------------------------------------------------
@@ -271,99 +264,25 @@ async def _repair_registry_statuses_from_runtime(run_root: str = "runs") -> None
 # Event system
 # ---------------------------------------------------------------------------
 
-_DURABLE_EVENT_TYPES = frozenset(
-    {
-        "phase_start",
-        "phase_done",
-        "done",
-        "error",
-        "cancelled",
-        "workflow_id_ready",
-        "db_ready",
-    }
-)
-
 
 async def _persist_event_log(db_path: str, workflow_id: str, events: list[dict[str, Any]]) -> None:
-    """Write buffered SSE events to the run's SQLite database for historical replay."""
-    if not events or not workflow_id:
-        return
-    try:
-        async with open_runtime_db(db_path) as db:
-            await db.executemany(
-                "INSERT INTO event_log (workflow_id, event_type, payload, ts) VALUES (?, ?, ?, ?)",
-                [
-                    (
-                        workflow_id,
-                        e.get("type", "unknown"),
-                        _json.dumps(e, default=str),
-                        str(e.get("ts", "")),
-                    )
-                    for e in events
-                ],
-            )
-            await db.commit()
-    except Exception as exc:
-        _logger.warning("Failed to persist event log for %s: %s", workflow_id, exc)
+    await _event_store.persist(db_path, workflow_id, events)
 
 
 async def _notify_new_event(record: _RunRecord) -> None:
-    async with record._event_cond:
-        record._event_cond.notify_all()
+    await _event_store.notify(record)
 
 
 async def _flush_pending_events(record: _RunRecord) -> None:
-    """Flush unpersisted tail events in record.event_log to SQLite."""
-    if not (record.db_path and record.workflow_id):
-        return
-    async with record._flush_lock:
-        new = record.event_log[record._flush_index :]
-        if not new:
-            return
-        await _persist_event_log(record.db_path, record.workflow_id, new)
-        record._flush_index += len(new)
+    await _event_store.flush_pending(record)
 
 
 def _append_event(record: _RunRecord, event: dict[str, Any]) -> None:
-    """Append event to replay log and notify all live stream subscribers."""
-    if not event.get("id"):
-        event["id"] = f"evt-{uuid.uuid4().hex}"
-    if not event.get("ts"):
-        event["ts"] = datetime.datetime.now(datetime.UTC).strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
-    _etype = str(event.get("type") or "")
-    event["durability"] = "durable" if _etype in _DURABLE_EVENT_TYPES else "eventual"
-    record.event_log.append(event)
-    try:
-        asyncio.create_task(_notify_new_event(record))
-    except Exception:
-        pass
-
-    if _etype in _DURABLE_EVENT_TYPES:
-        try:
-            asyncio.create_task(_flush_pending_events(record))
-        except Exception:
-            pass
+    _event_store.append(record, event)
 
 
 async def _load_event_log_from_db(db_path: str) -> list[dict[str, Any]]:
-    """Load persisted SSE events from a run's SQLite event_log table only."""
-    try:
-        async with aiosqlite.connect(db_path) as db:
-            db.row_factory = aiosqlite.Row
-            async with db.execute("SELECT id, payload, ts FROM event_log ORDER BY id ASC") as cur:
-                rows = await cur.fetchall()
-        events = []
-        for row in rows:
-            event = _json.loads(row["payload"])
-            if not event.get("id"):
-                event["id"] = f"db-{row['id']}"
-            if not event.get("ts"):
-                event["ts"] = str(row["ts"] or "")
-            events.append(event)
-    except Exception:
-        events = []
-
-    return events
+    return await _event_store.load(db_path)
 
 
 # ---------------------------------------------------------------------------
@@ -372,95 +291,11 @@ async def _load_event_log_from_db(db_path: str) -> list[dict[str, Any]]:
 
 
 def _running_heartbeat_stale(row: aiosqlite.Row) -> bool:
-    """Return True if a running workflow heartbeat is stale with grace windows."""
-    from src.web.shared import _age_seconds as _age_fn
-
-    heartbeat_age = _age_fn(row["heartbeat_at"])
-    updated_age = _age_fn(row["updated_at"])
-    created_age = _age_fn(row["created_at"])
-    fresh = (
-        min(x for x in (heartbeat_age, updated_age, created_age) if x is not None)
-        if any(x is not None for x in (heartbeat_age, updated_age, created_age))
-        else None
-    )
-    if fresh is not None and fresh <= _STALE_GRACE_SECONDS:
-        return False
-    if heartbeat_age is not None:
-        return heartbeat_age > _STALE_THRESHOLD_SECONDS
-    if updated_age is not None:
-        return updated_age > _STALE_THRESHOLD_SECONDS
-    if created_age is not None:
-        return created_age > _STALE_THRESHOLD_SECONDS
-    return True
+    return _lifecycle_reconciler.running_heartbeat_stale(row)
 
 
 async def _collect_terminal_evidence(db_path: str) -> dict[str, Any]:
-    """Collect durable terminal evidence from runtime.db and run_summary.json."""
-    out: dict[str, Any] = {
-        "terminal_status": None,
-        "source": None,
-        "event_type": None,
-        "workflow_status": None,
-        "summary_status": None,
-        "finalize_checkpoint_status": None,
-    }
-    try:
-        async with aiosqlite.connect(db_path) as db:
-            db.row_factory = aiosqlite.Row
-            try:
-                async with db.execute(
-                    "SELECT event_type FROM event_log WHERE event_type IN ('done','error','cancelled') ORDER BY id DESC LIMIT 1"
-                ) as cur:
-                    ev_row = await cur.fetchone()
-                if ev_row and ev_row["event_type"]:
-                    ev_type = str(ev_row["event_type"])
-                    out["event_type"] = ev_type
-                    ev_status = _TERMINAL_EVENT_TO_STATUS.get(ev_type)
-                    if ev_status:
-                        out["terminal_status"] = ev_status
-                        out["source"] = "event_log"
-            except Exception:
-                pass
-            if out["terminal_status"] is None:
-                try:
-                    async with db.execute(
-                        "SELECT status FROM workflows ORDER BY updated_at DESC, rowid DESC LIMIT 1"
-                    ) as cur:
-                        wf_row = await cur.fetchone()
-                    wf_status = _normalize_status(str(wf_row["status"])) if wf_row and wf_row["status"] else ""
-                    out["workflow_status"] = wf_status
-                    if wf_status in {"completed", "failed", "interrupted"}:
-                        out["terminal_status"] = wf_status
-                        out["source"] = "workflows_table"
-                except Exception:
-                    pass
-            if out["terminal_status"] is None:
-                try:
-                    async with db.execute(
-                        "SELECT status FROM checkpoints WHERE phase='finalize' ORDER BY rowid DESC LIMIT 1"
-                    ) as cur:
-                        cp_row = await cur.fetchone()
-                    cp_status = _normalize_status(str(cp_row["status"])) if cp_row and cp_row["status"] else ""
-                    out["finalize_checkpoint_status"] = cp_status
-                    if cp_status == "completed":
-                        out["terminal_status"] = "completed"
-                        out["source"] = "finalize_checkpoint"
-                except Exception:
-                    pass
-    except Exception:
-        return out
-    summary_path = pathlib.Path(db_path).parent / "run_summary.json"
-    if summary_path.exists():
-        try:
-            summary = _json.loads(summary_path.read_text(encoding="utf-8"))
-            summary_status = _normalize_status(str(summary.get("status", "")))
-            out["summary_status"] = summary_status
-            if out["terminal_status"] is None and summary_status in {"completed", "failed", "interrupted"}:
-                out["terminal_status"] = summary_status
-                out["source"] = "run_summary"
-        except Exception:
-            pass
-    return out
+    return await _lifecycle_reconciler.collect_terminal_evidence(db_path)
 
 
 async def _resolve_effective_status(
@@ -468,64 +303,12 @@ async def _resolve_effective_status(
     live_run_id: str | None,
     run_root: str,
 ) -> tuple[str, dict[str, Any]]:
-    """Resolve effective status from registry + live-memory + durable runtime evidence."""
-    from src.web.shared import _age_seconds as _age_fn
-
-    registry_status = _normalize_status(str(row["status"]))
-    diagnostics: dict[str, Any] = {
-        "registry_status": registry_status,
-        "live_run_id": live_run_id,
-        "source": "registry",
-    }
-    live_run_active = bool(live_run_id and registry_status in {"running", "awaiting_review"})
-    if live_run_active and not _running_heartbeat_stale(row):
-        diagnostics["source"] = "active_run"
-        return registry_status, diagnostics
-    if live_run_active:
-        diagnostics["live_run_stale"] = True
-    evidence = await _collect_terminal_evidence(str(row["db_path"]))
-    diagnostics["evidence"] = evidence
-    terminal = evidence.get("terminal_status")
-    if terminal in {"completed", "failed", "interrupted"} and registry_status in {
-        "running",
-        "stale",
-        "awaiting_review",
-    }:
-        diagnostics["source"] = str(evidence.get("source") or "runtime")
-        diagnostics["override"] = f"{registry_status}->{terminal}"
-        if registry_status == "stale":
-            _bump_lifecycle_metric("stale_reversals")
-        heartbeat_age = _age_fn(row["heartbeat_at"])
-        updated_age = _age_fn(row["updated_at"])
-        if heartbeat_age is None or heartbeat_age > _STALE_THRESHOLD_SECONDS:
-            if updated_age is None or updated_age > _STALE_THRESHOLD_SECONDS:
-                _bump_lifecycle_metric("missing_heartbeat_with_terminal_evidence")
-        if registry_status != terminal:
-            try:
-                await _update_registry_status(run_root, str(row["workflow_id"]), terminal)
-            except Exception:
-                pass
-            else:
-                _logger.info(
-                    "Lifecycle repair: workflow %s status running -> %s (%s)",
-                    row["workflow_id"],
-                    terminal,
-                    evidence.get("source"),
-                )
-        return terminal, diagnostics
-    if registry_status == "running" and not live_run_id:
-        if _running_heartbeat_stale(row):
-            _bump_lifecycle_metric("stale_detections")
-            diagnostics["source"] = "heartbeat_timeout"
-            _logger.info(
-                "Lifecycle stale classification: workflow=%s heartbeat_at=%s updated_at=%s metrics=%s",
-                row["workflow_id"],
-                row["heartbeat_at"],
-                row["updated_at"],
-                _lifecycle_metrics,
-            )
-            return "stale", diagnostics
-    return registry_status, diagnostics
+    return await _lifecycle_reconciler.resolve_effective_status(
+        row,
+        live_run_id,
+        run_root,
+        lifecycle_metrics=_lifecycle_metrics,
+    )
 
 
 # ---------------------------------------------------------------------------

@@ -33,6 +33,15 @@ export function shouldUsePrefetchedHistorical(
   return (prefetchedHistoricalEvents?.length ?? 0) > 0
 }
 
+/** Show timeline skeleton only while loading and no replayed events are available yet. */
+export function shouldShowHistoricalLoading(
+  historicalEventsLoading: boolean,
+  loadingHistory: boolean,
+  activeEventCount: number,
+): boolean {
+  return (historicalEventsLoading || loadingHistory) && activeEventCount === 0
+}
+
 export function isTerminalHistoricalStatus(status: string | null | undefined): boolean {
   const normalized = (status ?? "").toLowerCase()
   return ["cancelled", "done", "completed", "interrupted", "stale", "failed", "error"].includes(normalized)

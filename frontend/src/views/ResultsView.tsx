@@ -22,6 +22,7 @@ import { EvidenceNetworkViz } from "@/components/EvidenceNetworkViz"
 import {
   APIResponseError,
   fetchGradeSof,
+  fetchArtifactText,
   prosperoFormDocxUrl,
   prosperoFormMarkdownUrl,
   triggerExport,
@@ -158,9 +159,7 @@ function ManuscriptViewer({ filePath }: { filePath: string }) {
     setLoading(true)
     setError(null)
     try {
-      const res = await fetch(downloadUrl(filePath), { signal })
-      if (!res.ok) throw new Error(`HTTP ${res.status}`)
-      const text = await res.text()
+      const text = await fetchArtifactText(filePath, signal)
       if (!signal?.aborted) setContent(text)
     } catch (e) {
       if (e instanceof DOMException && e.name === "AbortError") return

@@ -13,7 +13,7 @@ import { eventToLogEntry } from "@/lib/logLine"
 import { FetchError, Spinner } from "@/components/ui/feedback"
 import { Skeleton } from "@/components/ui/skeleton"
 import { fetchHistoricalReviewEvents } from "@/lib/api"
-import { shouldUsePrefetchedHistorical } from "@/lib/runSelection"
+import { shouldShowHistoricalLoading, shouldUsePrefetchedHistorical } from "@/lib/runSelection"
 import { PHASE_ORDER, PHASE_LABELS, PHASE_MILESTONES, RESUME_PHASE_ORDER } from "@/lib/constants"
 import type { ReviewEvent } from "@/lib/api"
 import { cn } from "@/lib/utils"
@@ -419,13 +419,20 @@ export function ActivityView({
         if (!cancelled) setLoadingHistory(false)
       }
     })()
-    return () => { cancelled = true }
+    return () => {
+      cancelled = true
+      setLoadingHistory(false)
+    }
   }, [isFallbackMode, runId, workflowId, hasPrefetchedHistorical, historicalEventsLoading, attachPending])
 
   const [searchQuery, setSearchQuery] = useState("")
   const activeHistoricalEvents = hasPrefetchedHistorical ? (prefetchedHistoricalEvents ?? []) : historicalEvents
   const activeEvents = isFallbackMode ? activeHistoricalEvents : events
-  const effectiveLoadingHistory = hasPrefetchedHistorical ? historicalEventsLoading : loadingHistory
+  const effectiveLoadingHistory = shouldShowHistoricalLoading(
+    historicalEventsLoading,
+    loadingHistory,
+    activeEvents.length,
+  )
   const normalizedHistoricalStatus = (historicalStatus ?? "").toLowerCase()
   const completedWorkflow =
     normalizedHistoricalStatus === "completed" ||

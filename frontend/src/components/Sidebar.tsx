@@ -16,8 +16,9 @@ import {
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { formatCollapsedWorkflowBadge, formatRunDate, formatWorkflowId } from "@/lib/format"
-import { fetchHistory } from "@/lib/api"
+import { fetchHistory, type NotesStreamEvent } from "@/lib/api"
 import type { HistoryEntry } from "@/lib/api"
+import { useNotesStream } from "@/hooks/useNotesStream"
 import type { FunnelStage } from "@/lib/funnelStages"
 import { useNoteAutosave } from "@/hooks/useNoteAutosave"
 import {
@@ -170,32 +171,15 @@ export function Sidebar({
     }
   }, [])
 
-  // Subscribe to the global notes SSE stream for real-time cross-client sync.
-  useEffect(() => {
-    const es = new EventSource("/api/notes/stream")
-    es.onmessage = (event) => {
-      try {
-        const data = JSON.parse(event.data as string) as {
-          workflow_id: string
-          note: string
-        }
-        setNotes((prev) => ({ ...prev, [data.workflow_id]: data.note }))
-        // Increment flash counter for the updated workflow so NoteField re-keys
-        // and restarts the CSS animation even on rapid successive updates.
-        setNoteFlashCounters((prev) => ({
-          ...prev,
-          [data.workflow_id]: (prev[data.workflow_id] ?? 0) + 1,
-        }))
-      } catch {
-        // Ignore malformed events.
-      }
-    }
-    es.onerror = () => {
-      // EventSource auto-reconnects after errors; no manual action needed.
-      // Errors in development (e.g. server restart) resolve on reconnect.
-    }
-    return () => es.close()
+  const handleNotesStreamMessage = useCallback((data: NotesStreamEvent) => {
+    setNotes((prev) => ({ ...prev, [data.workflow_id]: data.note }))
+    setNoteFlashCounters((prev) => ({
+      ...prev,
+      [data.workflow_id]: (prev[data.workflow_id] ?? 0) + 1,
+    }))
   }, [])
+
+  useNotesStream(handleNotesStreamMessage)
 
   // Fetch history on mount, poll every 30s (picks up in-progress CLI runs),
   // and whenever the live run finishes. Pause polling when tab is hidden.

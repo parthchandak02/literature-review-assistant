@@ -280,7 +280,7 @@ async def test_resolve_landing_page_none_on_http_error():
         return_value=MagicMock(__aenter__=AsyncMock(return_value=resp), __aexit__=AsyncMock(return_value=None))
     )
 
-    with patch("src.extraction.table_extraction.aiohttp.ClientSession", return_value=session_mock):
+    with patch("src.fulltext.retrieval.aiohttp.ClientSession", return_value=session_mock):
         result = await _resolve_landing_page("https://example.com/article/123")
 
     assert result is None
@@ -297,7 +297,7 @@ async def test_resolve_landing_page_none_when_no_signals():
         return_value=MagicMock(__aenter__=AsyncMock(return_value=resp), __aexit__=AsyncMock(return_value=None))
     )
 
-    with patch("src.extraction.table_extraction.aiohttp.ClientSession", return_value=session_mock):
+    with patch("src.fulltext.retrieval.aiohttp.ClientSession", return_value=session_mock):
         result = await _resolve_landing_page("https://example.com/article/123")
 
     assert result is None
@@ -337,12 +337,12 @@ async def test_resolve_landing_page_citation_pdf_url_meta():
     session_mock.get = MagicMock(side_effect=_get_side_effect)
 
     with (
-        patch("src.extraction.table_extraction.aiohttp.ClientSession", return_value=session_mock),
-        patch("src.extraction.table_extraction.fitz", create=True),
-        patch("src.extraction.table_extraction.pymupdf4llm", create=True),
+        patch("src.fulltext.retrieval.aiohttp.ClientSession", return_value=session_mock),
+        patch("src.fulltext.retrieval.fitz", create=True),
+        patch("src.fulltext.retrieval.pymupdf4llm", create=True),
     ):
         # Patch PDF parsing to return deterministic text
-        with patch("src.extraction.table_extraction._resolve_landing_page", wraps=_resolve_landing_page):
+        with patch("src.fulltext.retrieval._resolve_landing_page", wraps=_resolve_landing_page):
             pass
 
     # Simpler: confirm candidates are extracted from HTML (unit-level)
@@ -375,19 +375,19 @@ async def test_fetch_full_text_tier6_called_when_all_apis_miss():
     )
 
     with (
-        patch("src.extraction.table_extraction._quick_citation_pdf_url", new=AsyncMock(return_value=None)),
-        patch("src.extraction.table_extraction._fetch_unpaywall", new=AsyncMock(return_value=None)),
-        patch("src.extraction.table_extraction._fetch_arxiv", new=AsyncMock(return_value=None)),
-        patch("src.extraction.table_extraction._fetch_semanticscholar", new=AsyncMock(return_value=None)),
-        patch("src.extraction.table_extraction._fetch_biorxiv_medrxiv", new=AsyncMock(return_value=None)),
-        patch("src.extraction.table_extraction._fetch_core", new=AsyncMock(return_value=None)),
-        patch("src.extraction.table_extraction._fetch_openalex_content", new=AsyncMock(return_value=None)),
-        patch("src.extraction.table_extraction._fetch_europepmc", new=AsyncMock(return_value=None)),
-        patch("src.extraction.table_extraction._fetch_sciencedirect", new=AsyncMock(return_value=None)),
-        patch("src.extraction.table_extraction._fetch_pmc", new=AsyncMock(return_value=None)),
-        patch("src.extraction.table_extraction._fetch_crossref_links", new=AsyncMock(return_value=None)),
+        patch("src.fulltext.retrieval._quick_citation_pdf_url", new=AsyncMock(return_value=None)),
+        patch("src.fulltext.retrieval._fetch_unpaywall", new=AsyncMock(return_value=None)),
+        patch("src.fulltext.retrieval._fetch_arxiv", new=AsyncMock(return_value=None)),
+        patch("src.fulltext.retrieval._fetch_semanticscholar", new=AsyncMock(return_value=None)),
+        patch("src.fulltext.retrieval._fetch_biorxiv_medrxiv", new=AsyncMock(return_value=None)),
+        patch("src.fulltext.retrieval._fetch_core", new=AsyncMock(return_value=None)),
+        patch("src.fulltext.retrieval._fetch_openalex_content", new=AsyncMock(return_value=None)),
+        patch("src.fulltext.retrieval._fetch_europepmc", new=AsyncMock(return_value=None)),
+        patch("src.fulltext.retrieval._fetch_sciencedirect", new=AsyncMock(return_value=None)),
+        patch("src.fulltext.retrieval._fetch_pmc", new=AsyncMock(return_value=None)),
+        patch("src.fulltext.retrieval._fetch_crossref_links", new=AsyncMock(return_value=None)),
         patch(
-            "src.extraction.table_extraction._resolve_landing_page",
+            "src.fulltext.retrieval._resolve_landing_page",
             new=AsyncMock(return_value=landing_result),
         ) as mock_lp,
     ):
@@ -406,19 +406,19 @@ async def test_fetch_full_text_tier6_called_when_all_apis_miss():
 async def test_fetch_full_text_tier6_skipped_when_disabled():
     """use_landing_page=False must skip the landing-page tier entirely."""
     with (
-        patch("src.extraction.table_extraction._quick_citation_pdf_url", new=AsyncMock(return_value=None)),
-        patch("src.extraction.table_extraction._fetch_unpaywall", new=AsyncMock(return_value=None)),
-        patch("src.extraction.table_extraction._fetch_arxiv", new=AsyncMock(return_value=None)),
-        patch("src.extraction.table_extraction._fetch_semanticscholar", new=AsyncMock(return_value=None)),
-        patch("src.extraction.table_extraction._fetch_biorxiv_medrxiv", new=AsyncMock(return_value=None)),
-        patch("src.extraction.table_extraction._fetch_core", new=AsyncMock(return_value=None)),
-        patch("src.extraction.table_extraction._fetch_openalex_content", new=AsyncMock(return_value=None)),
-        patch("src.extraction.table_extraction._fetch_europepmc", new=AsyncMock(return_value=None)),
-        patch("src.extraction.table_extraction._fetch_sciencedirect", new=AsyncMock(return_value=None)),
-        patch("src.extraction.table_extraction._fetch_pmc", new=AsyncMock(return_value=None)),
-        patch("src.extraction.table_extraction._fetch_crossref_links", new=AsyncMock(return_value=None)),
+        patch("src.fulltext.retrieval._quick_citation_pdf_url", new=AsyncMock(return_value=None)),
+        patch("src.fulltext.retrieval._fetch_unpaywall", new=AsyncMock(return_value=None)),
+        patch("src.fulltext.retrieval._fetch_arxiv", new=AsyncMock(return_value=None)),
+        patch("src.fulltext.retrieval._fetch_semanticscholar", new=AsyncMock(return_value=None)),
+        patch("src.fulltext.retrieval._fetch_biorxiv_medrxiv", new=AsyncMock(return_value=None)),
+        patch("src.fulltext.retrieval._fetch_core", new=AsyncMock(return_value=None)),
+        patch("src.fulltext.retrieval._fetch_openalex_content", new=AsyncMock(return_value=None)),
+        patch("src.fulltext.retrieval._fetch_europepmc", new=AsyncMock(return_value=None)),
+        patch("src.fulltext.retrieval._fetch_sciencedirect", new=AsyncMock(return_value=None)),
+        patch("src.fulltext.retrieval._fetch_pmc", new=AsyncMock(return_value=None)),
+        patch("src.fulltext.retrieval._fetch_crossref_links", new=AsyncMock(return_value=None)),
         patch(
-            "src.extraction.table_extraction._resolve_landing_page",
+            "src.fulltext.retrieval._resolve_landing_page",
             new=AsyncMock(return_value=None),
         ) as mock_lp,
     ):
@@ -438,22 +438,22 @@ async def test_fetch_full_text_tier6_skipped_when_disabled():
 async def test_fetch_full_text_tier05_uses_original_landing_url():
     """Tier 0.5 should read citation_pdf_url from the landing URL, not /pdf variant."""
     with (
-        patch("src.extraction.table_extraction._fetch_url_direct", new=AsyncMock(return_value=None)),
+        patch("src.fulltext.retrieval._fetch_url_direct", new=AsyncMock(return_value=None)),
         patch(
-            "src.extraction.table_extraction._quick_citation_pdf_url",
+            "src.fulltext.retrieval._quick_citation_pdf_url",
             new=AsyncMock(return_value=None),
         ) as mock_quick,
-        patch("src.extraction.table_extraction._fetch_unpaywall", new=AsyncMock(return_value=None)),
-        patch("src.extraction.table_extraction._fetch_arxiv", new=AsyncMock(return_value=None)),
-        patch("src.extraction.table_extraction._fetch_semanticscholar", new=AsyncMock(return_value=None)),
-        patch("src.extraction.table_extraction._fetch_biorxiv_medrxiv", new=AsyncMock(return_value=None)),
-        patch("src.extraction.table_extraction._fetch_core", new=AsyncMock(return_value=None)),
-        patch("src.extraction.table_extraction._fetch_openalex_content", new=AsyncMock(return_value=None)),
-        patch("src.extraction.table_extraction._fetch_europepmc", new=AsyncMock(return_value=None)),
-        patch("src.extraction.table_extraction._fetch_sciencedirect", new=AsyncMock(return_value=None)),
-        patch("src.extraction.table_extraction._fetch_pmc", new=AsyncMock(return_value=None)),
-        patch("src.extraction.table_extraction._fetch_crossref_links", new=AsyncMock(return_value=None)),
-        patch("src.extraction.table_extraction._resolve_landing_page", new=AsyncMock(return_value=None)),
+        patch("src.fulltext.retrieval._fetch_unpaywall", new=AsyncMock(return_value=None)),
+        patch("src.fulltext.retrieval._fetch_arxiv", new=AsyncMock(return_value=None)),
+        patch("src.fulltext.retrieval._fetch_semanticscholar", new=AsyncMock(return_value=None)),
+        patch("src.fulltext.retrieval._fetch_biorxiv_medrxiv", new=AsyncMock(return_value=None)),
+        patch("src.fulltext.retrieval._fetch_core", new=AsyncMock(return_value=None)),
+        patch("src.fulltext.retrieval._fetch_openalex_content", new=AsyncMock(return_value=None)),
+        patch("src.fulltext.retrieval._fetch_europepmc", new=AsyncMock(return_value=None)),
+        patch("src.fulltext.retrieval._fetch_sciencedirect", new=AsyncMock(return_value=None)),
+        patch("src.fulltext.retrieval._fetch_pmc", new=AsyncMock(return_value=None)),
+        patch("src.fulltext.retrieval._fetch_crossref_links", new=AsyncMock(return_value=None)),
+        patch("src.fulltext.retrieval._resolve_landing_page", new=AsyncMock(return_value=None)),
     ):
         from src.extraction.table_extraction import fetch_full_text
 

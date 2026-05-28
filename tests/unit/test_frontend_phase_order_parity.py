@@ -3,7 +3,7 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-from src.orchestration.resume import PHASE_ORDER as BACKEND_PHASE_ORDER
+from src.orchestration.resume import USER_RESUMABLE_PHASE_ORDER as BACKEND_USER_RESUMABLE_PHASE_ORDER
 
 
 def _load_frontend_resume_phase_order() -> list[str]:
@@ -23,5 +23,5 @@ def _load_frontend_resume_phase_order() -> list[str]:
 
 def test_frontend_resume_phase_order_matches_backend_user_visible_flow() -> None:
     frontend_order = _load_frontend_resume_phase_order()
-    backend_user_visible_order = [phase for phase in BACKEND_PHASE_ORDER if phase != "phase_7_audit"]
+    backend_user_visible_order = list(BACKEND_USER_RESUMABLE_PHASE_ORDER)
     assert frontend_order == backend_user_visible_order
