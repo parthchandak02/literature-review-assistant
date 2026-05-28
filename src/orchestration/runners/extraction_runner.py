@@ -55,6 +55,7 @@ from src.quality import (
     StudyRouter,
 )
 from src.quality.grade import _PLACEHOLDER_OUTCOME_NAMES
+from src.search.pdf_parse import parse_pdf_bytes_async
 from src.visualization import render_rob_traffic_light
 from src.writing.context_builder import sanitize_summary_text_for_writing
 
@@ -292,9 +293,7 @@ async def run_extraction_quality_node(state: ReviewState, ctx: GraphRunContext[R
                         full_text = ft_result.text
                     elif ft_result and ft_result.pdf_bytes and len(ft_result.pdf_bytes) > 1000:
                         try:
-                            from src.search.pdf_retrieval import _parse_pdf_bytes
-
-                            full_text = await asyncio.to_thread(_parse_pdf_bytes, ft_result.pdf_bytes)
+                            full_text = await parse_pdf_bytes_async(ft_result.pdf_bytes)
                         except Exception as exc:
                             logger.warning("Phase 4 retry PDF parse failed for %s: %s", qr.paper_id, exc)
                             full_text = (_src_paper.abstract or _src_paper.title or "").strip()
@@ -515,9 +514,7 @@ async def run_extraction_quality_node(state: ReviewState, ctx: GraphRunContext[R
                         _rc_print(rc, f"    [dim]full-text via {ft_result.source} ({len(full_text)} chars)[/]")
                 elif ft_result and ft_result.pdf_bytes and len(ft_result.pdf_bytes) > 1000:
                     try:
-                        from src.search.pdf_retrieval import _parse_pdf_bytes
-
-                        full_text = await asyncio.to_thread(_parse_pdf_bytes, ft_result.pdf_bytes)
+                        full_text = await parse_pdf_bytes_async(ft_result.pdf_bytes)
                         if rc and rc.verbose:
                             _rc_print(
                                 rc,

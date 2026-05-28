@@ -32,6 +32,7 @@ from src.llm.factory import get_chat_client
 from src.llm.provider import LLMProvider
 from src.models import CostRecord
 from src.models.extraction import OutcomeRecord
+from src.search.pdf_parse import parse_pdf_bytes_async
 from src.utils.ssl_context import tcp_connector_with_certifi
 
 logger = logging.getLogger(__name__)
@@ -90,6 +91,12 @@ _AUTH_OR_BOT_BLOCKED_STATUSES = {401, 403, 418, 429}
 _SD_MIN_CHARS = 500
 # Maximum chars returned from a landing-page HTML resolution.
 _LP_MAX_CHARS = 32_000
+
+
+async def _parse_pdf_body(body: bytes, *, max_chars: int = _LP_MAX_CHARS) -> str:
+    """Parse PDF bytes off the event loop via bounded thread pool."""
+    return await parse_pdf_bytes_async(body, max_chars=max_chars)
+
 
 # Elsevier/ScienceDirect DOI prefixes. Article API only works for these;
 # non-Elsevier DOIs return 403/404. Skip to preserve API quota.
@@ -600,15 +607,9 @@ async def _fetch_arxiv(
             return None
         # Parse PDF to text for consistency with other tiers
         try:
-            import io
-
-            import fitz  # PyMuPDF
-            import pymupdf4llm
-
-            doc = fitz.open(stream=io.BytesIO(body), filetype="pdf")
-            md_text = pymupdf4llm.to_markdown(doc)
-            doc.close()
-            text = md_text[: _SD_MIN_CHARS * 2]  # ~1K chars min for meaningful content
+            text = (await _parse_pdf_body(body, max_chars=_SD_MIN_CHARS * 2))[
+                : _SD_MIN_CHARS * 2
+            ]  # ~1K chars min for meaningful content
             if len(text.strip()) >= _SD_MIN_CHARS:
                 return FullTextResult(text=text, source="arxiv_pdf", pdf_bytes=body)
         except Exception:
@@ -660,15 +661,7 @@ async def _fetch_biorxiv_medrxiv(
                 if not body or len(body) < 500:
                     continue
                 try:
-                    import io
-
-                    import fitz  # PyMuPDF
-                    import pymupdf4llm
-
-                    doc = fitz.open(stream=io.BytesIO(body), filetype="pdf")
-                    md_text = pymupdf4llm.to_markdown(doc)
-                    doc.close()
-                    text = md_text[: _SD_MIN_CHARS * 2]
+                    text = (await _parse_pdf_body(body, max_chars=_SD_MIN_CHARS * 2))[: _SD_MIN_CHARS * 2]
                     if len(text.strip()) >= _SD_MIN_CHARS:
                         return FullTextResult(
                             text=text,
@@ -763,15 +756,7 @@ async def _fetch_openalex_content(
                 if not body or len(body) < 500:
                     continue
                 try:
-                    import io
-
-                    import fitz  # PyMuPDF
-                    import pymupdf4llm
-
-                    doc = fitz.open(stream=io.BytesIO(body), filetype="pdf")
-                    md_text = pymupdf4llm.to_markdown(doc)
-                    doc.close()
-                    text = md_text[: _SD_MIN_CHARS * 2]
+                    text = (await _parse_pdf_body(body, max_chars=_SD_MIN_CHARS * 2))[: _SD_MIN_CHARS * 2]
                     if len(text.strip()) >= _SD_MIN_CHARS:
                         logger.info("OpenAlex Content: PDF fetched from %s", pdf_url[:70])
                         return FullTextResult(text=text, source="openalex_content", pdf_bytes=body)
@@ -852,14 +837,7 @@ async def _fetch_pmc(doi: str, pmid: str | None = None, diagnostics: list[str] |
                         if pbody[:4] == b"%PDF":
                             text = ""
                             try:
-                                import io
-
-                                import fitz  # PyMuPDF
-                                import pymupdf4llm
-
-                                doc = fitz.open(stream=io.BytesIO(pbody), filetype="pdf")
-                                text = pymupdf4llm.to_markdown(doc)[:_LP_MAX_CHARS]
-                                doc.close()
+                                text = (await _parse_pdf_body(pbody, max_chars=_LP_MAX_CHARS))[:_LP_MAX_CHARS]
                             except Exception:
                                 pass
                             logger.info("PMC: PDF retrieved for PMCID=%s", pmcid)
@@ -955,15 +933,7 @@ async def _fetch_crossref_links(
                 if not body or len(body) < 500:
                     continue
                 try:
-                    import io
-
-                    import fitz  # PyMuPDF
-                    import pymupdf4llm
-
-                    doc = fitz.open(stream=io.BytesIO(body), filetype="pdf")
-                    md_text = pymupdf4llm.to_markdown(doc)
-                    doc.close()
-                    text = md_text[: _SD_MIN_CHARS * 2]
+                    text = (await _parse_pdf_body(body, max_chars=_SD_MIN_CHARS * 2))[: _SD_MIN_CHARS * 2]
                     if len(text.strip()) >= _SD_MIN_CHARS:
                         return FullTextResult(text=text, source="crossref_link", pdf_bytes=body)
                 except Exception:
@@ -1197,14 +1167,7 @@ async def _fetch_url_direct(
             return None
         text = ""
         try:
-            import io as _io
-
-            import fitz
-            import pymupdf4llm
-
-            doc = fitz.open(stream=_io.BytesIO(body), filetype="pdf")
-            text = pymupdf4llm.to_markdown(doc)
-            doc.close()
+            text = await _parse_pdf_body(body, max_chars=_LP_MAX_CHARS)
         except Exception:
             pass
         logger.info("PublisherDirect: PDF fetched from %s", pdf_url[:80])
@@ -1433,14 +1396,7 @@ async def _resolve_landing_page(
         # The landing URL itself served a PDF directly (check content-type and magic bytes).
         if "application/pdf" in content_type or body[:4] == b"%PDF":
             try:
-                import io
-
-                import fitz  # PyMuPDF
-                import pymupdf4llm
-
-                doc = fitz.open(stream=io.BytesIO(body), filetype="pdf")
-                text = pymupdf4llm.to_markdown(doc)
-                doc.close()
+                text = await _parse_pdf_body(body, max_chars=_LP_MAX_CHARS)
                 if len(text.strip()) >= _SD_MIN_CHARS:
                     return FullTextResult(text=text[:_LP_MAX_CHARS], source="landing_page_pdf", pdf_bytes=body)
             except Exception:
@@ -1500,14 +1456,7 @@ async def _resolve_landing_page(
                     if _is_pdf_response:
                         text = ""
                         try:
-                            import io
-
-                            import fitz  # PyMuPDF
-                            import pymupdf4llm
-
-                            doc = fitz.open(stream=io.BytesIO(pbody), filetype="pdf")
-                            text = pymupdf4llm.to_markdown(doc)
-                            doc.close()
+                            text = await _parse_pdf_body(pbody, max_chars=_LP_MAX_CHARS)
                         except Exception:
                             pass
                         logger.info(
@@ -1662,7 +1611,10 @@ async def _race_first_success(
         for t in tasks:
             t.cancel()
         if tasks:
-            await asyncio.gather(*tasks, return_exceptions=True)
+            try:
+                await asyncio.wait_for(asyncio.gather(*tasks, return_exceptions=True), timeout=2.0)
+            except TimeoutError:
+                logger.warning("_race_first_success: cancelled tasks did not finish within 2s; abandoning")
 
 
 async def fetch_full_text(
