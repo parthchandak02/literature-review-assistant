@@ -16,8 +16,10 @@ import {
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Spinner } from "@/components/ui/feedback"
+import { CustomDiagramsCard } from "@/components/CustomDiagramsCard"
 import { ManuscriptImage } from "@/components/ManuscriptImage"
 import { ResultsPanel } from "@/components/ResultsPanel"
+import { collectCustomDiagramItems } from "@/lib/customDiagrams"
 import { EvidenceNetworkViz } from "@/components/EvidenceNetworkViz"
 import {
   APIResponseError,
@@ -60,6 +62,34 @@ function hasSubmissionArtifacts(obj: unknown): boolean {
     }
   }
   return false
+}
+
+/** Match only files under run submission/, not doc_manuscript.tex etc. */
+function findSubmissionFile(outputs: Record<string, unknown>, basename: string): string | null {
+  function walk(obj: unknown): string | null {
+    if (typeof obj === "string" && isFilePath(obj)) {
+      if (obj.includes("/submission/") && obj.split("/").pop() === basename) return obj
+    } else if (obj && typeof obj === "object" && !Array.isArray(obj)) {
+      for (const v of Object.values(obj as Record<string, unknown>)) {
+        const found = walk(v)
+        if (found) return found
+      }
+    }
+    return null
+  }
+  return walk(outputs)
+}
+
+function hasCompleteSubmission(outputs: Record<string, unknown>): boolean {
+  return Boolean(
+    findSubmissionFile(outputs, "manuscript.tex")
+    && findSubmissionFile(outputs, "manuscript.docx")
+    && findSubmissionFile(outputs, "references.bib"),
+  )
+}
+
+function hasPartialSubmission(outputs: Record<string, unknown>): boolean {
+  return hasSubmissionArtifacts(outputs) && !hasCompleteSubmission(outputs)
 }
 
 function findFileByName(outputs: Record<string, unknown>, namePart: string): string | null {
@@ -123,6 +153,9 @@ function extractHeadings(markdown: string): { level: number; text: string; slug:
 }
 
 function formatExportError(error: unknown): string {
+  const stripExportLabel = (message: string) =>
+    message.replace(/^Export failed:\s*/i, "").trim()
+
   if (error instanceof APIResponseError) {
     if (
       error.detail &&
@@ -133,13 +166,13 @@ function formatExportError(error: unknown): string {
       const violations = (error.detail as { violations: Array<{ code?: string }> }).violations
       const firstCode = violations[0]?.code
       if (firstCode) {
-        return `${error.message} (${firstCode}${violations.length > 1 ? ` +${violations.length - 1} more` : ""})`
+        return `${stripExportLabel(error.message)} (${firstCode}${violations.length > 1 ? ` +${violations.length - 1} more` : ""})`
       }
-      return `${error.message} (${violations.length} contract violation${violations.length === 1 ? "" : "s"})`
+      return `${stripExportLabel(error.message)} (${violations.length} contract violation${violations.length === 1 ? "" : "s"})`
     }
-    return error.message
+    return stripExportLabel(error.message)
   }
-  if (error instanceof Error) return error.message
+  if (error instanceof Error) return stripExportLabel(error.message)
   return "Export failed"
 }
 
@@ -437,6 +470,7 @@ function ManuscriptActions({
   const [exportState, setExportState] = useState<ExportState>("idle")
   const [exportFiles, setExportFiles] = useState<string[]>([])
   const [exportError, setExportError] = useState<string | null>(null)
+  const [packagingIncomplete, setPackagingIncomplete] = useState(false)
   const prefix = exportRunId ?? "manuscript"
 
   const handleExport = useCallback(async (force = false) => {
@@ -449,24 +483,53 @@ function ManuscriptActions({
       onExportReadyChange?.(result.files.length > 0)
       setExportState("done")
     } catch (error) {
+      if (error instanceof APIResponseError && error.status === 409) {
+        setPackagingIncomplete(true)
+        setExportError(null)
+        onExportReadyChange?.(false)
+        setExportState("idle")
+        return
+      }
       setExportError(formatExportError(error))
       onExportReadyChange?.(false)
       setExportState("error")
     }
   }, [exportRunId, onExportReadyChange])
 
-  // Auto-trigger export once when the component mounts and a run is ready.
-  // handleExport is async and sets state only after the await resolves, so
-  // there is no synchronous setState-in-render risk. The eslint rule fires
-  // because the linter sees setState reachable from the effect body, but
-  // this is intentional: the effect kicks off an async API call whose
-  // completion updates the UI state.
+  const completeSubmission = useMemo(
+    () => hasCompleteSubmission(allOutputs),
+    [allOutputs],
+  )
+  const partialSubmission = useMemo(
+    () => hasPartialSubmission(allOutputs),
+    [allOutputs],
+  )
+
   useEffect(() => {
-    if (canExport && exportState === "idle") {
+    if (partialSubmission) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- mirror partial submission into packaging banner
+      setPackagingIncomplete(true)
+    }
+  }, [partialSubmission])
+
+  // Reuse an already-packaged submission without re-running export.
+  useEffect(() => {
+    if (completeSubmission && exportState === "idle") {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setExportState("done")
+      onExportReadyChange?.(true)
+    }
+  }, [completeSubmission, exportState, onExportReadyChange])
+
+  // Auto-trigger export once when the run is ready and packaging has not been attempted.
+  // Skip when submission/ exists but is incomplete (a failed package leaves partial files
+  // and would fail the same way on every mount until the user clicks Retry).
+  useEffect(() => {
+    if (canExport && exportState === "idle" && !completeSubmission && !partialSubmission) {
       // eslint-disable-next-line react-hooks/set-state-in-effect
       void handleExport()
     }
-  }, [canExport, exportState, handleExport])
+  }, [canExport, completeSubmission, partialSubmission, exportState, handleExport])
 
   // After export, merge the generated file paths into the outputs map
   const mergedOutputs = useMemo<Record<string, unknown>>(() => {
@@ -508,24 +571,31 @@ function ManuscriptActions({
         </span>
       )}
 
+      {exportState === "idle" && packagingIncomplete && (
+        <Button
+          size="sm"
+          variant="outline"
+          onClick={() => void handleExport(true)}
+          className={sharedCls}
+          title="Build IEEE submission package (.tex, .docx, study PDFs)"
+        >
+          <Download className="h-3 w-3" />
+          Package manuscript
+        </Button>
+      )}
+
       {/* Retry button on failure */}
       {exportState === "error" && (
-        <div className="flex items-center gap-2">
-          <Button
-            size="sm"
-            variant="outline"
-            onClick={() => void handleExport()}
-            className={sharedCls}
-          >
-            <AlertTriangle className="h-3 w-3 text-intent-danger" />
-            Retry export
-          </Button>
-          {exportError && (
-            <span className="text-xs text-intent-danger max-w-[28rem] truncate" title={exportError}>
-              {exportError}
-            </span>
-          )}
-        </div>
+        <Button
+          size="sm"
+          variant="outline"
+          onClick={() => void handleExport()}
+          className={sharedCls}
+          title={exportError ?? "Retry manuscript packaging"}
+        >
+          <AlertTriangle className="h-3 w-3 text-intent-danger" />
+          Retry export
+        </Button>
       )}
 
       {/* Download buttons -- shown once export is done (or if artifacts were already present) */}
@@ -615,8 +685,16 @@ export function ResultsView({
 
   const prismaDiagramPath = useMemo(() => {
     const imagePaths = findAllFilesByExt(effectiveOutputs, [".png", ".svg", ".jpg", ".jpeg", ".webp"])
-    return imagePaths.find((path) => /prisma|flow/i.test(path)) ?? null
+    const customPaths = new Set(collectCustomDiagramItems(effectiveOutputs).map((d) => d.path))
+    return (
+      imagePaths.find((path) => /prisma|flow/i.test(path) && !customPaths.has(path)) ?? null
+    )
   }, [effectiveOutputs])
+
+  const customDiagramPaths = useMemo(
+    () => collectCustomDiagramItems(effectiveOutputs).map((d) => d.path),
+    [effectiveOutputs],
+  )
 
   // Paths to exclude from Artifacts panel (they live in the left panel header actions)
   const manuscriptExcludePaths = useMemo<Set<string>>(() => {
@@ -625,8 +703,10 @@ export function ResultsView({
     if (docxPath) paths.add(docxPath)
     const texFiles = findAllFilesByExt(effectiveOutputs, [".tex"])
     texFiles.forEach((p) => paths.add(p))
+    customDiagramPaths.forEach((p) => paths.add(p))
+    if (prismaDiagramPath) paths.add(prismaDiagramPath)
     return paths
-  }, [effectiveOutputs, manuscriptPath, docxPath])
+  }, [effectiveOutputs, manuscriptPath, docxPath, customDiagramPaths, prismaDiagramPath])
 
   useEffect(() => {
     setSubmissionReady(hasSubmissionArtifacts(effectiveOutputs))
@@ -681,6 +761,8 @@ export function ResultsView({
       )}
 
       {prismaDiagramPath ? <PrismaDiagramCard filePath={prismaDiagramPath} /> : null}
+
+      <CustomDiagramsCard outputs={effectiveOutputs} />
 
       {exportRunId ? <GradeSofCard runId={exportRunId} /> : null}
 

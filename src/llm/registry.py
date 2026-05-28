@@ -83,6 +83,18 @@ def required_env_keys_from_settings(settings: SettingsConfig) -> list[str]:
     return sorted(required)
 
 
+_GOOGLE_PREFIXES = tuple(k for k in PREFIX_TO_ENV if k.startswith("google"))
+
+
+def supports_native_image_generation(model: str) -> bool:
+    """Return True when *model* can drive PydanticAI ImageGenerationTool."""
+    if not model.startswith(_GOOGLE_PREFIXES):
+        return False
+    lowered = model.lower()
+    # Explicit image-preview / imagen refs; other Google chat models cannot emit BinaryImage.
+    return "image" in lowered or "imagen" in lowered
+
+
 def rate_tier_for_model(model: str) -> str:
     """Map model strings to rate-limit tiers (flash-lite / flash / pro)."""
     lowered = model.lower()
