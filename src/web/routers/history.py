@@ -23,6 +23,7 @@ from src.db.workflow_registry import hide_completed_workflow as _hide_completed_
 from src.db.workflow_registry import restore_completed_workflow as _restore_completed_registry_workflow
 from src.db.workflow_registry import restore_workflow as _restore_registry_workflow
 from src.db.workflow_registry import update_notes as _update_registry_notes
+from src.orchestration.resume import USER_RESUMABLE_PHASE_ORDER
 from src.web.shared import (
     AttachRequest,
     HistoryEntry,
@@ -35,7 +36,6 @@ from src.web.shared import (
     _validate_db_path,
 )
 from src.web.state import (
-    _RESUME_PHASE_ORDER,
     _active_runs,
     _collect_terminal_evidence,
     _lifecycle_metrics,
@@ -358,10 +358,10 @@ async def get_active_run(workflow_id: str) -> RunResponse:
 @router.post("/api/history/resume", response_model=RunResponse)
 async def resume_run(req: ResumeRequest) -> RunResponse:
     """Resume an interrupted workflow from its last checkpoint."""
-    if req.from_phase is not None and req.from_phase not in _RESUME_PHASE_ORDER:
+    if req.from_phase is not None and req.from_phase not in USER_RESUMABLE_PHASE_ORDER:
         raise HTTPException(
             status_code=400,
-            detail=f"from_phase must be one of {_RESUME_PHASE_ORDER}",
+            detail=f"from_phase must be one of {USER_RESUMABLE_PHASE_ORDER}",
         )
     for existing in _active_runs.values():
         if existing.workflow_id == req.workflow_id and not existing.done:
