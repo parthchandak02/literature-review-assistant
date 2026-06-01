@@ -59,10 +59,25 @@ export function DatabaseView({ runId, isDone, dbAvailable, isLive }: DatabaseVie
 
   const [papers, setPapers] = useState<PaperAllRow[]>([])
   const [total, setTotal] = useState(0)
-  const [loading, setLoading] = useState(false)
+  const [loading, setLoading] = useState(true)
+  const [papersReady, setPapersReady] = useState(false)
+  const [hasBootstrapped, setHasBootstrapped] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [outcomePapers, setOutcomePapers] = useState<ExtractedOutcomePaper[]>([])
+  const [outcomesLoading, setOutcomesLoading] = useState(true)
   const [outcomeError, setOutcomeError] = useState<string | null>(null)
+
+  useEffect(() => {
+    setHasBootstrapped(false)
+    setPapersReady(false)
+    setPapers([])
+    setTotal(0)
+    setOutcomePapers([])
+    setOutcomesLoading(true)
+    setLoading(true)
+    setError(null)
+    setOutcomeError(null)
+  }, [runId])
 
   // Facet data (loaded once on mount / dbAvailable)
   const [years, setYears] = useState<number[]>([])
@@ -128,6 +143,7 @@ export function DatabaseView({ runId, isDone, dbAvailable, isLive }: DatabaseVie
 
   const loadOutcomes = useCallback(() => {
     if (!dbAvailable) return
+    setOutcomesLoading(true)
     fetchDbTables(runId)
       .then((data) => {
         setOutcomePapers(data.papers)
@@ -137,11 +153,18 @@ export function DatabaseView({ runId, isDone, dbAvailable, isLive }: DatabaseVie
         setOutcomePapers([])
         setOutcomeError(e instanceof Error ? e.message : String(e))
       })
+      .finally(() => setOutcomesLoading(false))
   }, [runId, dbAvailable])
 
   useEffect(() => {
     loadOutcomes()
   }, [loadOutcomes])
+
+  useEffect(() => {
+    if (papersReady && !outcomesLoading) {
+      setHasBootstrapped(true)
+    }
+  }, [papersReady, outcomesLoading])
 
   const fetchTitleSuggestions = useCallback(
     (q: string) => {
@@ -193,10 +216,14 @@ export function DatabaseView({ runId, isDone, dbAvailable, isLive }: DatabaseVie
         setTotal(data.total)
       })
       .catch((e) => { if (!cancelled) handleFetchError(e) })
-      .finally(() => { if (!cancelled) setLoading(false) })
+      .finally(() => {
+        if (!cancelled) {
+          setLoading(false)
+          setPapersReady(true)
+        }
+      })
     return () => {
       cancelled = true
-      setLoading(false)
     }
   }, [runId, titleFilter, authorFilter, taFilter, ftFilter, primaryStatusFilter, yearFilter, sourceFilter, countryFilter, dbAvailable])
 
@@ -228,7 +255,6 @@ export function DatabaseView({ runId, isDone, dbAvailable, isLive }: DatabaseVie
       .finally(() => { if (!cancelled) setLoading(false) })
     return () => {
       cancelled = true
-      setLoading(false)
     }
   }, [page, dbAvailable])
 
@@ -302,6 +328,21 @@ export function DatabaseView({ runId, isDone, dbAvailable, isLive }: DatabaseVie
     return <LoadingPane message="Database initializing..." className="h-64" />
   }
 
+  // First visit only: wait for papers + outcomes so we never show one table above the other's skeleton.
+  if (!hasBootstrapped) {
+    return (
+      <div className="flex flex-col gap-4">
+        <div className="flex items-center gap-3 ml-auto">
+          {isLive && <LiveStreamStatus mode="compact" />}
+          {isDone && (
+            <span className="text-xs text-intent-success font-medium">Complete</span>
+          )}
+        </div>
+        <LoadingPane message="Loading data tables…" className="min-h-72" />
+      </div>
+    )
+  }
+
   const activeFilters = [
     titleFilter,
     authorFilter,
@@ -363,7 +404,7 @@ export function DatabaseView({ runId, isDone, dbAvailable, isLive }: DatabaseVie
             <FetchError message={error} onRetry={loadPapers} />
           </div>
         ) : loading ? (
-          <TableSkeleton cols={10} rows={8} />
+          <TableSkeleton cols={10} rows={5} />
         ) : papers.length === 0 ? (
           <EmptyState icon={Database} heading="No papers found." className="py-12" />
         ) : (
