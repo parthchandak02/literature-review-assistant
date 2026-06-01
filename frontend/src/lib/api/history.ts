@@ -4,7 +4,11 @@ import type { HistoryEntry, RunResponse } from "./types"
 export async function fetchHistory(runRoot = "runs"): Promise<HistoryEntry[]> {
   const params = new URLSearchParams({ run_root: runRoot })
   const res = await fetch(`${API_BASE}/history?${params}`, { cache: "no-store" })
-  if (!res.ok) return []
+  if (!res.ok) {
+    const text = await res.text()
+    const detail = text.trim() || "no response body"
+    throw new Error(`Failed to fetch history (${res.status}): ${detail}`)
+  }
   return res.json() as Promise<HistoryEntry[]>
 }
 

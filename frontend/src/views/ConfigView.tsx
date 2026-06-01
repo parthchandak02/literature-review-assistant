@@ -218,7 +218,11 @@ export function ConfigView({
                 return (
                   <div key={step.key} className={`rounded-lg border px-2.5 py-2 ${style.row}`}>
                     <div className="flex items-center gap-2">
-                      <span className={`h-2 w-2 rounded-full border ${style.dot}`} />
+                      {status === "active" ? (
+                        <Spinner size="sm" />
+                      ) : (
+                        <span className={`h-2 w-2 rounded-full border ${style.dot}`} />
+                      )}
                       <p className={`text-xs font-medium ${style.text}`}>{label}</p>
                     </div>
                     <p className="text-[11px] text-muted mt-1 leading-snug">{detail}</p>

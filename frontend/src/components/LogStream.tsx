@@ -17,7 +17,7 @@ const SKIP_EVENT_TYPES = new Set(["workflow_id_ready", "heartbeat"])
 
 type RenderItem =
   | { kind: "phase-sep"; phase: string; label: string; description?: string; key: string }
-  | { kind: "event"; ev: ReviewEvent; entry: LogRenderEntry; key: string }
+  | { kind: "event"; ev: ReviewEvent; key: string }
 
 function stableStringify(value: unknown): string {
   if (value == null) return String(value)
@@ -85,7 +85,6 @@ function buildRenderItems(events: ReviewEvent[]): RenderItem[] {
     items.push({
       kind: "event",
       ev,
-      entry: eventToLogEntry(ev),
       key: evKey,
     })
   }
@@ -337,7 +336,7 @@ export const LogStream = forwardRef<LogStreamHandle, LogStreamProps>(function Lo
             )
           }
 
-          const { text, level } = item.entry
+          const { text, level }: LogRenderEntry = eventToLogEntry(item.ev)
           const errorEv = item.kind === "event" && item.ev.type === "error" ? (item.ev as { traceback?: string }) : null
 
           // Screening decisions get a colored left-border card treatment.

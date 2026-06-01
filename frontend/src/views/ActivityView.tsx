@@ -509,11 +509,8 @@ export function ActivityView({
   }
   const filtered = useMemo(() => {
     const q = searchQuery.trim().toLowerCase()
-    return activeEvents.filter((ev) => {
-      const entry = eventToLogEntry(ev)
-      if (q && !entry.text.toLowerCase().includes(q)) return false
-      return true
-    })
+    if (!q) return activeEvents
+    return activeEvents.filter((ev) => eventToLogEntry(ev).text.toLowerCase().includes(q))
   }, [activeEvents, searchQuery])
 
   const eventCountLabel = effectiveLoadingHistory

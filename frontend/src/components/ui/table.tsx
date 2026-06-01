@@ -71,7 +71,7 @@ interface TableSkeletonProps {
 
 export function TableSkeleton({ cols, rows }: TableSkeletonProps) {
   return (
-    <div className="p-4 space-y-2 glass-table-shell">
+    <div className="p-4 space-y-2">
       {Array.from({ length: rows }).map((_, i) => (
         <div key={i} className="flex gap-3">
           {Array.from({ length: cols }).map((_, j) => (
