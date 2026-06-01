@@ -19,6 +19,7 @@ import { Spinner } from "@/components/ui/feedback"
 import { CustomDiagramsCard } from "@/components/CustomDiagramsCard"
 import { ManuscriptImage } from "@/components/ManuscriptImage"
 import { ResultsPanel } from "@/components/ResultsPanel"
+import { ReferencesView } from "@/views/ReferencesView"
 import { collectCustomDiagramItems } from "@/lib/customDiagrams"
 import { EvidenceNetworkViz } from "@/components/EvidenceNetworkViz"
 import {
@@ -637,8 +638,11 @@ function ManuscriptActions({
 interface ResultsViewProps {
   outputs: Record<string, unknown>
   isDone: boolean
+  runId: string
+  workflowId: string | null
   historyOutputs?: Record<string, string>
   exportRunId?: string | null
+  onGoToSubmissionReferencePapers?: () => void
   submissionFocusTarget?: "reference-papers" | null
   submissionFocusToken?: number
 }
@@ -646,8 +650,11 @@ interface ResultsViewProps {
 export function ResultsView({
   outputs,
   isDone,
+  runId,
+  workflowId,
   historyOutputs = {},
   exportRunId,
+  onGoToSubmissionReferencePapers,
   submissionFocusTarget = null,
   submissionFocusToken = 0,
 }: ResultsViewProps) {
@@ -671,6 +678,7 @@ export function ResultsView({
   const hasResults = isDone || isHistorical
   const canExport = exportRunId != null && hasResults
   const [artifactsOpen, setArtifactsOpen] = useState(false)
+  const [referencesOpen, setReferencesOpen] = useState(false)
   const [submissionReady, setSubmissionReady] = useState(false)
 
   const manuscriptPath = useMemo(
@@ -760,20 +768,10 @@ export function ResultsView({
         </CollapsibleSection>
       )}
 
-      {prismaDiagramPath ? <PrismaDiagramCard filePath={prismaDiagramPath} /> : null}
-
-      <CustomDiagramsCard outputs={effectiveOutputs} />
-
-      {exportRunId ? <GradeSofCard runId={exportRunId} /> : null}
-
-      {exportRunId ? <ProsperoDownloadsCard runId={exportRunId} /> : null}
-
-      {exportRunId ? <EvidenceNetworkSection runId={exportRunId} /> : null}
-
       <CollapsibleSection
         icon={FileText}
         title="Artifacts"
-        description="Protocol, data files, figures"
+        description="Protocol, data files, figures, quality summaries"
         open={artifactsOpen}
         onToggle={() => setArtifactsOpen((v) => !v)}
         actions={
@@ -803,13 +801,40 @@ export function ResultsView({
           ) : null
         }
       >
-        <div className="p-4">
+        <div className="p-4 space-y-3">
+          {prismaDiagramPath ? <PrismaDiagramCard filePath={prismaDiagramPath} /> : null}
+
+          <CustomDiagramsCard outputs={effectiveOutputs} />
+
+          {exportRunId ? <GradeSofCard runId={exportRunId} /> : null}
+
+          {exportRunId ? <ProsperoDownloadsCard runId={exportRunId} /> : null}
+
+          {exportRunId ? <EvidenceNetworkSection runId={exportRunId} /> : null}
+
           <ResultsPanel
             outputs={effectiveOutputs}
             excludePaths={manuscriptExcludePaths}
             runId={exportRunId}
             submissionFocusTarget={submissionFocusTarget}
             submissionFocusToken={submissionFocusToken}
+          />
+        </div>
+      </CollapsibleSection>
+
+      <CollapsibleSection
+        icon={BookOpen}
+        title="References"
+        description="Included studies and source files"
+        open={referencesOpen}
+        onToggle={() => setReferencesOpen((v) => !v)}
+      >
+        <div className="p-4">
+          <ReferencesView
+            runId={runId}
+            workflowId={workflowId}
+            isDone={isDone}
+            onGoToSubmissionReferencePapers={onGoToSubmissionReferencePapers}
           />
         </div>
       </CollapsibleSection>

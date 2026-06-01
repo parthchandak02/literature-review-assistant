@@ -6,9 +6,7 @@ export const VALID_RUN_TABS = new Set<RunTab>([
   "database",
   "cost",
   "config",
-  "quality",
   "review-screening",
-  "references",
 ])
 
 export function parseRunUrl(pathname: string): { workflowId: string; tab: RunTab } | null {
@@ -16,6 +14,7 @@ export function parseRunUrl(pathname: string): { workflowId: string; tab: RunTab
   if (!match) return null
   const workflowId = match[1]
   const rawTab = match[2] ?? "activity"
-  const tab = VALID_RUN_TABS.has(rawTab as RunTab) ? (rawTab as RunTab) : "activity"
+  const legacyTab = rawTab === "quality" || rawTab === "references" ? "results" : rawTab
+  const tab = VALID_RUN_TABS.has(legacyTab as RunTab) ? (legacyTab as RunTab) : "activity"
   return { workflowId, tab }
 }
