@@ -42,6 +42,7 @@ dependencies = [
   "genai-prices>=0.0.55",
   "pylatexenc>=2.10",
   "pycountry>=26.2.16",
+  "sentence-transformers>=3.0",
 ]
 
 [dependency-groups]
