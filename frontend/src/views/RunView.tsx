@@ -2,12 +2,10 @@ import { Suspense, lazy, useMemo, useState } from "react"
 import {
   Activity,
   BarChart3,
-  BookOpen,
   ClipboardCheck,
   Database,
   FileCode2,
   FileText,
-  ShieldCheck,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { formatRunDate, formatWorkflowId } from "@/lib/format"
@@ -35,18 +33,12 @@ const ConfigView = lazy(() =>
 const ScreeningReviewView = lazy(() =>
   import("@/views/ScreeningReviewView").then((m) => ({ default: m.ScreeningReviewView })),
 )
-const ReferencesView = lazy(() =>
-  import("@/views/ReferencesView").then((m) => ({ default: m.ReferencesView })),
-)
-const QualityView = lazy(() =>
-  import("@/views/QualityView").then((m) => ({ default: m.QualityView })),
-)
 
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
 
-export type RunTab = "activity" | "results" | "database" | "cost" | "config" | "quality" | "review-screening" | "references"
+export type RunTab = "activity" | "results" | "database" | "cost" | "config" | "review-screening"
 
 /** A run that is currently being viewed (live or historical). */
 export interface SelectedRun {
@@ -69,15 +61,13 @@ export interface SelectedRun {
   attachPending?: boolean
 }
 
-/** Tab order follows the review workflow: Config (YAML) -> Activity -> Data -> Cost -> Results -> Quality -> References */
+/** Tab order follows the review workflow: Config (YAML) -> Activity -> Data -> Cost -> Results */
 const TAB_ITEMS: { id: RunTab; label: string; icon: React.ElementType }[] = [
   { id: "config", label: "Config", icon: FileCode2 },
   { id: "activity", label: "Activity", icon: Activity },
   { id: "database", label: "Data", icon: Database },
   { id: "cost", label: "Cost", icon: BarChart3 },
   { id: "results", label: "Results", icon: FileText },
-  { id: "quality", label: "Quality", icon: ShieldCheck },
-  { id: "references", label: "References", icon: BookOpen },
 ]
 
 function ViewLoader() {
@@ -397,8 +387,11 @@ export function RunView({
             <ResultsView
               outputs={liveOutputs}
               isDone={isDone}
+              runId={run.runId}
+              workflowId={run.workflowId}
               historyOutputs={historyOutputs}
               exportRunId={isDone ? run.runId : null}
+              onGoToSubmissionReferencePapers={onGoToSubmissionReferencePapers}
               submissionFocusTarget={submissionFocusTarget}
               submissionFocusToken={submissionFocusToken}
             />
@@ -435,22 +428,6 @@ export function RunView({
 
           {activeTab === "review-screening" && (
             <ScreeningReviewView runId={run.runId} />
-          )}
-
-          {activeTab === "references" && (
-            <ReferencesView
-              runId={run.runId}
-              workflowId={run.workflowId}
-              isDone={isDone}
-              onGoToSubmissionReferencePapers={onGoToSubmissionReferencePapers}
-            />
-          )}
-
-          {activeTab === "quality" && (
-            <QualityView
-              exportRunId={isDone ? run.runId : null}
-              workflowId={run.workflowId}
-            />
           )}
         </Suspense>
       </div>

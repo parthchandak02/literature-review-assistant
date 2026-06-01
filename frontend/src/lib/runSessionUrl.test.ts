@@ -23,6 +23,17 @@ describe("parseRunUrl", () => {
     })
   })
 
+  it("aliases removed tabs to results", () => {
+    expect(parseRunUrl("/run/wf-0102/quality")).toEqual({
+      workflowId: "wf-0102",
+      tab: "results",
+    })
+    expect(parseRunUrl("/run/wf-0102/references")).toEqual({
+      workflowId: "wf-0102",
+      tab: "results",
+    })
+  })
+
   it("returns null for non-run paths", () => {
     expect(parseRunUrl("/")).toBeNull()
     expect(parseRunUrl("/settings")).toBeNull()
