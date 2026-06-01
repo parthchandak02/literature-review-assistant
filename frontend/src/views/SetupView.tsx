@@ -1133,7 +1133,14 @@ export function SetupView({
   const [loadError, setLoadError] = useState<string | null>(null)
 
   useEffect(() => {
-    fetchHistory().then(setHistory).catch(() => setHistory([]))
+    fetchHistory()
+      .then(setHistory)
+      .catch((error) => {
+        setHistory([])
+        const message =
+          error instanceof Error ? error.message : "Failed to load review history."
+        setLoadError(message)
+      })
   }, [])
 
   function handlePasteYaml() {
