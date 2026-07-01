@@ -1,0 +1,3 @@
+# git-secrets allowlist — documentation false positives (not real credentials)
+stream_review_whatsapp
+Hermes agent venv
