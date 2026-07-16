@@ -6,7 +6,7 @@ The system automates systematic reviews from research question to submission art
 
 ## Runtime Planes
 
-- API and orchestration: `src/web/app.py`, `src/orchestration/workflow.py`, `src/orchestration/resume.py`
+- API and orchestration: `src/web/app.py` (composition root), `src/web/routers/` (domain endpoints), `src/orchestration/workflow.py`, `src/orchestration/resume.py`
 - Data plane: per-run `runtime.db` (`src/db/schema.sql`)
 - Control plane: global `runs/workflows_registry.db` (resolved by `src/db/workflow_registry.py`)
 - Frontend plane: `frontend/src/` with typed API contract in `frontend/src/lib/api.ts`
@@ -28,7 +28,7 @@ The system automates systematic reviews from research question to submission art
 - DB schema: `src/db/schema.sql`
 - Registry and workflow history: `src/db/workflow_registry.py`
 - Stats precedence and truth rules: `src/db/source_of_truth.py`
-- API surface: `src/web/app.py`
+- API surface: `src/web/routers/` (`system`, `config`, `run_lifecycle`, `history`, `database_explorer`, `costs`, `validation`, `artifacts`, `screening_review`, `advanced`; registered from `src/web/app.py`)
 - Frontend API client: `frontend/src/lib/api.ts`
 - Frontend phase constants: `frontend/src/lib/constants.ts`
 

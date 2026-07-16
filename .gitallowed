@@ -14,3 +14,5 @@ no raw secrets
 safe-area-inset
 from the server
 env fills in
+credentials in repo
+Copy example
