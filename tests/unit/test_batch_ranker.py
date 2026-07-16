@@ -13,6 +13,7 @@ import pytest
 from src.models.config import ScreeningConfig
 from src.models.enums import ExclusionReason, ScreeningDecisionType
 from src.models.papers import CandidatePaper, SourceCategory
+from src.models.screening import BatchRankerResponsePayload
 from src.screening.batch_ranker import BatchLLMRanker
 
 # ---------------------------------------------------------------------------
@@ -23,12 +24,35 @@ from src.screening.batch_ranker import BatchLLMRanker
 class _ScriptedBatchClient:
     """Returns pre-scripted JSON strings, in order, for each complete_batch call."""
 
-    def __init__(self, responses: list[str]) -> None:
+    def __init__(self, responses: list[str | BatchRankerResponsePayload]) -> None:
         self._responses = list(responses)
 
-    async def complete_batch(self, prompt: str, *, model: str, temperature: float) -> str:
+    async def complete_batch(
+        self,
+        prompt: str,
+        *,
+        model: str,
+        temperature: float,
+    ) -> str | BatchRankerResponsePayload:
         _ = (prompt, model, temperature)
         return self._responses.pop(0)
+
+
+class _ValidatedBatchClient:
+    """Returns schema-validated payloads for complete_validated-style clients."""
+
+    def __init__(self, responses: list[BatchRankerResponsePayload]) -> None:
+        self._responses = list(responses)
+
+    async def complete_batch(
+        self,
+        prompt: str,
+        *,
+        model: str,
+        temperature: float,
+    ) -> tuple[BatchRankerResponsePayload, int, int, int, int]:
+        _ = (prompt, model, temperature)
+        return self._responses.pop(0), 12, 8, 0, 0
 
 
 class _ErrorBatchClient:
@@ -60,6 +84,10 @@ def _screening_config(
         batch_screen_size=batch_size,
         batch_screen_threshold=threshold,
     )
+
+
+def _envelope(items: list[dict[str, object]]) -> str:
+    return json.dumps({"ratings": items})
 
 
 def _make_ranker(
@@ -226,6 +254,52 @@ async def test_rank_and_split_markdown_fences_stripped() -> None:
     assert forwarded[0].paper_id == "p1"
     assert len(excluded) == 1
     assert excluded[0].paper_id == "p2"
+
+
+@pytest.mark.asyncio
+async def test_rank_and_split_ratings_envelope_format() -> None:
+    """Ratings envelope JSON is parsed the same as legacy top-level arrays."""
+    papers = [_make_paper("p1"), _make_paper("p2")]
+    response_items = [
+        {"id": "p1", "score": 0.8, "reason": "good"},
+        {"id": "p2", "score": 0.1, "reason": "bad"},
+    ]
+    ranker = _make_ranker(papers, [_envelope(response_items)], threshold=0.5)
+    forwarded, excluded = await ranker.rank_and_split(papers)
+
+    assert len(forwarded) == 1
+    assert forwarded[0].paper_id == "p1"
+    assert len(excluded) == 1
+    assert excluded[0].paper_id == "p2"
+
+
+@pytest.mark.asyncio
+async def test_rank_and_split_validated_payload_client() -> None:
+    """Validated BatchRankerResponsePayload responses bypass legacy JSON parsing."""
+    papers = [_make_paper("p1"), _make_paper("p2")]
+    payload = BatchRankerResponsePayload.model_validate(
+        {
+            "ratings": [
+                {"id": "p1", "score": 0.2, "reason": "irrelevant"},
+                {"id": "p2", "score": 0.9, "reason": "relevant"},
+            ]
+        }
+    )
+    ranker = BatchLLMRanker(
+        screening=_screening_config(threshold=0.5, batch_size=10),
+        model="test-model",
+        temperature=0.1,
+        research_question="RQ",
+        population="pop",
+        intervention="robot",
+        outcome="accuracy",
+        client=_ValidatedBatchClient([payload]),
+    )
+    forwarded, excluded = await ranker.rank_and_split(papers)
+
+    assert {p.paper_id for p in forwarded} == {"p2"}
+    assert len(excluded) == 1
+    assert excluded[0].paper_id == "p1"
 
 
 # ---------------------------------------------------------------------------

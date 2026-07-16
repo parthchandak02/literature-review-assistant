@@ -394,7 +394,7 @@ def test_grounding_patches_replace_conflicting_selection_and_fulltext_sentences(
     assert "### Data Collection Process" not in methods_output
 
     results_input = "### Study Selection\n\nThe review screened 1300 records and assessed 39 reports."
-    results_output = _patch_results_grounding(results_input, grounding)
+    results_output = _patch_results_grounding(results_input, grounding, review)
     assert "The review screened 1358 records" in results_output
     assert "sought 45 full-text reports" in results_output
     assert "All 45 reports were retrieved for eligibility assessment" in results_output

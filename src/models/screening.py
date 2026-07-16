@@ -64,6 +64,20 @@ class BatchScreeningResponsePayload(BaseModel):
     decisions: list[BatchScreeningItemPayload] = Field(default_factory=list)
 
 
+class BatchRankerItemPayload(BaseModel):
+    """Schema-constrained per-paper relevance score from batch pre-ranker."""
+
+    id: str
+    score: float = Field(ge=0.0, le=1.0)
+    reason: str = ""
+
+
+class BatchRankerResponsePayload(BaseModel):
+    """Envelope for batch LLM pre-ranker responses."""
+
+    ratings: list[BatchRankerItemPayload] = Field(default_factory=list)
+
+
 class DualScreeningResult(BaseModel):
     paper_id: str
     reviewer_a: ScreeningDecision

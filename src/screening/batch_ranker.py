@@ -27,7 +27,7 @@ from src.llm.provider import LLMProvider
 from src.models.config import ScreeningConfig
 from src.models.enums import ExclusionReason, ReviewerType, ScreeningDecisionType
 from src.models.papers import CandidatePaper
-from src.models.screening import ScreeningDecision
+from src.models.screening import BatchRankerResponsePayload, ScreeningDecision
 
 logger = logging.getLogger(__name__)
 
@@ -37,13 +37,10 @@ logger = logging.getLogger(__name__)
 
 _SYSTEM_PROMPT = """You are a systematic review screener performing a rapid relevance pre-ranking.
 
-Your task: rate each paper's relevance to the research question and return a JSON array.
+Your task: rate each paper's relevance to the research question and return JSON matching the schema.
 
-RESPONSE FORMAT -- return ONLY a valid JSON array, no prose:
-[
-  {"id": "<paper_id>", "score": <0.0-1.0>, "reason": "<one sentence>"},
-  ...
-]
+RESPONSE FORMAT -- return ONLY valid JSON matching this exact schema, no prose:
+{"ratings": [{"id": "<paper_id>", "score": <0.0-1.0>, "reason": "<one sentence>"}, ...]}
 
 SCORING RULES:
 - score 0.8-1.0: clearly relevant (directly evaluates the intervention in the target setting)
@@ -79,7 +76,7 @@ Scoring guidance:
 - Score <= 0.35 when a paper evaluates only a broader adjacent digital system, registry, workflow tool, or policy without the intervention anchors or a clear synonym.
 
 Rate each paper below on relevance to this research question.
-Return a JSON array with one entry per paper (same count as input papers).
+Return one ratings entry per input paper (same count as input papers).
 
 Papers to rate:
 {paper_list}"""
@@ -94,6 +91,26 @@ def _build_paper_list(papers: list[CandidatePaper]) -> str:
             abstract_snippet = p.abstract[:300].replace("\n", " ")
         lines.append(f"[{i}] id={p.paper_id} | {p.title} | {abstract_snippet}")
     return "\n".join(lines)
+
+
+def _batch_ranker_json_schema() -> dict[str, object]:
+    """Build provider-safe object schema for batch ranker structured output."""
+    embedded_item_schema = dict(BatchRankerResponsePayload.model_json_schema()["$defs"]["BatchRankerItemPayload"])
+    object_schema: dict[str, object] = {
+        "type": "object",
+        "properties": {
+            "ratings": {
+                "type": "array",
+                "items": embedded_item_schema,
+            }
+        },
+        "required": ["ratings"],
+        "additionalProperties": False,
+    }
+    shared_defs = BatchRankerResponsePayload.model_json_schema().get("$defs")
+    if isinstance(shared_defs, dict) and shared_defs:
+        object_schema["$defs"] = shared_defs
+    return object_schema
 
 
 # ---------------------------------------------------------------------------
@@ -115,8 +132,8 @@ class BatchRankerClient(Protocol):
         *,
         model: str,
         temperature: float,
-    ) -> str | tuple[str, int, int, int, int]:
-        """Return raw JSON or (json, in, out, cache_write, cache_read)."""
+    ) -> str | BatchRankerResponsePayload | tuple[str | BatchRankerResponsePayload, int, int, int, int]:
+        """Return raw JSON, validated payload, or (payload/json, in, out, cache_write, cache_read)."""
         ...
 
 
@@ -134,11 +151,18 @@ class PydanticAIBatchRankerClient:
         *,
         model: str,
         temperature: float,
-    ) -> tuple[str, int, int, int, int]:
+    ) -> tuple[BatchRankerResponsePayload, int, int, int, int]:
         from src.llm.factory import get_chat_client
 
         client = get_chat_client()
-        return await client.complete_with_usage(prompt, model=model, temperature=temperature)
+        parsed, tok_in, tok_out, cw, cr, _retries = await client.complete_validated(
+            prompt,
+            model=model,
+            temperature=temperature,
+            response_model=BatchRankerResponsePayload,
+            json_schema=_batch_ranker_json_schema(),
+        )
+        return parsed, tok_in, tok_out, cw, cr
 
 
 # ---------------------------------------------------------------------------
@@ -240,10 +264,11 @@ class BatchLLMRanker:
                 temperature=self._temperature,
             )
             tok_in = tok_out = cw = cr = 0
+            payload: BatchRankerResponsePayload | str
             if isinstance(raw_response, tuple):
-                raw, tok_in, tok_out, cw, cr = raw_response
+                payload, tok_in, tok_out, cw, cr = raw_response
             else:
-                raw = raw_response
+                payload = raw_response
             if self._provider is not None and self._workflow_id and tok_in >= 0 and tok_out >= 0:
                 latency_ms = int((time.perf_counter() - t0) * 1000)
                 cost = self._provider.estimate_cost_usd(self._model, tok_in, tok_out, cw, cr)
@@ -257,7 +282,7 @@ class BatchLLMRanker:
                     cache_read_tokens=cr,
                     cache_write_tokens=cw,
                 )
-            results = self._parse_response(raw, batch)
+            results = self._scores_from_response(payload, batch)
             return results
         except Exception as exc:
             logger.warning(
@@ -268,29 +293,73 @@ class BatchLLMRanker:
             )
             return {p.paper_id: 1.0 for p in batch}
 
+    def _scores_from_response(
+        self,
+        response: str | BatchRankerResponsePayload,
+        batch: list[CandidatePaper],
+    ) -> dict[str, float]:
+        """Convert validated payload or legacy JSON text into {paper_id -> score}."""
+        if isinstance(response, BatchRankerResponsePayload):
+            return self._scores_from_payload(response, batch)
+        return self._parse_response(str(response), batch)
+
+    def _scores_from_payload(
+        self,
+        payload: BatchRankerResponsePayload,
+        batch: list[CandidatePaper],
+    ) -> dict[str, float]:
+        scores: dict[str, float] = {}
+        seen_ids: set[str] = set()
+        for item in payload.ratings:
+            paper_id = str(item.id or "").strip()
+            if not paper_id:
+                continue
+            score = max(0.0, min(1.0, float(item.score)))
+            scores[paper_id] = score
+            seen_ids.add(paper_id)
+
+        for p in batch:
+            if p.paper_id not in seen_ids:
+                logger.debug(
+                    "BatchLLMRanker: paper %s not in LLM response; forwarding with score 1.0",
+                    p.paper_id,
+                )
+                scores[p.paper_id] = 1.0
+        return scores
+
     def _parse_response(self, raw: str, batch: list[CandidatePaper]) -> dict[str, float]:
-        """Parse JSON array from raw LLM response.
+        """Parse JSON from raw LLM response (legacy array or ratings envelope).
 
         Tolerates:
         - Markdown code fences around JSON
-        - Extra prose before/after the JSON array
+        - Extra prose before/after the JSON payload
+        - Legacy top-level JSON arrays
         - Missing entries (forwards those papers with score 1.0)
         - Invalid scores (clamped to 0.0-1.0)
         """
-        # Strip markdown fences if present
         text = raw.strip()
         if text.startswith("```"):
             lines = text.splitlines()
-            # Remove first and last fence lines
             inner = [ln for ln in lines if not ln.startswith("```")]
             text = "\n".join(inner).strip()
 
-        # Find the first '[' and last ']' to extract the JSON array
-        start = text.find("[")
-        end = text.rfind("]")
-        if start == -1 or end == -1 or end <= start:
+        payload: BatchRankerResponsePayload | None = None
+        object_start = text.find("{")
+        object_end = text.rfind("}")
+        if object_start != -1 and object_end > object_start:
+            try:
+                payload = BatchRankerResponsePayload.model_validate_json(text[object_start : object_end + 1])
+            except Exception:
+                payload = None
+
+        if payload is not None:
+            return self._scores_from_payload(payload, batch)
+
+        array_start = text.find("[")
+        array_end = text.rfind("]")
+        if array_start == -1 or array_end == -1 or array_end <= array_start:
             logger.warning(
-                "BatchLLMRanker: Could not locate JSON array in response; "
+                "BatchLLMRanker: Could not locate JSON payload in response; "
                 "forwarding all %d papers. Response prefix: %r",
                 len(batch),
                 text[:200],
@@ -298,11 +367,18 @@ class BatchLLMRanker:
             return {p.paper_id: 1.0 for p in batch}
 
         try:
-            items = json.loads(text[start : end + 1])
+            items = json.loads(text[array_start : array_end + 1])
         except json.JSONDecodeError as exc:
             logger.warning(
                 "BatchLLMRanker: JSON decode failed (%s); forwarding all %d papers.",
                 exc,
+                len(batch),
+            )
+            return {p.paper_id: 1.0 for p in batch}
+
+        if not isinstance(items, list):
+            logger.warning(
+                "BatchLLMRanker: Expected ratings array in response; forwarding all %d papers.",
                 len(batch),
             )
             return {p.paper_id: 1.0 for p in batch}
@@ -323,7 +399,6 @@ class BatchLLMRanker:
                 scores[paper_id] = score
                 seen_ids.add(paper_id)
 
-        # Any papers not mentioned in the LLM response get score 1.0 (safe fallback)
         for p in batch:
             if p.paper_id not in seen_ids:
                 logger.debug(
@@ -351,7 +426,6 @@ class BatchLLMRanker:
         uncertain_floor = max(0.0, threshold - uncertain_band)
         batch_size = self._screening.batch_screen_size
 
-        # Split into batches
         batches: list[list[CandidatePaper]] = []
         for i in range(0, len(papers), batch_size):
             batches.append(papers[i : i + batch_size])
@@ -365,8 +439,6 @@ class BatchLLMRanker:
             uncertain_band,
         )
 
-        # Run batches concurrently up to batch_screen_concurrency to reduce wall-clock time.
-        # Each batch is one LLM call; a semaphore prevents RPM burst.
         _concurrency = getattr(self._screening, "batch_screen_concurrency", 3)
         sem = asyncio.Semaphore(_concurrency)
 
@@ -399,7 +471,6 @@ class BatchLLMRanker:
             if not isinstance(result, BaseException):
                 all_scores.update(result)
 
-        # Split on threshold
         forwarded: list[CandidatePaper] = []
         excluded: list[ScreeningDecision] = []
         self.borderline_forwarded_n = 0
@@ -408,7 +479,6 @@ class BatchLLMRanker:
             if score >= threshold:
                 forwarded.append(paper)
             elif score >= uncertain_floor:
-                # Recall-first safety band: keep near-threshold records for dual review.
                 forwarded.append(paper)
                 self.borderline_forwarded_n += 1
             else:
@@ -431,10 +501,6 @@ class BatchLLMRanker:
             uncertain_floor,
         )
 
-        # Cross-validation: re-score a configurable sample of excluded papers
-        # to estimate NPV.
-        # A paper is "confirmed excluded" if the re-score still falls below the threshold.
-        # This produces a methodological transparency metric for the Methods section.
         await self._validate_exclusion_sample(papers, excluded, threshold)
 
         return forwarded, excluded
