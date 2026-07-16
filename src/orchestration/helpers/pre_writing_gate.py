@@ -12,19 +12,10 @@ from src.models import (
     ValidationCheckRecord,
     ValidationRunRecord,
 )
+from src.orchestration.phase_catalog import PRE_WRITING_PHASE_ORDER
 from src.orchestration.state import ReviewState
 from src.prisma import build_prisma_counts
 from src.writing.orchestration import _citation_entries_from_papers
-
-PRE_WRITING_PHASE_ORDER = (
-    "phase_4_extraction_quality",
-    "phase_4b_embedding",
-    "phase_5_synthesis",
-    "phase_5b_knowledge_graph",
-    "phase_5c_pre_writing_gate",
-    "phase_6_writing",
-    "finalize",
-)
 
 
 def pre_writing_phases_from(start_phase: str) -> list[str]:

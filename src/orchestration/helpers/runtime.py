@@ -40,10 +40,10 @@ def llm_available(settings: ReviewState | None = None, settings_cfg: SettingsCon
     if cfg is None and settings is not None and hasattr(settings, "settings"):
         cfg = settings.settings
     if cfg is None:
-        import os
+        from src.config.env_context import get_env
 
         return any(
-            bool(os.getenv(key))
+            bool(get_env(key))
             for key in (
                 "GEMINI_API_KEY",
                 "DEEPSEEK_API_KEY",
@@ -53,10 +53,10 @@ def llm_available(settings: ReviewState | None = None, settings_cfg: SettingsCon
             )
         )
 
-    import os
+    from src.config.env_context import get_env
 
     for env_key in get_required_env_keys(cfg):
-        if os.getenv(env_key):
+        if get_env(env_key):
             return True
     return False
 

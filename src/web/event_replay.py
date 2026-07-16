@@ -9,22 +9,8 @@ import aiosqlite
 
 from src.db.database import get_db
 from src.db.repositories import WorkflowRepository
+from src.orchestration.phase_catalog import UI_TIMELINE_PHASE_ORDER
 from src.web.event_store import EventStore
-
-# UI timeline phase order (matches frontend PHASE_ORDER + phase_7_audit before finalize).
-UI_TIMELINE_PHASE_ORDER: tuple[str, ...] = (
-    "phase_2_search",
-    "phase_3_screening",
-    "fulltext_pdf_retrieval",
-    "phase_4_extraction_quality",
-    "phase_4b_embedding",
-    "phase_5_synthesis",
-    "phase_5b_knowledge_graph",
-    "phase_5c_pre_writing_gate",
-    "phase_6_writing",
-    "phase_7_audit",
-    "finalize",
-)
 
 # Map UI phase -> checkpoint row name(s) in runtime.db.checkpoints.
 UI_PHASE_CHECKPOINT_SOURCES: dict[str, tuple[str, ...]] = {

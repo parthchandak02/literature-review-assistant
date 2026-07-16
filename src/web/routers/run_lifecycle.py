@@ -16,10 +16,11 @@ from fastapi import APIRouter, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, StreamingResponse
 from sse_starlette.sse import EventSourceResponse
 
-from src.config.loader import get_required_env_keys as _get_required_env_keys
+from src.config.env_context import async_env_override_context, get_env, missing_required_env_keys
 from src.config.loader import load_configs as _load_configs
 from src.llm.registry import env_key_for_model as _env_key_for_model
 from src.search.csv_import import validate_csv_file
+from src.web.run_concurrency import acquire_run_slot_or_raise
 from src.web.shared import (
     RunRequest,
     RunResponse,
@@ -28,8 +29,8 @@ from src.web.shared import (
     _validate_db_path,
 )
 from src.web.state import (
-    _active_runs,
     _allowed_roots,
+    _lifecycle_coordinator,
     _run_wrapper,
     _RunRecord,
 )
@@ -42,48 +43,9 @@ router = APIRouter(tags=["run_lifecycle"])
 # ---------------------------------------------------------------------------
 
 
-def _inject_env(req: RunRequest) -> None:
-    if req.gemini_api_key:
-        os.environ["GEMINI_API_KEY"] = req.gemini_api_key
-    if req.deepseek_api_key:
-        os.environ["DEEPSEEK_API_KEY"] = req.deepseek_api_key
-    if req.openrouter_api_key:
-        os.environ["OPENROUTER_API_KEY"] = req.openrouter_api_key
-    if req.openai_api_key:
-        os.environ["OPENAI_API_KEY"] = req.openai_api_key
-    if req.anthropic_api_key:
-        os.environ["ANTHROPIC_API_KEY"] = req.anthropic_api_key
-    if req.groq_api_key:
-        os.environ["GROQ_API_KEY"] = req.groq_api_key
-    if req.mistral_api_key:
-        os.environ["MISTRAL_API_KEY"] = req.mistral_api_key
-    if req.cohere_api_key:
-        os.environ["CO_API_KEY"] = req.cohere_api_key
-    if req.openalex_api_key:
-        os.environ["OPENALEX_API_KEY"] = req.openalex_api_key
-    if req.ieee_api_key:
-        os.environ["IEEE_API_KEY"] = req.ieee_api_key
-    if req.pubmed_email:
-        os.environ["PUBMED_EMAIL"] = req.pubmed_email
-        os.environ["NCBI_EMAIL"] = req.pubmed_email
-    if req.pubmed_api_key:
-        os.environ["PUBMED_API_KEY"] = req.pubmed_api_key
-    if req.perplexity_api_key:
-        os.environ["PERPLEXITY_SEARCH_API_KEY"] = req.perplexity_api_key
-    if req.semantic_scholar_api_key:
-        os.environ["SEMANTIC_SCHOLAR_API_KEY"] = req.semantic_scholar_api_key
-    if req.crossref_email:
-        os.environ["CROSSREF_EMAIL"] = req.crossref_email
-    if req.wos_api_key:
-        os.environ["WOS_API_KEY"] = req.wos_api_key
-    if req.scopus_api_key:
-        os.environ["SCOPUS_API_KEY"] = req.scopus_api_key
-
-
-def _missing_required_llm_keys() -> list[str]:
+def _missing_required_llm_keys(env_overrides: dict[str, str]) -> list[str]:
     settings = _load_configs(settings_path="config/settings.yaml")[1]
-    required = _get_required_env_keys(settings)
-    return [key for key in required if not os.environ.get(key)]
+    return missing_required_env_keys(settings, env_overrides)
 
 
 def _extract_topic(review_yaml: str) -> str:
@@ -178,8 +140,8 @@ def _inject_csv_paths_into_yaml(
 
 @router.post("/api/run", response_model=RunResponse)
 async def start_run(req: RunRequest) -> RunResponse:
-    _inject_env(req)
-    missing_keys = _missing_required_llm_keys()
+    env_overrides = req.resolved_env_overrides()
+    missing_keys = _missing_required_llm_keys(env_overrides)
     if missing_keys:
         raise HTTPException(
             status_code=422,
@@ -202,8 +164,9 @@ async def start_run(req: RunRequest) -> RunResponse:
 
     record = _RunRecord(run_id=run_id, topic=topic)
     record.review_yaml = req.review_yaml
-    _active_runs[run_id] = record
+    _lifecycle_coordinator.set(run_id, record)
 
+    await acquire_run_slot_or_raise()
     task = asyncio.create_task(_run_wrapper(record, tmp.name, req))
     record.task = task
 
@@ -274,8 +237,8 @@ async def start_run_with_masterlist(
         scopus_api_key=scopus_api_key,
         run_root=run_root,
     )
-    _inject_env(req)
-    missing_keys = _missing_required_llm_keys()
+    env_overrides = req.resolved_env_overrides()
+    missing_keys = _missing_required_llm_keys(env_overrides)
     if missing_keys:
         raise HTTPException(
             status_code=422,
@@ -296,8 +259,9 @@ async def start_run_with_masterlist(
 
     record = _RunRecord(run_id=run_id, topic=topic)
     record.review_yaml = modified_yaml
-    _active_runs[run_id] = record
+    _lifecycle_coordinator.set(run_id, record)
 
+    await acquire_run_slot_or_raise()
     task = asyncio.create_task(_run_wrapper(record, tmp.name, req))
     record.task = task
 
@@ -370,8 +334,8 @@ async def start_run_with_supplementary_csv(
         scopus_api_key=scopus_api_key,
         run_root=run_root,
     )
-    _inject_env(req)
-    missing_keys = _missing_required_llm_keys()
+    env_overrides = req.resolved_env_overrides()
+    missing_keys = _missing_required_llm_keys(env_overrides)
     if missing_keys:
         raise HTTPException(
             status_code=422,
@@ -392,8 +356,9 @@ async def start_run_with_supplementary_csv(
 
     record = _RunRecord(run_id=run_id, topic=topic)
     record.review_yaml = modified_yaml
-    _active_runs[run_id] = record
+    _lifecycle_coordinator.set(run_id, record)
 
+    await acquire_run_slot_or_raise()
     task = asyncio.create_task(_run_wrapper(record, tmp.name, req))
     record.task = task
 
@@ -402,7 +367,7 @@ async def start_run_with_supplementary_csv(
 
 @router.get("/api/stream/{run_id}")
 async def stream_run(run_id: str, request: Request) -> EventSourceResponse:
-    record = _active_runs.get(run_id)
+    record = _lifecycle_coordinator.get(run_id)
     if record is None:
         raise HTTPException(status_code=404, detail="Run not found")
 
@@ -442,7 +407,7 @@ async def stream_run(run_id: str, request: Request) -> EventSourceResponse:
 
 @router.post("/api/cancel/{run_id}")
 async def cancel_run(run_id: str) -> dict[str, str]:
-    record = _active_runs.get(run_id)
+    record = _lifecycle_coordinator.get(run_id)
     if record is None:
         raise HTTPException(status_code=404, detail="Run not found")
     if record.task and not record.task.done():
@@ -468,20 +433,27 @@ async def generate_config_stream(req: _GenerateConfigRequest) -> StreamingRespon
 
     if not req.research_question.strip():
         raise HTTPException(status_code=422, detail="research_question must not be empty")
+
+    env_overrides: dict[str, str] = {}
     if req.deepseek_api_key.strip():
-        os.environ["DEEPSEEK_API_KEY"] = req.deepseek_api_key.strip()
+        env_overrides["DEEPSEEK_API_KEY"] = req.deepseek_api_key.strip()
     elif req.gemini_api_key.strip():
-        os.environ["GEMINI_API_KEY"] = req.gemini_api_key.strip()
+        env_overrides["GEMINI_API_KEY"] = req.gemini_api_key.strip()
+
     cfg = _load_configs(settings_path="config/settings.yaml")[1]
     agent_cfg = cfg.agents.get("config_generation") or cfg.agents.get("search")
     required_env_key = _env_key_for_model(agent_cfg.model) if agent_cfg is not None else "DEEPSEEK_API_KEY"
     if required_env_key is None:
         required_env_key = "DEEPSEEK_API_KEY"
-    if not os.environ.get(required_env_key):
-        raise HTTPException(
-            status_code=422,
-            detail=(f"{required_env_key} is required to generate a config. Add it in the API Keys section or .env."),
-        )
+
+    async with async_env_override_context(env_overrides):
+        if not get_env(required_env_key):
+            raise HTTPException(
+                status_code=422,
+                detail=(
+                    f"{required_env_key} is required to generate a config. Add it in the API Keys section or .env."
+                ),
+            )
 
     queue: asyncio.Queue[dict[str, Any] | None] = asyncio.Queue()
 
@@ -494,20 +466,21 @@ async def generate_config_stream(req: _GenerateConfigRequest) -> StreamingRespon
         queue.put_nowait(payload)
 
     async def run_generation() -> None:
-        try:
-            yaml_content = await generate_config_yaml(
-                req.research_question,
-                progress_cb=progress_cb,
-                generation_profile=req.generation_profile,
-            )
-            quality = evaluate_config_quality_yaml(yaml_content)
-            queue.put_nowait({"type": "done", "yaml": yaml_content, "quality": quality})
-        except RuntimeError as exc:
-            queue.put_nowait({"type": "error", "detail": str(exc)})
-        except Exception as exc:
-            queue.put_nowait({"type": "error", "detail": f"Unexpected error: {exc}"})
-        finally:
-            queue.put_nowait(None)
+        async with async_env_override_context(env_overrides):
+            try:
+                yaml_content = await generate_config_yaml(
+                    req.research_question,
+                    progress_cb=progress_cb,
+                    generation_profile=req.generation_profile,
+                )
+                quality = evaluate_config_quality_yaml(yaml_content)
+                queue.put_nowait({"type": "done", "yaml": yaml_content, "quality": quality})
+            except RuntimeError as exc:
+                queue.put_nowait({"type": "error", "detail": str(exc)})
+            except Exception as exc:
+                queue.put_nowait({"type": "error", "detail": f"Unexpected error: {exc}"})
+            finally:
+                queue.put_nowait(None)
 
     async def event_stream() -> AsyncGenerator[str, None]:
         task = asyncio.create_task(run_generation())

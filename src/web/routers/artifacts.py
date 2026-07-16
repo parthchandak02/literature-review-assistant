@@ -19,6 +19,7 @@ from fastapi.responses import FileResponse, StreamingResponse
 from src.config.loader import load_configs as _load_configs
 from src.export.submission_packager import package_submission
 from src.manuscript.readiness import compute_readiness_scorecard
+from src.web.control_plane_service import ControlPlaneService
 from src.web.diagnostics_utils import summarize_phase_performance
 from src.web.shared import (
     _format_manuscript_audit_summary,
@@ -948,29 +949,26 @@ async def get_run_diagnostics(run_id: str, run_root: str = "runs") -> dict[str, 
         raise HTTPException(status_code=404, detail="workflow_id not found")
     async with _get_db(db_path) as db:
         repo = _WorkflowRepository(db)
-        step_summary = await repo.get_step_summary(workflow_id)
-        step_failures = await repo.count_step_failures(workflow_id)
-        running_steps = await repo.count_running_steps(workflow_id)
+        control_plane = ControlPlaneService(repo)
+        control_plane_snapshot = await control_plane.get_snapshot(workflow_id)
         fallback_count = await repo.count_fallback_events(workflow_id)
         fallback_summary = await repo.get_fallback_event_summary(workflow_id)
-        writing_manifests = await repo.get_writing_manifests(workflow_id)
         latest_audit = await repo.get_latest_manuscript_audit(workflow_id)
         phase_performance_rows = await repo.get_phase_performance_summary(workflow_id)
         screening_diagnostics = await _build_screening_diagnostics(db, workflow_id)
         extraction_diagnostics = await _build_extraction_diagnostics(repo, db, workflow_id, db_path)
-    return {
-        "workflow_id": workflow_id,
-        "step_summary": step_summary,
-        "step_failures": step_failures,
-        "running_steps": running_steps,
-        "fallback_count": fallback_count,
-        "fallback_summary": fallback_summary,
-        "phase_performance": summarize_phase_performance(phase_performance_rows),
-        "screening_diagnostics": screening_diagnostics,
-        "extraction_diagnostics": extraction_diagnostics,
-        "writing_manifests": [m.model_dump(mode="json") for m in writing_manifests],
-        "audit_summary": _format_manuscript_audit_summary(latest_audit),
-    }
+    payload = control_plane_snapshot.as_diagnostics_payload()
+    payload.update(
+        {
+            "fallback_count": fallback_count,
+            "fallback_summary": fallback_summary,
+            "phase_performance": summarize_phase_performance(phase_performance_rows),
+            "screening_diagnostics": screening_diagnostics,
+            "extraction_diagnostics": extraction_diagnostics,
+            "audit_summary": _format_manuscript_audit_summary(latest_audit),
+        }
+    )
+    return payload
 
 
 @router.get("/api/run/{run_id}/submission.zip")

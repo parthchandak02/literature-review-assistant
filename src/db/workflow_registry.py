@@ -87,6 +87,104 @@ def _registry_path(run_root: str) -> str:
     return str(Path(run_root).resolve() / "workflows_registry.db")
 
 
+_RESUMABLE_REGISTRY_STATUSES = ("interrupted", "failed", "stale")
+_BLOCKED_RESUME_STATUSES = ("running", "awaiting_review")
+
+
+def run_root_from_db_path(db_path: str) -> str:
+    """Infer the configured run_root by locating workflows_registry.db above runtime.db."""
+    current = Path(db_path).resolve().parent
+    for _ in range(12):
+        if (current / "workflows_registry.db").is_file():
+            return str(current)
+        parent = current.parent
+        if parent == current:
+            break
+        current = parent
+    # Legacy layout: runs/YYYY-MM-DD/wf-XXX/run_TIME/runtime.db
+    return str(Path(db_path).resolve().parent.parent.parent.parent)
+
+
+async def try_claim_for_resume(
+    run_root: str,
+    workflow_id: str,
+    *,
+    reclaim_stale_running: bool = False,
+) -> tuple[bool, str | None]:
+    """Atomically transition a workflow from resumable registry status to running.
+
+    Returns ``(True, None)`` when resume may proceed (claimed or registry absent).
+    Returns ``(False, status)`` when another live owner holds the workflow.
+    """
+    path = _registry_path(run_root)
+    if not os.path.isfile(path):
+        return True, None
+    async with _open_registry(path) as db:
+        db.row_factory = aiosqlite.Row
+        async with db.execute(
+            "SELECT status FROM workflows_registry WHERE workflow_id = ?",
+            (workflow_id,),
+        ) as cur:
+            row = await cur.fetchone()
+        if row is None:
+            return True, None
+        current = str(row["status"])
+        if current in _BLOCKED_RESUME_STATUSES:
+            if not (reclaim_stale_running and current == "running"):
+                return False, current
+        if reclaim_stale_running and current == "running":
+            before = db.total_changes
+            await db.execute(
+                """
+                UPDATE workflows_registry
+                SET status = 'running',
+                    updated_at = datetime('now'),
+                    heartbeat_at = datetime('now')
+                WHERE workflow_id = ?
+                  AND status = 'running'
+                """,
+                (workflow_id,),
+            )
+            await db.commit()
+            if db.total_changes - before > 0:
+                return True, None
+            async with db.execute(
+                "SELECT status FROM workflows_registry WHERE workflow_id = ?",
+                (workflow_id,),
+            ) as cur:
+                raced = await cur.fetchone()
+            raced_status = str(raced["status"]) if raced is not None else None
+            if raced_status in _BLOCKED_RESUME_STATUSES and raced_status != "running":
+                return False, raced_status
+            return True, raced_status
+        if current not in _RESUMABLE_REGISTRY_STATUSES:
+            return True, current
+        before = db.total_changes
+        await db.execute(
+            """
+            UPDATE workflows_registry
+            SET status = 'running',
+                updated_at = datetime('now'),
+                heartbeat_at = datetime('now')
+            WHERE workflow_id = ?
+              AND status IN (?, ?, ?)
+            """,
+            (workflow_id, *_RESUMABLE_REGISTRY_STATUSES),
+        )
+        await db.commit()
+        if db.total_changes - before > 0:
+            return True, None
+        async with db.execute(
+            "SELECT status FROM workflows_registry WHERE workflow_id = ?",
+            (workflow_id,),
+        ) as cur:
+            raced = await cur.fetchone()
+        raced_status = str(raced["status"]) if raced is not None else None
+        if raced_status in _BLOCKED_RESUME_STATUSES:
+            return False, raced_status
+        return True, raced_status
+
+
 async def _ensure_registry(run_root: str) -> str:
     """Ensure registry db exists with schema, running migrations. Return absolute path."""
     path = _registry_path(run_root)

@@ -14,9 +14,11 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 import pathlib
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
+from typing import Any
 
 import aiosqlite
 from fastapi import FastAPI, HTTPException
@@ -44,6 +46,7 @@ from src.web.routers.run_lifecycle import _inject_csv_paths_into_yaml as _inject
 from src.web.state import (
     _active_runs,
     _eviction_loop,
+    _lifecycle_coordinator,
     _notes_broadcaster,
     _refresh_allowed_roots,
     _repair_registry_statuses_from_runtime,
@@ -51,11 +54,14 @@ from src.web.state import (
     _RunRecord,
 )
 from src.web.state import _active_runs as _active_runs  # noqa: F811  -- re-export
+from src.web.state import _lifecycle_coordinator as _lifecycle_coordinator  # noqa: F811  -- re-export
 
 # Re-export symbols that external code (tests) import from src.web.app
 from src.web.state import _RunRecord as _RunRecord  # noqa: F811  -- re-export
 
 _logger = logging.getLogger(__name__)
+
+_SHUTDOWN_TASK_TIMEOUT_SECONDS = 30.0
 
 
 # ---------------------------------------------------------------------------
@@ -83,9 +89,16 @@ async def lifespan(_app: FastAPI) -> AsyncGenerator[None, None]:
     eviction = asyncio.create_task(_eviction_loop())
     yield
     eviction.cancel()
+    try:
+        await eviction
+    except asyncio.CancelledError:
+        pass
+
+    pending_workflow_tasks: list[asyncio.Task[Any]] = []
     for record in list(_active_runs.values()):
         if not record.done and record.task and not record.task.done():
             record.task.cancel()
+            pending_workflow_tasks.append(record.task)
             if record.db_path and record.workflow_id:
                 try:
                     async with aiosqlite.connect(record.db_path) as _db:
@@ -96,6 +109,19 @@ async def lifespan(_app: FastAPI) -> AsyncGenerator[None, None]:
                         await _db.commit()
                 except Exception:
                     pass
+
+    if pending_workflow_tasks:
+        try:
+            await asyncio.wait_for(
+                asyncio.gather(*pending_workflow_tasks, return_exceptions=True),
+                timeout=_SHUTDOWN_TASK_TIMEOUT_SECONDS,
+            )
+        except TimeoutError:
+            _logger.warning(
+                "Shutdown timed out after %.0fs waiting for %d workflow task(s)",
+                _SHUTDOWN_TASK_TIMEOUT_SECONDS,
+                len(pending_workflow_tasks),
+            )
 
 
 # ---------------------------------------------------------------------------
@@ -115,9 +141,18 @@ app.include_router(artifacts_router)
 app.include_router(screening_review_router)
 app.include_router(advanced_router)
 
+_default_cors_origins = [
+    "http://localhost:5173",
+    "http://127.0.0.1:5173",
+    "http://localhost:8001",
+    "http://127.0.0.1:8001",
+]
+_cors_env = os.getenv("LITREVIEW_CORS_ORIGINS", "").strip()
+_cors_origins = [o.strip() for o in _cors_env.split(",") if o.strip()] if _cors_env else _default_cors_origins
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=_cors_origins,
     allow_methods=["*"],
     allow_headers=["*"],
 )

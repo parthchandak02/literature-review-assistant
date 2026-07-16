@@ -197,22 +197,14 @@ class WorkflowRepository:
         phase (especially `phase_2_search`) by clearing all downstream
         materialized state before replay.
         """
-        phase_order = [
-            "phase_2_search",
-            "phase_3_screening",
-            "phase_4_extraction_quality",
-            "phase_4b_embedding",
-            "phase_5_synthesis",
-            "phase_5b_knowledge_graph",
-            "phase_5c_pre_writing_gate",
-            "phase_6_writing",
-            "finalize",
-        ]
-        if from_phase not in phase_order:
+        from src.orchestration.phase_catalog import PHASE_ORDER, rollback_cascade_for
+
+        phases_to_clear = rollback_cascade_for(from_phase)
+        if not phases_to_clear:
             return
 
-        start_idx = phase_order.index(from_phase)
-        if start_idx <= phase_order.index("phase_6_writing"):
+        start_idx = PHASE_ORDER.index(from_phase)
+        if start_idx <= PHASE_ORDER.index("phase_6_writing"):
             await self.writing.bump_writing_generation(workflow_id)
 
         async def _delete(table: str, has_workflow_id: bool = True) -> None:
@@ -221,7 +213,6 @@ class WorkflowRepository:
             else:
                 await self.db.execute(f"DELETE FROM {table}")
 
-        phases_to_clear = phase_order[start_idx:]
         for p in phases_to_clear:
             await self.db.execute(
                 "DELETE FROM workflow_steps WHERE workflow_id = ? AND phase = ?",
@@ -232,7 +223,7 @@ class WorkflowRepository:
                 (workflow_id, p),
             )
 
-        if start_idx <= phase_order.index("phase_6_writing"):
+        if start_idx <= PHASE_ORDER.index("phase_6_writing"):
             await _delete("section_outlines")
             await _delete("writing_manifests")
             for table in (
@@ -247,22 +238,22 @@ class WorkflowRepository:
             for table in ("evidence_links", "claims", "citations"):
                 await _delete(table, has_workflow_id=False)
 
-        if start_idx <= phase_order.index("phase_6_writing"):
+        if start_idx <= PHASE_ORDER.index("phase_6_writing"):
             for table in ("manuscript_audit_findings", "manuscript_audit_runs"):
                 await _delete(table)
 
-        if start_idx <= phase_order.index("phase_5b_knowledge_graph"):
+        if start_idx <= PHASE_ORDER.index("phase_5b_knowledge_graph"):
             for table in ("paper_relationships", "graph_communities", "research_gaps"):
                 await _delete(table)
 
-        if start_idx <= phase_order.index("phase_5_synthesis"):
+        if start_idx <= PHASE_ORDER.index("phase_5_synthesis"):
             await _delete("synthesis_results")
 
-        if start_idx <= phase_order.index("phase_4b_embedding"):
+        if start_idx <= PHASE_ORDER.index("phase_4b_embedding"):
             await _delete("paper_chunks_meta")
             await _delete("rag_retrieval_diagnostics")
 
-        if start_idx <= phase_order.index("phase_4_extraction_quality"):
+        if start_idx <= PHASE_ORDER.index("phase_4_extraction_quality"):
             for table in (
                 "extraction_records",
                 "rob_assessments",
@@ -279,11 +270,11 @@ class WorkflowRepository:
                 (workflow_id,),
             )
 
-        if start_idx <= phase_order.index("phase_3_screening"):
+        if start_idx <= PHASE_ORDER.index("phase_3_screening"):
             for table in ("dual_screening_results", "screening_decisions", "study_cohort_membership"):
                 await _delete(table)
 
-        if start_idx <= phase_order.index("phase_2_search"):
+        if start_idx <= PHASE_ORDER.index("phase_2_search"):
             await _delete("search_results")
             await _delete("papers", has_workflow_id=False)
 
