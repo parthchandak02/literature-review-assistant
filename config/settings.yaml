@@ -294,6 +294,8 @@ web:
   event_flush_interval_seconds: 5
   # How often (seconds) the heartbeat updates workflows_registry.
   heartbeat_interval_seconds: 60
+  # Maximum workflow runs executing concurrently via the web API.
+  max_concurrent_runs: 2
 
 # Full-text retrieval and multi-modal extraction settings.
 # Tiers: Unpaywall, arXiv, Semantic Scholar, CORE, Europe PMC, ScienceDirect, PMC
