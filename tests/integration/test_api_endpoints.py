@@ -1532,7 +1532,7 @@ async def test_resume_does_not_flip_registry_failed_when_runtime_completed(
         run_summary.write_text(json.dumps({"status": "done", "artifacts": {"dummy": "ok"}}), encoding="utf-8")
         raise RuntimeError("post-finalize logging failure")
 
-    monkeypatch.setattr("src.web.app.resume_workflow_run", _fake_run_workflow_resume)
+    monkeypatch.setattr("src.web.orchestration_facade.resume_workflow_run", _fake_run_workflow_resume)
 
     resp = await client.post(
         "/api/history/resume",
@@ -1944,7 +1944,7 @@ async def test_export_endpoint_accepts_workflow_identifier_via_resolver(
     async def _resolve(_identifier: str, _run_root: str = "runs") -> str:
         return str(db_path)
 
-    monkeypatch.setattr("src.web.app._resolve_db_path_from_run_or_workflow", _resolve)
+    monkeypatch.setattr("src.web.routers.artifacts._resolve_db_path_from_run_or_workflow", _resolve)
 
     response = await client.post(f"/api/run/{workflow_id}/export?run_root={tmp_path}")
     assert response.status_code == 200
@@ -1980,7 +1980,7 @@ async def test_export_returns_409_for_incomplete_submission_without_force(
     async def _resolve(_identifier: str, _run_root: str = "runs") -> str:
         return str(db_path)
 
-    monkeypatch.setattr("src.web.app._resolve_db_path_from_run_or_workflow", _resolve)
+    monkeypatch.setattr("src.web.routers.artifacts._resolve_db_path_from_run_or_workflow", _resolve)
 
     response = await client.post(f"/api/run/{workflow_id}/export?run_root={tmp_path}")
     assert response.status_code == 409
@@ -2017,8 +2017,8 @@ async def test_submission_zip_endpoint_accepts_workflow_identifier_via_resolver(
     async def _topic(_db_path: str) -> str:
         return "Topic"
 
-    monkeypatch.setattr("src.web.app._resolve_db_path_from_run_or_workflow", _resolve)
-    monkeypatch.setattr("src.web.app._get_topic_for_db", _topic)
+    monkeypatch.setattr("src.web.routers.artifacts._resolve_db_path_from_run_or_workflow", _resolve)
+    monkeypatch.setattr("src.web.routers.artifacts._get_topic_for_db", _topic)
 
     response = await client.get(f"/api/run/{workflow_id}/submission.zip")
     assert response.status_code == 200
@@ -2057,8 +2057,8 @@ async def test_manuscript_docx_endpoint_accepts_workflow_identifier_via_resolver
     async def _topic(_db_path: str) -> str:
         return "Topic"
 
-    monkeypatch.setattr("src.web.app._resolve_db_path_from_run_or_workflow", _resolve)
-    monkeypatch.setattr("src.web.app._get_topic_for_db", _topic)
+    monkeypatch.setattr("src.web.routers.artifacts._resolve_db_path_from_run_or_workflow", _resolve)
+    monkeypatch.setattr("src.web.routers.artifacts._get_topic_for_db", _topic)
 
     response = await client.get(f"/api/run/{workflow_id}/manuscript.docx")
     assert response.status_code == 200
@@ -2526,7 +2526,7 @@ async def test_workflow_manuscript_audit_endpoints_return_expected_shapes(
     async def _resolve(_identifier: str, _run_root: str = "runs") -> str:
         return str(db_path)
 
-    monkeypatch.setattr("src.web.app._resolve_db_path_from_run_or_workflow", _resolve)
+    monkeypatch.setattr("src.web.routers.validation._resolve_db_path_from_run_or_workflow", _resolve)
 
     summary_resp = await client.get(f"/api/workflow/{workflow_id}/manuscript-audit/summary")
     assert summary_resp.status_code == 200
@@ -2586,7 +2586,7 @@ async def test_workflow_manuscript_audit_findings_returns_empty_for_unknown_or_w
     async def _resolve(_identifier: str, _run_root: str = "runs") -> str:
         return str(db_path)
 
-    monkeypatch.setattr("src.web.app._resolve_db_path_from_run_or_workflow", _resolve)
+    monkeypatch.setattr("src.web.routers.validation._resolve_db_path_from_run_or_workflow", _resolve)
 
     latest_resp = await client.get(f"/api/workflow/{workflow_id}/manuscript-audit/findings")
     assert latest_resp.status_code == 200
@@ -2888,7 +2888,7 @@ async def test_run_readiness_returns_degraded_payload_with_audit_summary_on_comp
     record.done = True
     _active_runs[run_id] = record
     monkeypatch.setattr(
-        "src.web.app.compute_readiness_scorecard",
+        "src.web.routers.artifacts.compute_readiness_scorecard",
         AsyncMock(side_effect=RuntimeError("boom")),
     )
     try:
@@ -2937,7 +2937,7 @@ async def test_workflow_manuscript_audit_endpoints_graceful_when_audit_tables_mi
     async def _resolve(_identifier: str, _run_root: str = "runs") -> str:
         return str(db_path)
 
-    monkeypatch.setattr("src.web.app._resolve_db_path_from_run_or_workflow", _resolve)
+    monkeypatch.setattr("src.web.routers.validation._resolve_db_path_from_run_or_workflow", _resolve)
 
     summary_resp = await client.get(f"/api/workflow/{workflow_id}/manuscript-audit/summary")
     assert summary_resp.status_code == 200
