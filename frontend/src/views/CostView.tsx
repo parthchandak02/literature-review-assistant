@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useCallback, useRef } from "react"
+import { useMemo, useState } from "react"
 import {
   BarChart,
   Bar,
@@ -11,24 +11,22 @@ import {
 import { DollarSign, Zap, ArrowUpDown, Activity } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { CHART_THEME } from "@/lib/constants"
-import {
-  fetchDbCostAggregates,
-  fetchDbCosts,
-  fetchWorkflowValidationChecks,
-  fetchWorkflowValidationSummary,
-  getDbCostExportUrl,
-} from "@/lib/api"
+import { getDbCostExportUrl } from "@/lib/api"
 import type {
-  DbCostAggregatesResponse,
   DbCostExportGranularity,
   DbCostRow,
-  ScreeningDiagnostics,
-  ValidationCheck,
-  ValidationSummary,
 } from "@/lib/api"
 import type { CostStats, ModelStat, PhaseStat } from "@/hooks/useCostStats"
+import {
+  costsFetchErrorMessage,
+  useDbCostAggregates,
+  useDbCosts,
+  useWorkflowValidationChecks,
+  useWorkflowValidationSummary,
+} from "@/hooks/useDbCosts"
 import { FetchError, EmptyState } from "@/components/ui/feedback"
 import { SkeletonCard } from "@/components/ui/skeleton"
+import { ViewToolbar } from "@/components/ui/view-toolbar"
 import { PHASE_LABEL_MAP, phaseColor } from "@/lib/constants"
 
 interface MetricTileProps {
@@ -77,6 +75,39 @@ function formatUsd(value: number): string {
   return `$${value.toFixed(4)}`
 }
 
+function buildCostStatsFromDbRows(dbRows: DbCostRow[], dbTotalCost: number): CostStats {
+  const modelMap: Record<string, ModelStat> = {}
+  const phaseMap: Record<string, PhaseStat> = {}
+  let total_tokens_in = 0
+  let total_tokens_out = 0
+  let total_calls = 0
+  for (const r of dbRows) {
+    total_tokens_in += Number(r.tokens_in)
+    total_tokens_out += Number(r.tokens_out)
+    total_calls += Number(r.calls)
+    if (!modelMap[r.model]) {
+      modelMap[r.model] = { model: r.model, calls: 0, tokens_in: 0, tokens_out: 0, cost_usd: 0 }
+    }
+    modelMap[r.model].calls += Number(r.calls)
+    modelMap[r.model].tokens_in += Number(r.tokens_in)
+    modelMap[r.model].tokens_out += Number(r.tokens_out)
+    modelMap[r.model].cost_usd += Number(r.cost_usd)
+    if (!phaseMap[r.phase]) {
+      phaseMap[r.phase] = { phase: r.phase, cost_usd: 0, calls: 0 }
+    }
+    phaseMap[r.phase].cost_usd += Number(r.cost_usd)
+    phaseMap[r.phase].calls += Number(r.calls)
+  }
+  return {
+    total_cost: dbTotalCost,
+    total_tokens_in,
+    total_tokens_out,
+    total_calls,
+    by_model: Object.values(modelMap).sort((a, b) => b.cost_usd - a.cost_usd),
+    by_phase: Object.values(phaseMap).sort((a, b) => b.cost_usd - a.cost_usd),
+  }
+}
+
 interface CostViewProps {
   costStats: CostStats
   dbRunId?: string | null
@@ -85,16 +116,6 @@ interface CostViewProps {
 }
 
 export function CostView({ costStats, dbRunId, workflowId, isLive }: CostViewProps) {
-  const [dbRows, setDbRows] = useState<DbCostRow[]>([])
-  const [dbTotalCost, setDbTotalCost] = useState(0)
-  const [screeningDiagnostics, setScreeningDiagnostics] = useState<ScreeningDiagnostics | null>(null)
-  const [validationSummary, setValidationSummary] = useState<ValidationSummary["latest_run"] | null>(null)
-  const [validationChecks, setValidationChecks] = useState<ValidationCheck[]>([])
-  const [loadingDb, setLoadingDb] = useState(false)
-  const [dbError, setDbError] = useState<string | null>(null)
-  const [opsAggregates, setOpsAggregates] = useState<DbCostAggregatesResponse | null>(null)
-  const [opsLoading, setOpsLoading] = useState(false)
-  const [opsError, setOpsError] = useState<string | null>(null)
   const [opsStartDate, setOpsStartDate] = useState("")
   const [opsEndDate, setOpsEndDate] = useState("")
   const [opsGranularity, setOpsGranularity] = useState<DbCostExportGranularity>("day")
@@ -105,116 +126,39 @@ export function CostView({ costStats, dbRunId, workflowId, isLive }: CostViewPro
     return q.get("ops") === "1"
   }, [])
 
-  const isFirstFetchRef = useRef(true)
+  const dbCostsQuery = useDbCosts(dbRunId, { enabled: Boolean(dbRunId), isLive })
+  const validationSummaryQuery = useWorkflowValidationSummary(workflowId)
+  const validationSummary = validationSummaryQuery.data?.latest_run ?? null
+  const validationChecksQuery = useWorkflowValidationChecks(
+    workflowId,
+    validationSummary?.validation_run_id,
+  )
 
-  const loadDbCosts = useCallback(() => {
-    if (!dbRunId) return
-    if (isFirstFetchRef.current) setLoadingDb(true)
-    setDbError(null)
-    fetchDbCosts(dbRunId)
-      .then((d) => {
-        setDbRows(d.records)
-        setDbTotalCost(d.total_cost)
-        setScreeningDiagnostics(d.screening_diagnostics ?? null)
-        isFirstFetchRef.current = false
-      })
-      .catch((e: unknown) => {
-        const msg = e instanceof Error ? e.message : String(e)
-        setDbError(
-          msg.toLowerCase().includes("failed to fetch")
-            ? "Cannot reach backend."
-            : msg,
-        )
-      })
-      .finally(() => setLoadingDb(false))
-  }, [dbRunId])
+  const opsAggregatesQuery = useDbCostAggregates(dbRunId, {
+    enabled: opsEnabled && Boolean(dbRunId),
+    startDate: opsStartDate,
+    endDate: opsEndDate,
+    granularity: opsGranularity,
+  })
 
-  useEffect(() => {
-    if (!workflowId) return
-    fetchWorkflowValidationSummary(workflowId)
-      .then((res) => setValidationSummary(res.latest_run))
-      .catch(() => setValidationSummary(null))
-  }, [workflowId])
+  const dbCostStats = useMemo(() => {
+    const rows = dbCostsQuery.data?.records ?? []
+    const total = dbCostsQuery.data?.total_cost ?? 0
+    if (!rows.length) return null
+    return buildCostStatsFromDbRows(rows, total)
+  }, [dbCostsQuery.data])
 
-  useEffect(() => {
-    if (!workflowId || !validationSummary?.validation_run_id) {
-      setValidationChecks([])
-      return
-    }
-    fetchWorkflowValidationChecks(workflowId, validationSummary.validation_run_id)
-      .then((res) => setValidationChecks(res.checks))
-      .catch(() => setValidationChecks([]))
-  }, [workflowId, validationSummary?.validation_run_id])
-
-  useEffect(() => {
-    setDbRows([])
-    setDbTotalCost(0)
-    isFirstFetchRef.current = true
-    loadDbCosts()
-  }, [loadDbCosts])
-
-  useEffect(() => {
-    if (!isLive || !dbRunId) return
-    const id = setInterval(loadDbCosts, 5000)
-    return () => clearInterval(id)
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- loadDbCosts identity changes on dbRows.length; use stable refs via interval
-  }, [isLive, dbRunId])
-
-  const loadOpsAggregates = useCallback(() => {
-    if (!dbRunId || !opsEnabled) return
-    setOpsLoading(true)
-    setOpsError(null)
-    fetchDbCostAggregates(dbRunId, {
-      start_ts: opsStartDate || undefined,
-      end_ts: opsEndDate || undefined,
-    })
-      .then((data) => setOpsAggregates(data))
-      .catch((e: unknown) => {
-        const msg = e instanceof Error ? e.message : String(e)
-        setOpsError(msg)
-      })
-      .finally(() => setOpsLoading(false))
-  }, [dbRunId, opsEnabled, opsStartDate, opsEndDate])
-
-  useEffect(() => {
-    if (!opsEnabled || !dbRunId) return
-    loadOpsAggregates()
-  }, [opsEnabled, dbRunId, loadOpsAggregates])
-
-  // Aggregate DbCostRow[] into the same CostStats shape the rendering already uses.
-  const dbCostStats = useMemo<CostStats | null>(() => {
-    if (!dbRows.length) return null
-    const modelMap: Record<string, ModelStat> = {}
-    const phaseMap: Record<string, PhaseStat> = {}
-    let total_tokens_in = 0
-    let total_tokens_out = 0
-    let total_calls = 0
-    for (const r of dbRows) {
-      total_tokens_in += Number(r.tokens_in)
-      total_tokens_out += Number(r.tokens_out)
-      total_calls += Number(r.calls)
-      if (!modelMap[r.model]) {
-        modelMap[r.model] = { model: r.model, calls: 0, tokens_in: 0, tokens_out: 0, cost_usd: 0 }
-      }
-      modelMap[r.model].calls += Number(r.calls)
-      modelMap[r.model].tokens_in += Number(r.tokens_in)
-      modelMap[r.model].tokens_out += Number(r.tokens_out)
-      modelMap[r.model].cost_usd += Number(r.cost_usd)
-      if (!phaseMap[r.phase]) {
-        phaseMap[r.phase] = { phase: r.phase, cost_usd: 0, calls: 0 }
-      }
-      phaseMap[r.phase].cost_usd += Number(r.cost_usd)
-      phaseMap[r.phase].calls += Number(r.calls)
-    }
-    return {
-      total_cost: dbTotalCost,
-      total_tokens_in,
-      total_tokens_out,
-      total_calls,
-      by_model: Object.values(modelMap).sort((a, b) => b.cost_usd - a.cost_usd),
-      by_phase: Object.values(phaseMap).sort((a, b) => b.cost_usd - a.cost_usd),
-    }
-  }, [dbRows, dbTotalCost])
+  const screeningDiagnostics = dbCostsQuery.data?.screening_diagnostics ?? null
+  const validationChecks = validationChecksQuery.data?.checks ?? []
+  const loadingDb = dbCostsQuery.isLoading
+  const dbError = dbCostsQuery.isError ? costsFetchErrorMessage(dbCostsQuery.error) : null
+  const opsAggregates = opsAggregatesQuery.data ?? null
+  const opsLoading = opsAggregatesQuery.isFetching
+  const opsError = opsAggregatesQuery.isError
+    ? opsAggregatesQuery.error instanceof Error
+      ? opsAggregatesQuery.error.message
+      : String(opsAggregatesQuery.error)
+    : null
 
   // DB data is always the primary source -- it captures every LLM call across
   // all phases regardless of whether the SSE event was buffered in event_log.
@@ -259,7 +203,7 @@ export function CostView({ costStats, dbRunId, workflowId, isLive }: CostViewPro
     return (
       <FetchError
         message={dbError}
-        onRetry={loadDbCosts}
+        onRetry={() => { void dbCostsQuery.refetch() }}
         className="max-w-md"
       />
     )
@@ -357,13 +301,14 @@ export function CostView({ costStats, dbRunId, workflowId, isLive }: CostViewPro
       {/* Cost by model table */}
       {by_model.length > 0 && (
         <div className="card-surface overflow-hidden">
-          <div className="glass-toolbar px-5 py-3 border-b border-border/70">
-            <h3 className="text-sm font-semibold text-foreground">Cost by Model</h3>
-          </div>
-          <div className="overflow-x-auto">
+          <ViewToolbar
+            dense
+            title={<h3 className="text-sm font-semibold text-foreground">Cost by Model</h3>}
+          />
+          <div className="data-surface overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
-                <tr className="glass-toolbar border-b border-border/70">
+                <tr className="glass-table-head border-b border-border/70">
                   <th className="text-left px-5 py-2.5 label-caps">Model</th>
                   <th className="text-right px-4 py-2.5 label-caps">Calls</th>
                   <th className="text-right px-4 py-2.5 label-caps">Tokens In</th>
@@ -404,13 +349,14 @@ export function CostView({ costStats, dbRunId, workflowId, isLive }: CostViewPro
       {/* Cost by phase table */}
       {by_phase.length > 0 && (
         <div className="card-surface overflow-hidden">
-          <div className="glass-toolbar px-5 py-3 border-b border-border/70">
-            <h3 className="text-sm font-semibold text-foreground">Cost by Phase</h3>
-          </div>
-          <div className="overflow-x-auto">
+          <ViewToolbar
+            dense
+            title={<h3 className="text-sm font-semibold text-foreground">Cost by Phase</h3>}
+          />
+          <div className="data-surface overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
-                <tr className="glass-toolbar border-b border-border/70">
+                <tr className="glass-table-head border-b border-border/70">
                   <th className="text-left px-5 py-2.5 label-caps">Phase</th>
                   <th className="text-right px-4 py-2.5 label-caps">Calls</th>
                   <th className="text-right px-5 py-2.5 label-caps">Cost</th>
@@ -448,10 +394,11 @@ export function CostView({ costStats, dbRunId, workflowId, isLive }: CostViewPro
 
       {opsEnabled && dbRunId && (
         <div className="card-surface overflow-hidden">
-          <div className="glass-toolbar px-5 py-3 border-b border-border/70 flex items-center justify-between gap-3">
-            <h3 className="text-sm font-semibold text-foreground">Ops Cost Diagnostics</h3>
-            <div className="label-muted">Hidden mode (`ops=1`)</div>
-          </div>
+          <ViewToolbar
+            dense
+            title={<h3 className="text-sm font-semibold text-foreground">Ops Cost Diagnostics</h3>}
+            actions={<div className="label-muted">Hidden mode (`ops=1`)</div>}
+          />
           <div className="p-5 space-y-4">
             <div className="grid grid-cols-1 md:grid-cols-5 gap-3">
               <label className="flex flex-col gap-1 text-xs text-muted">
@@ -487,7 +434,7 @@ export function CostView({ costStats, dbRunId, workflowId, isLive }: CostViewPro
               <div className="flex items-end gap-2 md:col-span-2">
                 <button
                   type="button"
-                  onClick={loadOpsAggregates}
+                  onClick={() => { void opsAggregatesQuery.refetch() }}
                   className="h-9 px-3 rounded-md border border-border bg-surface-2 text-foreground text-xs hover:bg-surface-3"
                 >
                   Refresh
@@ -550,9 +497,14 @@ export function CostView({ costStats, dbRunId, workflowId, isLive }: CostViewPro
 
       {(screeningDiagnostics || validationSummary) && (
         <div className="card-surface overflow-hidden">
-          <div className="glass-toolbar px-5 py-3 border-b border-border/70">
-            <h3 className="text-sm font-semibold text-foreground">Validation and Screening Diagnostics</h3>
-          </div>
+          <ViewToolbar
+            dense
+            title={
+              <h3 className="text-sm font-semibold text-foreground">
+                Validation and Screening Diagnostics
+              </h3>
+            }
+          />
           <div className="p-5 space-y-3 text-xs text-foreground">
             {validationSummary && (
               <div className="grid grid-cols-2 md:grid-cols-4 gap-2">

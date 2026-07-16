@@ -17,6 +17,7 @@ import { shouldShowHistoricalLoading, shouldUsePrefetchedHistorical } from "@/li
 import { PHASE_ORDER, PHASE_LABELS, PHASE_MILESTONES, RESUME_PHASE_ORDER } from "@/lib/constants"
 import type { ReviewEvent } from "@/lib/api"
 import { cn } from "@/lib/utils"
+import { ViewToolbar } from "@/components/ui/view-toolbar"
 
 // ---------------------------------------------------------------------------
 // Phase state helpers
@@ -281,7 +282,7 @@ function HorizontalStepperContent({
 }) {
   if (loading) {
     return (
-      <div className="flex items-start gap-1 px-3 py-4 sm:px-4 sm:py-5">
+      <div className="data-surface flex items-start gap-1 px-3 py-4 sm:px-4 sm:py-5">
         {PHASE_MILESTONES.map((milestone, i) => (
           <div key={milestone.key} className="flex items-start flex-1">
             <div className="flex flex-col items-center gap-1.5 w-full shrink-0">
@@ -295,7 +296,7 @@ function HorizontalStepperContent({
     )
   }
   return (
-    <div className="px-3 py-4 sm:px-4 sm:py-5 overflow-hidden">
+    <div className="data-surface px-3 py-4 sm:px-4 sm:py-5 overflow-hidden">
       <div className="flex items-start w-full gap-0.5 sm:gap-1">
         {PHASE_MILESTONES.map((milestone, i) => {
           const targetPhase = milestone.phases.find((phase) => isPhaseResumeSelectable(phase)) ?? milestone.phases[0]
@@ -536,18 +537,20 @@ export function ActivityView({
 
       <div className="flex flex-col gap-3 min-h-[480px]">
         <div className="card-surface overflow-hidden flex flex-col">
-          <div className="glass-toolbar flex items-center justify-between px-4 h-11 border-b border-border/70 shrink-0">
-            <span className="label-caps">Phase Timeline</span>
-            {resumeModeActive ? (
-              <span className="text-[11px] text-muted">
-                {resumeHint ?? (canResumeEligibility ? "Tap a phase once, tap again to resume from it" : resumeBlockedReason)}
-              </span>
-            ) : canResumeEligibility ? (
-              <span className="text-[11px] text-muted">
-                Use Resume from last checkpoint in the sidebar
-              </span>
-            ) : null}
-          </div>
+          <ViewToolbar
+            title={<span className="label-caps">Phase Timeline</span>}
+            actions={
+              resumeModeActive ? (
+                <span className="text-[11px] text-muted">
+                  {resumeHint ?? (canResumeEligibility ? "Tap a phase once, tap again to resume from it" : resumeBlockedReason)}
+                </span>
+              ) : canResumeEligibility ? (
+                <span className="text-[11px] text-muted">
+                  Use Resume from last checkpoint in the sidebar
+                </span>
+              ) : null
+            }
+          />
           <HorizontalStepperContent
             phaseStates={phaseStates}
             loading={effectiveLoadingHistory}
@@ -561,7 +564,7 @@ export function ActivityView({
         </div>
 
         <div className="card-surface overflow-hidden flex flex-col flex-1 min-h-0">
-          <div className="glass-toolbar flex items-center gap-2 px-4 h-11 border-b border-border/70 shrink-0 overflow-hidden">
+          <ViewToolbar className="overflow-hidden gap-2">
             <span className="label-caps shrink-0">Activity Log</span>
 
             {effectiveLoadingHistory ? (
@@ -585,9 +588,9 @@ export function ActivityView({
                 className="pl-8 h-7 text-xs bg-transparent border-border w-full"
               />
             </div>
-          </div>
+          </ViewToolbar>
 
-          <div className="flex-1 overflow-y-auto min-h-0">
+          <div className="data-surface flex-1 overflow-y-auto min-h-0">
             {fetchError && (
               <div className="p-4">
                 <FetchError

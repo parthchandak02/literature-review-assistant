@@ -1,11 +1,12 @@
-import { useCallback, useEffect, useMemo, useState } from "react"
+import { useMemo, useState } from "react"
 import { AlertTriangle, Clock, FileCode, Sparkles } from "lucide-react"
 import { Spinner } from "@/components/ui/feedback"
-import { fetchRunConfig } from "@/lib/api"
+import { useRunConfig } from "@/hooks/useRunConfig"
 import { formatRunDate } from "@/lib/format"
 import { EmptyState } from "@/components/ui/feedback"
 import { Button } from "@/components/ui/button"
 import { YamlEditor } from "@/components/YamlEditor"
+import { ViewToolbar } from "@/components/ui/view-toolbar"
 
 // ---------------------------------------------------------------------------
 // ConfigView
@@ -71,48 +72,19 @@ export function ConfigView({
   onLaunchDraft,
 }: ConfigViewProps) {
   const isDraft = workflowId === "draft" && draftConfig !== null
-  const [yamlContent, setYamlContent] = useState<string | null>(null)
-  const [draftYaml, setDraftYaml] = useState("")
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
-
-  const loadConfig = useCallback(async () => {
-    if (isDraft) {
-      setYamlContent(null)
-      setError(null)
-      setLoading(false)
-      return
-    }
-    if (!workflowId) {
-      setYamlContent(null)
-      setError(null)
-      setLoading(false)
-      return
-    }
-    setLoading(true)
-    setError(null)
-    try {
-      const content = await fetchRunConfig(workflowId)
-      setYamlContent(content)
-      if (!content) {
-        setError("Config not saved for this run. Older CLI runs may not have review.yaml persisted.")
-      }
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Failed to load config")
-      setYamlContent(null)
-    } finally {
-      setLoading(false)
-    }
-  }, [isDraft, workflowId])
-
-  useEffect(() => {
-    void loadConfig()
-  }, [loadConfig])
-
-  useEffect(() => {
-    if (!isDraft || !draftConfig) return
-    setDraftYaml(draftConfig.yaml)
-  }, [isDraft, draftConfig])
+  const streamedDraftYaml = draftConfig?.yaml ?? ""
+  const [draftYamlOverride, setDraftYamlOverride] = useState<string | null>(null)
+  const draftYaml = draftYamlOverride ?? streamedDraftYaml
+  const {
+    data: yamlContent = null,
+    isLoading: loading,
+    error: queryError,
+  } = useRunConfig(workflowId, { enabled: !isDraft && Boolean(workflowId) })
+  const error = queryError
+    ? (queryError instanceof Error ? queryError.message : "Failed to load config")
+    : !loading && yamlContent === null && workflowId && !isDraft
+      ? "Config not saved for this run. Older CLI runs may not have review.yaml persisted."
+      : null
 
   const researchQuestion = isDraft
     ? draftConfig?.request?.question ?? topic
@@ -176,9 +148,10 @@ export function ConfigView({
   return (
     <div className="flex flex-col gap-4">
       <div className="card-surface overflow-hidden">
-        <div className="glass-toolbar px-4 py-3 border-b border-border/70">
-          <h3 className="text-sm font-semibold text-foreground">Research Question</h3>
-        </div>
+        <ViewToolbar
+          className="!h-auto py-3"
+          title={<h3 className="text-sm font-semibold text-foreground">Research Question</h3>}
+        />
         <div className="px-4 py-4">
           <p className="text-sm text-foreground leading-relaxed">{researchQuestion}</p>
           {createdAt && (
@@ -193,10 +166,15 @@ export function ConfigView({
       {(yamlContent || isDraft) && (
         <div className="grid grid-cols-1 xl:grid-cols-[minmax(320px,430px)_minmax(0,1fr)] gap-4 items-start">
           <div className="card-surface overflow-hidden">
-            <div className="glass-toolbar flex items-center gap-2 px-4 py-3 border-b border-border/70">
-              <Sparkles className="h-3.5 w-3.5 text-muted shrink-0" />
-              <h3 className="text-sm font-semibold text-foreground">Config Generation Summary</h3>
-            </div>
+            <ViewToolbar
+              className="!h-auto py-3"
+              title={
+                <>
+                  <Sparkles className="h-3.5 w-3.5 text-muted shrink-0" />
+                  <h3 className="text-sm font-semibold text-foreground">Config Generation Summary</h3>
+                </>
+              }
+            />
             <div className="px-3 py-3 space-y-1.5">
               {generationSummary && CONFIG_GEN_STEPS.map((step) => {
                 const status = isDraft && draftConfig
@@ -233,12 +211,15 @@ export function ConfigView({
           </div>
 
           <div className="card-surface overflow-hidden">
-            <div className="glass-toolbar flex items-center justify-between px-4 py-3 border-b border-border/70">
-              <h3 className="text-sm font-semibold text-foreground">Review Config (YAML)</h3>
-              <span className="text-xs text-muted">
-                {isDraft ? "Generated live before launch" : "Timestamped config used for this run"}
-              </span>
-            </div>
+            <ViewToolbar
+              className="!h-auto py-3"
+              title={<h3 className="text-sm font-semibold text-foreground">Review Config (YAML)</h3>}
+              actions={
+                <span className="text-xs text-muted">
+                  {isDraft ? "Generated live before launch" : "Timestamped config used for this run"}
+                </span>
+              }
+            />
             <div className="px-4 py-4 space-y-3">
               {isDraft && draftConfig?.generationError && (
                 <div className="rounded-md border border-intent-warning-border bg-intent-warning-subtle p-3 text-xs text-intent-warning">
@@ -259,7 +240,7 @@ export function ConfigView({
                 <>
                   <YamlEditor
                     value={draftYaml}
-                    onChange={setDraftYaml}
+                    onChange={setDraftYamlOverride}
                     isLoading={draftConfig?.isGenerating}
                     loadingLabel="Generating review config from your research question..."
                   />

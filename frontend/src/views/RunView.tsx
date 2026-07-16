@@ -13,12 +13,16 @@ import { Spinner } from "@/components/ui/feedback"
 import { LiveStreamStatus } from "@/components/run-status"
 import { resolveRunHeaderStatus } from "@/lib/constants"
 import { GlassTabs } from "@/components/ui/glass-tabs"
+import { ViewBoundary } from "@/components/ViewBoundary"
 import { ActivityView } from "@/views/ActivityView"
 import type { ReviewEvent } from "@/lib/api"
 import { useHistoricalEvents } from "@/hooks/useHistoricalEvents"
 import type { CostStats } from "@/hooks/useCostStats"
 import { computeFunnelStages } from "@/lib/funnelStages"
 import type { DraftConfigContext } from "@/views/ConfigView"
+import type { RunTab, SelectedRun } from "@/context/runSessionTypes"
+
+export type { RunTab, SelectedRun } from "@/context/runSessionTypes"
 
 const CostView = lazy(() => import("@/views/CostView").then((m) => ({ default: m.CostView })))
 const DatabaseView = lazy(() =>
@@ -33,33 +37,6 @@ const ConfigView = lazy(() =>
 const ScreeningReviewView = lazy(() =>
   import("@/views/ScreeningReviewView").then((m) => ({ default: m.ScreeningReviewView })),
 )
-
-// ---------------------------------------------------------------------------
-// Types
-// ---------------------------------------------------------------------------
-
-export type RunTab = "activity" | "results" | "database" | "cost" | "config" | "review-screening"
-
-/** A run that is currently being viewed (live or historical). */
-export interface SelectedRun {
-  /** Backend run_id for /api/db/{runId}/... and /api/run/{runId}/... calls. */
-  runId: string
-  /** Stable workflow UUID -- available after run completes or for historical runs. */
-  workflowId: string | null
-  topic: string
-  dbPath: string | null
-  isDone: boolean
-  startedAt: Date | null
-  /** Populated from HistoryEntry for historical runs; null for live runs. */
-  createdAt?: string | null
-  papersFound?: number | null
-  papersIncluded?: number | null
-  historicalCost?: number | null
-  /** Raw backend status string for historical runs (e.g. "running", "failed", "completed"). */
-  historicalStatus?: string | null
-  /** True while POST /history/attach is in flight for a completed workflow. */
-  attachPending?: boolean
-}
 
 /** Tab order follows the review workflow: Config (YAML) -> Activity -> Data -> Cost -> Results */
 const TAB_ITEMS: { id: RunTab; label: string; icon: React.ElementType }[] = [
@@ -366,7 +343,8 @@ export function RunView({
 
       {/* Tab content -- pb accounts for iOS/Chrome bottom safe area (home bar, bottom nav) */}
       <div className="flex-1 overflow-y-auto overscroll-none p-6" style={{ paddingBottom: 'max(1.5rem, env(safe-area-inset-bottom))' }}>
-        <Suspense fallback={<ViewLoader />}>
+        <ViewBoundary label={activeTab} resetKey={activeTab}>
+          <Suspense fallback={<ViewLoader />}>
           {activeTab === "activity" && (
             <ActivityView
               events={events}
@@ -429,7 +407,8 @@ export function RunView({
           {activeTab === "review-screening" && (
             <ScreeningReviewView runId={run.runId} />
           )}
-        </Suspense>
+          </Suspense>
+        </ViewBoundary>
       </div>
     </div>
   )

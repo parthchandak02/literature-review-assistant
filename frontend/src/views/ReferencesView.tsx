@@ -1,9 +1,12 @@
-import { useCallback, useEffect, useState } from "react"
+import { useState } from "react"
+import { useQueryClient } from "@tanstack/react-query"
 import { BookOpen, Download, ExternalLink, FileText, FileX, RefreshCw } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { EmptyState, FetchError, LoadingPane, Spinner } from "@/components/ui/feedback"
-import { fetchPapersReference, fetchPdfsForRun, paperFileUrl } from "@/lib/api"
+import { ViewToolbar } from "@/components/ui/view-toolbar"
+import { fetchPdfsForRun, paperFileUrl } from "@/lib/api"
 import type { FetchPdfsProgressEvent, FetchPdfsResult, PaperReference } from "@/lib/api"
+import { referencesQueryKey, useReferences } from "@/hooks/useReferences"
 import { cn } from "@/lib/utils"
 
 interface ReferencesViewProps {
@@ -72,30 +75,26 @@ export function ReferencesView({
   isDone,
   onGoToSubmissionReferencePapers,
 }: ReferencesViewProps) {
-  const [papers, setPapers] = useState<PaperReference[]>([])
-  const [loading, setLoading] = useState(isDone)
-  const [error, setError] = useState<string | null>(null)
+  const queryClient = useQueryClient()
   const [fetching, setFetching] = useState(false)
   const [fetchProgress, setFetchProgress] = useState<FetchProgress | null>(null)
   const [fetchResult, setFetchResult] = useState<FetchPdfsResult | null>(null)
   const [fetchError, setFetchError] = useState<string | null>(null)
-  const [refreshKey, setRefreshKey] = useState(0)
   /** For historical runs, use workflowId (registry-stable); for live runs use runId */
   const effectiveId = (isDone && workflowId) ? workflowId : runId
 
-  const fetchPapers = useCallback(() => {
-    setLoading(true)
-    return fetchPapersReference(effectiveId, workflowId)
-      .then(setPapers)
-      .catch((e: unknown) => setError(e instanceof Error ? e.message : "Failed to load references"))
-      .finally(() => setLoading(false))
-  }, [effectiveId, workflowId])
+  const referencesQuery = useReferences(effectiveId, workflowId, { enabled: isDone })
+  const papers = referencesQuery.data ?? []
+  const loading = referencesQuery.isLoading
+  const error = referencesQuery.isError
+    ? referencesQuery.error instanceof Error
+      ? referencesQuery.error.message
+      : "Failed to load references"
+    : null
 
-  useEffect(() => {
-    if (!isDone) return
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- fetchPapers intentionally manages loading/error state for this view
-    void fetchPapers()
-  }, [isDone, effectiveId, refreshKey, fetchPapers])
+  const refetchPapers = () => {
+    void referencesQuery.refetch()
+  }
 
   const handleFetchPdfs = () => {
     setFetching(true)
@@ -118,7 +117,9 @@ export function ReferencesView({
       .then((result) => {
         setFetchResult(result)
         setFetchProgress(null)
-        setRefreshKey((k) => k + 1)
+        void queryClient.invalidateQueries({
+          queryKey: referencesQueryKey(effectiveId, workflowId),
+        })
       })
       .catch((e: unknown) => setFetchError(e instanceof Error ? e.message : "PDF fetch failed"))
       .finally(() => setFetching(false))
@@ -141,7 +142,7 @@ export function ReferencesView({
   if (error) {
     return (
       <div className="py-8">
-        <FetchError message={error} onRetry={() => void fetchPapers()} />
+        <FetchError message={error} onRetry={refetchPapers} />
       </div>
     )
   }
@@ -153,95 +154,108 @@ export function ReferencesView({
   }
 
   const someFilesMissing = papers.length > 0 && papers.some((p) => !p.has_file)
-  const fulltextCount = papers.filter((p) => p.has_file).length
-  const abstractOnlyCount = papers.length - fulltextCount
+  const abstractOnlyCount = papers.length - papers.filter((p) => p.has_file).length
+  const fetchProgressPercent =
+    fetchProgress && fetchProgress.total > 0
+      ? Math.round((fetchProgress.current / fetchProgress.total) * 100)
+      : 0
+  const showFetchMeta = fetching || fetchResult != null || fetchError != null
 
   return (
     <div className="flex flex-col gap-4">
-      {/* Header */}
-      <div className="flex items-start justify-between gap-4">
-        <div>
-          <h2 className="text-base font-semibold text-foreground">
-            Included Studies
-          </h2>
-          <p className="text-xs text-muted mt-0.5">
-            {papers.length} {papers.length === 1 ? "paper" : "papers"} included in this review
-            {abstractOnlyCount > 0 && (
-              <span className="text-intent-warning ml-1">
-                -- {abstractOnlyCount} without full text (abstract-only extraction)
-              </span>
-            )}
-          </p>
-        </div>
-        <div className="flex flex-col items-end gap-2">
-          <div className="flex items-center gap-2 text-xs text-muted">
-            <span className="inline-flex items-center gap-1">
-              <span className="w-2 h-2 rounded-full bg-intent-success" />
-              Full text available
-            </span>
-            <span className="inline-flex items-center gap-1">
-              <span className="w-2 h-2 rounded-full bg-surface-4" />
-              Abstract only
-            </span>
-          </div>
-          <Button
-            size="sm"
-            variant="outline"
-            onClick={onGoToSubmissionReferencePapers}
-            className="border-border text-foreground hover:text-foreground"
-          >
-            Download All
-          </Button>
-          {(someFilesMissing || fetchResult) && (
-            <button
-              onClick={handleFetchPdfs}
-              disabled={fetching}
-              className={cn(
-                "inline-flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-medium transition-colors glass-interactive",
-                fetching
-                  ? "glass-panel text-muted cursor-not-allowed"
-                  : "glass-panel text-foreground hover:text-foreground",
-              )}
-            >
-              {fetching ? <Spinner size="sm" /> : <RefreshCw className="h-3 w-3" />}
-              {fetching ? "Fetching..." : "Fetch PDFs"}
-            </button>
-          )}
-          {/* Live progress during fetch */}
-          {fetching && fetchProgress && (
-            <div className="flex flex-col items-end gap-1 w-56">
-              <div className="w-full h-1 bg-surface-2 rounded-full overflow-hidden">
-                <div
-                  className="h-full bg-intent-success transition-all duration-300"
-                  style={{ width: `${Math.round((fetchProgress.current / fetchProgress.total) * 100)}%` }}
-                />
-              </div>
-              <p className="text-[11px] text-muted text-right">
-                {fetchProgress.current} / {fetchProgress.total} papers
-                {fetchProgress.succeeded > 0 && (
-                  <span className="text-intent-success ml-1">-- {fetchProgress.succeeded} retrieved</span>
+      <div className="card-surface overflow-hidden">
+        <ViewToolbar
+          className="!h-auto py-3 items-start"
+          title={
+            <div className="min-w-0">
+              <h2 className="text-base font-semibold text-foreground">Included Studies</h2>
+              <p className="text-xs text-muted mt-0.5 font-normal">
+                {papers.length} {papers.length === 1 ? "paper" : "papers"} included in this review
+                {abstractOnlyCount > 0 && (
+                  <span className="text-intent-warning ml-1">
+                    -- {abstractOnlyCount} without full text (abstract-only extraction)
+                  </span>
                 )}
               </p>
-              <p className="text-[11px] text-muted text-right truncate max-w-[14rem]" title={fetchProgress.currentTitle}>
-                {fetchProgress.currentTitle}
-              </p>
             </div>
-          )}
-          {/* Waiting for first event */}
-          {fetching && !fetchProgress && (
-            <p className="text-[11px] text-muted">Connecting...</p>
-          )}
-          {fetchResult && !fetching && (
-            <p className="text-[11px] text-muted">
-              Retrieved {fetchResult.succeeded} of {fetchResult.attempted} --{" "}
-              {fetchResult.failed > 0 ? `${fetchResult.failed} unavailable` : "all found"}
-              {fetchResult.skipped > 0 ? `, ${fetchResult.skipped} already saved` : ""}
-            </p>
-          )}
-          {fetchError && !fetching && (
-            <p className="text-[11px] text-intent-danger">{fetchError}</p>
-          )}
-        </div>
+          }
+          actions={
+            <div className="flex flex-wrap items-center justify-end gap-x-3 gap-y-2">
+              <div className="flex items-center gap-3 text-[11px] text-muted">
+                <span className="inline-flex items-center gap-1">
+                  <span className="h-2 w-2 rounded-full bg-intent-success" />
+                  Full text
+                </span>
+                <span className="inline-flex items-center gap-1">
+                  <span className="h-2 w-2 rounded-full bg-surface-4" />
+                  Abstract only
+                </span>
+              </div>
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={onGoToSubmissionReferencePapers}
+                className="border-border text-foreground hover:text-foreground"
+              >
+                Download All
+              </Button>
+              {(someFilesMissing || fetchResult) && (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={handleFetchPdfs}
+                  disabled={fetching}
+                  className="border-border text-foreground hover:text-foreground"
+                >
+                  {fetching ? <Spinner size="sm" /> : <RefreshCw className="h-3 w-3" />}
+                  {fetching ? "Fetching..." : "Fetch PDFs"}
+                </Button>
+              )}
+            </div>
+          }
+        />
+
+        {showFetchMeta && (
+          <div className="border-t border-border/70 px-4 py-2.5">
+            {fetching && fetchProgress && (
+              <div className="flex flex-col gap-1.5 max-w-md ml-auto">
+                <div className="h-1 overflow-hidden rounded-full bg-surface-3/40">
+                  <div
+                    className="h-full bg-intent-active transition-all duration-300"
+                    style={{ width: `${fetchProgressPercent}%` }}
+                  />
+                </div>
+                <p className="text-[11px] text-muted text-right tabular-nums">
+                  {fetchProgress.current} / {fetchProgress.total} papers
+                  {fetchProgress.succeeded > 0 && (
+                    <span className="text-intent-success ml-1">
+                      -- {fetchProgress.succeeded} retrieved
+                    </span>
+                  )}
+                </p>
+                <p
+                  className="text-[11px] text-muted text-right truncate"
+                  title={fetchProgress.currentTitle}
+                >
+                  {fetchProgress.currentTitle}
+                </p>
+              </div>
+            )}
+            {fetching && !fetchProgress && (
+              <p className="text-[11px] text-muted text-right">Connecting...</p>
+            )}
+            {fetchResult && !fetching && (
+              <p className="text-[11px] text-muted text-right">
+                Retrieved {fetchResult.succeeded} of {fetchResult.attempted} --{" "}
+                {fetchResult.failed > 0 ? `${fetchResult.failed} unavailable` : "all found"}
+                {fetchResult.skipped > 0 ? `, ${fetchResult.skipped} already saved` : ""}
+              </p>
+            )}
+            {fetchError && !fetching && (
+              <p className="text-[11px] text-intent-danger text-right">{fetchError}</p>
+            )}
+          </div>
+        )}
       </div>
 
       {/* Paper cards */}
@@ -278,10 +292,8 @@ function PaperCard({ paper, index, runId }: PaperCardProps) {
   return (
     <div
       className={cn(
-        "group relative rounded-lg border p-4 transition-colors glass-panel",
-        hasFullText
-          ? "border-border/70 hover:border-border"
-          : "border-border/70",
+        "group relative p-4 transition-colors data-surface",
+        hasFullText && "hover:border-border",
       )}
     >
       <div className="flex items-start gap-3">

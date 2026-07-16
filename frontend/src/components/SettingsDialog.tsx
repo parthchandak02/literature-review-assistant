@@ -74,7 +74,7 @@ export function SettingsDialog({ open, onOpenChange, initialTab = "keys" }: Sett
           </div>
         </DialogHeader>
 
-        <div className="px-6 py-5 max-h-[70dvh] overflow-y-auto">
+        <div className="px-6 py-5 max-h-[70dvh] overflow-y-auto min-w-0">
           {tab === "keys" && <ApiKeysPanel />}
           {tab === "costs" && <CostsPanel />}
         </div>
