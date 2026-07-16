@@ -1,3 +1,8 @@
 # git-secrets allowlist — documentation false positives (not real credentials)
-stream_review_whatsapp
 Hermes agent venv
+src/config/env_context
+API Keys section
+\.venv/bin
+cloudflared/litreview
+pm2/logs
+env: \{ PORT

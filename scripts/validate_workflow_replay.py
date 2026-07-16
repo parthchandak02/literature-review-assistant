@@ -25,9 +25,12 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--workflow-id", required=True, help="Workflow ID to validate, for example: wf-0046.")
     parser.add_argument(
         "--profile",
-        choices=["quick", "standard", "deep"],
+        choices=["quick", "standard", "deep", "local", "adversarial"],
         default="standard",
-        help="Validation profile depth.",
+        help=(
+            "Validation profile depth. 'local' = standard checks with --fail-on-error semantics for CI hooks. "
+            "'adversarial' = relaxed checks for interrupted/zero-checkpoint fixtures."
+        ),
     )
     parser.add_argument(
         "--run-root",
@@ -101,6 +104,9 @@ async def _run_checks(
     profile: str,
     runtime_db: Path,
 ) -> list[ValidationCheckRecord]:
+    effective_profile = "standard" if profile in {"local", "adversarial"} else profile
+    strict_local = profile == "local"
+    adversarial = profile == "adversarial"
     db = repo.db
     checks: list[ValidationCheckRecord] = []
 
@@ -145,6 +151,9 @@ async def _run_checks(
         "SELECT COUNT(*) FROM dual_screening_results WHERE workflow_id = ? AND stage = 'title_abstract'",
         (workflow_id,),
     )
+    screening_ok = final_decisions > 0
+    screening_status = "pass" if screening_ok else ("warn" if adversarial else "fail")
+    screening_severity = "warn" if adversarial and not screening_ok else "error"
     await _add_check(
         repo,
         checks,
@@ -152,8 +161,8 @@ async def _run_checks(
         workflow_id=workflow_id,
         phase="phase_3_screening",
         check_name="dual_screening_rows_present",
-        status="pass" if final_decisions > 0 else "fail",
-        severity="error",
+        status=screening_status,
+        severity=screening_severity,
         metric_value=float(final_decisions),
         details={"dual_screening_rows": final_decisions},
         source_module="src/screening/dual_screener.py",
@@ -181,6 +190,7 @@ async def _run_checks(
         (workflow_id, workflow_id),
     )
     extraction_ok = included_primary == 0 or extracted_primary >= included_primary
+    extraction_severity = "error" if strict_local else "warn"
     await _add_check(
         repo,
         checks,
@@ -188,8 +198,8 @@ async def _run_checks(
         workflow_id=workflow_id,
         phase="phase_4_extraction",
         check_name="extraction_coverage_primary",
-        status="pass" if extraction_ok else "warn",
-        severity="warn",
+        status="pass" if extraction_ok else ("fail" if strict_local else "warn"),
+        severity=extraction_severity,
         metric_value=float(extracted_primary),
         details={"included_primary": included_primary, "extracted_primary": extracted_primary},
         source_module="src/extraction/extractor.py",
@@ -214,7 +224,7 @@ async def _run_checks(
         source_module="src/quality",
     )
 
-    if profile in {"standard", "deep"}:
+    if effective_profile in {"standard", "deep"} and not adversarial:
         run_dir = runtime_db.parent
         md_path = run_dir / "doc_manuscript.md"
         tex_path = run_dir / "doc_manuscript.tex"
@@ -246,7 +256,7 @@ async def _run_checks(
             source_module="src/manuscript/contracts.py",
         )
 
-    if profile == "deep":
+    if effective_profile == "deep":
         run_dir = runtime_db.parent
         has_tex = (run_dir / "doc_manuscript.tex").exists()
         has_bib = (run_dir / "references.bib").exists()
