@@ -2,12 +2,12 @@
 
 from __future__ import annotations
 
-import os
 from pathlib import Path
 
 import yaml
 from dotenv import load_dotenv
 
+from src.config.env_context import get_env
 from src.config.execution_profiles import apply_execution_profile
 from src.llm.registry import required_env_keys_from_settings
 from src.models import ReviewConfig, SettingsConfig
@@ -95,4 +95,4 @@ def validate_secret_env(settings: SettingsConfig | None = None) -> list[str]:
         required = get_required_env_keys(settings)
     else:
         required = ["DEEPSEEK_API_KEY"]
-    return [key for key in required if not os.getenv(key)]
+    return [key for key in required if not get_env(key)]

@@ -4,14 +4,20 @@ from __future__ import annotations
 
 import json
 import logging
-from typing import Any
+from time import monotonic
+from typing import TYPE_CHECKING, Any
 
 from src.llm.factory import get_chat_client
+from src.llm.provider import LLMProvider, pick_agent_key, resolve_llm_provider
 from src.models.diagrams import (
     DiagramBriefPack,
     DiagramEvidenceClaim,
     ResearchDiagramBrief,
 )
+
+if TYPE_CHECKING:
+    from src.db.repositories import WorkflowRepository
+    from src.models import SettingsConfig
 
 logger = logging.getLogger(__name__)
 
@@ -193,6 +199,9 @@ async def prepare_research_diagram_briefs(
     model: str,
     temperature: float = 0.2,
     max_validation_retries: int = 2,
+    provider: LLMProvider | None = None,
+    settings: SettingsConfig | None = None,
+    repository: WorkflowRepository | None = None,
 ) -> tuple[DiagramBriefPack, dict[str, int]]:
     """Return grounded diagram briefs and token usage metadata."""
     included_ids = [str(row.get("paper_id", "")).strip() for row in included_studies if row.get("paper_id")]
@@ -220,7 +229,12 @@ async def prepare_research_diagram_briefs(
         "cache_read_tokens": 0,
         "validation_retries": 0,
     }
+    active = resolve_llm_provider(provider=provider, settings=settings, repository=repository)
+    if active is not None:
+        agent_key = pick_agent_key(active.settings, "research_diagram_preparer", "concept_diagrams", "writing")
+        await active.reserve_call_slot(agent_key)
     client = get_chat_client()
+    started = monotonic()
     try:
         parsed, tok_in, tok_out, cache_write, cache_read, retries_used = await client.complete_validated(
             prompt,
@@ -249,6 +263,20 @@ async def prepare_research_diagram_briefs(
                 "diagrams": diagrams,
             }
         )
+        if active is not None and workflow_id:
+            latency_ms = int((monotonic() - started) * 1000)
+            cost = active.estimate_cost_usd(model, tok_in, tok_out, cache_write, cache_read)
+            await active.log_cost(
+                model,
+                tok_in,
+                tok_out,
+                cost,
+                latency_ms,
+                phase="phase_6f_custom_diagram_preparer",
+                workflow_id=workflow_id,
+                cache_read_tokens=cache_read,
+                cache_write_tokens=cache_write,
+            )
         return normalized, usage
     except Exception as exc:  # noqa: BLE001
         logger.warning("Diagram preparer failed for %s, using fallback briefs: %s", workflow_id, exc)

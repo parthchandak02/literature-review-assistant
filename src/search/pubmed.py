@@ -3,12 +3,12 @@
 from __future__ import annotations
 
 import asyncio
-import os
 from datetime import date
 from typing import Any
 
 from Bio import Entrez
 
+from src.config.env_context import get_env
 from src.models import CandidatePaper, SearchResult, SourceCategory
 
 
@@ -18,8 +18,8 @@ class PubMedConnector:
 
     def __init__(self, workflow_id: str):
         self.workflow_id = workflow_id
-        Entrez.email = os.getenv("PUBMED_EMAIL") or os.getenv("NCBI_EMAIL") or "unknown@example.com"
-        api_key = os.getenv("PUBMED_API_KEY")
+        Entrez.email = get_env("PUBMED_EMAIL") or get_env("NCBI_EMAIL") or "unknown@example.com"
+        api_key = get_env("PUBMED_API_KEY")
         if api_key:
             Entrez.api_key = api_key
 

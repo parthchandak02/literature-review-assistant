@@ -85,6 +85,8 @@ from src.models.quality import (
     RobinsIAssessment,
 )
 from src.models.screening import (
+    BatchRankerItemPayload,
+    BatchRankerResponsePayload,
     BatchScreeningItemPayload,
     BatchScreeningResponsePayload,
     DualScreeningResult,
@@ -195,6 +197,8 @@ __all__ = [
     "ScreeningResponsePayload",
     "BatchScreeningItemPayload",
     "BatchScreeningResponsePayload",
+    "BatchRankerItemPayload",
+    "BatchRankerResponsePayload",
     "ScreeningDecisionType",
     "SearchResult",
     "ManuscriptAssembly",

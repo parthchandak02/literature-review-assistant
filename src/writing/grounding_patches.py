@@ -110,13 +110,29 @@ def _apply_markdown_transform_to_structured(
     return _structured_from_markdown(section, transformed, valid_citekeys, template=draft)
 
 
+def _build_rationale_sentence(review: ReviewConfig) -> str:
+    domain_summary = review.domain_expert.domain_summary.strip()
+    if domain_summary:
+        return f"The rationale for this review is to address an evidence gap: {domain_summary.rstrip('.')}."
+    return (
+        f"The rationale for this review is to address an evidence gap in {review.domain}: "
+        f"{review.research_question.rstrip('?')}."
+    )
+
+
+def _build_eligibility_screening_sentence(review: ReviewConfig) -> str:
+    return (
+        f"All included studies were screened against core eligibility requirements addressing "
+        f"{review.pico.population}, evaluating {review.pico.intervention}, "
+        f"comparing against {review.pico.comparison}, and reporting outcomes related to "
+        f"{review.pico.outcome}."
+    )
+
+
 def _patch_introduction_grounding(content: str, review: ReviewConfig) -> str:
     patched = content.strip()
     lower = patched.lower()
-    rationale_sentence = (
-        "The rationale for this review is to address an evidence gap in the context of rural deployment of "
-        "QR-code-enabled digital vaccine record systems."
-    )
+    rationale_sentence = _build_rationale_sentence(review)
     objective_sentence = f"The research question for this systematic review is: {review.research_question}"
     if ("rationale" not in lower and "context" not in lower and "background" not in lower) or "gap" not in lower:
         patched = f"{patched.rstrip()}\n\n{rationale_sentence}"
@@ -307,7 +323,11 @@ def _patch_methods_grounding(content: str, grounding: WritingGroundingData | Non
     return patched
 
 
-def _patch_results_grounding(content: str, grounding: WritingGroundingData | None = None) -> str:
+def _patch_results_grounding(
+    content: str,
+    grounding: WritingGroundingData | None = None,
+    review: ReviewConfig | None = None,
+) -> str:
     patched = content.strip()
     patched = _replace_phrase_variants_case_insensitive(
         patched,
@@ -389,10 +409,8 @@ def _patch_results_grounding(content: str, grounding: WritingGroundingData | Non
                     f"Quality appraisal coverage included CASP for {casp_count} qualitative/cross-sectional studies and MMAT for "
                     f"{mmat_count} mixed-methods studies."
                 )
-        selection_parts.append(
-            "All included studies were screened against core eligibility requirements requiring a QR-code-enabled digital "
-            "vaccination-record intervention and a paper-based, pre-digital, or historical baseline comparator context."
-        )
+        if review is not None:
+            selection_parts.append(_build_eligibility_screening_sentence(review))
         patched = _replace_or_append_subsection(patched, "Study Selection", " ".join(selection_parts))
         lower = patched.lower()
     heterogeneity_results_sentence = (

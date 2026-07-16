@@ -27,21 +27,7 @@ from pydantic import BaseModel
 from pydantic_ai import Agent, NativeOutput, StructuredDict
 from pydantic_ai.settings import ModelSettings
 
-# Monkeypatch Agent.__init__ to support 'google:' prefix for Gemini models
-_original_agent_init = Agent.__init__
-
-
-def _patched_agent_init(self, model=None, *args, **kwargs):
-    if isinstance(model, str) and model.startswith("google:"):
-        import os
-
-        if "GOOGLE_API_KEY" not in os.environ and "GEMINI_API_KEY" in os.environ:
-            os.environ["GOOGLE_API_KEY"] = os.environ["GEMINI_API_KEY"]
-        model = "google-gla:" + model[7:]
-    _original_agent_init(self, model, *args, **kwargs)
-
-
-Agent.__init__ = _patched_agent_init
+from src.llm.registry import build_agent
 
 logger = logging.getLogger(__name__)
 
@@ -221,14 +207,14 @@ class PydanticAIClient:
                 output_type = StructuredDict(json_schema)
             # output_retries=3: extraction/screening schemas are complex; LLM sometimes
             # returns malformed JSON. More retries reduce "Exceeded maximum retries" failures.
-            agent: Agent = Agent(model, output_type=output_type, retries=3, output_retries=3)  # type: ignore[arg-type]
+            agent: Agent = build_agent(model, output_type=output_type, retries=3, output_retries=3)  # type: ignore[arg-type]
             result = await _run_with_retry(agent, prompt, model_settings=settings)
             output = result.output
             if isinstance(output, dict):
                 return json.dumps(output)
             return str(output)
         else:
-            text_agent: Agent[None, str] = Agent(model, output_type=str)
+            text_agent: Agent[None, str] = build_agent(model, output_type=str)
             text_result = await _run_with_retry(text_agent, prompt, model_settings=settings)
             return text_result.output
 
@@ -273,12 +259,12 @@ class PydanticAIClient:
                 output_type = NativeOutput(StructuredDict(json_schema))
             else:
                 output_type = StructuredDict(json_schema)
-            agent = Agent(model, output_type=output_type, retries=3, output_retries=3)  # type: ignore[arg-type]
+            agent = build_agent(model, output_type=output_type, retries=3, output_retries=3)  # type: ignore[arg-type]
             result = await _run_with_retry(agent, prompt, model_settings=settings)
             usage = result.usage()
             text = json.dumps(result.output) if isinstance(result.output, dict) else str(result.output)
         else:
-            text_agent: Agent[None, str] = Agent(model, output_type=str)
+            text_agent: Agent[None, str] = build_agent(model, output_type=str)
             result_str = await _run_with_retry(text_agent, prompt, model_settings=settings)
             usage = result_str.usage()
             text = result_str.output
@@ -389,7 +375,7 @@ class PydanticAIClient:
                 output_type = NativeOutput(StructuredDict(effective_schema))
             else:
                 output_type = StructuredDict(effective_schema)
-            agent: Agent = Agent(model, output_type=output_type, retries=3, output_retries=3)  # type: ignore[arg-type]
+            agent: Agent = build_agent(model, output_type=output_type, retries=3, output_retries=3)  # type: ignore[arg-type]
             result = await _run_with_retry(agent, current_parts, model_settings=settings)
             usage = result.usage()
             total_in += usage.input_tokens

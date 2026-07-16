@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import os
 import time
 from collections.abc import Callable, Sequence
 from urllib.parse import quote, urlparse
@@ -12,6 +11,7 @@ from urllib.parse import quote, urlparse
 import aiohttp
 from pydantic import BaseModel, Field
 
+from src.config.env_context import get_env
 from src.models import CandidatePaper
 from src.search.pdf_parse import (
     DEFAULT_PDF_MAX_CHARS,
@@ -110,7 +110,7 @@ class PDFRetriever:
 
                 _diag: list[str] = []
                 _ext = self._ext_cfg
-                _use_openalex = bool(os.getenv("OPENALEX_API_KEY", "").strip())
+                _use_openalex = bool((get_env("OPENALEX_API_KEY") or "").strip())
                 _tier_kwargs: dict[str, bool] = {
                     "use_openalex_content": _use_openalex,
                 }
@@ -468,7 +468,7 @@ class PDFRetriever:
         return doi.strip()
 
     async def _resolve_unpaywall(self, doi: str) -> str | None:
-        email = os.getenv("CROSSREF_EMAIL") or os.getenv("PUBMED_EMAIL") or "unknown@example.com"
+        email = get_env("CROSSREF_EMAIL") or get_env("PUBMED_EMAIL") or "unknown@example.com"
         bare = self._bare_doi(doi)
         if not bare:
             return None
@@ -488,7 +488,7 @@ class PDFRetriever:
             return None
 
     async def _resolve_semantic_scholar_pdf(self, doi: str) -> str | None:
-        s2_key = os.getenv("SEMANTIC_SCHOLAR_API_KEY")
+        s2_key = get_env("SEMANTIC_SCHOLAR_API_KEY")
         headers: dict[str, str] = {}
         if s2_key:
             headers["x-api-key"] = s2_key

@@ -16,15 +16,19 @@ class _FakeResult:
 class _FakeAgent:
     captured_output_type: object | None = None
 
-    def __init__(self, _model: str, *, output_type: object, **_kwargs: object) -> None:
+    def __init__(self, _model: object, *, output_type: object, **_kwargs: object) -> None:
         _FakeAgent.captured_output_type = output_type
 
     async def run(self, _prompt: object, *, model_settings: object) -> _FakeResult:  # noqa: ARG002
         return _FakeResult(output={"ok": True})
 
 
+def _patch_build_agent(monkeypatch) -> None:
+    monkeypatch.setattr(mod, "build_agent", _FakeAgent)
+
+
 async def test_complete_uses_native_output_for_google(monkeypatch) -> None:
-    monkeypatch.setattr(mod, "Agent", _FakeAgent)
+    _patch_build_agent(monkeypatch)
     client = mod.PydanticAIClient()
     await client.complete(
         "x",
@@ -56,7 +60,7 @@ def test_model_settings_keeps_thinking_for_deepseek_plain_text() -> None:
 
 
 async def test_complete_uses_structured_dict_for_non_google(monkeypatch) -> None:
-    monkeypatch.setattr(mod, "Agent", _FakeAgent)
+    _patch_build_agent(monkeypatch)
     client = mod.PydanticAIClient()
     await client.complete(
         "x",

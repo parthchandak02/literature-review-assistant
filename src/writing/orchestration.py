@@ -337,27 +337,52 @@ def _draft_fingerprint(draft: StructuredSectionDraft) -> str:
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 
-async def extract_and_register_claims(
-    section: str,
-    content: str,
-    citation_repo: CitationRepository,
-) -> int:
-    """Extract cited sentences and register claim->evidence links."""
-    citekey_to_id = await citation_repo.get_citation_map()
-    if not citekey_to_id:
-        return 0
+def _claim_pairs_from_structured_draft(
+    draft: StructuredSectionDraft,
+) -> list[tuple[str, list[str]]]:
+    """Extract (claim_text, citekeys) pairs from structured section blocks."""
+    pairs: list[tuple[str, list[str]]] = []
+    for block in draft.blocks:
+        if block.block_type in {"subheading", "table_ref", "figure_ref"}:
+            continue
+        text = str(block.text or "").strip()
+        if not text:
+            continue
+        keys = list(dict.fromkeys(str(key).strip() for key in (block.citations or []) if str(key).strip()))
+        for inline_key in _CITEKEY_RE.findall(text):
+            if inline_key not in keys:
+                keys.append(inline_key)
+        if not keys:
+            continue
+        pairs.append((text[:2000], keys))
+    return pairs
+
+
+def _claim_pairs_from_markdown(content: str) -> list[tuple[str, list[str]]]:
+    """Extract cited sentences from rendered markdown prose."""
+    pairs: list[tuple[str, list[str]]] = []
     sentences = _SENTENCE_SPLIT_RE.split(content)
     if len(sentences) <= 1:
         sentences = [line.strip() for line in content.splitlines() if line.strip()]
-    claims_registered = 0
     for sentence in sentences:
         keys = _CITEKEY_RE.findall(sentence)
-        if not keys:
-            continue
+        if keys:
+            pairs.append((sentence[:2000], keys))
+    return pairs
+
+
+async def _register_claim_pairs(
+    section: str,
+    claim_pairs: list[tuple[str, list[str]]],
+    citation_repo: CitationRepository,
+    citekey_to_id: dict[str, str],
+) -> int:
+    claims_registered = 0
+    for claim_text, keys in claim_pairs:
         resolved_keys = [(k, citekey_to_id[k]) for k in keys if k in citekey_to_id]
         if not resolved_keys:
             continue
-        claim = ClaimRecord(claim_text=sentence[:2000], section=section, confidence=1.0)
+        claim = ClaimRecord(claim_text=claim_text, section=section, confidence=1.0)
         try:
             await citation_repo.register_claim(claim)
         except Exception as exc:
@@ -376,6 +401,27 @@ async def extract_and_register_claims(
                 logger.debug("Failed to link evidence %s -> %s: %s", claim.claim_id, citation_id, exc)
         claims_registered += 1
     return claims_registered
+
+
+async def extract_and_register_claims(
+    section: str,
+    content: str,
+    citation_repo: CitationRepository,
+    *,
+    structured_draft: StructuredSectionDraft | None = None,
+) -> int:
+    """Extract cited claims and register claim->evidence links."""
+    citekey_to_id = await citation_repo.get_citation_map()
+    if not citekey_to_id:
+        return 0
+
+    claim_pairs: list[tuple[str, list[str]]] = []
+    if structured_draft is not None and structured_draft.blocks:
+        claim_pairs = _claim_pairs_from_structured_draft(structured_draft)
+    if not claim_pairs:
+        claim_pairs = _claim_pairs_from_markdown(content)
+
+    return await _register_claim_pairs(section, claim_pairs, citation_repo, citekey_to_id)
 
 
 async def write_section_with_validation(
@@ -687,7 +733,12 @@ async def write_section_with_validation(
     validation_issues = best_issues
 
     try:
-        n_claims = await extract_and_register_claims(section, content, citation_repo)
+        n_claims = await extract_and_register_claims(
+            section,
+            content,
+            citation_repo,
+            structured_draft=structured,
+        )
         if n_claims:
             logger.debug("Registered %d claim-evidence links for section '%s'", n_claims, section)
     except Exception as exc:

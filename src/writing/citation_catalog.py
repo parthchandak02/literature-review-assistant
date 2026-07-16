@@ -6,6 +6,7 @@ import logging
 import re
 import unicodedata
 
+from src.config.env_context import get_env
 from src.db.repositories import CitationRepository
 from src.models import (
     CandidatePaper,
@@ -371,8 +372,6 @@ async def register_background_sr_citations(
 
     Returns a list of registered citekeys (may be empty if search fails).
     """
-    import os
-
     import aiohttp
 
     from src.utils.ssl_context import tcp_connector_with_certifi
@@ -381,7 +380,7 @@ async def register_background_sr_citations(
     topic_token_keyword_limit = max(1, int(topic_token_keyword_limit))
     request_timeout_seconds = max(5, int(request_timeout_seconds))
     kw_query = " ".join(keywords[:query_keyword_limit]) if keywords else research_question[:120]
-    api_key = os.getenv("SEMANTIC_SCHOLAR_API_KEY", "")
+    api_key = get_env("SEMANTIC_SCHOLAR_API_KEY") or ""
     headers: dict[str, str] = {}
     if api_key:
         headers["x-api-key"] = api_key

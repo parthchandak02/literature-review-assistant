@@ -2,13 +2,13 @@
 
 from __future__ import annotations
 
-import os
 from collections import defaultdict
 from datetime import date
 from urllib.parse import urlparse
 
 import aiohttp
 
+from src.config.env_context import get_env
 from src.models import CandidatePaper, SearchResult, SourceCategory
 from src.utils.ssl_context import tcp_connector_with_certifi
 
@@ -77,7 +77,7 @@ class PerplexitySearchConnector:
 
     def __init__(self, workflow_id: str):
         self.workflow_id = workflow_id
-        self.api_key = os.getenv("PERPLEXITY_SEARCH_API_KEY")
+        self.api_key = get_env("PERPLEXITY_SEARCH_API_KEY")
 
     def _to_candidate(self, item: dict) -> CandidatePaper:
         snippet = str(item.get("snippet") or "")

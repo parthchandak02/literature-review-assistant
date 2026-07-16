@@ -10,9 +10,9 @@ The generated paragraph is injected into the Discussion section.
 from __future__ import annotations
 
 import logging
-import os
 from time import monotonic
 
+from src.config.env_context import get_env
 from src.db.repositories import WorkflowRepository
 from src.llm.factory import get_chat_client
 from src.llm.provider import LLMProvider
@@ -93,11 +93,7 @@ async def generate_contradiction_paragraph(
         logger.warning(
             "generate_contradiction_paragraph received api_key argument; explicit key injection is deprecated and ignored."
         )
-    if (
-        not os.environ.get("GEMINI_API_KEY")
-        and not os.environ.get("DEEPSEEK_API_KEY")
-        and not os.environ.get("OPENROUTER_API_KEY")
-    ):
+    if not get_env("GEMINI_API_KEY") and not get_env("DEEPSEEK_API_KEY") and not get_env("OPENROUTER_API_KEY"):
         return _fallback_paragraph(flags)
 
     prompt = _RESOLVER_PROMPT_TEMPLATE.format(contradiction_list=_format_contradiction_list(flags))

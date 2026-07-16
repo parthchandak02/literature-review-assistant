@@ -4,16 +4,23 @@ from __future__ import annotations
 
 import logging
 import re
+from time import monotonic
+from typing import TYPE_CHECKING
 
 from pydantic import BaseModel
 
 from src.llm.factory import get_chat_client
+from src.llm.provider import LLMProvider, pick_agent_key, resolve_llm_provider
 from src.models.diagrams import (
     DiagramBriefPack,
     DiagramPlacementDecision,
     DiagramPlacementPlan,
     ResearchDiagramBrief,
 )
+
+if TYPE_CHECKING:
+    from src.db.repositories import WorkflowRepository
+    from src.models import SettingsConfig
 
 logger = logging.getLogger(__name__)
 
@@ -89,6 +96,9 @@ async def plan_inline_diagram_placements(
     model: str,
     temperature: float = 0.1,
     max_validation_retries: int = 2,
+    provider: LLMProvider | None = None,
+    settings: SettingsConfig | None = None,
+    repository: WorkflowRepository | None = None,
 ) -> tuple[DiagramPlacementPlan, dict[str, int]]:
     """Generate agent-selected placement decisions with deterministic fallback."""
     section_map = _split_sections(manuscript_body)
@@ -126,8 +136,13 @@ async def plan_inline_diagram_placements(
     )
 
     usage = {"tokens_in": 0, "tokens_out": 0, "cache_write_tokens": 0, "cache_read_tokens": 0, "validation_retries": 0}
+    active = resolve_llm_provider(provider=provider, settings=settings, repository=repository)
     try:
+        if active is not None:
+            agent_key = pick_agent_key(active.settings, "research_diagram_placement", "writing")
+            await active.reserve_call_slot(agent_key)
         client = get_chat_client()
+        started = monotonic()
         parsed, tok_in, tok_out, cache_write, cache_read, retries_used = await client.complete_validated(
             prompt,
             model=model,
@@ -156,6 +171,20 @@ async def plan_inline_diagram_placements(
                     brief, section_map.get(_DEFAULT_SECTION_BY_TYPE.get(brief.diagram_type, "results"), "")
                 )
             decisions.append(decision)
+        if active is not None and workflow_id:
+            latency_ms = int((monotonic() - started) * 1000)
+            cost = active.estimate_cost_usd(model, tok_in, tok_out, cache_write, cache_read)
+            await active.log_cost(
+                model,
+                tok_in,
+                tok_out,
+                cost,
+                latency_ms,
+                phase="phase_6f_custom_diagram_placement",
+                workflow_id=workflow_id,
+                cache_read_tokens=cache_read,
+                cache_write_tokens=cache_write,
+            )
         return DiagramPlacementPlan(workflow_id=workflow_id, decisions=decisions, warnings=warnings), usage
     except Exception as exc:  # noqa: BLE001
         logger.warning("Diagram placement planner failed; using deterministic fallback: %s", exc)

@@ -21,10 +21,17 @@ import logging
 import re
 import textwrap
 from pathlib import Path
+from time import monotonic
+from typing import TYPE_CHECKING
 
 import aiohttp
 
 from src.llm.factory import get_chat_client
+from src.llm.provider import LLMProvider, pick_agent_key, resolve_llm_provider
+
+if TYPE_CHECKING:
+    from src.db.repositories import WorkflowRepository
+    from src.models import SettingsConfig
 from src.models.diagrams import (
     DiagramStyleProfile,
     FlowchartDiagramInput,
@@ -71,9 +78,40 @@ def _extract_code_block(text: str, language: str) -> str:
     return text.strip()
 
 
-async def _llm_generate(prompt: str, model: str = _LLM_MODEL) -> str:
+async def _llm_generate(
+    prompt: str,
+    *,
+    model: str = _LLM_MODEL,
+    provider: LLMProvider | None = None,
+    workflow_id: str = "",
+    reserve_agent: str = "concept_diagrams",
+) -> str:
+    active = provider
+    if active is not None:
+        agent_key = pick_agent_key(active.settings, reserve_agent, "abstract_generation", "writing")
+        await active.reserve_call_slot(agent_key)
     client = get_chat_client()
-    return await client.complete(prompt, model=model, temperature=_LLM_TEMPERATURE)
+    started = monotonic()
+    raw, tok_in, tok_out, cache_write, cache_read = await client.complete_with_usage(
+        prompt,
+        model=model,
+        temperature=_LLM_TEMPERATURE,
+    )
+    if active is not None and workflow_id:
+        latency_ms = int((monotonic() - started) * 1000)
+        cost = active.estimate_cost_usd(model, tok_in, tok_out, cache_write, cache_read)
+        await active.log_cost(
+            model,
+            tok_in,
+            tok_out,
+            cost,
+            latency_ms,
+            phase="phase_6e_concept_diagram",
+            workflow_id=workflow_id,
+            cache_read_tokens=cache_read,
+            cache_write_tokens=cache_write,
+        )
+    return raw
 
 
 # ---------------------------------------------------------------------------
@@ -175,12 +213,14 @@ async def render_taxonomy_diagram(
     model: str = _LLM_MODEL,
     *,
     style: DiagramStyleProfile | None = None,
+    provider: LLMProvider | None = None,
+    workflow_id: str = "",
 ) -> Path | None:
     """Generate a taxonomy tree SVG via LLM -> DOT -> Graphviz."""
     _style = style or diagram_style_profile_from_seed("default-taxonomy")
     prompt = _build_taxonomy_dot_prompt(spec, _style)
     try:
-        raw = await _llm_generate(prompt, model=model)
+        raw = await _llm_generate(prompt, model=model, provider=provider, workflow_id=workflow_id)
         dot_source = _extract_code_block(raw, "dot")
         if not dot_source.startswith("digraph") and not dot_source.startswith("graph"):
             logger.warning("LLM taxonomy DOT output does not look like DOT; skipping.")
@@ -250,12 +290,14 @@ async def render_framework_diagram(
     model: str = _LLM_MODEL,
     *,
     style: DiagramStyleProfile | None = None,
+    provider: LLMProvider | None = None,
+    workflow_id: str = "",
 ) -> Path | None:
     """Generate a PICO conceptual framework SVG via LLM -> DOT -> Graphviz."""
     _style = style or diagram_style_profile_from_seed("default-framework")
     prompt = _build_framework_dot_prompt(spec, _style)
     try:
-        raw = await _llm_generate(prompt, model=model)
+        raw = await _llm_generate(prompt, model=model, provider=provider, workflow_id=workflow_id)
         dot_source = _extract_code_block(raw, "dot")
         if not dot_source.startswith("digraph") and not dot_source.startswith("graph"):
             logger.warning("LLM framework DOT output does not look like DOT; skipping.")
@@ -318,12 +360,14 @@ async def render_flowchart_diagram(
     model: str = _LLM_MODEL,
     *,
     style: DiagramStyleProfile | None = None,
+    provider: LLMProvider | None = None,
+    workflow_id: str = "",
 ) -> Path | None:
     """Generate a methodology flowchart SVG via LLM -> Mermaid -> Kroki API."""
     _style = style or diagram_style_profile_from_seed("default-flowchart")
     prompt = _build_flowchart_mermaid_prompt(spec, _style)
     try:
-        raw = await _llm_generate(prompt, model=model)
+        raw = await _llm_generate(prompt, model=model, provider=provider, workflow_id=workflow_id)
         mermaid_source = _extract_code_block(raw, "mermaid")
         if not mermaid_source.startswith("flowchart") and not mermaid_source.startswith("graph"):
             logger.warning("LLM flowchart output does not look like Mermaid; skipping.")
@@ -348,6 +392,10 @@ async def render_concept_diagrams(
     *,
     style_seed: str | None = None,
     style_profile: DiagramStyleProfile | None = None,
+    provider: LLMProvider | None = None,
+    settings: SettingsConfig | None = None,
+    repository: WorkflowRepository | None = None,
+    workflow_id: str = "",
 ) -> dict[str, Path | None]:
     """Render all three concept diagrams concurrently.
 
@@ -363,6 +411,7 @@ async def render_concept_diagrams(
       "flowchart"  -> Path to fig_methodology_flow.svg or None
     """
     resolved_style = style_profile or diagram_style_profile_from_seed(style_seed or "litreview-concept-diagrams")
+    active_provider = resolve_llm_provider(provider=provider, settings=settings, repository=repository)
 
     taxonomy_path = out_dir / "fig_concept_taxonomy.svg"
     framework_path = out_dir / "fig_conceptual_framework.svg"
@@ -371,18 +420,19 @@ async def render_concept_diagrams(
     async def _noop() -> None:
         return None
 
+    _llm_kwargs = {"provider": active_provider, "workflow_id": workflow_id}
     taxonomy_coro = (
-        render_taxonomy_diagram(taxonomy_spec, taxonomy_path, model=model, style=resolved_style)
+        render_taxonomy_diagram(taxonomy_spec, taxonomy_path, model=model, style=resolved_style, **_llm_kwargs)
         if taxonomy_spec is not None
         else _noop()
     )
     framework_coro = (
-        render_framework_diagram(framework_spec, framework_path, model=model, style=resolved_style)
+        render_framework_diagram(framework_spec, framework_path, model=model, style=resolved_style, **_llm_kwargs)
         if framework_spec is not None
         else _noop()
     )
     flowchart_coro = (
-        render_flowchart_diagram(flowchart_spec, flowchart_path, model=model, style=resolved_style)
+        render_flowchart_diagram(flowchart_spec, flowchart_path, model=model, style=resolved_style, **_llm_kwargs)
         if flowchart_spec is not None
         else _noop()
     )

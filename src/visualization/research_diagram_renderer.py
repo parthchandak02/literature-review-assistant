@@ -12,7 +12,7 @@ from pydantic import BaseModel
 from pydantic_ai.messages import BinaryContent
 
 from src.llm.factory import get_chat_client, get_image_client
-from src.llm.provider import LLMProvider
+from src.llm.provider import LLMProvider, pick_agent_key, resolve_llm_provider
 from src.llm.registry import supports_native_image_generation
 from src.models import CostRecord
 from src.models.diagrams import (
@@ -103,7 +103,11 @@ async def _generate_image_via_pydantic(
     aspect_ratio: str,
     image_size: str,
     timeout_seconds: int = 90,
+    provider: LLMProvider | None = None,
 ) -> tuple[bytes, dict[str, int]]:
+    if provider is not None:
+        agent_key = pick_agent_key(provider.settings, "research_diagram_drawing", "concept_diagrams", "writing")
+        await provider.reserve_call_slot(agent_key)
     client = get_image_client(timeout_seconds=timeout_seconds)
     return await client.generate(
         model=model,
@@ -121,6 +125,7 @@ async def _critique_image(
     style: DiagramStyleGuide,
     model: str,
     temperature: float = 0.1,
+    provider: LLMProvider | None = None,
 ) -> tuple[DiagramCritiqueResult, dict[str, int]]:
     prompt = (
         "You are a strict diagram quality critic for academic figures.\n"
@@ -138,6 +143,9 @@ async def _critique_image(
     )
     media_type = "image/png" if image_path.suffix.lower() == ".png" else "image/jpeg"
     image_part = BinaryContent(data=image_path.read_bytes(), media_type=media_type)
+    if provider is not None:
+        agent_key = pick_agent_key(provider.settings, "research_diagram_critic", "writing")
+        await provider.reserve_call_slot(agent_key)
     client = get_chat_client()
     parsed, tok_in, tok_out, cache_write, cache_read, retries = await client.complete_validated_parts(
         [image_part, prompt],
@@ -203,9 +211,12 @@ async def render_custom_research_diagrams(
     image_size: str = "2K",
     aspect_ratio: str = "16:9",
     repository: Any | None = None,
+    provider: LLMProvider | None = None,
+    settings: Any | None = None,
 ) -> DiagramGenerationReport:
     """Generate custom figures; optional multi-round draw->critic refinement (default: one round)."""
     out_dir.mkdir(parents=True, exist_ok=True)
+    active_provider = resolve_llm_provider(provider=provider, settings=settings, repository=repository)
     report = DiagramGenerationReport(
         workflow_id=brief_pack.workflow_id,
         style_profile=style_guide.profile_name,
@@ -246,6 +257,7 @@ async def render_custom_research_diagrams(
                     reference_image_paths=reference_paths,
                     aspect_ratio=aspect_ratio,
                     image_size=image_size,
+                    provider=active_provider,
                 )
                 output_path.write_bytes(image_bytes)
                 await _log_usage_cost(
@@ -288,6 +300,7 @@ async def render_custom_research_diagrams(
                     brief=brief,
                     style=style_guide,
                     model=critic_model,
+                    provider=active_provider,
                 )
                 generation_round.critique = critique
                 await _log_usage_cost(
