@@ -12,6 +12,8 @@ import {
   loadLiveRun,
   saveLiveRun,
 } from "@/lib/api"
+import { historyQueryKey } from "@/hooks/useHistory"
+import { queryClient } from "@/lib/queryClient"
 import type { useLiveRunStream } from "@/hooks/useLiveRunStream"
 import type { RunTab, SelectedRun } from "@/views/RunView"
 
@@ -55,7 +57,10 @@ export function useRunSessionSync({
 
   async function restoreRunFromUrl(workflowId: string, tab: RunTab, isAborted?: () => boolean) {
     try {
-      const history = await fetchHistory()
+      const history = await queryClient.fetchQuery({
+        queryKey: historyQueryKey(),
+        queryFn: () => fetchHistory(),
+      })
       if (isAborted?.()) return
       const entry = history.find((e) => e.workflow_id === workflowId)
       if (!entry) {

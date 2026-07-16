@@ -5,9 +5,29 @@ import type { Dispatch, SetStateAction } from "react"
 import type { CostStats } from "@/hooks/useCostStats"
 import type { HistoryEntry, RunRequest, ReviewEvent } from "@/lib/api"
 import type { LiveRun } from "@/components/sidebar/types"
-import type { SelectedRun, RunTab } from "@/views/RunView"
 
-export type { SelectedRun, RunTab } from "@/views/RunView"
+export type RunTab = "activity" | "results" | "database" | "cost" | "config" | "review-screening"
+
+/** A run that is currently being viewed (live or historical). */
+export interface SelectedRun {
+  /** Backend run_id for /api/db/{runId}/... and /api/run/{runId}/... calls. */
+  runId: string
+  /** Stable workflow UUID -- available after run completes or for historical runs. */
+  workflowId: string | null
+  topic: string
+  dbPath: string | null
+  isDone: boolean
+  startedAt: Date | null
+  /** Populated from HistoryEntry for historical runs; null for live runs. */
+  createdAt?: string | null
+  papersFound?: number | null
+  papersIncluded?: number | null
+  historicalCost?: number | null
+  /** Raw backend status string for historical runs (e.g. "running", "failed", "completed"). */
+  historicalStatus?: string | null
+  /** True while POST /history/attach is in flight for a completed workflow. */
+  attachPending?: boolean
+}
 export {
   beginLiveRun,
   resumeErrorMessage,
