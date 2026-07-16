@@ -2,6 +2,27 @@ import { APIResponseError } from "./client"
 
 export { API_BASE } from "./client"
 
+export function sanitizePageNumber(value: number, fallback: number, minValue = 0): number {
+  if (!Number.isFinite(value)) return fallback
+  const normalized = Math.trunc(value)
+  if (normalized < minValue) return fallback
+  return normalized
+}
+
+/** Retry with workflowId when runId returns 404 (evicted from active runs). */
+export async function fetchWithWorkflowFallback(
+  runId: string,
+  workflowIdFallback: string | null | undefined,
+  makeUrl: (id: string) => string,
+  init?: RequestInit,
+): Promise<Response> {
+  let res = await fetch(makeUrl(runId), init)
+  if (res.status === 404 && workflowIdFallback && workflowIdFallback !== runId) {
+    res = await fetch(makeUrl(workflowIdFallback), init)
+  }
+  return res
+}
+
 /** Extract a human-readable message from a non-OK response. */
 export async function apiError(res: Response, label: string): Promise<Error> {
   let detail: unknown = `HTTP ${res.status}`

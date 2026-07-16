@@ -94,10 +94,9 @@ export function useLiveRunStream() {
     }
     if (status === "done" || status === "error" || status === "cancelled") {
       clearLiveRun()
-      if (!wasStreamingRef.current) {
-        setLiveRunId(null)
-        setLiveWorkflowId(null)
-      }
+      // Keep liveRunId when prefetch returns a terminal buffer without ever
+      // streaming. Nulling here breaks history selection for completed runs
+      // that still expose live_run_id (isViewingLiveRun would flip false).
       wasStreamingRef.current = false
     }
   }, [status])

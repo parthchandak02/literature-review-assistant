@@ -1,10 +1,8 @@
-// Typed API wrappers for the FastAPI backend
-import { downloadUrl, studyFilesZipUrl, submissionZipUrl } from "./api/urls"
-import { apiError as _apiError } from "./api/internal"
-import type { StoredApiKeys } from "./api/storage"
-import type { RunRequest } from "./api/types"
-export { APIResponseError, API_BASE, apiFetch } from "./api/client"
+// Typed API wrappers for the FastAPI backend — thin barrel re-export.
 export {
+  APIResponseError,
+  API_BASE,
+  apiFetch,
   clearApiKeys,
   clearLiveRun,
   emptyStoredApiKeys,
@@ -13,15 +11,12 @@ export {
   resolveStoredApiKeys,
   saveApiKeys,
   saveLiveRun,
-  type StoredApiKeys,
-  type StoredLiveRun,
-} from "./api/storage"
-export {
+  downloadUrl,
+  studyFilesZipUrl,
+  submissionZipUrl,
   fetchRunEvents,
   fetchWorkflowEvents,
   fetchHistoricalReviewEvents,
-} from "./api/events"
-export {
   fetchHistory,
   attachHistory,
   fetchActiveRun,
@@ -32,889 +27,82 @@ export {
   hideCompletedRun,
   restoreCompletedRun,
   saveNote,
-} from "./api/history"
-export {
   startRun,
   startRunWithMasterlist,
   startRunWithSupplementaryCsv,
   cancelRun,
-} from "./api/runs"
-export { fetchArtifactText } from "./api/artifacts"
-export { subscribeNotesStream, type NotesStreamEvent } from "./api/notes"
-
-export type {
-  EventDurability,
-  HistoryEntry,
-  ReviewEvent,
-  RunRequest,
-  RunResponse,
-} from "./api/types"
-
-// Database explorer types
-
-export interface PaperAllRow {
-  paper_id: string
-  title: string
-  authors: string
-  year: number | null
-  source_database: string
-  doi: string | null
-  url: string | null
-  country: string | null
-  ta_decision: string | null
-  ft_decision: string | null
-  primary_study_status: string | null
-  extraction_confidence: number | null
-  assessment_source: string | null
-}
-
-export interface DbCostRow {
-  model: string
-  phase: string
-  calls: number
-  tokens_in: number
-  tokens_out: number
-  cost_usd: number
-  avg_latency_ms: number | null
-}
-
-export interface DbCostAggregateBucketRow {
-  bucket: string
-  calls: number
-  tokens_in: number
-  tokens_out: number
-  cost_usd: number
-}
-
-export interface DbCostAggregateGroupRow {
-  group_key: string
-  calls: number
-  tokens_in: number
-  tokens_out: number
-  cost_usd: number
-}
-
-export interface DbCostAggregateTotals {
-  total_cost_usd: number
-  total_calls: number
-  total_tokens_in: number
-  total_tokens_out: number
-}
-
-export interface DbCostAggregatesResponse {
-  run_id: string
-  start_ts: string | null
-  end_ts: string | null
-  totals: DbCostAggregateTotals
-  by_day: DbCostAggregateBucketRow[]
-  by_week: DbCostAggregateBucketRow[]
-  by_month: DbCostAggregateBucketRow[]
-  by_workflow: DbCostAggregateGroupRow[]
-  by_phase: DbCostAggregateGroupRow[]
-  by_model: DbCostAggregateGroupRow[]
-}
-
-export interface HistoryCostAggregatesResponse {
-  run_root: string
-  start_ts: string | null
-  end_ts: string | null
-  include_archived: boolean
-  workflow_count: number
-  totals: DbCostAggregateTotals
-  by_day: DbCostAggregateBucketRow[]
-  by_week: DbCostAggregateBucketRow[]
-  by_month: DbCostAggregateBucketRow[]
-  by_workflow: DbCostAggregateGroupRow[]
-  by_phase: DbCostAggregateGroupRow[]
-  by_model: DbCostAggregateGroupRow[]
-}
-
-export type DbCostExportGranularity = "day" | "week" | "month"
-
-export interface DbCostAggregateParams {
-  start_ts?: string
-  end_ts?: string
-}
-
-export interface DbCostExportParams extends DbCostAggregateParams {
-  granularity?: DbCostExportGranularity
-}
-
-export interface HistoryCostAggregateParams extends DbCostAggregateParams {
-  run_root?: string
-  include_archived?: boolean
-}
-
-export interface HistoryCostExportParams extends HistoryCostAggregateParams {
-  granularity?: DbCostExportGranularity
-}
-
-export interface ScreeningDiagnostics {
-  batch_parse_degraded: number
-  batch_id_mismatch: number
-  batch_missing_fallback: number
-  contract_violation_count: number
-  fast_path_include: number
-  fast_path_exclude: number
-  cross_reviewed: number
-}
-
-export interface ValidationSummary {
-  workflow_id: string
-  latest_run: {
-    validation_run_id: string
-    profile: string
-    status: string
-    tool_version: string
-    summary: Record<string, unknown>
-    started_at: string
-    completed_at: string
-    error_count: number
-    warn_count: number
-    total_checks: number
-  } | null
-}
-
-export interface ValidationCheck {
-  phase: string
-  check_name: string
-  status: string
-  severity: string
-  metric_value: number | null
-  details: Record<string, unknown>
-  source_module: string | null
-  paper_id: string | null
-  created_at: string
-}
-
-
-const BASE = "/api"
-
-function _sanitizePageNumber(value: number, fallback: number, minValue = 0): number {
-  if (!Number.isFinite(value)) return fallback
-  const normalized = Math.trunc(value)
-  if (normalized < minValue) return fallback
-  return normalized
-}
-
-export async function getDefaultReviewConfig(): Promise<string> {
-  const res = await fetch(`${BASE}/config/review`)
-  if (!res.ok) return ""
-  const data = await res.json() as { content: string }
-  return data.content
-}
-
-
-/**
- * Streaming version of generateConfig. Calls the SSE endpoint, invoking
- * onProgress with each step key and metadata as the backend progresses through stages.
- * Resolves with the final YAML string when done.
- *
- * Steps emitted by backend: "start" -> "web_research" -> "web_research_done"
- *   -> "structuring" -> "finalizing" -> (done event with yaml)
- */
-export async function generateConfigStream(
-  researchQuestion: string,
-  deepseekApiKey: string,
-  generationProfile: "standard" | "health_sdg",
-  onProgress: (step: string, metadata?: Record<string, unknown>) => void,
-): Promise<string> {
-  const res = await fetch(`${BASE}/config/generate/stream`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      research_question: researchQuestion,
-      deepseek_api_key: deepseekApiKey,
-      generation_profile: generationProfile,
-    }),
-  })
-  if (!res.ok) {
-    let detail = `HTTP ${res.status}`
-    try {
-      const body = await res.json() as { detail?: string }
-      if (body.detail) detail = body.detail
-    } catch { /* ignore */ }
-    throw new Error(detail)
-  }
-  const reader = res.body?.getReader()
-  if (!reader) throw new Error("No response body from config generation stream")
-  const decoder = new TextDecoder()
-  let buffer = ""
-  let yaml = ""
-  while (true) {
-    const { done, value } = await reader.read()
-    if (done) break
-    buffer += decoder.decode(value, { stream: true })
-    const lines = buffer.split("\n")
-    buffer = lines.pop() ?? ""
-    for (const line of lines) {
-      if (!line.startsWith("data: ")) continue
-      try {
-        const msg = JSON.parse(line.slice(6)) as {
-          type: string
-          step?: string
-          yaml?: string
-          quality?: Record<string, unknown>
-          detail?: string
-          [key: string]: unknown
-        }
-        if (msg.type === "progress" && msg.step) {
-          const metadata: Record<string, unknown> = {}
-          for (const [key, value] of Object.entries(msg)) {
-            if (key !== "type" && key !== "step") {
-              metadata[key] = value
-            }
-          }
-          onProgress(msg.step, metadata)
-        } else if (msg.type === "done" && msg.yaml) {
-          yaml = msg.yaml
-        } else if (msg.type === "error") {
-          throw new Error(msg.detail ?? "Config generation failed")
-        }
-      } catch (parseErr) {
-        if (parseErr instanceof Error && parseErr.message !== "Config generation failed") continue
-        throw parseErr
-      }
-    }
-  }
-  if (!yaml) throw new Error("Config generation completed without producing a config")
-  return yaml
-}
-
-/** Fetch the review.yaml that was used for a specific past run. Returns null if not available. */
-export async function fetchRunConfig(workflowId: string, runRoot = "runs"): Promise<string | null> {
-  const params = new URLSearchParams({ run_root: runRoot })
-  const res = await fetch(`${BASE}/history/${encodeURIComponent(workflowId)}/config?${params}`)
-  if (!res.ok) return null
-  const data = await res.json() as { content: string }
-  return data.content ?? null
-}
-
-export { downloadUrl, studyFilesZipUrl, submissionZipUrl }
-
-// Database explorer fetchers
-
-async function _fetchWithWorkflowFallback(
-  runId: string,
-  workflowIdFallback: string | null | undefined,
-  makeUrl: (id: string) => string,
-  init?: RequestInit,
-): Promise<Response> {
-  let res = await fetch(makeUrl(runId), init)
-  if (res.status === 404 && workflowIdFallback && workflowIdFallback !== runId) {
-    res = await fetch(makeUrl(workflowIdFallback), init)
-  }
-  return res
-}
-
-
-export async function fetchPapersAll(
-  runId: string,
-  search = "",
-  taDecision = "",
-  ftDecision = "",
-  primaryStatus = "",
-  year = "",
-  source = "",
-  country = "",
-  offset = 0,
-  limit = 50,
-  title = "",
-  author = "",
-): Promise<{ total: number; offset: number; limit: number; papers: PaperAllRow[] }> {
-  const safeOffset = _sanitizePageNumber(offset, 0)
-  const safeLimit = _sanitizePageNumber(limit, 50, 1)
-  const params = new URLSearchParams({
-    search,
-    title,
-    author,
-    ta_decision: taDecision,
-    ft_decision: ftDecision,
-    primary_status: primaryStatus,
-    year,
-    source,
-    country,
-    offset: String(safeOffset),
-    limit: String(safeLimit),
-  })
-  const res = await fetch(`${BASE}/db/${runId}/papers-all?${params}`)
-  if (!res.ok) throw await _apiError(res, "Papers fetch failed")
-  return res.json() as Promise<{ total: number; offset: number; limit: number; papers: PaperAllRow[] }>
-}
-
-export async function fetchPapersFacets(
-  runId: string,
-): Promise<{
-  years: number[]
-  sources: string[]
-  countries: string[]
-  ta_decisions: string[]
-  ft_decisions: string[]
-  primary_statuses: string[]
-}> {
-  const res = await fetch(`${BASE}/db/${runId}/papers-facets`)
-  if (!res.ok) throw await _apiError(res, "Facets fetch failed")
-  return res.json() as Promise<{
-    years: number[]
-    sources: string[]
-    countries: string[]
-    ta_decisions: string[]
-    ft_decisions: string[]
-    primary_statuses: string[]
-  }>
-}
-
-export async function fetchPapersSuggest(
-  runId: string,
-  column: "title" | "author",
-  q: string,
-): Promise<{ suggestions: string[] }> {
-  const params = new URLSearchParams({ column, q })
-  const res = await fetch(`${BASE}/db/${runId}/papers-suggest?${params}`)
-  if (!res.ok) throw await _apiError(res, "Suggest fetch failed")
-  return res.json() as Promise<{ suggestions: string[] }>
-}
-
-export async function fetchDbCosts(
-  runId: string,
-): Promise<{ total_cost: number; records: DbCostRow[]; screening_diagnostics?: ScreeningDiagnostics }> {
-  const res = await fetch(`${BASE}/db/${runId}/costs`)
-  if (!res.ok) throw await _apiError(res, "Costs fetch failed")
-  return res.json() as Promise<{ total_cost: number; records: DbCostRow[]; screening_diagnostics?: ScreeningDiagnostics }>
-}
-
-export async function fetchDbCostAggregates(
-  runId: string,
-  params?: DbCostAggregateParams,
-): Promise<DbCostAggregatesResponse> {
-  const qs = new URLSearchParams()
-  if (params?.start_ts) qs.set("start_ts", params.start_ts)
-  if (params?.end_ts) qs.set("end_ts", params.end_ts)
-  const suffix = qs.toString() ? `?${qs.toString()}` : ""
-  const res = await fetch(`${BASE}/db/${runId}/costs/aggregates${suffix}`)
-  if (!res.ok) throw await _apiError(res, "Cost aggregates fetch failed")
-  return res.json() as Promise<DbCostAggregatesResponse>
-}
-
-export function getDbCostExportUrl(runId: string, params?: DbCostExportParams): string {
-  const qs = new URLSearchParams()
-  if (params?.start_ts) qs.set("start_ts", params.start_ts)
-  if (params?.end_ts) qs.set("end_ts", params.end_ts)
-  if (params?.granularity) qs.set("granularity", params.granularity)
-  const suffix = qs.toString() ? `?${qs.toString()}` : ""
-  return `${BASE}/db/${runId}/costs/export${suffix}`
-}
-
-export async function fetchHistoryCostAggregates(
-  params?: HistoryCostAggregateParams,
-  options?: { signal?: AbortSignal },
-): Promise<HistoryCostAggregatesResponse> {
-  const qs = new URLSearchParams()
-  if (params?.run_root) qs.set("run_root", params.run_root)
-  if (params?.start_ts) qs.set("start_ts", params.start_ts)
-  if (params?.end_ts) qs.set("end_ts", params.end_ts)
-  if (params?.include_archived !== undefined) {
-    qs.set("include_archived", String(params.include_archived))
-  }
-  const suffix = qs.toString() ? `?${qs.toString()}` : ""
-  const res = await fetch(`${BASE}/history/costs/aggregates${suffix}`, {
-    cache: "no-store",
-    signal: options?.signal,
-  })
-  if (!res.ok) throw await _apiError(res, "History cost aggregates fetch failed")
-  return res.json() as Promise<HistoryCostAggregatesResponse>
-}
-
-export function getHistoryCostExportUrl(params?: HistoryCostExportParams): string {
-  const qs = new URLSearchParams()
-  if (params?.run_root) qs.set("run_root", params.run_root)
-  if (params?.start_ts) qs.set("start_ts", params.start_ts)
-  if (params?.end_ts) qs.set("end_ts", params.end_ts)
-  if (params?.granularity) qs.set("granularity", params.granularity)
-  if (params?.include_archived !== undefined) {
-    qs.set("include_archived", String(params.include_archived))
-  }
-  const suffix = qs.toString() ? `?${qs.toString()}` : ""
-  return `${BASE}/history/costs/export${suffix}`
-}
-
-export async function fetchWorkflowValidationSummary(workflowId: string): Promise<ValidationSummary> {
-  const res = await fetch(`${BASE}/workflow/${workflowId}/validation/summary`)
-  if (!res.ok) throw await _apiError(res, "Validation summary fetch failed")
-  return res.json() as Promise<ValidationSummary>
-}
-
-export async function fetchWorkflowValidationChecks(
-  workflowId: string,
-  validationRunId?: string,
-): Promise<{ workflow_id: string; validation_run_id: string | null; checks: ValidationCheck[] }> {
-  const params = new URLSearchParams()
-  if (validationRunId) params.set("validation_run_id", validationRunId)
-  const suffix = params.toString() ? `?${params.toString()}` : ""
-  const res = await fetch(`${BASE}/workflow/${workflowId}/validation/checks${suffix}`)
-  if (!res.ok) throw await _apiError(res, "Validation checks fetch failed")
-  return res.json() as Promise<{ workflow_id: string; validation_run_id: string | null; checks: ValidationCheck[] }>
-}
-
-// Run artifacts + export
-
-export interface ExportResult {
-  submission_dir: string
-  files: string[]
-}
-
-/**
- * Fetch run_summary.json artifacts for any run (live or historically attached).
- * Returns the `artifacts` map of label -> absolute file path.
- */
-export async function fetchArtifacts(
-  runId: string,
-  options?: { workflowIdFallback?: string | null },
-): Promise<Record<string, string>> {
-  const targetId = options?.workflowIdFallback || runId
-  const res = await fetch(`${BASE}/run/${targetId}/artifacts`)
-  if (!res.ok) throw await _apiError(res, "Artifacts fetch failed")
-  const data = await res.json() as { artifacts?: Record<string, string>; outputs?: Record<string, string> }
-  return (data.artifacts ?? data.outputs ?? {}) as Record<string, string>
-}
-
-export interface GradeSofRow {
-  outcome: string
-  studies: number | null
-  participants: number | null
-  effect: string
-  certainty: string
-  reasons: string[]
-}
-
-export interface GradeSofResponse {
-  run_id: string
-  topic: string
-  rows: GradeSofRow[]
-}
-
-export async function fetchGradeSof(
-  runId: string,
-  options?: { attachPending?: boolean },
-): Promise<GradeSofResponse | null> {
-  if (options?.attachPending) return null
-  const res = await fetch(`${BASE}/run/${encodeURIComponent(runId)}/grade-sof`)
-  if (res.status === 404) return null
-  if (!res.ok) throw await _apiError(res, "GRADE SoF fetch failed")
-  return (await res.json()) as GradeSofResponse
-}
-
-export interface ExtractedOutcomeRow {
-  name?: string
-  effect_size?: number | null
-  ci_lower?: number | null
-  ci_upper?: number | null
-  p_value?: number | null
-  n?: number | null
-  [key: string]: unknown
-}
-
-export interface ExtractedOutcomePaper {
-  paper_id: string
-  title: string
-  doi: string | null
-  extraction_source: string
-  outcomes: ExtractedOutcomeRow[]
-}
-
-export interface ExtractedTablesResponse {
-  total_rows: number
-  papers: ExtractedOutcomePaper[]
-}
-
-export async function fetchDbTables(runId: string): Promise<ExtractedTablesResponse> {
-  const res = await fetch(`${BASE}/db/${encodeURIComponent(runId)}/tables`)
-  if (!res.ok) throw await _apiError(res, "Outcome tables fetch failed")
-  return (await res.json()) as ExtractedTablesResponse
-}
-
-export function prosperoFormDocxUrl(runId: string): string {
-  return `${BASE}/run/${encodeURIComponent(runId)}/prospero-form.docx`
-}
-
-export function prosperoFormMarkdownUrl(runId: string): string {
-  return `${BASE}/run/${encodeURIComponent(runId)}/prospero-form.md`
-}
-
-// ---------------------------------------------------------------------------
-// References tab -- included papers with full-text file info
-// ---------------------------------------------------------------------------
-
-export interface PaperReference {
-  paper_id: string
-  title: string
-  authors: string
-  year: number | null
-  source_database: string | null
-  doi: string | null
-  url: string | null
-  country: string | null
-  retrieval_source: string
-  has_file: boolean
-  file_type: "pdf" | "txt" | null
-}
-
-/**
- * Fetch included papers for the References tab.
- * When runId fails with 404 (evicted from _active_runs), retry with workflowId
- * so the backend can resolve via workflows_registry.
- */
-export async function fetchPapersReference(
-  runId: string,
-  workflowIdFallback?: string | null,
-): Promise<PaperReference[]> {
-  const res = await _fetchWithWorkflowFallback(
-    runId,
-    workflowIdFallback,
-    (id) => `${BASE}/run/${encodeURIComponent(id)}/papers-reference`,
-  )
-  if (!res.ok) throw await _apiError(res, "Papers reference fetch failed")
-  const data = await res.json() as { papers?: PaperReference[] }
-  return data.papers ?? []
-}
-
-/** Returns a direct URL to download a paper's full-text file (PDF or TXT). */
-export function paperFileUrl(runId: string, paperId: string): string {
-  return `${BASE}/run/${runId}/papers/${paperId}/file`
-}
-
-export interface FetchPdfsResult {
-  attempted: number
-  succeeded: number
-  failed: number
-  skipped: number
-  results: Array<{
-    paper_id: string
-    status: "ok" | "failed" | "skipped"
-    source: string | null
-    file_type: "pdf" | "txt" | null
-    error: string | null
-  }>
-}
-
-export interface FetchPdfsProgressEvent {
-  current: number
-  total: number
-  paperId: string
-  title: string
-  status: "ok" | "failed" | "skipped"
-  source: string | null
-  fileType: "pdf" | "txt" | null
-}
-
-/**
- * Retroactively fetch full-text PDFs/text for all included papers in a completed run.
- * Streams SSE progress events as each paper is processed.
- * onProgress is called after each paper with the current count and result.
- * When runId fails with 404, retries with workflowIdFallback (registry lookup).
- */
-export async function fetchPdfsForRun(
-  runId: string,
-  onProgress?: (evt: FetchPdfsProgressEvent) => void,
-  workflowIdFallback?: string | null,
-): Promise<FetchPdfsResult> {
-  const res = await _fetchWithWorkflowFallback(
-    runId,
-    workflowIdFallback,
-    (id) => `${BASE}/run/${encodeURIComponent(id)}/fetch-pdfs`,
-    { method: "POST" },
-  )
-  if (!res.ok) throw await _apiError(res, "PDF fetch failed")
-
-  const reader = res.body?.getReader()
-  if (!reader) throw new Error("No response body from fetch-pdfs stream")
-
-  const decoder = new TextDecoder()
-  let buffer = ""
-  let result: FetchPdfsResult = { attempted: 0, succeeded: 0, failed: 0, skipped: 0, results: [] }
-
-  while (true) {
-    const { done, value } = await reader.read()
-    if (done) break
-    buffer += decoder.decode(value, { stream: true })
-    const lines = buffer.split("\n")
-    buffer = lines.pop() ?? ""
-    for (const line of lines) {
-      if (!line.startsWith("data: ")) continue
-      try {
-        const msg = JSON.parse(line.slice(6)) as {
-          type: string
-          current?: number
-          total?: number
-          paper_id?: string
-          title?: string
-          status?: string
-          source?: string | null
-          file_type?: "pdf" | "txt" | null
-          attempted?: number
-          succeeded?: number
-          failed?: number
-          skipped?: number
-          results?: FetchPdfsResult["results"]
-          detail?: string
-        }
-        if (msg.type === "progress" && onProgress) {
-          onProgress({
-            current: msg.current ?? 0,
-            total: msg.total ?? 0,
-            paperId: msg.paper_id ?? "",
-            title: msg.title ?? "",
-            status: (msg.status ?? "failed") as "ok" | "failed" | "skipped",
-            source: msg.source ?? null,
-            fileType: msg.file_type ?? null,
-          })
-        } else if (msg.type === "done") {
-          result = {
-            attempted: msg.attempted ?? 0,
-            succeeded: msg.succeeded ?? 0,
-            failed: msg.failed ?? 0,
-            skipped: msg.skipped ?? 0,
-            results: msg.results ?? [],
-          }
-        } else if (msg.type === "error") {
-          throw new Error(msg.detail ?? "PDF fetch failed")
-        }
-      } catch (parseErr) {
-        if (parseErr instanceof SyntaxError) continue
-        throw parseErr
-      }
-    }
-  }
-  return result
-}
-
-/**
- * Trigger IEEE LaTeX export for a completed run.
- * Returns the submission directory path and a sorted list of generated file paths.
- *
- * When force=false (default), the backend returns existing files immediately if
- * submission/ was already pre-populated by FinalizeNode, skipping pdflatex/DOCX.
- * Pass force=true (Refresh button) to force a full re-package.
- */
-export async function triggerExport(runId: string, force = false): Promise<ExportResult> {
-  const res = await fetch(`${BASE}/run/${runId}/export?force=${force}`, { method: "POST" })
-  if (!res.ok) throw await _apiError(res, "Export failed")
-  return res.json() as Promise<ExportResult>
-}
-
-// Run event log helpers live in ./api/events.ts (re-exported above).
-
-export function buildRunRequest(
-  reviewYaml: string,
-  keys: StoredApiKeys,
-  runRoot?: string,
-): RunRequest {
-  return {
-    review_yaml: reviewYaml,
-    deepseek_api_key: keys.deepseek,
-    gemini_api_key: keys.gemini || undefined,
-    openrouter_api_key: keys.openrouter || undefined,
-    openai_api_key: keys.openai || undefined,
-    anthropic_api_key: keys.anthropic || undefined,
-    groq_api_key: keys.groq || undefined,
-    mistral_api_key: keys.mistral || undefined,
-    cohere_api_key: keys.cohere || undefined,
-    openalex_api_key: keys.openalex || undefined,
-    ieee_api_key: keys.ieee || undefined,
-    pubmed_email: keys.pubmedEmail || undefined,
-    pubmed_api_key: keys.pubmedApiKey || undefined,
-    perplexity_api_key: keys.perplexity || undefined,
-    semantic_scholar_api_key: keys.semanticScholar || undefined,
-    crossref_email: keys.crossrefEmail || undefined,
-    wos_api_key: keys.wos || undefined,
-    scopus_api_key: keys.scopus || undefined,
-    run_root: runRoot,
-  }
-}
-
-/**
- * Fetch API keys that are already configured in the server's environment
- * (i.e. values set in .env).  Returns an object with empty strings for any
- * key not present on the server.  Never throws -- returns all-empty on error.
- */
-export async function fetchEnvKeys(): Promise<StoredApiKeys> {
-  const empty: StoredApiKeys = {
-    gemini: "",
-    deepseek: "",
-    openrouter: "",
-    openai: "",
-    anthropic: "",
-    groq: "",
-    mistral: "",
-    cohere: "",
-    openalex: "",
-    ieee: "",
-    pubmedEmail: "",
-    pubmedApiKey: "",
-    perplexity: "",
-    semanticScholar: "",
-    crossrefEmail: "",
-    wos: "",
-    scopus: "",
-  }
-  try {
-    const res = await fetch(`${BASE}/config/env-keys`)
-    if (!res.ok) return empty
-    return { ...empty, ...(await res.json() as Partial<StoredApiKeys>) }
-  } catch {
-    return empty
-  }
-}
-
-export async function fetchRequiredLlmUiKeys(): Promise<string[]> {
-  try {
-    const res = await fetch(`${BASE}/config/env-keys/required`)
-    if (!res.ok) return ["deepseek"]
-    const payload = (await res.json()) as { ui_keys?: string[] }
-    return payload.ui_keys?.length ? payload.ui_keys : ["deepseek"]
-  } catch {
-    return ["deepseek"]
-  }
-}
-
-export interface EnvKeyProviderStatus {
-  configured: boolean
-  masked: string
-  source: string | null
-  required: boolean
-}
-
-export interface EnvKeysStatus {
-  required_ui_keys: string[]
-  providers: Record<string, EnvKeyProviderStatus>
-  server_ready: boolean
-}
-
-/** Masked credential status from server .env (no raw secrets). */
-export async function fetchEnvKeysStatus(): Promise<EnvKeysStatus | null> {
-  try {
-    const res = await fetch(`${BASE}/config/env-keys/status`)
-    if (!res.ok) return null
-    return (await res.json()) as EnvKeysStatus
-  } catch {
-    return null
-  }
-}
-
-const LLM_UI_LABELS: Record<string, string> = {
-  deepseek: "DeepSeek",
-  gemini: "Gemini",
-  openrouter: "OpenRouter",
-  openai: "OpenAI",
-  anthropic: "Anthropic",
-  groq: "Groq",
-  mistral: "Mistral",
-  cohere: "Cohere",
-}
-
-export function llmProviderLabel(uiKey: string): string {
-  return LLM_UI_LABELS[uiKey] ?? uiKey
-}
-
-// Human-in-the-loop screening endpoints
-
-export interface ScreenedPaper {
-  paper_id: string
-  title: string
-  authors: string
-  year: number | null
-  source_database: string
-  doi: string | null
-  abstract: string | null
-  stage: string
-  decision: "include" | "uncertain" | "exclude"
-  reason: string | null
-  confidence: number | null
-}
-
-export interface ScreeningSummary {
-  run_id: string
-  total: number
-  papers: ScreenedPaper[]
-  instructions: string
-}
-
-export async function fetchScreeningSummary(runId: string): Promise<ScreeningSummary> {
-  const res = await fetch(`${BASE}/run/${runId}/screening-summary`)
-  if (!res.ok) {
-    const text = await res.text()
-    throw new Error(`${res.status}: ${text}`)
-  }
-  return res.json() as Promise<ScreeningSummary>
-}
-
-export interface ScreeningOverride {
-  paper_id: string
-  decision: "include" | "exclude"
-  reason?: string
-}
-
-export async function approveScreening(
-  runId: string,
-  overrides?: ScreeningOverride[],
-): Promise<void> {
-  const body = overrides && overrides.length > 0 ? { overrides } : { overrides: [] }
-  const res = await fetch(`${BASE}/run/${runId}/approve-screening`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
-  })
-  if (!res.ok) {
-    const text = await res.text()
-    throw new Error(`${res.status}: ${text}`)
-  }
-}
-
-export interface KnowledgeGraphNode {
-  id: string
-  title: string
-  year: number | null
-  study_design: string
-  community_id: number
-  first_author: string
-  has_multiple_authors: boolean
-}
-
-export interface KnowledgeGraphEdge {
-  source: string
-  target: string
-  rel_type: string
-  weight: number
-}
-
-export interface KnowledgeCommunity {
-  id: number
-  paper_ids: string[]
-  label: string
-}
-
-export interface ResearchGap {
-  id: string
-  description: string
-  gap_type: string
-  related_paper_ids: string[]
-}
-
-export interface KnowledgeGraph {
-  run_id: string
-  nodes: KnowledgeGraphNode[]
-  edges: KnowledgeGraphEdge[]
-  communities: KnowledgeCommunity[]
-  gaps: ResearchGap[]
-}
-
-export async function fetchKnowledgeGraph(runId: string): Promise<KnowledgeGraph> {
-  const res = await fetch(`${BASE}/run/${runId}/knowledge-graph`)
-  if (!res.ok) {
-    const text = await res.text()
-    throw new Error(`${res.status}: ${text}`)
-  }
-  return res.json() as Promise<KnowledgeGraph>
-}
-
-// History endpoints live in ./api/history.ts (re-exported above).
+  fetchArtifactText,
+  fetchArtifacts,
+  triggerExport,
+  subscribeNotesStream,
+  getDefaultReviewConfig,
+  generateConfigStream,
+  fetchRunConfig,
+  buildRunRequest,
+  fetchEnvKeys,
+  fetchRequiredLlmUiKeys,
+  fetchEnvKeysStatus,
+  llmProviderLabel,
+  fetchPapersAll,
+  fetchPapersFacets,
+  fetchPapersSuggest,
+  fetchGradeSof,
+  fetchDbTables,
+  fetchPapersReference,
+  prosperoFormDocxUrl,
+  prosperoFormMarkdownUrl,
+  paperFileUrl,
+  fetchDbCosts,
+  fetchDbCostAggregates,
+  getDbCostExportUrl,
+  fetchHistoryCostAggregates,
+  getHistoryCostExportUrl,
+  fetchWorkflowValidationSummary,
+  fetchWorkflowValidationChecks,
+  fetchScreeningSummary,
+  approveScreening,
+  fetchKnowledgeGraph,
+  fetchPdfsForRun,
+  type StoredApiKeys,
+  type StoredLiveRun,
+  type NotesStreamEvent,
+  type ExportResult,
+  type EnvKeyProviderStatus,
+  type EnvKeysStatus,
+  type PaperAllRow,
+  type GradeSofRow,
+  type GradeSofResponse,
+  type ExtractedOutcomeRow,
+  type ExtractedOutcomePaper,
+  type ExtractedTablesResponse,
+  type PaperReference,
+  type DbCostRow,
+  type DbCostAggregateBucketRow,
+  type DbCostAggregateGroupRow,
+  type DbCostAggregateTotals,
+  type DbCostAggregatesResponse,
+  type HistoryCostAggregatesResponse,
+  type DbCostExportGranularity,
+  type DbCostAggregateParams,
+  type DbCostExportParams,
+  type HistoryCostAggregateParams,
+  type HistoryCostExportParams,
+  type ScreeningDiagnostics,
+  type ValidationSummary,
+  type ValidationCheck,
+  type ScreenedPaper,
+  type ScreeningSummary,
+  type ScreeningOverride,
+  type KnowledgeGraph,
+  type KnowledgeGraphNode,
+  type KnowledgeGraphEdge,
+  type KnowledgeCommunity,
+  type ResearchGap,
+  type FetchPdfsResult,
+  type FetchPdfsProgressEvent,
+  type EventDurability,
+  type HistoryEntry,
+  type ReviewEvent,
+  type RunRequest,
+  type RunResponse,
+} from "./api/index"

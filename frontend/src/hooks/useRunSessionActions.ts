@@ -1,4 +1,5 @@
 import { useCallback } from "react"
+import { useQueryClient } from "@tanstack/react-query"
 import type { Dispatch, SetStateAction } from "react"
 import type { NavigateFunction } from "react-router-dom"
 import { toast } from "sonner"
@@ -25,10 +26,89 @@ import {
 } from "@/lib/api"
 import type { HistoryEntry, RunRequest, RunResponse } from "@/lib/api"
 import type { useLiveRunStream } from "@/hooks/useLiveRunStream"
-import type { RunSessionActions } from "@/context/runSessionTypes"
-import type { RunTab, SelectedRun } from "@/views/RunView"
+import type { RunSessionActions, RunTab, SelectedRun } from "@/context/runSessionTypes"
 
 type LiveStream = ReturnType<typeof useLiveRunStream>
+
+/** Explicit history-sidebar selection transitions (reducer input). */
+type HistorySelectTransition =
+  | { kind: "focus_same_run" }
+  | { kind: "connect_live"; entry: HistoryEntry; runId: string; topic: string }
+  | { kind: "attach_historical"; entry: HistoryEntry }
+
+interface HistorySelectContext {
+  selectedRun: SelectedRun | null
+  liveRunId: string | null
+}
+
+function resolveHistorySelectTransition(
+  entry: HistoryEntry,
+  ctx: HistorySelectContext,
+  active: { run_id: string; topic: string } | null,
+): HistorySelectTransition {
+  if (active) {
+    if (
+      isSameRunSelection(
+        ctx.liveRunId,
+        ctx.selectedRun?.runId,
+        ctx.selectedRun?.workflowId,
+        active.run_id,
+        entry.workflow_id,
+      )
+    ) {
+      return { kind: "focus_same_run" }
+    }
+    return {
+      kind: "connect_live",
+      entry,
+      runId: active.run_id,
+      topic: active.topic || entry.topic,
+    }
+  }
+
+  if (entry.live_run_id) {
+    if (
+      isSameRunSelection(
+        ctx.liveRunId,
+        ctx.selectedRun?.runId,
+        ctx.selectedRun?.workflowId,
+        entry.live_run_id,
+        entry.workflow_id,
+      )
+    ) {
+      return { kind: "focus_same_run" }
+    }
+    return {
+      kind: "connect_live",
+      entry,
+      runId: entry.live_run_id,
+      topic: entry.topic,
+    }
+  }
+
+  return { kind: "attach_historical", entry }
+}
+
+function selectedRunFromHistoryEntry(
+  entry: HistoryEntry,
+  overrides: Partial<SelectedRun> & Pick<SelectedRun, "runId">,
+): SelectedRun {
+  const isCompleted = isTerminalHistoricalStatus(entry.status)
+  return {
+    runId: overrides.runId,
+    workflowId: entry.workflow_id,
+    topic: entry.topic,
+    dbPath: entry.db_path,
+    isDone: overrides.isDone ?? isCompleted,
+    historicalStatus: overrides.historicalStatus ?? entry.status,
+    startedAt: overrides.startedAt ?? null,
+    createdAt: entry.created_at,
+    papersFound: entry.papers_found ?? null,
+    papersIncluded: entry.papers_included ?? null,
+    historicalCost: entry.total_cost ?? null,
+    attachPending: overrides.attachPending,
+  }
+}
 
 export interface RunSessionActionsArgs {
   navigate: NavigateFunction
@@ -51,6 +131,7 @@ export function useRunSessionActions({
   setSubmissionFocusToken,
   live,
 }: RunSessionActionsArgs): RunSessionActions {
+  const queryClient = useQueryClient()
   const {
     liveRunId,
     liveTopic,
@@ -238,24 +319,14 @@ export function useRunSessionActions({
 
       const terminalHistorical =
         isTerminalHistoricalStatus(entry.status) && !entry.live_run_id
-
       if (terminalHistorical) {
         clearLiveRunUi()
-        const isCompleted = isTerminalHistoricalStatus(entry.status)
-        setSelectedRun({
-          runId: entry.workflow_id,
-          workflowId: entry.workflow_id,
-          topic: entry.topic,
-          dbPath: entry.db_path,
-          isDone: isCompleted,
-          historicalStatus: entry.status,
-          startedAt: null,
-          createdAt: entry.created_at,
-          papersFound: entry.papers_found ?? null,
-          papersIncluded: entry.papers_included ?? null,
-          historicalCost: entry.total_cost ?? null,
-          attachPending: true,
-        })
+        setSelectedRun(
+          selectedRunFromHistoryEntry(entry, {
+            runId: entry.workflow_id,
+            attachPending: true,
+          }),
+        )
         focusSelectedWorkflow()
         try {
           const res = await attachHistory(entry)
@@ -275,105 +346,58 @@ export function useRunSessionActions({
       }
 
       const active = await fetchActiveRun(entry.workflow_id).catch(() => null)
-      if (active) {
-        if (
-          isSameRunSelection(
-            liveRunId,
-            selectedRun?.runId,
-            selectedRun?.workflowId,
-            active.run_id,
-            entry.workflow_id,
-          )
-        ) {
+      const transition = resolveHistorySelectTransition(
+        entry,
+        { selectedRun, liveRunId },
+        active,
+      )
+
+      switch (transition.kind) {
+        case "focus_same_run":
+          focusSelectedWorkflow()
+          return
+
+        case "connect_live": {
+          const now = new Date()
+          if (liveRunId !== transition.runId) {
+            reset()
+          }
+          liveRunNavigatedRef.current = entry.workflow_id
+          setLiveRunId(transition.runId)
+          setLiveTopic(transition.topic)
+          setLiveStartedAt(now)
+          setLiveWorkflowId(entry.workflow_id)
+          saveLiveRun({
+            runId: transition.runId,
+            topic: transition.topic,
+            startedAt: now.toISOString(),
+            workflowId: entry.workflow_id,
+          })
+          setSelectedRun({
+            runId: transition.runId,
+            workflowId: entry.workflow_id,
+            topic: transition.topic,
+            dbPath: entry.db_path || null,
+            isDone: false,
+            startedAt: now,
+            createdAt: entry.created_at,
+          })
           focusSelectedWorkflow()
           return
         }
-        const now = new Date()
-        if (liveRunId !== active.run_id) {
-          reset()
-        }
-        liveRunNavigatedRef.current = entry.workflow_id
-        setLiveRunId(active.run_id)
-        setLiveTopic(active.topic || entry.topic)
-        setLiveStartedAt(now)
-        setLiveWorkflowId(entry.workflow_id)
-        saveLiveRun({
-          runId: active.run_id,
-          topic: active.topic || entry.topic,
-          startedAt: now.toISOString(),
-          workflowId: entry.workflow_id,
-        })
-        setSelectedRun({
-          runId: active.run_id,
-          workflowId: entry.workflow_id,
-          topic: active.topic || entry.topic,
-          dbPath: entry.db_path || null,
-          isDone: false,
-          startedAt: now,
-          createdAt: entry.created_at,
-        })
-        focusSelectedWorkflow()
-        return
-      }
 
-      if (entry.live_run_id) {
-        if (
-          isSameRunSelection(
-            liveRunId,
-            selectedRun?.runId,
-            selectedRun?.workflowId,
-            entry.live_run_id,
-            entry.workflow_id,
+        case "attach_historical": {
+          const res = await attachHistory(entry)
+          clearLiveRunUi()
+          setSelectedRun(
+            selectedRunFromHistoryEntry(entry, {
+              runId: res.run_id,
+            }),
           )
-        ) {
-          focusSelectedWorkflow()
+          navigate(`/run/${entry.workflow_id}/activity`)
           return
         }
-        const now = new Date()
-        if (liveRunId !== entry.live_run_id) {
-          reset()
-        }
-        liveRunNavigatedRef.current = entry.workflow_id
-        setLiveRunId(entry.live_run_id)
-        setLiveTopic(entry.topic)
-        setLiveStartedAt(now)
-        setLiveWorkflowId(entry.workflow_id)
-        saveLiveRun({
-          runId: entry.live_run_id,
-          topic: entry.topic,
-          startedAt: now.toISOString(),
-          workflowId: entry.workflow_id,
-        })
-        setSelectedRun({
-          runId: entry.live_run_id,
-          workflowId: entry.workflow_id,
-          topic: entry.topic,
-          dbPath: entry.db_path || null,
-          isDone: false,
-          startedAt: now,
-          createdAt: entry.created_at,
-        })
-        focusSelectedWorkflow()
-        return
       }
-
-      const res = await attachHistory(entry)
-      clearLiveRunUi()
-      const isCompleted = isTerminalHistoricalStatus(entry.status)
-      setSelectedRun({
-        runId: res.run_id,
-        workflowId: entry.workflow_id,
-        topic: entry.topic,
-        dbPath: entry.db_path,
-        isDone: isCompleted,
-        historicalStatus: entry.status,
-        startedAt: null,
-        createdAt: entry.created_at,
-        papersFound: entry.papers_found ?? null,
-        papersIncluded: entry.papers_included ?? null,
-        historicalCost: entry.total_cost ?? null,
-      })
-      navigate(`/run/${entry.workflow_id}/activity`)
     },
     [
       clearLiveRunUi,
@@ -381,8 +405,7 @@ export function useRunSessionActions({
       liveRunNavigatedRef,
       navigate,
       reset,
-      selectedRun?.runId,
-      selectedRun?.workflowId,
+      selectedRun,
       setActiveRunTab,
       setLiveRunId,
       setLiveStartedAt,
@@ -455,43 +478,48 @@ export function useRunSessionActions({
   const handleSidebarDelete = useCallback(
     async (workflowId: string) => {
       await deleteRun(workflowId)
+      void queryClient.invalidateQueries({ queryKey: ["history"] })
       if (selectedRun?.workflowId === workflowId) {
         setSelectedRun(null)
         navigate("/", { replace: true })
       }
     },
-    [navigate, selectedRun?.workflowId, setSelectedRun],
+    [navigate, queryClient, selectedRun?.workflowId, setSelectedRun],
   )
 
   const handleSidebarArchive = useCallback(
     async (workflowId: string) => {
       await archiveRun(workflowId)
+      void queryClient.invalidateQueries({ queryKey: ["history"] })
       if (selectedRun?.workflowId === workflowId) {
         setSelectedRun(null)
         navigate("/", { replace: true })
       }
     },
-    [navigate, selectedRun?.workflowId, setSelectedRun],
+    [navigate, queryClient, selectedRun?.workflowId, setSelectedRun],
   )
 
   const handleSidebarRestore = useCallback(async (workflowId: string) => {
     await restoreRun(workflowId)
-  }, [])
+    void queryClient.invalidateQueries({ queryKey: ["history"] })
+  }, [queryClient])
 
   const handleSidebarHideCompleted = useCallback(
     async (workflowId: string) => {
       await hideCompletedRun(workflowId)
+      void queryClient.invalidateQueries({ queryKey: ["history"] })
       if (selectedRun?.workflowId === workflowId) {
         setSelectedRun(null)
         navigate("/", { replace: true })
       }
     },
-    [navigate, selectedRun?.workflowId, setSelectedRun],
+    [navigate, queryClient, selectedRun?.workflowId, setSelectedRun],
   )
 
   const handleSidebarRestoreCompleted = useCallback(async (workflowId: string) => {
     await restoreCompletedRun(workflowId)
-  }, [])
+    void queryClient.invalidateQueries({ queryKey: ["history"] })
+  }, [queryClient])
 
   const handleTabChange = useCallback(
     (tab: RunTab) => {
