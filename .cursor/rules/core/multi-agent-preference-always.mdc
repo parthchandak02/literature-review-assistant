@@ -1,9 +1,11 @@
 ---
 description: Prefer multi-agent execution whenever available
-alwaysApply: false
+alwaysApply: true
 ---
 
 # Use Multiple Agents
+
+See also **`subagent-todo-execution-always.mdc`** (canonical: todos + parallel subagents + file-scope partitioning).
 
 When multi-agent execution is available for a task, use multiple agents whenever possible for efficiency.
 

@@ -1,0 +1,40 @@
+---
+description: Require TodoWrite and parallel subagents for multi-step implementation work
+alwaysApply: true
+---
+
+# Subagent + Todo Execution Discipline
+
+For any task with **3+ distinct steps**, an explicit sprint, or cross-cutting changes (backend + frontend + scripts):
+
+## Todos (required)
+
+1. Create todos at task start with `TodoWrite` (`merge: false` for new work).
+2. Mark exactly one item `in_progress` while active; mark `completed` when done.
+3. Do not end the session with open `in_progress` items unless blocked; cancel only when user pivots.
+4. Sprint-sized work gets one todo per parallel work package (not one mega-todo).
+
+## Subagents (required when available)
+
+1. **Partition by disjoint file scopes** — no two subagents edit the same file in one parallel batch.
+2. Launch **all non-overlapping agents in one message** (multiple `Task` calls).
+3. Route by job:
+   - `backend-reliability` — lifecycle, event store, resume, orchestration
+   - `shell` — Makefile, scripts, hooks, PM2 config
+   - `generalPurpose` — mixed implementation
+   - `explore` — read-only discovery before risky edits
+4. Parent orchestrator: merge results, run `make local-ci` or `make release-check`, `pm2 restart litreview-api` after `src/` changes.
+5. Each subagent prompt must include: file scope, invariants (AGENTS.md), exit commands (`pytest`, `pnpm typecheck`), and "do not edit plan file" when applicable.
+
+## Exceptions (parent may execute directly)
+
+- Single-file fix under ~20 lines
+- Merge conflict resolution
+- Running verification commands
+- User explicitly says "no subagents"
+
+## Verification before claiming done
+
+- Backend `src/` changes: `pm2 restart litreview-api`
+- Release-bound work: `make release-check` when it exists, else `make local-ci`
+- Frontend production: `cd frontend && pnpm build` before production URL checks

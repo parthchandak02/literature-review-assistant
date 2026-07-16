@@ -1,87 +1,146 @@
-# Hermes no-agent monitoring templates
+# Hermes monitoring and WhatsApp delivery (cron, no-agent)
+
+Use Hermes **built-in cron** with `no_agent=True` to monitor a running review and deliver updates to the **same WhatsApp group** where the user asked. No custom streaming Python, no bridge client, no extra dependencies.
+
+Official references: [script-only cron](https://hermes-agent.nousresearch.com/docs/guides/cron-script-only), `hermes-cron-jobs` skill, `hermes send --help`.
+
+---
 
 ## One-time host fix (Node + gateway after `hermes update`)
 
 If `hermes update` shows Node **v20.9.0** EBADENGINE warnings, Vite `crypto.hash` build failures, or `hermes gateway restart` exits with **launchctl 125**, run once from **Terminal.app** (logged-in Mac session):
 
 ```bash
-# 1) Pin nvm default (beats stale /usr/local/bin/node v20.9)
 source ~/.nvm/nvm.sh && nvm alias default 20.19.2
-
-# 2) Optional but recommended: repoint system node symlinks
-sudo ln -sf ~/.nvm/versions/node/v20.19.2/bin/node /usr/local/bin/node
-sudo ln -sf ~/.nvm/versions/node/v20.19.2/bin/npm /usr/local/bin/npm
-
-# 3) Post-update maintenance from this repo
 ~/projects/literature-review-assistant/scripts/hermes-maintain.sh --update
 ```
 
-`~/.zprofile` loads nvm 20.19+ for login shells so plain `hermes update` uses the right Node afterward.
-
-After any `hermes update`, restart with either:
+After any `hermes update`, restart the gateway:
 
 ```bash
-hermes gateway restart    # uses launchd, or detached fallback on error 125
+hermes gateway restart
 # or
 ~/projects/literature-review-assistant/scripts/hermes-maintain.sh
 ```
 
 ---
 
-Use these patterns to monitor long reviews without consuming Hermes model turns.
+## Preferred pattern: no-agent cron + per-workflow shell wrapper
 
-## Why no-agent mode
+Hermes cron `--script` must point to a file under `~/.hermes/scripts/` (bare name or absolute path). Arguments are **not** passed on the CLI — embed `workflow_id` and `chat_id` in a small wrapper Hermes writes once per run.
 
-- `no_agent=True` runs the script directly on schedule.
-- Empty stdout produces a silent tick.
-- Non-empty stdout is delivered as-is.
-- Non-zero exit emits an error alert.
+### 1. Wrapper template (Hermes writes `~/.hermes/scripts/litreview-watch-<wf-id>.sh`)
 
-This is the safest setup when your Hermes profile has a tight iteration budget.
+```bash
+#!/usr/bin/env bash
+set -euo pipefail
 
-## Preferred: WhatsApp streamer (in-place phase updates)
+REPO="${LITREVIEW_ROOT:-$HOME/projects/literature-review-assistant}"
+WF_ID="wf-NNNN"                          # set per run
+CHAT_ID="120363...@g.us"                 # HERMES_SESSION_CHAT_ID from the asking group
+JOB_ID=""                                # cron job id — set after create, for self-removal
 
-For one-off reviews started from a WhatsApp group, launch the bridge streamer with that group's JID (not `WHATSAPP_HOME_CHANNEL`):
+cd "$REPO"
+
+# watch_review.py: prints ONLY when phase/status changes; empty stdout = silent tick
+OUTPUT="$(uv run python scripts/watch_review.py --workflow-id "$WF_ID" 2>/dev/null || true)"
+
+if [ -z "$OUTPUT" ]; then
+  exit 0
+fi
+
+echo "$OUTPUT"
+
+# Completion: export submission zip and deliver via hermes send (no LLM)
+case "$OUTPUT" in
+  *status=completed*|*status=complete*|*status=done*)
+  uv run python -m src.main export --workflow-id "$WF_ID"
+  ZIP="$(find "$REPO/runs" -path "*${WF_ID}*/submission/submission_*.zip" 2>/dev/null | head -1)"
+  if [ -n "$ZIP" ]; then
+    hermes send --to "whatsapp:${CHAT_ID}" "Literature review ${WF_ID} complete. MEDIA:${ZIP}"
+  else
+    hermes send --to "whatsapp:${CHAT_ID}" "Literature review ${WF_ID} finished but submission zip not found — check runs/ manually."
+  fi
+  if [ -n "$JOB_ID" ]; then
+    hermes cron remove "$JOB_ID" 2>/dev/null || true
+  fi
+  ;;
+esac
+```
+
+```bash
+chmod +x ~/.hermes/scripts/litreview-watch-wf-NNNN.sh
+```
+
+### 2. Create the cron job (from chat or CLI)
+
+**Always set an explicit WhatsApp target** — never rely on `WHATSAPP_HOME_CHANNEL` or bare `deliver=origin` in multi-group setups.
 
 ```bash
 CHAT_ID='<HERMES_SESSION_CHAT_ID from the group where the user asked>'
-"$LITREVIEW_ROOT/scripts/stream_review_whatsapp.py" \
-  --workflow-id wf-XXXX --chat-id "$CHAT_ID" --interval 45 --export-on-complete
+
+hermes cron create "every 10m" \
+  --name "litreview-wf-NNNN" \
+  --no-agent \
+  --script litreview-watch-wf-NNNN.sh \
+  --deliver "whatsapp:${CHAT_ID}"
 ```
 
-Requires `hermes gateway` running. Script prints nothing to stdout (avoids duplicate cron delivery).
+Schedule options: `every 5m`, `every 10m`, `every 20m`, `every 1h` — user preference.
 
-## Fallback: one-shot watcher (new message on change only)
+### 3. Behavior
 
-```bash
-python "$LITREVIEW_ROOT/scripts/watch_review.py" --workflow-id wf-XXXX
-```
+| Tick | Result |
+|------|--------|
+| No state change | Empty stdout → **silent** (no WhatsApp message) |
+| Phase / status change | One message with `workflow=… \| status=… \| phase=…` |
+| Terminal status | Export + `hermes send` zip + remove cron job |
 
-## Chat prompt template (Hermes cronjob tool)
-
-> Every 10 minutes, run `python "$LITREVIEW_ROOT/scripts/watch_review.py" --workflow-id wf-XXXX`. If output is empty, stay silent. If output is non-empty, deliver it. Use no-agent mode.
-
-## CLI examples
+### 4. Lifecycle
 
 ```bash
-# Create no-agent cron job
-hermes cron create \
-  --name litreview-wf-XXXX \
-  --schedule "every 10m" \
-  --script "python \"$LITREVIEW_ROOT/scripts/watch_review.py\" --workflow-id wf-XXXX" \
-  --no-agent
-
-# List jobs
 hermes cron list
-
-# Force one run now
-hermes cron run litreview-wf-XXXX
+hermes cron run <job_id>      # test once
+hermes cron pause <job_id>
+hermes cron remove <job_id>   # manual cleanup if wrapper self-remove failed
 ```
 
-## Optional follow mode (interactive only)
+---
+
+## Chat prompt for Hermes `cronjob` tool
+
+When the user starts a review from WhatsApp, Hermes should **automatically** (same turn, after capturing `wf-NNNN`):
+
+1. Write `~/.hermes/scripts/litreview-watch-<wf-id>.sh` from the template above (`CHAT_ID` = `HERMES_SESSION_CHAT_ID`).
+2. `cronjob(action=create, schedule="every 10m", script="litreview-watch-<wf-id>.sh", no_agent=true, deliver="whatsapp:<CHAT_ID>", name="litreview-<wf-id>")`.
+3. Patch `JOB_ID` into the wrapper (or pass via `hermes cron edit` + re-write script).
+4. Confirm in chat: workflow id, monitor interval, delivery group — then **stop** (do not poll manually; cron handles it).
+
+---
+
+## Fallback: LLM cron with script pre-check (only if export logic must reason)
+
+If the wrapper is too brittle, use script + agent (uses tokens on every tick — avoid unless needed):
 
 ```bash
-python "$LITREVIEW_ROOT/scripts/watch_review.py" --workflow-id wf-XXXX --follow
+hermes cron create "every 10m" "$(< /tmp/litreview_cron_prompt.txt)" \
+  --name "litreview-wf-NNNN-agent" \
+  --script litreview-watch-wf-NNNN.sh \
+  --deliver "whatsapp:${CHAT_ID}"
 ```
 
-Follow mode is for active terminal sessions, not cron.
+Prompt body (in `/tmp/litreview_cron_prompt.txt`):
+
+> You are monitoring workflow wf-NNNN. The attached script output is the only source of truth. If empty, respond with exactly `[SILENT]`. If non-empty, summarize the change in one short WhatsApp-friendly line. If status is completed, run export and tell the user the zip path; use `hermes send` with `MEDIA:` if needed. Do not use `send_message` — cron delivery handles text.
+
+Prefer **no-agent wrapper** above; it is zero tokens.
+
+---
+
+## Pitfalls
+
+- **`deliver=origin`** pins to the chat where the cron was created — wrong group if created from CLI/SSH. Always `deliver=whatsapp:<jid>`.
+- **Detached tmux** does not inherit `HERMES_SESSION_CHAT_ID` — embed `CHAT_ID` in the wrapper when writing it.
+- **Cron script location** — must live under `~/.hermes/scripts/`; inline `python … --workflow-id` in `--script` is invalid.
+- **Empty stdout is intentional** — `watch_review.py` deduplicates; do not spam sqlite queries from the agent while cron runs.
+- **WoS 512 / protocol pause** — see main `SKILL.md` pitfalls; do not kill the pipeline during protocol generation.

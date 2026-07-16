@@ -15,17 +15,15 @@
 
 ## Run Experience Model
 
-Primary run tabs:
+Primary run tabs (`RunTab` in `frontend/src/context/runSessionTypes.ts`; rendered in `frontend/src/views/RunView.tsx`):
 
-- Config
-- Activity
-- Data
-- Cost
-- Results
-- References
-- Quality
+- Config (`config`)
+- Activity (`activity`)
+- Data (`database`)
+- Cost (`cost`)
+- Results (`results`)
 
-`Review Screening` is conditional and appears when workflow status is `awaiting_review`.
+`Review Screening` (`review-screening`) is conditional and appears when workflow status is `awaiting_review`.
 
 ## API Usage Boundaries
 
@@ -35,7 +33,7 @@ Primary run tabs:
 
 ## Frontend/Backend Phase Alignment
 
-- Frontend `RESUME_PHASE_ORDER` must match backend `PHASE_ORDER` in `src/orchestration/resume.py`.
+- Frontend `RESUME_PHASE_ORDER` must match backend `USER_RESUMABLE_PHASE_ORDER` in `src/orchestration/resume.py` (excludes internal `phase_7_audit`).
 - Frontend display `PHASE_ORDER` can include UI-only subphase labels for richer progress rendering.
 
 ## Production Serving Contract

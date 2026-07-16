@@ -1,193 +1,166 @@
 ---
 name: lit-review
-description: High-precision guide for running systematic reviews with the literature-review-assistant repo using low-iteration, low-token operations after kickoff.
-version: 1.7.0
+description: "Run systematic literature reviews end-to-end from WhatsApp or chat: generate config, start pipeline, cron-monitor with watch_review.py, deliver submission zip on completion."
+version: 1.8.0
 author: Hermes Agent
 platforms: [macos, linux]
 metadata:
   hermes:
-    tags: [literature-review, systematic-review, PRISMA, research, commands, LaTeX]
+    tags: [literature-review, systematic-review, PRISMA, research, commands, LaTeX, whatsapp, cron]
 ---
 
 # Systematic Literature Review Pipeline (lit-review)
 
-This is a high-precision, production-grade guide for any AI agent (or developer) to operate `literature-review-assistant` and execute systematic reviews with minimal Hermes iteration burn.
+High-precision operator playbook for `literature-review-assistant`. When a user says **`/lit-review "some topic"`**, **`/skill lit-review`**, or asks for a systematic review on a topic in WhatsApp, follow this skill end-to-end: **start → cron-monitor → deliver zip** — with minimal Hermes token use after kickoff.
+
+---
+
+## WhatsApp / chat trigger (do this when invoked)
+
+**Input examples:** `/lit-review "GLP-1 and cardiovascular outcomes"`, "run a lit review on …", "systematic review: …"
+
+**Required context:** `HERMES_SESSION_CHAT_ID` = JID of the group (or DM) where the user asked. Use it for cron `deliver` and `hermes send`. Do **not** default to `WHATSAPP_HOME_CHANNEL`.
+
+### Automatic playbook (one kickoff turn + cron; no manual polling)
+
+| Step | Action |
+|------|--------|
+| 1 | `cd ~/projects/literature-review-assistant` |
+| 2 | `uv run python scripts/start_review.py --question "<topic>"` → review `config/review.yaml` |
+| 3 | Launch pipeline in detached tmux; capture **workflow id** (`wf-NNNN`) from startup log |
+| 4 | Write `~/.hermes/scripts/litreview-watch-wf-NNNN.sh` (template in `references/hermes-monitoring.md`) with `CHAT_ID` + `WF_ID` |
+| 5 | Create **no-agent** cron: `every 10m` (or user-requested 5m / 20m / 60m), `--script litreview-watch-wf-NNNN.sh`, `--deliver whatsapp:<CHAT_ID>` |
+| 6 | Reply once in chat: started `wf-NNNN`, monitoring every N minutes, zip will arrive here when done |
+| 7 | **Stop** — do not poll sqlite or re-run `watch_review.py` manually; cron owns monitoring |
+
+On completion the wrapper exports (`src.main export`) and runs `hermes send … MEDIA:…zip`, then removes the cron job.
+
+**Related skills:** `hermes-cron-jobs` (no_agent, `[SILENT]`, delivery targets), `hermes-agent` (`/goal` for standing work if user prefers that over cron).
 
 ---
 
 ## Repo location (this machine)
 
-**REPO_ROOT:** `~/projects/literature-review-assistant/`
-All commands below must be run from this directory (or use `LITREVIEW_ROOT`).
+**REPO_ROOT:** `~/projects/literature-review-assistant/` (`LITREVIEW_ROOT`)
 
-The repo is already cloned, `uv sync`'d, and local credentials are configured per the example template.  
-Review `config/settings.yaml` to see which LLM models are assigned to each stage.
+Already cloned, `uv sync`'d, credentials in repo `.env`. Models in `config/settings.yaml`.
 
-## One-time setup on a fresh machine
+### One-time setup on a fresh machine
 
 1. `git clone https://github.com/parthchandak02/literature-review-assistant.git`
 2. `cd literature-review-assistant && uv sync`
-3. Copy the example environment file to the project root and fill in required keys (see example template comments)
-4. Verify: `uv run python -m src.main --help`
-5. Hermes host: `nvm alias default 20.19.2` and run `scripts/hermes-maintain.sh` once (see `references/hermes-monitoring.md`)
+3. Copy example `.env` and fill API keys
+4. `uv run python -m src.main --help`
+5. Hermes host: `nvm alias default 20.19.2`, run `scripts/hermes-maintain.sh` once (see `references/hermes-monitoring.md`)
 
 ---
 
-## Key Paths & Files
-* `src/main.py`: CLI entrypoint.
-* `src/web/config_generator.py`: Two-stage LLM configuration generator.
-* `scripts/start_review.py`: Question -> `config/review.yaml` generator. Usage: `uv run python scripts/start_review.py --question "..."`.
-* `scripts/watch_review.py`: One-shot or follow-mode workflow monitor. Outputs status line only when state changes (use for quick checks). Usage: `uv run python scripts/watch_review.py --workflow-id wf-NNNN`.
-* `scripts/stream_review_whatsapp.py`: Long-running WhatsApp progress stream (one editable bubble per phase). Requires `--chat-id` from the group where the user started the review. Usage: `python scripts/stream_review_whatsapp.py --workflow-id wf-NNNN --chat-id '<jid>'` (use the Hermes agent venv if needed).
-* `~/.hermes/scripts/whatsapp_stream.py`: Shared Hermes bridge client (`send` / `edit` / `send_media`) for any local script.
-* `scripts/show_run_info.py`: Print run metadata (status, included papers, cost) for a workflow ID. Usage: `uv run python scripts/show_run_info.py --workflow-id wf-NNNN`.
-* `config/review.yaml`: Target systematic review configuration (PICO, keywords, criteria, databases) — overwritten each time `start_review.py` runs.
-* `config/settings.yaml`: LLM models, agents, and cost fallback settings.
-* `runs/`: Directory where all runs, databases (`runtime.db`), and manuscript drafts are saved.
-* `runs/workflows_registry.db`: Canonical workflow registry for workflow ID to db_path lookup.
+## Key paths
+
+| Path | Role |
+|------|------|
+| `scripts/start_review.py` | Question → `config/review.yaml` |
+| `src/main.py` | `run`, `resume`, `export`, `validate` |
+| `scripts/watch_review.py` | Low-noise monitor (stdout only on state change) — used by cron wrapper |
+| `scripts/show_run_info.py` | One-shot metadata for a workflow id |
+| `config/review.yaml` | Active review config (overwritten each `start_review.py`) |
+| `runs/workflows_registry.db` | workflow id → runtime db path |
+| `references/hermes-monitoring.md` | Cron wrapper template, `hermes send`, pitfalls |
 
 ---
 
-## Low-cost operating contract (must follow)
+## Low-cost operating contract
 
-- Max Hermes agent involvement for one run:
-  - Config generation: once
-  - Start or resume: once
-  - Validate/export at terminal phase: once each
-- After kickoff, check progress only when the user asks or at natural breakpoints. Reviews are one-off (20-60 min) — no cron needed.
-- Do NOT set up recurring cron jobs for status monitoring. Reviews are not daily recurring tasks.
-- Do not patch `runs/` artifacts.
-- Resume from run snapshots (`config_snapshot.yaml`) for replay-safe reruns.
+- **Kickoff (one agent turn):** config + tmux start + cron create + short confirmation.
+- **After kickoff:** cron `no_agent` monitors — **zero LLM tokens** per tick.
+- **Do not** manually poll progress while cron is active.
+- **Do not** patch `runs/` artifacts.
+- **Resume** replays use `config_snapshot.yaml` in the run directory (`run --config … --fresh` or `resume --workflow-id`).
 
 ---
 
-## Pipeline phases (timing estimate)
-
-Typical review runs through these phases – 20-60 min total:
+## Pipeline phases (typical 20–60 min)
 
 | Phase | What happens | Est. time |
 |-------|-------------|-----------|
-| 1. Start | Load config, init DB, register workflow ID | ~30s |
-| 2. Search | Run connectors, deduplicate, generate protocol | 2-5 min |
-| 3. Screening | Dual LLM review of all papers | 10-20 min |
-| 4. Extraction | Data extraction + quality assessment (RoB, GRADE) | 5-15 min |
-| 5. Synthesis | Meta-analysis or narrative synthesis | 5-10 min |
-| 6. Writing | Section generation + manuscript assembly | 5-10 min |
-| Finalize | Generate references, BibTeX, LaTeX | ~1 min |
-
-## Quick health-check queries (runtime.db)
-
-For precise progress, query the runtime.db directly:
-
-```bash
-sqlite3 runs/YYYY-MM-DD/wf-NNNN-*/run_*/runtime.db "SELECT phase_label, status FROM workflow_steps ORDER BY id DESC LIMIT 1;"
-sqlite3 runs/YYYY-MM-DD/wf-NNNN-*/run_*/runtime.db "SELECT COUNT(*) FROM screening_decisions;"
-sqlite3 runs/YYYY-MM-DD/wf-NNNN-*/run_*/runtime.db "SELECT COUNT(*) FROM extraction_records;"
-sqlite3 runs/YYYY-MM-DD/wf-NNNN-*/run_*/runtime.db "SELECT COUNT(*) FROM section_drafts;"
-```
+| Start | Load config, init DB, register workflow id | ~30s |
+| Search | Connectors, dedup, protocol | 2–5 min |
+| Screening | Dual LLM screening | 10–20 min |
+| Extraction | Extraction + RoB / GRADE | 5–15 min |
+| Synthesis | Meta-analysis or narrative | 5–10 min |
+| Writing | Sections + manuscript assembly | 5–10 min |
+| Finalize | References, BibTeX, LaTeX | ~1 min |
 
 ---
 
-## Step-by-step execution playbook
+## Step-by-step commands (reference)
 
-### Step 1: Generate configuration (`config/review.yaml`)
+### Step 1 — Generate config
 
 ```bash
 cd ~/projects/literature-review-assistant
 uv run python scripts/start_review.py --question "YOUR RESEARCH QUESTION"
 ```
 
-Optional: `--profile standard` (default) or `health_sdg`
+Optional: `--profile standard` (default) or `health_sdg`. Skim `pico`, `keywords`, `inclusion_criteria`, `search_overrides`.
 
-Review the `pico`, `keywords`, `inclusion_criteria`, and `search_overrides` before launching.
-
-### Step 2: Launch in tmux
-
-Reviews take 20-60+ minutes. Launch in a tmux session:
+### Step 2 — Launch in tmux
 
 ```bash
-cd ~/projects/literature-review-assistant
-tmux new-session -d -s litreview 'uv run python -m src.main run --config config/review.yaml 2>&1 | tee /tmp/litreview-output.log; sleep 9999'
+tmux new-session -d -s "litreview-wf-NNNN" \
+  'cd ~/projects/literature-review-assistant && uv run python -m src.main run --config config/review.yaml 2>&1 | tee /tmp/litreview-wf-NNNN.log; sleep 9999'
 ```
 
-Capture the **workflow ID** from startup output.
+Capture **workflow id** from log (e.g. `wf-0105`).
 
-### Step 2b: Stream progress to WhatsApp (recommended)
+### Step 2b — Monitor + deliver (Hermes cron; required for WhatsApp runs)
 
-Hermes must pass the **current group's** WhatsApp JID (`HERMES_SESSION_CHAT_ID`) into the streamer — detached tmux does not inherit session env.
+See **`references/hermes-monitoring.md`** for the wrapper script and:
 
 ```bash
-CHAT_ID='<paste HERMES_SESSION_CHAT_ID from this group>'
-cd ~/projects/literature-review-assistant
-tmux new-session -d -s litreview-wa \
-  "python scripts/stream_review_whatsapp.py \
-  --workflow-id wf-NNNN --chat-id \"$CHAT_ID\" --interval 45 --export-on-complete"
+hermes cron create "every 10m" \
+  --name "litreview-wf-NNNN" \
+  --no-agent \
+  --script litreview-watch-wf-NNNN.sh \
+  --deliver "whatsapp:<HERMES_SESSION_CHAT_ID>"
 ```
 
-- One WhatsApp bubble per pipeline phase (in-place edits within the phase).
-- Do **not** default to `WHATSAPP_HOME_CHANNEL` — wrong group in multi-group setups.
-- Print nothing else to WhatsApp from the agent while the streamer runs (avoid sqlite spam).
-
-### Step 3: Check progress (when the user asks)
-
-If the streamer is running, prefer reading its state over manual sqlite polling. Otherwise:
+### Step 3 — Manual progress check (only if cron is not running)
 
 ```bash
-tail -20 /tmp/litreview-output.log
-cd ~/projects/literature-review-assistant && uv run python scripts/watch_review.py --workflow-id wf-NNNN
-cd ~/projects/literature-review-assistant && uv run python scripts/show_run_info.py --workflow-id wf-NNNN
+uv run python scripts/watch_review.py --workflow-id wf-NNNN
+uv run python scripts/show_run_info.py --workflow-id wf-NNNN
+tail -30 /tmp/litreview-wf-NNNN.log
 ```
 
-### Step 4: On completion — Export and deliver zip
+### Step 4 — Export and deliver (manual fallback)
+
+If cron wrapper did not run export:
 
 ```bash
-cd ~/projects/literature-review-assistant
 uv run python -m src.main export --workflow-id wf-NNNN
-ls runs/YYYY-MM-DD/wf-NNNN-*/run_*/submission/submission_*.zip
+hermes send --to "whatsapp:<CHAT_ID>" "Complete. MEDIA:/path/to/submission_*.zip"
 ```
-Deliver: `send_message(target='whatsapp', message='Review complete! MEDIA:/path/to/submission_*.zip')`
 
-### Step 5: Resume (if interrupted)
+### Step 5 — Resume (if interrupted)
 
 ```bash
 uv run python -m src.main resume --workflow-id wf-NNNN
+# or from phase:
 uv run python -m src.main resume --workflow-id wf-NNNN --from-phase phase_5_synthesis
 ```
+
+Re-create or resume the cron job for the same workflow id if monitoring should continue.
 
 ---
 
 ## Critical constraints and pitfalls
 
-- Use pipeline-generated writing outputs; do not draft sections manually in chat.
+- Use pipeline-generated writing; do not draft manuscript sections in chat.
 - Never invent citekeys; citations must come from run artifacts.
-- Normalize accented surnames for citekey lookups.
-- Avoid SVG-only figure pipelines for LaTeX; include PNG/PDF outputs.
-- Respect scholarly API rate limits and backoffs.
+- **Web of Science 512:** remove `web_of_science` from `target_databases` in `config/review.yaml` and `--fresh` if blocked.
+- **Protocol generation** after search can idle 60–90s (DeepSeek pro) — do not kill; wait 2–3 min.
+- **Resume re-runs connectors** — remove slow/failing connectors before resume.
+- **DeepSeek split:** flash = screening/search; pro = extraction/writing/protocol (60–120s per call).
 
-### Web of Science (Clarivate) 512 errors
-
-Clarivate WoS API has a persistent server-side 512 error that blocks the pipeline for ~35s with retries. Fix: remove `web_of_science` from `target_databases:` in `config/review.yaml` and run `--fresh`.
-
-### Protocol generation after phase 2
-
-After search + dedup, the pipeline calls DeepSeek (pro model) to generate the study protocol. Shows no progress for 60-90 seconds. Do not kill — wait 2-3 min. Resume if actually hung.
-
-### Resume re-runs connectors
-
-`resume` picks up from the last checkpoint and re-runs the connector phase (deduplicating against existing records). Remove slow/failing connectors before resuming.
-
-### DeepSeek model split in settings.yaml
-
-Flash (deepseek-v4-flash): bulk screening, search, adjudication. Pro (deepseek-v4-pro): extraction, quality, writing, protocol. Pro calls take 60-120s.
-
-## Session Troubleshooting Tips
-
-For additional edge cases discovered during live runs, see references/session-troubleshooting.md.
-
-## Session Troubleshooting Tips
-
-For additional edge cases discovered during live runs — WoS connector failures, API timeouts, DB-based monitoring patterns — see `references/session-troubleshooting.md`.
-
-## Session Troubleshooting Tips
-
-For additional edge cases discovered during live runs — WoS connector failures, API timeouts, DB-based monitoring patterns — see `references/session-troubleshooting.md`.
+More edge cases: `references/session-troubleshooting.md`.
