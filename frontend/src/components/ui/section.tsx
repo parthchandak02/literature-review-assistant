@@ -11,6 +11,7 @@ import { useState } from "react"
 import { ChevronDown, ChevronUp } from "lucide-react"
 import { cn } from "@/lib/utils"
 import type { LucideIcon } from "lucide-react"
+import { ViewToolbar } from "@/components/ui/view-toolbar"
 
 // ---------------------------------------------------------------------------
 // CollapsibleSection
@@ -133,14 +134,17 @@ export function PageSection({
 }: PageSectionProps) {
   return (
     <div className={cn("card-surface overflow-hidden", className)}>
-      <div className="glass-toolbar flex items-center justify-between px-4 py-3 border-b border-border/70">
-        <div className="flex items-center gap-2 min-w-0">
-          {Icon && <Icon className="h-4 w-4 text-muted shrink-0" />}
-          <span className="text-sm font-medium text-foreground shrink-0">{title}</span>
-          {description && <span className="label-muted truncate">{description}</span>}
-        </div>
-        {action && <div>{action}</div>}
-      </div>
+      <ViewToolbar
+        className="!h-auto py-3"
+        title={
+          <>
+            {Icon && <Icon className="h-4 w-4 text-muted shrink-0" />}
+            <span className="text-sm font-medium text-foreground shrink-0">{title}</span>
+            {description && <span className="label-muted truncate">{description}</span>}
+          </>
+        }
+        actions={action}
+      />
       <div className={cn("p-4", contentClassName)}>{children}</div>
     </div>
   )
