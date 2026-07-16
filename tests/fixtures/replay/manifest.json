@@ -1,0 +1,29 @@
+{
+  "workflow_id": "wf-0088",
+  "schema_version": 22,
+  "replay_profile": "local",
+  "source_run": "runs/2026-05-15/wf-0088-what-is-the-impact-of-modular-or-extendable-vehicle-frame-techno/run_01-59-24AM",
+  "generated_at": "2026-07-16T18:25:59.727667+00:00",
+  "files": {
+    "runtime_db": "runtime.db",
+    "doc_manuscript_md": "doc_manuscript.md"
+  },
+  "profiles": {
+    "default": {
+      "workflow_id": "wf-0088",
+      "source_run": "runs/2026-05-15/wf-0088-what-is-the-impact-of-modular-or-extendable-vehicle-frame-techno/run_01-59-24AM",
+      "files": {
+        "runtime_db": "runtime.db",
+        "doc_manuscript_md": "doc_manuscript.md"
+      }
+    },
+    "adversarial": {
+      "workflow_id": "wf-0044",
+      "source_run": "runs/2026-03-30/wf-0044-what-is-the-effect-of-intervention-on-outcome-in-population/run_10-16-23AM",
+      "description": "Failed early run with papers present, zero checkpoints, zero included studies",
+      "files": {
+        "runtime_db": "runtime_adversarial.db"
+      }
+    }
+  }
+}

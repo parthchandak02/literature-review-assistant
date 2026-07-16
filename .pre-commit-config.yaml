@@ -1,6 +1,8 @@
-# Commit-time checks (install: uv run pre-commit install)
+# Commit-time checks (install: uv run pre-commit install && uv run pre-commit install --hook-type pre-push)
 default_language_version:
   python: python3.11
+
+default_stages: [pre-commit]
 
 repos:
   - repo: https://github.com/pre-commit/pre-commit-hooks
@@ -34,3 +36,33 @@ repos:
         language: system
         pass_filenames: false
         files: ^frontend/
+
+      - id: spec-endpoint-parity
+        name: API Section 10.1 endpoint parity
+        entry: uv run python scripts/check_spec_endpoint_parity.py
+        language: system
+        pass_filenames: false
+        always_run: true
+
+      - id: frontend-phase-order-parity
+        name: frontend resume phase order parity
+        entry: uv run pytest tests/unit/test_frontend_phase_order_parity.py -q
+        language: system
+        pass_filenames: false
+        files: ^(frontend/src/lib/constants\.ts|src/orchestration/resume\.py)
+
+      - id: unit-tests-pre-push
+        name: unit tests (pre-push)
+        entry: uv run pytest tests/unit -q
+        language: system
+        pass_filenames: false
+        stages: [pre-push]
+        always_run: true
+
+      - id: replay-fixture-schema-pre-push
+        name: replay fixture schema (pre-push)
+        entry: uv run python scripts/check_replay_fixture_schema.py
+        language: system
+        pass_filenames: false
+        stages: [pre-push]
+        always_run: true
