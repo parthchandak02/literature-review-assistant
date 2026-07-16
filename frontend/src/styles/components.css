@@ -338,7 +338,7 @@
   /* Opaque panels for tables/logs — glass reserved for chrome */
   .data-surface {
     @apply rounded-lg border border-border/80;
-    background-color: color-mix(in srgb, var(--surface-1) 96%, black 4%);
+    background-color: color-mix(in srgb, var(--color-surface-1) 96%, black 4%);
   }
 
   .text-micro {
@@ -348,5 +348,24 @@
 
   .tabular-nums {
     font-variant-numeric: tabular-nums;
+  }
+
+  /* ------------------------------------------------------------------ */
+  /* Reduced motion (frontend-design-taste pre-flight)                   */
+  /* ------------------------------------------------------------------ */
+  @media (prefers-reduced-motion: reduce) {
+    .glass-interactive,
+    .sidebar-new-review-button,
+    [class*="transition-"] {
+      transition-duration: 0.01ms !important;
+      transition-delay: 0ms !important;
+    }
+
+    .animate-pulse,
+    .animate-in,
+    .animate-out,
+    [class*="animate-"] {
+      animation: none !important;
+    }
   }
 }
