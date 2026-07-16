@@ -18,13 +18,200 @@ previous test.
 from __future__ import annotations
 
 import os
+from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 import aiosqlite
 import pytest
+import pytest_asyncio
 import structlog
+import yaml
 
+from src.db.database import get_db
+from src.db.repositories import WorkflowRepository
 from src.db.workflow_registry import candidate_run_roots, resolve_workflow_db_path
+from src.llm.pydantic_client import PydanticAIClient
+
+MINIMAL_REVIEW: dict[str, Any] = {
+    "research_question": "What is the effect of the intervention on the primary outcome in the target population?",
+    "review_type": "systematic",
+    "pico": {
+        "population": "adult participants in controlled settings",
+        "intervention": "structured intervention program",
+        "comparison": "standard care or control condition",
+        "outcome": "primary outcome measure",
+    },
+    "keywords": ["intervention", "outcome", "systematic review"],
+    "domain": "health and wellbeing",
+    "scope": "clinical and community settings",
+    "inclusion_criteria": ["peer-reviewed"],
+    "exclusion_criteria": ["opinion pieces"],
+    "date_range_start": 2015,
+    "date_range_end": 2026,
+    "target_databases": ["openalex"],
+}
+
+MINIMAL_SETTINGS: dict[str, Any] = {
+    "agents": {
+        "screening_reviewer_a": {"model": "google:gemini-2.5-flash-lite", "temperature": 0.1},
+        "screening_reviewer_b": {"model": "google:gemini-2.5-flash-lite", "temperature": 0.3},
+        "screening_adjudicator": {"model": "google:gemini-2.5-pro", "temperature": 0.2},
+        "quality_assessment": {"model": "google:gemini-2.5-pro", "temperature": 0.1},
+        "search": {"model": "google:gemini-2.5-flash", "temperature": 0.1},
+        "extraction": {"model": "google:gemini-2.5-pro", "temperature": 0.1},
+        "writing": {"model": "google:gemini-2.5-pro", "temperature": 0.2},
+    },
+    "gates": {"profile": "warning"},
+    "rag": {
+        "embed_model": "sentence-transformers:lightonai/DenseOn",
+        "use_hyde": False,
+        "rerank": False,
+    },
+}
+
+
+@dataclass(frozen=True)
+class WorkflowDbFixture:
+    workflow_id: str
+    db_path: Path
+    run_root: Path
+    topic: str = "Graph transition test topic"
+    config_hash: str = "graph-test-hash"
+
+
+async def init_runtime_workflow_db(
+    db_path: Path,
+    workflow_id: str,
+    *,
+    topic: str = "Graph transition test topic",
+    config_hash: str = "graph-test-hash",
+    status: str = "running",
+) -> None:
+    """Bootstrap runtime.db schema and workflow row (test_lifecycle_restart pattern)."""
+    db_path.parent.mkdir(parents=True, exist_ok=True)
+    async with get_db(str(db_path)) as db:
+        repo = WorkflowRepository(db)
+        await repo.create_workflow(workflow_id, topic, config_hash)
+        await repo.update_workflow_status(workflow_id, status)
+        await db.commit()
+
+
+@pytest.fixture
+def minimal_config_paths(tmp_path: Path) -> tuple[Path, Path]:
+    review_path = tmp_path / "review.yaml"
+    settings_path = tmp_path / "settings.yaml"
+    review_path.write_text(yaml.safe_dump(MINIMAL_REVIEW, sort_keys=False), encoding="utf-8")
+    settings_path.write_text(yaml.safe_dump(MINIMAL_SETTINGS, sort_keys=False), encoding="utf-8")
+    return review_path, settings_path
+
+
+@pytest_asyncio.fixture
+async def tmp_workflow_db(tmp_path: Path) -> WorkflowDbFixture:
+    """Real SQLite runtime.db with schema bootstrap for orchestration graph tests."""
+    workflow_id = "wf-graph-test"
+    db_path = tmp_path / "runtime.db"
+    await init_runtime_workflow_db(db_path, workflow_id)
+    return WorkflowDbFixture(workflow_id=workflow_id, db_path=db_path, run_root=tmp_path)
+
+
+class _StubPydanticAIClient:
+    """Scripted LLM stub; never calls provider APIs."""
+
+    async def complete_with_usage(
+        self,
+        prompt: str,
+        *,
+        model: str,
+        temperature: float,
+        json_schema: dict | None = None,
+    ) -> tuple[str, int, int, int, int]:
+        _ = (self, prompt, model, temperature, json_schema)
+        return ("{}", 1, 1, 0, 0)
+
+    async def complete_validated(
+        self,
+        prompt: str,
+        *,
+        model: str,
+        temperature: float,
+        response_model: type[Any],
+        json_schema: dict | None = None,
+        max_validation_retries: int = 2,
+    ) -> tuple[Any, int, int, int, int, int]:
+        _ = (self, prompt, model, temperature, json_schema, max_validation_retries)
+        try:
+            payload = response_model.model_validate({})
+        except Exception:
+            payload = response_model()
+        return payload, 1, 1, 0, 0, 0
+
+
+@pytest.fixture
+def mock_llm_boundary(monkeypatch: pytest.MonkeyPatch) -> _StubPydanticAIClient:
+    """Patch get_chat_client / PydanticAIClient at orchestration boundaries."""
+    stub = _StubPydanticAIClient()
+
+    async def _fake_complete_with_usage(
+        self: PydanticAIClient,
+        prompt: str,
+        *,
+        model: str,
+        temperature: float,
+        json_schema: dict | None = None,
+    ) -> tuple[str, int, int, int, int]:
+        return await stub.complete_with_usage(
+            prompt,
+            model=model,
+            temperature=temperature,
+            json_schema=json_schema,
+        )
+
+    async def _fake_complete_validated(
+        self: PydanticAIClient,
+        prompt: str,
+        *,
+        model: str,
+        temperature: float,
+        response_model: type[Any],
+        json_schema: dict | None = None,
+        max_validation_retries: int = 2,
+    ) -> tuple[Any, int, int, int, int, int]:
+        return await stub.complete_validated(
+            prompt,
+            model=model,
+            temperature=temperature,
+            response_model=response_model,
+            json_schema=json_schema,
+            max_validation_retries=max_validation_retries,
+        )
+
+    monkeypatch.setattr(PydanticAIClient, "complete_with_usage", _fake_complete_with_usage)
+    monkeypatch.setattr(PydanticAIClient, "complete_validated", _fake_complete_validated)
+    monkeypatch.setattr("src.llm.factory.get_chat_client", lambda **_kwargs: stub)
+    return stub
+
+
+@pytest.fixture
+def mock_search_connectors(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Return empty connector list so search routing tests never hit external APIs."""
+
+    def _fake_build_connectors(workflow_id: str, target_databases: list[str]) -> tuple[list, dict[str, str]]:
+        _ = (workflow_id, target_databases)
+        return [], {}
+
+    monkeypatch.setattr(
+        "src.orchestration.helpers.search_connectors.build_connectors",
+        _fake_build_connectors,
+    )
+    monkeypatch.setattr(
+        "src.orchestration.runners.search_runner._build_connectors",
+        _fake_build_connectors,
+    )
+    monkeypatch.setattr(
+        "src.orchestration.workflow._build_connectors",
+        _fake_build_connectors,
+    )
 
 
 @pytest.fixture(autouse=True)
