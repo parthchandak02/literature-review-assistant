@@ -42,7 +42,10 @@ from src.synthesis.contradiction_detector import detect_contradictions
 from src.visualization.concept_diagrams import render_concept_diagrams
 from src.visualization.research_diagram_placement import plan_inline_diagram_placements
 from src.visualization.research_diagram_preparer import prepare_research_diagram_briefs
-from src.visualization.research_diagram_renderer import render_custom_research_diagrams
+from src.visualization.research_diagram_renderer import (
+    build_paper_id_label_map,
+    render_custom_research_diagrams,
+)
 from src.writing.citation_grounding import extract_used_citekeys, verify_citation_grounding
 from src.writing.context_builder import sanitize_summary_text_for_writing
 from src.writing.contradiction_resolver import build_conflicting_evidence_section, generate_contradiction_paragraph
@@ -665,12 +668,19 @@ async def run_post_assembly(
                     {
                         "paper_id": _p.paper_id,
                         "title": _p.title,
+                        "display_label": _p.display_label,
                         "year": _p.year,
                     }
                 )
             if not _included_rows:
                 _included_rows = [
-                    {"paper_id": _p.paper_id, "title": _p.title, "year": _p.year} for _p in state.included_papers
+                    {
+                        "paper_id": _p.paper_id,
+                        "title": _p.title,
+                        "display_label": _p.display_label,
+                        "year": _p.year,
+                    }
+                    for _p in state.included_papers
                 ]
 
             _max_papers = int(getattr(_dg_cfg, "max_papers_for_brief", 24) or 24)
@@ -751,6 +761,11 @@ async def run_post_assembly(
                 state.settings.agents.get("writing"),
             )
 
+            _paper_id_to_label = build_paper_id_label_map(
+                included_studies=_included_rows,
+                paper_id_to_citekey=_paper_id_to_citekey if _paper_id_to_citekey else None,
+            )
+
             _report = await asyncio.wait_for(
                 render_custom_research_diagrams(
                     brief_pack=_brief_pack,
@@ -763,6 +778,7 @@ async def run_post_assembly(
                     aspect_ratio=str(getattr(_dg_cfg, "aspect_ratio", "16:9")),
                     repository=_dg_repo,
                     provider=_dg_provider,
+                    paper_id_to_label=_paper_id_to_label,
                 ),
                 timeout=420.0,
             )

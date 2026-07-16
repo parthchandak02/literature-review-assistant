@@ -64,6 +64,55 @@ def test_build_generation_prompt_includes_required_constraints() -> None:
     assert "Uniform line weight" in prompt
 
 
+def test_build_generation_prompt_resolves_internal_paper_ids_to_readable_labels() -> None:
+    paper_id = "c16f81a0-94a"
+    brief = ResearchDiagramBrief(
+        diagram_id="diagram-03",
+        diagram_type="evidence_map",
+        title="Evidence Base",
+        objective="Map evidence types to supporting studies.",
+        required_labels=["Technical Validation", paper_id],
+        key_entities=["Smartphone-Integrated Device", paper_id],
+        relationships=[f"Diagnostic Accuracy -> {paper_id}"],
+        evidence_claims=[
+            DiagramEvidenceClaim(
+                claim="Smartphone diagnostics achieved high accuracy in low-resource settings.",
+                supporting_paper_ids=[paper_id, "78b17962-51f"],
+            )
+        ],
+        composition_notes=f"List supporting study IDs underneath nodes: {paper_id}",
+    )
+    label_map = {
+        paper_id: "Chan (2024)",
+        "78b17962-51f": "Smith (2023)",
+    }
+    prompt = renderer._build_generation_prompt(
+        brief=brief,
+        style=DiagramStyleGuide(),
+        round_index=1,
+        revision_prompt=None,
+        paper_id_to_label=label_map,
+    )
+    assert "Chan (2024)" in prompt
+    assert "Smith (2023)" in prompt
+    assert paper_id not in prompt
+    assert "78b17962-51f" not in prompt
+    assert "Never render internal database IDs" in prompt
+
+
+def test_build_paper_id_label_map_prefers_citekey_then_display_label() -> None:
+    label_map = renderer.build_paper_id_label_map(
+        included_studies=[
+            {"paper_id": "abc", "title": "Long ignored when citekey exists", "display_label": "Jones", "year": 2022},
+            {"paper_id": "def", "title": "A very long title that should be clipped for diagram labels", "year": 2021},
+        ],
+        paper_id_to_citekey={"abc": "Jones2022"},
+    )
+    assert label_map["abc"] == "Jones2022"
+    assert label_map["def"].startswith("A very long title that should be clipped")
+    assert label_map["def"].endswith("(2021)")
+
+
 @pytest.mark.asyncio
 async def test_log_usage_cost_persists_row_even_with_zero_tokens() -> None:
     class _Repo:

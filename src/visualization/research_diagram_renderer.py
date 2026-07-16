@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 from pathlib import Path
 from time import monotonic
 from typing import Any
@@ -26,6 +27,62 @@ from src.models.diagrams import (
 )
 
 logger = logging.getLogger(__name__)
+
+_INTERNAL_PAPER_ID_RE = re.compile(r"\b[0-9a-f]{8}-[0-9a-f]{3}\b", re.IGNORECASE)
+
+
+def build_paper_id_label_map(
+    *,
+    included_studies: list[dict[str, Any]],
+    paper_id_to_citekey: dict[str, str] | None = None,
+) -> dict[str, str]:
+    """Map internal paper_id values to human-readable labels for diagram prompts."""
+    citekeys = paper_id_to_citekey or {}
+    labels: dict[str, str] = {}
+    for study in included_studies:
+        paper_id = str(study.get("paper_id", "")).strip()
+        if not paper_id:
+            continue
+        year = study.get("year")
+        year_str = str(year) if year else "n.d."
+        if paper_id in citekeys and citekeys[paper_id]:
+            labels[paper_id] = citekeys[paper_id]
+            continue
+        display_label = str(study.get("display_label", "")).strip()
+        if display_label:
+            labels[paper_id] = f"{display_label} ({year_str})"
+            continue
+        title = str(study.get("title", "")).strip()
+        if title:
+            short = title if len(title) <= 48 else f"{title[:45].rstrip()}..."
+            labels[paper_id] = f"{short} ({year_str})"
+            continue
+        labels[paper_id] = f"Study ({year_str})"
+    return labels
+
+
+def resolve_paper_id_label(paper_id: str, paper_id_to_label: dict[str, str] | None) -> str:
+    if not paper_id:
+        return ""
+    label_map = paper_id_to_label or {}
+    if paper_id in label_map:
+        return label_map[paper_id]
+    return f"Study {paper_id[:6]}"
+
+
+def resolve_paper_id_labels(paper_ids: list[str], paper_id_to_label: dict[str, str] | None) -> list[str]:
+    return [resolve_paper_id_label(pid, paper_id_to_label) for pid in paper_ids if pid]
+
+
+def sanitize_diagram_label_text(text: str, paper_id_to_label: dict[str, str] | None) -> str:
+    """Replace internal paper_id tokens embedded in free text with readable labels."""
+    if not text or paper_id_to_label is None:
+        return text
+
+    def _replace(match: re.Match[str]) -> str:
+        return resolve_paper_id_label(match.group(0), paper_id_to_label)
+
+    return _INTERNAL_PAPER_ID_RE.sub(_replace, text)
 
 
 class _CritiqueEnvelope(BaseModel):
@@ -57,15 +114,24 @@ def _build_generation_prompt(
     style: DiagramStyleGuide,
     round_index: int,
     revision_prompt: str | None,
+    paper_id_to_label: dict[str, str] | None = None,
 ) -> str:
     claims_text = []
     for claim in brief.evidence_claims:
-        ids = ", ".join(claim.supporting_paper_ids[:6]) or "n/a"
-        claims_text.append(f"- {claim.claim} (papers: {ids})")
+        study_labels = resolve_paper_id_labels(claim.supporting_paper_ids[:6], paper_id_to_label)
+        refs = ", ".join(study_labels) or "n/a"
+        claims_text.append(f"- {claim.claim} (studies: {refs})")
     claims_block = "\n".join(claims_text) if claims_text else "- No explicit claims."
-    required_labels = ", ".join(brief.required_labels)
-    relationships = "\n".join(f"- {r}" for r in brief.relationships) if brief.relationships else "- infer concise flow"
-    notes = brief.composition_notes or "No extra notes."
+    required_labels = ", ".join(
+        sanitize_diagram_label_text(label, paper_id_to_label) for label in brief.required_labels
+    )
+    key_entities = ", ".join(
+        sanitize_diagram_label_text(entity, paper_id_to_label) for entity in brief.key_entities
+    )
+    relationships = "\n".join(
+        f"- {sanitize_diagram_label_text(rel, paper_id_to_label)}" for rel in brief.relationships
+    ) if brief.relationships else "- infer concise flow"
+    notes = sanitize_diagram_label_text(brief.composition_notes or "No extra notes.", paper_id_to_label)
 
     revision_block = (
         f"Revision instructions from critic (must apply):\n{revision_prompt}\n"
@@ -79,7 +145,7 @@ def _build_generation_prompt(
         f"Title text in image: {brief.title}\n"
         f"Objective: {brief.objective}\n"
         f"Required labels (must appear exactly or nearly exactly): {required_labels}\n"
-        f"Core entities: {', '.join(brief.key_entities)}\n"
+        f"Core entities: {key_entities}\n"
         "Relationships to depict:\n"
         f"{relationships}\n"
         "Grounded claims:\n"
@@ -89,6 +155,8 @@ def _build_generation_prompt(
         f"{_compose_style_block(style)}"
         f"{revision_block}"
         "Output constraints:\n"
+        "- Use author-year labels or short study titles for study references.\n"
+        "- Never render internal database IDs, UUID fragments, or opaque alphanumeric codes.\n"
         "- Keep text legible and large enough for manuscript figures.\n"
         "- Avoid decorative textures and gradients.\n"
         "- Ensure clear arrows and logical left-to-right or top-to-bottom flow.\n"
@@ -213,6 +281,7 @@ async def render_custom_research_diagrams(
     repository: Any | None = None,
     provider: LLMProvider | None = None,
     settings: Any | None = None,
+    paper_id_to_label: dict[str, str] | None = None,
 ) -> DiagramGenerationReport:
     """Generate custom figures; optional multi-round draw->critic refinement (default: one round)."""
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -248,6 +317,7 @@ async def render_custom_research_diagrams(
                 style=style_guide,
                 round_index=round_index,
                 revision_prompt=latest_revision,
+                paper_id_to_label=paper_id_to_label,
             )
             started = monotonic()
             try:

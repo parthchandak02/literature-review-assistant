@@ -81,6 +81,7 @@ def _format_included_study_samples(
             {
                 "paper_id": paper_id,
                 "title": _clip_text(str(study.get("title", "")), 180),
+                "display_label": _clip_text(str(study.get("display_label", "")), 80),
                 "year": study.get("year"),
                 "study_design": _clip_text(str(ex.get("study_design", "")), 80),
                 "primary_outcome": _clip_text(str(ex.get("primary_outcome", "")), 220),
@@ -185,6 +186,9 @@ def _build_preparer_prompt(
         "- diagram_type must be one of: layered_architecture, method_flow, evidence_map, theme_relationship.\n"
         "- Every diagram must include at least 3 required_labels.\n"
         "- Every diagram must include at least one evidence_claim with supporting_paper_ids drawn from sampled papers.\n"
+        "- supporting_paper_ids are internal references only; never place paper_id values in required_labels, key_entities, or composition_notes.\n"
+        "- Use Author (Year), display_label, or short study titles for any human-visible study names in required_labels.\n"
+        "- Composition notes must ask for readable study labels, not internal IDs.\n"
     )
 
 
