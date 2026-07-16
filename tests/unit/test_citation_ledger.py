@@ -4,6 +4,8 @@ from src.citation.ledger import CitationLedger
 from src.db.database import get_db
 from src.db.repositories import CitationRepository
 from src.models import CitationEntryRecord, ClaimRecord, EvidenceLinkRecord
+from src.models.writing import SectionBlock, StructuredSectionDraft
+from src.writing.orchestration import extract_and_register_claims
 
 
 @pytest.mark.asyncio
@@ -81,3 +83,89 @@ async def test_validate_section_scopes_unlinked_claims_to_requested_section(tmp_
 
         assert discussion_result.unresolved_claims == []
         assert len(results_result.unresolved_claims) == 1
+
+
+@pytest.mark.asyncio
+async def test_extract_and_register_claims_from_structured_blocks(tmp_path) -> None:
+    db_path = tmp_path / "ledger_structured_claims.db"
+    async with get_db(str(db_path)) as db:
+        repo = CitationRepository(db)
+        await repo.register_citation(
+            CitationEntryRecord(citekey="Smith2024", title="Study", authors=["Smith"], resolved=True)
+        )
+        draft = StructuredSectionDraft(
+            section_key="results",
+            blocks=[
+                SectionBlock(
+                    block_type="paragraph",
+                    text="Smith et al. reported improved outcomes in the target population.",
+                    citations=["Smith2024"],
+                ),
+            ],
+        )
+        registered = await extract_and_register_claims(
+            "results",
+            "",
+            repo,
+            structured_draft=draft,
+        )
+        assert registered == 1
+
+
+@pytest.mark.asyncio
+async def test_extract_and_register_claims_falls_back_to_markdown_regex(tmp_path) -> None:
+    db_path = tmp_path / "ledger_markdown_claims.db"
+    async with get_db(str(db_path)) as db:
+        repo = CitationRepository(db)
+        await repo.register_citation(
+            CitationEntryRecord(citekey="Jones2025", title="Study", authors=["Jones"], resolved=True)
+        )
+        draft = StructuredSectionDraft(
+            section_key="results",
+            blocks=[
+                SectionBlock(
+                    block_type="paragraph",
+                    text="A paragraph without structured citation fields.",
+                    citations=[],
+                ),
+            ],
+        )
+        content = "Jones et al. found a meaningful effect [Jones2025]."
+        registered = await extract_and_register_claims(
+            "results",
+            content,
+            repo,
+            structured_draft=draft,
+        )
+        assert registered == 1
+
+
+@pytest.mark.asyncio
+async def test_extract_and_register_claims_prefers_structured_blocks_over_markdown(tmp_path) -> None:
+    db_path = tmp_path / "ledger_structured_precedence.db"
+    async with get_db(str(db_path)) as db:
+        repo = CitationRepository(db)
+        await repo.register_citation(
+            CitationEntryRecord(citekey="Smith2024", title="Study", authors=["Smith"], resolved=True)
+        )
+        await repo.register_citation(
+            CitationEntryRecord(citekey="Jones2025", title="Study", authors=["Jones"], resolved=True)
+        )
+        draft = StructuredSectionDraft(
+            section_key="results",
+            blocks=[
+                SectionBlock(
+                    block_type="paragraph",
+                    text="Structured claim from block citations.",
+                    citations=["Smith2024"],
+                ),
+            ],
+        )
+        content = "Markdown-only claim should not register [Jones2025]."
+        registered = await extract_and_register_claims(
+            "results",
+            content,
+            repo,
+            structured_draft=draft,
+        )
+        assert registered == 1

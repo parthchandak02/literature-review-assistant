@@ -663,3 +663,23 @@ async def test_validate_resume_allowed_rejects_resume_when_all_phases_done(tmp_p
 
     with pytest.raises(ResumeNotAllowedError, match="nothing remains to resume"):
         await validate_resume_allowed(str(db_path), "wf-all", from_phase=None)
+
+
+@pytest.mark.asyncio
+async def test_validate_resume_allowed_rejects_resume_when_finalize_done_but_audit_missing(tmp_path) -> None:
+    """Legacy runs may lack phase_7_audit; finalize completed must still block resume."""
+    run_dir = tmp_path / "run3"
+    run_dir.mkdir()
+    db_path = run_dir / "runtime.db"
+    async with get_db(str(db_path)) as db:
+        await db.executescript(Path("src/db/schema.sql").read_text())
+        await db.commit()
+        repo = WorkflowRepository(db)
+        await repo.create_workflow("wf-legacy", "Legacy completed topic", "hash")
+        for phase in PHASE_ORDER:
+            if phase == "phase_7_audit":
+                continue
+            await repo.save_checkpoint("wf-legacy", phase, papers_processed=1)
+
+    with pytest.raises(ResumeNotAllowedError, match="finalize checkpoint is completed"):
+        await validate_resume_allowed(str(db_path), "wf-legacy", from_phase=None)

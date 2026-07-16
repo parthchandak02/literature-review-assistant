@@ -20,7 +20,6 @@ from src.export.markdown_refs import (
 )
 from src.llm.provider import LLMProvider
 from src.models import (
-    CostRecord,
     ManuscriptAssembly,
     ManuscriptAsset,
 )
@@ -610,17 +609,22 @@ async def run_post_assembly(
             "concept_diagrams", state.settings.agents.get("abstract_generation", state.settings.agents["writing"])
         ).model
         _concept_style_seed = f"{state.workflow_id}|{_topic[:280]}"
-        _concept_results = await asyncio.wait_for(
-            render_concept_diagrams(
-                taxonomy_spec=_taxonomy_spec,
-                framework_spec=_framework_spec,
-                flowchart_spec=_flowchart_spec,
-                out_dir=_out_dir,
-                model=_concept_model,
-                style_seed=_concept_style_seed,
-            ),
-            timeout=180.0,
-        )
+        async with get_db(state.db_path) as _cd_db:
+            _cd_repo = WorkflowRepository(_cd_db)
+            _cd_provider = LLMProvider(state.settings, _cd_repo)
+            _concept_results = await asyncio.wait_for(
+                render_concept_diagrams(
+                    taxonomy_spec=_taxonomy_spec,
+                    framework_spec=_framework_spec,
+                    flowchart_spec=_flowchart_spec,
+                    out_dir=_out_dir,
+                    model=_concept_model,
+                    style_seed=_concept_style_seed,
+                    provider=_cd_provider,
+                    workflow_id=state.workflow_id,
+                ),
+                timeout=180.0,
+            )
         if rc and rc.verbose:
             for _key, _path in _concept_results.items():
                 if _path:
@@ -649,150 +653,104 @@ async def run_post_assembly(
 
         async with get_db(state.db_path) as _dg_db:
             _dg_repo = WorkflowRepository(_dg_db)
+            _dg_provider = LLMProvider(state.settings, _dg_repo)
             _canonical_ids = await _dg_repo.get_synthesis_included_paper_ids(state.workflow_id)
 
-        _included_rows: list[dict[str, object]] = []
-        _canonical_set = set(_canonical_ids)
-        for _p in state.included_papers:
-            if _canonical_set and _p.paper_id not in _canonical_set:
-                continue
-            _included_rows.append(
-                {
-                    "paper_id": _p.paper_id,
-                    "title": _p.title,
-                    "year": _p.year,
-                }
+            _included_rows: list[dict[str, object]] = []
+            _canonical_set = set(_canonical_ids)
+            for _p in state.included_papers:
+                if _canonical_set and _p.paper_id not in _canonical_set:
+                    continue
+                _included_rows.append(
+                    {
+                        "paper_id": _p.paper_id,
+                        "title": _p.title,
+                        "year": _p.year,
+                    }
+                )
+            if not _included_rows:
+                _included_rows = [
+                    {"paper_id": _p.paper_id, "title": _p.title, "year": _p.year} for _p in state.included_papers
+                ]
+
+            _max_papers = int(getattr(_dg_cfg, "max_papers_for_brief", 24) or 24)
+            if _max_papers > 0:
+                _included_rows = _included_rows[:_max_papers]
+
+            _extraction_rows: list[dict[str, object]] = []
+            for _rec in state.extraction_records or []:
+                if _canonical_set and _rec.paper_id not in _canonical_set:
+                    continue
+                _summary = (_rec.results_summary or {}).get("summary", "")
+                _first_outcome = _rec.outcomes[0].description if _rec.outcomes else ""
+                _extraction_rows.append(
+                    {
+                        "paper_id": _rec.paper_id,
+                        "study_design": _rec.study_design.value if _rec.study_design else "",
+                        "summary": sanitize_summary_text_for_writing(_summary),
+                        "primary_outcome": _first_outcome,
+                        "intervention": _rec.intervention_description or "",
+                        "population": _rec.participant_demographics or "",
+                    }
+                )
+
+            _prep_agent = state.settings.agents.get(
+                "research_diagram_preparer",
+                state.settings.agents.get("concept_diagrams", state.settings.agents["writing"]),
             )
-        if not _included_rows:
-            _included_rows = [
-                {"paper_id": _p.paper_id, "title": _p.title, "year": _p.year} for _p in state.included_papers
-            ]
-
-        _max_papers = int(getattr(_dg_cfg, "max_papers_for_brief", 24) or 24)
-        if _max_papers > 0:
-            _included_rows = _included_rows[:_max_papers]
-
-        _extraction_rows: list[dict[str, object]] = []
-        for _rec in state.extraction_records or []:
-            if _canonical_set and _rec.paper_id not in _canonical_set:
-                continue
-            _summary = (_rec.results_summary or {}).get("summary", "")
-            _first_outcome = _rec.outcomes[0].description if _rec.outcomes else ""
-            _extraction_rows.append(
-                {
-                    "paper_id": _rec.paper_id,
-                    "study_design": _rec.study_design.value if _rec.study_design else "",
-                    "summary": sanitize_summary_text_for_writing(_summary),
-                    "primary_outcome": _first_outcome,
-                    "intervention": _rec.intervention_description or "",
-                    "population": _rec.participant_demographics or "",
-                }
-            )
-
-        _prep_agent = state.settings.agents.get(
-            "research_diagram_preparer",
-            state.settings.agents.get("concept_diagrams", state.settings.agents["writing"]),
-        )
-        _brief_pack, _prep_usage = await prepare_research_diagram_briefs(
-            workflow_id=state.workflow_id,
-            review_topic=_topic,
-            research_question=_rq,
-            included_studies=_included_rows,
-            extraction_summaries=_extraction_rows,
-            manifest_entries=_manifest_entries,
-            model=_prep_agent.model,
-            temperature=_prep_agent.temperature,
-        )
-        _brief_path = Path(state.artifacts.get("diagram_brief_pack", ""))
-        if _brief_path.name:
-            _brief_path.write_text(_brief_pack.model_dump_json(indent=2), encoding="utf-8")
-
-        _placement_plan = DiagramPlacementPlan(workflow_id=state.workflow_id)
-        _placement_agent = state.settings.agents.get(
-            "research_diagram_placement",
-            state.settings.agents.get("writing"),
-        )
-        _placement_usage: dict[str, int] = {}
-        try:
-            _placement_plan, _placement_usage = await plan_inline_diagram_placements(
+            _brief_pack, _prep_usage = await prepare_research_diagram_briefs(
                 workflow_id=state.workflow_id,
-                brief_pack=_brief_pack,
-                manuscript_body=body,
-                model=_placement_agent.model,
-                temperature=_placement_agent.temperature,
+                review_topic=_topic,
+                research_question=_rq,
+                included_studies=_included_rows,
+                extraction_summaries=_extraction_rows,
+                manifest_entries=_manifest_entries,
+                model=_prep_agent.model,
+                temperature=_prep_agent.temperature,
+                provider=_dg_provider,
             )
-        except Exception as _placement_exc:  # noqa: BLE001
-            logger.warning("Custom diagram placement planning failed: %s", _placement_exc)
-        _placement_path = Path(state.artifacts.get("diagram_placement_plan", ""))
-        if _placement_path.name:
-            _placement_path.write_text(_placement_plan.model_dump_json(indent=2), encoding="utf-8")
+            _brief_path = Path(state.artifacts.get("diagram_brief_pack", ""))
+            if _brief_path.name:
+                _brief_path.write_text(_brief_pack.model_dump_json(indent=2), encoding="utf-8")
 
-        _prep_tokens = int(_prep_usage.get("tokens_in", 0)) + int(_prep_usage.get("tokens_out", 0))
-        if _prep_tokens > 0:
-            async with get_db(state.db_path) as _dg_db:
-                _dg_repo = WorkflowRepository(_dg_db)
-                await _dg_repo.save_cost_record(
-                    CostRecord(
-                        workflow_id=state.workflow_id,
-                        model=_prep_agent.model,
-                        phase="phase_6f_custom_diagram_preparer",
-                        tokens_in=int(_prep_usage.get("tokens_in", 0)),
-                        tokens_out=int(_prep_usage.get("tokens_out", 0)),
-                        cost_usd=LLMProvider.estimate_cost_usd(
-                            model=_prep_agent.model,
-                            tokens_in=int(_prep_usage.get("tokens_in", 0)),
-                            tokens_out=int(_prep_usage.get("tokens_out", 0)),
-                            cache_write=int(_prep_usage.get("cache_write_tokens", 0)),
-                            cache_read=int(_prep_usage.get("cache_read_tokens", 0)),
-                        ),
-                        latency_ms=0,
-                        cache_read_tokens=int(_prep_usage.get("cache_read_tokens", 0)),
-                        cache_write_tokens=int(_prep_usage.get("cache_write_tokens", 0)),
-                    )
+            _placement_plan = DiagramPlacementPlan(workflow_id=state.workflow_id)
+            _placement_agent = state.settings.agents.get(
+                "research_diagram_placement",
+                state.settings.agents.get("writing"),
+            )
+            _placement_usage: dict[str, int] = {}
+            try:
+                _placement_plan, _placement_usage = await plan_inline_diagram_placements(
+                    workflow_id=state.workflow_id,
+                    brief_pack=_brief_pack,
+                    manuscript_body=body,
+                    model=_placement_agent.model,
+                    temperature=_placement_agent.temperature,
+                    provider=_dg_provider,
                 )
-        _placement_tokens = int(_placement_usage.get("tokens_in", 0)) + int(_placement_usage.get("tokens_out", 0))
-        if _placement_tokens > 0:
-            async with get_db(state.db_path) as _dg_db:
-                _dg_repo = WorkflowRepository(_dg_db)
-                await _dg_repo.save_cost_record(
-                    CostRecord(
-                        workflow_id=state.workflow_id,
-                        model=_placement_agent.model,
-                        phase="phase_6f_custom_diagram_placement",
-                        tokens_in=int(_placement_usage.get("tokens_in", 0)),
-                        tokens_out=int(_placement_usage.get("tokens_out", 0)),
-                        cost_usd=LLMProvider.estimate_cost_usd(
-                            model=_placement_agent.model,
-                            tokens_in=int(_placement_usage.get("tokens_in", 0)),
-                            tokens_out=int(_placement_usage.get("tokens_out", 0)),
-                            cache_write=int(_placement_usage.get("cache_write_tokens", 0)),
-                            cache_read=int(_placement_usage.get("cache_read_tokens", 0)),
-                        ),
-                        latency_ms=0,
-                        cache_read_tokens=int(_placement_usage.get("cache_read_tokens", 0)),
-                        cache_write_tokens=int(_placement_usage.get("cache_write_tokens", 0)),
-                    )
-                )
+            except Exception as _placement_exc:  # noqa: BLE001
+                logger.warning("Custom diagram placement planning failed: %s", _placement_exc)
+            _placement_path = Path(state.artifacts.get("diagram_placement_plan", ""))
+            if _placement_path.name:
+                _placement_path.write_text(_placement_plan.model_dump_json(indent=2), encoding="utf-8")
 
-        _style_refs: list[str] = []
-        if bool(getattr(_dg_cfg, "include_reference_style_images", True)):
-            for _k in ("concept_taxonomy", "conceptual_framework", "methodology_flow"):
-                _p = Path(state.artifacts.get(_k, ""))
-                if _p.exists():
-                    _style_refs.append(str(_p))
-        _style = DiagramStyleGuide(style_reference_paths=_style_refs[:6])
+            _style_refs: list[str] = []
+            if bool(getattr(_dg_cfg, "include_reference_style_images", True)):
+                for _k in ("concept_taxonomy", "conceptual_framework", "methodology_flow"):
+                    _p = Path(state.artifacts.get(_k, ""))
+                    if _p.exists():
+                        _style_refs.append(str(_p))
+            _style = DiagramStyleGuide(style_reference_paths=_style_refs[:6])
 
-        _drawing_agent = state.settings.agents.get(
-            "research_diagram_drawing",
-            state.settings.agents.get("concept_diagrams", state.settings.agents["writing"]),
-        )
-        _critic_agent = state.settings.agents.get(
-            "research_diagram_critic",
-            state.settings.agents.get("writing"),
-        )
+            _drawing_agent = state.settings.agents.get(
+                "research_diagram_drawing",
+                state.settings.agents.get("concept_diagrams", state.settings.agents["writing"]),
+            )
+            _critic_agent = state.settings.agents.get(
+                "research_diagram_critic",
+                state.settings.agents.get("writing"),
+            )
 
-        async with get_db(state.db_path) as _dg_db:
-            _dg_repo = WorkflowRepository(_dg_db)
             _report = await asyncio.wait_for(
                 render_custom_research_diagrams(
                     brief_pack=_brief_pack,
@@ -804,6 +762,7 @@ async def run_post_assembly(
                     image_size=str(getattr(_dg_cfg, "image_size", "2K")),
                     aspect_ratio=str(getattr(_dg_cfg, "aspect_ratio", "16:9")),
                     repository=_dg_repo,
+                    provider=_dg_provider,
                 ),
                 timeout=420.0,
             )
