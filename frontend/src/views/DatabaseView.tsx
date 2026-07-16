@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react"
+import { useEffect, useMemo, useReducer, useState } from "react"
 import * as Popover from "@radix-ui/react-popover"
 import {
   Command,
@@ -9,16 +9,23 @@ import {
   CommandList,
 } from "@/components/ui/command"
 import { FetchError, EmptyState, LoadingPane, Spinner } from "@/components/ui/feedback"
+import { GlassTableShell } from "@/components/ui/glass-table-shell"
+import { ViewToolbar } from "@/components/ui/view-toolbar"
 import { LiveStreamStatus } from "@/components/run-status"
 import { Badge } from "@/components/ui/badge"
 import { Th, Td, TableSkeleton, Pagination } from "@/components/ui/table"
 import { cn } from "@/lib/utils"
 import { AlertTriangle, Database, ExternalLink, Filter, X } from "lucide-react"
-import { fetchDbTables, fetchPapersAll, fetchPapersFacets, fetchPapersSuggest } from "@/lib/api"
-import type { ExtractedOutcomePaper, PaperAllRow } from "@/lib/api"
+import type { PaperAllRow } from "@/lib/api"
 import { confidenceToVariant, screeningDecisionToVariant } from "@/lib/constants"
-
-const LIVE_REFRESH_MS = 10_000
+import {
+  papersFetchErrorMessage,
+  useDbOutcomes,
+  useDbPaperSuggest,
+  useDbPapers,
+  useDbPapersFacets,
+  type DbPapersFilters,
+} from "@/hooks/useDbPapers"
 
 /**
  * Resolve the best clickable link for a paper following Crossref DOI display
@@ -36,6 +43,37 @@ function paperLink(p: PaperAllRow): string | null {
 const PAGE_SIZE = 50
 const SUGGEST_DEBOUNCE_MS = 200
 const FILTER_DEBOUNCE_MS = 350
+
+type PapersPaginationState = {
+  filterSignature: string
+  runId: string
+  page: number
+}
+
+type PapersPaginationAction =
+  | { type: "set_page"; page: number }
+  | { type: "sync_scope"; filterSignature: string; runId: string }
+
+function papersPaginationReducer(
+  state: PapersPaginationState,
+  action: PapersPaginationAction,
+): PapersPaginationState {
+  switch (action.type) {
+    case "set_page":
+      return { ...state, page: action.page }
+    case "sync_scope":
+      if (state.filterSignature === action.filterSignature && state.runId === action.runId) {
+        return state
+      }
+      return {
+        filterSignature: action.filterSignature,
+        runId: action.runId,
+        page: 0,
+      }
+    default:
+      return state
+  }
+}
 
 interface DatabaseViewProps {
   runId: string
@@ -55,260 +93,106 @@ export function DatabaseView({ runId, isDone, dbAvailable, isLive }: DatabaseVie
   const [yearFilter, setYearFilter] = useState("")
   const [sourceFilter, setSourceFilter] = useState("")
   const [countryFilter, setCountryFilter] = useState("")
-  const [page, setPage] = useState(0)
+  const [titleSuggestQuery, setTitleSuggestQuery] = useState("")
+  const [authorSuggestQuery, setAuthorSuggestQuery] = useState("")
 
-  const [papers, setPapers] = useState<PaperAllRow[]>([])
-  const [total, setTotal] = useState(0)
-  const [loading, setLoading] = useState(true)
-  const [papersReady, setPapersReady] = useState(false)
-  const [hasBootstrapped, setHasBootstrapped] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-  const [outcomePapers, setOutcomePapers] = useState<ExtractedOutcomePaper[]>([])
-  const [outcomesLoading, setOutcomesLoading] = useState(true)
-  const [outcomeError, setOutcomeError] = useState<string | null>(null)
+  const filters = useMemo<DbPapersFilters>(
+    () => ({
+      titleFilter,
+      authorFilter,
+      taFilter,
+      ftFilter,
+      primaryStatusFilter,
+      yearFilter,
+      sourceFilter,
+      countryFilter,
+    }),
+    [
+      titleFilter,
+      authorFilter,
+      taFilter,
+      ftFilter,
+      primaryStatusFilter,
+      yearFilter,
+      sourceFilter,
+      countryFilter,
+    ],
+  )
 
-  useEffect(() => {
-    setHasBootstrapped(false)
-    setPapersReady(false)
-    setPapers([])
-    setTotal(0)
-    setOutcomePapers([])
-    setOutcomesLoading(true)
-    setLoading(true)
-    setError(null)
-    setOutcomeError(null)
-  }, [runId])
+  const filterSignature = useMemo(
+    () =>
+      [
+        titleFilter,
+        authorFilter,
+        taFilter,
+        ftFilter,
+        primaryStatusFilter,
+        yearFilter,
+        sourceFilter,
+        countryFilter,
+      ].join("\0"),
+    [
+      titleFilter,
+      authorFilter,
+      taFilter,
+      ftFilter,
+      primaryStatusFilter,
+      yearFilter,
+      sourceFilter,
+      countryFilter,
+    ],
+  )
 
-  // Facet data (loaded once on mount / dbAvailable)
-  const [years, setYears] = useState<number[]>([])
-  const [sources, setSources] = useState<string[]>([])
-  const [countries, setCountries] = useState<string[]>([])
-  const [taDecisions, setTaDecisions] = useState<string[]>([])
-  const [ftDecisions, setFtDecisions] = useState<string[]>([])
-  const [primaryStatuses, setPrimaryStatuses] = useState<string[]>([])
-
-  // Title / author suggestions from server
-  const [titleSuggestions, setTitleSuggestions] = useState<string[]>([])
-  const [authorSuggestions, setAuthorSuggestions] = useState<string[]>([])
-  const [isSuggestingTitle, setIsSuggestingTitle] = useState(false)
-  const [isSuggestingAuthor, setIsSuggestingAuthor] = useState(false)
-
-  // Keep a ref with current filter values so pagination effect can read them
-  // without needing them in its dependency array.
-  const filtersRef = useRef({
+  const [pagination, dispatchPagination] = useReducer(papersPaginationReducer, {
+    filterSignature,
     runId,
-    titleFilter,
-    authorFilter,
-    taFilter,
-    ftFilter,
-    primaryStatusFilter,
-    yearFilter,
-    sourceFilter,
-    countryFilter,
+    page: 0,
   })
-  // eslint-disable-next-line react-hooks/refs -- intentional mutable-ref-sync pattern; ref is only read inside effects, not during render
-  filtersRef.current = {
-    runId,
-    titleFilter,
-    authorFilter,
-    taFilter,
-    ftFilter,
-    primaryStatusFilter,
-    yearFilter,
-    sourceFilter,
-    countryFilter,
-  }
-
-  function handleFetchError(e: unknown) {
-    const msg = e instanceof Error ? e.message : String(e)
-    if (!msg.includes("503")) {
-      setError(msg.toLowerCase().includes("failed to fetch") ? "Cannot reach backend" : msg)
-    }
-  }
-
-  // Load facets once when DB becomes available
-  useEffect(() => {
-    if (!dbAvailable) return
-    fetchPapersFacets(runId)
-      .then((data) => {
-        setYears(data.years)
-        setSources(data.sources)
-        setCountries(data.countries ?? [])
-        setTaDecisions(data.ta_decisions ?? [])
-        setFtDecisions(data.ft_decisions ?? [])
-        setPrimaryStatuses(data.primary_statuses ?? [])
-      })
-      .catch(() => {})
-  }, [runId, dbAvailable])
-
-  const loadOutcomes = useCallback(() => {
-    if (!dbAvailable) return
-    setOutcomesLoading(true)
-    fetchDbTables(runId)
-      .then((data) => {
-        setOutcomePapers(data.papers)
-        setOutcomeError(null)
-      })
-      .catch((e: unknown) => {
-        setOutcomePapers([])
-        setOutcomeError(e instanceof Error ? e.message : String(e))
-      })
-      .finally(() => setOutcomesLoading(false))
-  }, [runId, dbAvailable])
 
   useEffect(() => {
-    loadOutcomes()
-  }, [loadOutcomes])
+    dispatchPagination({ type: "sync_scope", filterSignature, runId })
+  }, [filterSignature, runId])
 
-  useEffect(() => {
-    if (papersReady && !outcomesLoading) {
-      setHasBootstrapped(true)
-    }
-  }, [papersReady, outcomesLoading])
+  const queryPage =
+    pagination.filterSignature !== filterSignature || pagination.runId !== runId
+      ? 0
+      : pagination.page
 
-  const fetchTitleSuggestions = useCallback(
-    (q: string) => {
-      if (!q) { setTitleSuggestions([]); return }
-      setIsSuggestingTitle(true)
-      fetchPapersSuggest(runId, "title", q)
-        .then((d) => setTitleSuggestions(d.suggestions))
-        .catch(() => setTitleSuggestions([]))
-        .finally(() => setIsSuggestingTitle(false))
-    },
-    [runId],
-  )
+  const papersQuery = useDbPapers(runId, filters, queryPage, PAGE_SIZE, {
+    enabled: dbAvailable,
+    isLive,
+  })
+  const facetsQuery = useDbPapersFacets(runId, dbAvailable)
+  const outcomesQuery = useDbOutcomes(runId, { enabled: dbAvailable, isLive })
+  const titleSuggestionsQuery = useDbPaperSuggest(runId, "title", titleSuggestQuery)
+  const authorSuggestionsQuery = useDbPaperSuggest(runId, "author", authorSuggestQuery)
 
-  const fetchAuthorSuggestions = useCallback(
-    (q: string) => {
-      if (!q) { setAuthorSuggestions([]); return }
-      setIsSuggestingAuthor(true)
-      fetchPapersSuggest(runId, "author", q)
-        .then((d) => setAuthorSuggestions(d.suggestions))
-        .catch(() => setAuthorSuggestions([]))
-        .finally(() => setIsSuggestingAuthor(false))
-    },
-    [runId],
-  )
+  const papers = papersQuery.data?.papers ?? []
+  const total = papersQuery.data?.total ?? 0
+  const loading = papersQuery.isLoading
+  const error = papersQuery.isError ? papersFetchErrorMessage(papersQuery.error) : null
+  const hasBootstrapped = papersQuery.isFetched && outcomesQuery.isFetched
 
-  // Effect 1: any filter or runId change -> reset page to 0 AND fetch with offset=0
-  useEffect(() => {
-    if (!dbAvailable) return
-    setPage(0)
-    let cancelled = false
-    setLoading(true)
-    setError(null)
-    const {
-      runId: rid,
-      titleFilter: tl,
-      authorFilter: au,
-      taFilter: ta,
-      ftFilter: ft,
-      primaryStatusFilter: ps,
-      yearFilter: yr,
-      sourceFilter: src,
-      countryFilter: ct,
-    } =
-      filtersRef.current
-    fetchPapersAll(rid, "", ta, ft, ps, yr, src, ct, 0, PAGE_SIZE, tl, au)
-      .then((data) => {
-        if (cancelled) return
-        setPapers(data.papers)
-        setTotal(data.total)
-      })
-      .catch((e) => { if (!cancelled) handleFetchError(e) })
-      .finally(() => {
-        if (!cancelled) {
-          setLoading(false)
-          setPapersReady(true)
-        }
-      })
-    return () => {
-      cancelled = true
-    }
-  }, [runId, titleFilter, authorFilter, taFilter, ftFilter, primaryStatusFilter, yearFilter, sourceFilter, countryFilter, dbAvailable])
+  const years = facetsQuery.data?.years ?? []
+  const sources = facetsQuery.data?.sources ?? []
+  const countries = facetsQuery.data?.countries ?? []
+  const taDecisions = facetsQuery.data?.ta_decisions ?? []
+  const ftDecisions = facetsQuery.data?.ft_decisions ?? []
+  const primaryStatuses = facetsQuery.data?.primary_statuses ?? []
 
-  // Effect 2: pagination only (page > 0).
-  useEffect(() => {
-    if (page === 0 || !dbAvailable) return
-    let cancelled = false
-    setLoading(true)
-    setError(null)
-    const {
-      runId: rid,
-      titleFilter: tl,
-      authorFilter: au,
-      taFilter: ta,
-      ftFilter: ft,
-      primaryStatusFilter: ps,
-      yearFilter: yr,
-      sourceFilter: src,
-      countryFilter: ct,
-    } =
-      filtersRef.current
-    fetchPapersAll(rid, "", ta, ft, ps, yr, src, ct, page * PAGE_SIZE, PAGE_SIZE, tl, au)
-      .then((data) => {
-        if (cancelled) return
-        setPapers(data.papers)
-        setTotal(data.total)
-      })
-      .catch((e) => { if (!cancelled) handleFetchError(e) })
-      .finally(() => { if (!cancelled) setLoading(false) })
-    return () => {
-      cancelled = true
-    }
-  }, [page, dbAvailable])
-
-  const activeRef = useRef(true)
-  useEffect(() => {
-    activeRef.current = true
-    return () => { activeRef.current = false }
-  }, [])
-
-  useEffect(() => {
-    if (!isLive || !dbAvailable) return
-    const id = setInterval(() => {
-      const {
-        runId: rid,
-        titleFilter: tl,
-        authorFilter: au,
-        taFilter: ta,
-        ftFilter: ft,
-        primaryStatusFilter: ps,
-        yearFilter: yr,
-        sourceFilter: src,
-        countryFilter: ct,
-      } =
-        filtersRef.current
-      fetchPapersAll(rid, "", ta, ft, ps, yr, src, ct, 0, PAGE_SIZE, tl, au)
-        .then((data) => {
-          if (!activeRef.current) return
-          setPapers(data.papers)
-          setTotal(data.total)
-        })
-        .catch(() => {})
-    }, LIVE_REFRESH_MS)
-    return () => clearInterval(id)
-  }, [isLive, dbAvailable])
+  const outcomePapers = outcomesQuery.data?.papers ?? []
+  const outcomeError = outcomesQuery.isError
+    ? outcomesQuery.error instanceof Error
+      ? outcomesQuery.error.message
+      : String(outcomesQuery.error)
+    : null
 
   const loadPapers = () => {
-    const {
-      runId: rid,
-      titleFilter: tl,
-      authorFilter: au,
-      taFilter: ta,
-      ftFilter: ft,
-      primaryStatusFilter: ps,
-      yearFilter: yr,
-      sourceFilter: src,
-      countryFilter: ct,
-    } =
-      filtersRef.current
-    setLoading(true)
-    setError(null)
-    fetchPapersAll(rid, "", ta, ft, ps, yr, src, ct, page * PAGE_SIZE, PAGE_SIZE, tl, au)
-      .then((data) => { setPapers(data.papers); setTotal(data.total) })
-      .catch(handleFetchError)
-      .finally(() => setLoading(false))
+    void papersQuery.refetch()
+  }
+
+  const loadOutcomes = () => {
+    void outcomesQuery.refetch()
   }
 
   const clearAllFilters = () => {
@@ -320,8 +204,8 @@ export function DatabaseView({ runId, isDone, dbAvailable, isLive }: DatabaseVie
     setYearFilter("")
     setSourceFilter("")
     setCountryFilter("")
-    setTitleSuggestions([])
-    setAuthorSuggestions([])
+    setTitleSuggestQuery("")
+    setAuthorSuggestQuery("")
   }
 
   if (!dbAvailable) {
@@ -332,12 +216,18 @@ export function DatabaseView({ runId, isDone, dbAvailable, isLive }: DatabaseVie
   if (!hasBootstrapped) {
     return (
       <div className="flex flex-col gap-4">
-        <div className="flex items-center gap-3 ml-auto">
-          {isLive && <LiveStreamStatus mode="compact" />}
-          {isDone && (
-            <span className="text-xs text-intent-success font-medium">Complete</span>
-          )}
-        </div>
+        <ViewToolbar
+          bordered={false}
+          className="justify-end"
+          actions={
+            <>
+              {isLive && <LiveStreamStatus mode="compact" />}
+              {isDone && (
+                <span className="text-xs text-intent-success font-medium">Complete</span>
+              )}
+            </>
+          }
+        />
         <LoadingPane message="Loading data tables…" className="min-h-72" />
       </div>
     )
@@ -374,31 +264,29 @@ export function DatabaseView({ runId, isDone, dbAvailable, isLive }: DatabaseVie
 
   return (
     <div className="flex flex-col gap-4">
-      {/* Metadata row */}
-      <div className="flex items-center gap-3 flex-wrap">
-        {activeFilters > 0 && (
-          <button
-            onClick={clearAllFilters}
-            className="text-xs text-intent-primary hover:text-intent-primary transition-colors whitespace-nowrap"
-          >
-            Clear {activeFilters} filter{activeFilters > 1 ? "s" : ""}
-          </button>
-        )}
-        <div className="flex items-center gap-3 ml-auto">
-          {!error && (
-            <span className="text-xs text-muted tabular-nums">
-              {total.toLocaleString()} papers
-            </span>
+      <GlassTableShell>
+        <ViewToolbar bordered className="flex-wrap !h-auto py-2 gap-3">
+          {activeFilters > 0 && (
+            <button
+              onClick={clearAllFilters}
+              className="text-xs text-intent-primary hover:text-intent-primary transition-colors whitespace-nowrap"
+            >
+              Clear {activeFilters} filter{activeFilters > 1 ? "s" : ""}
+            </button>
           )}
-          {isLive && <LiveStreamStatus mode="compact" />}
-          {isDone && (
-            <span className="text-xs text-intent-success font-medium">Complete</span>
-          )}
-        </div>
-      </div>
+          <div className="flex items-center gap-3 ml-auto">
+            {!error && (
+              <span className="text-xs text-muted tabular-nums">
+                {total.toLocaleString()} papers
+              </span>
+            )}
+            {isLive && <LiveStreamStatus mode="compact" />}
+            {isDone && (
+              <span className="text-xs text-intent-success font-medium">Complete</span>
+            )}
+          </div>
+        </ViewToolbar>
 
-      {/* Table */}
-      <div className="glass-table-shell">
         {error ? (
           <div className="p-4">
             <FetchError message={error} onRetry={loadPapers} />
@@ -408,7 +296,7 @@ export function DatabaseView({ runId, isDone, dbAvailable, isLive }: DatabaseVie
         ) : papers.length === 0 ? (
           <EmptyState icon={Database} heading="No papers found." className="py-12" />
         ) : (
-          <div className="overflow-x-auto">
+          <div className="data-surface overflow-x-auto">
             <table className="w-full text-xs">
               <thead>
                 <tr className="glass-table-head border-b border-border/70">
@@ -418,9 +306,9 @@ export function DatabaseView({ runId, isDone, dbAvailable, isLive }: DatabaseVie
                         value={titleFilter}
                         onChange={setTitleFilter}
                         placeholder="Search titles..."
-                        serverSuggestions={titleSuggestions}
-                        onSuggestionQuery={fetchTitleSuggestions}
-                        isLoadingSuggestions={isSuggestingTitle}
+                        serverSuggestions={titleSuggestionsQuery.data?.suggestions ?? []}
+                        onSuggestionQuery={setTitleSuggestQuery}
+                        isLoadingSuggestions={titleSuggestionsQuery.isFetching}
                       />
                     }
                   >
@@ -432,9 +320,9 @@ export function DatabaseView({ runId, isDone, dbAvailable, isLive }: DatabaseVie
                         value={authorFilter}
                         onChange={setAuthorFilter}
                         placeholder="Search authors..."
-                        serverSuggestions={authorSuggestions}
-                        onSuggestionQuery={fetchAuthorSuggestions}
-                        isLoadingSuggestions={isSuggestingAuthor}
+                        serverSuggestions={authorSuggestionsQuery.data?.suggestions ?? []}
+                        onSuggestionQuery={setAuthorSuggestQuery}
+                        isLoadingSuggestions={authorSuggestionsQuery.isFetching}
                       />
                     }
                   >
@@ -562,16 +450,26 @@ export function DatabaseView({ runId, isDone, dbAvailable, isLive }: DatabaseVie
             </table>
           </div>
         )}
-      </div>
+      </GlassTableShell>
 
-      <div className="card-surface overflow-hidden">
-        <div className="px-4 py-3 border-b border-border/70 flex items-center justify-between gap-3">
-          <div>
-            <div className="text-sm font-semibold text-foreground">Extracted Outcomes</div>
-            <div className="text-xs text-muted">Deterministic table extraction results from included studies.</div>
-          </div>
-          <div className="text-xs text-muted">{flattenedOutcomes.length.toLocaleString()} outcome rows</div>
-        </div>
+      <GlassTableShell>
+        <ViewToolbar
+          bordered
+          className="!h-auto py-3"
+          title={
+            <div>
+              <div className="text-sm font-semibold text-foreground">Extracted Outcomes</div>
+              <div className="text-xs text-muted">
+                Deterministic table extraction results from included studies.
+              </div>
+            </div>
+          }
+          actions={
+            <span className="text-xs text-muted tabular-nums">
+              {flattenedOutcomes.length.toLocaleString()} outcome rows
+            </span>
+          }
+        />
         {outcomeError ? (
           <div className="p-4">
             <FetchError message={outcomeError} onRetry={loadOutcomes} />
@@ -579,7 +477,7 @@ export function DatabaseView({ runId, isDone, dbAvailable, isLive }: DatabaseVie
         ) : flattenedOutcomes.length === 0 ? (
           <EmptyState icon={Database} heading="No extracted outcomes yet." className="py-10" />
         ) : (
-          <div className="overflow-x-auto">
+          <div className="data-surface overflow-x-auto">
             <table className="w-full text-xs">
               <thead>
                 <tr className="glass-table-head border-b border-border/70">
@@ -615,14 +513,16 @@ export function DatabaseView({ runId, isDone, dbAvailable, isLive }: DatabaseVie
             )}
           </div>
         )}
-      </div>
+      </GlassTableShell>
 
       <Pagination
-        page={page}
+        page={queryPage}
         pageSize={PAGE_SIZE}
         total={total}
-        onPrev={() => setPage((p) => Math.max(0, p - 1))}
-        onNext={() => setPage((p) => p + 1)}
+        onPrev={() =>
+          dispatchPagination({ type: "set_page", page: Math.max(0, queryPage - 1) })
+        }
+        onNext={() => dispatchPagination({ type: "set_page", page: queryPage + 1 })}
       />
     </div>
   )

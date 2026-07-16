@@ -1,19 +1,21 @@
-import { useEffect, useState, Suspense, lazy, Component } from "react"
+import { useEffect, useState, Suspense, lazy, Component, useRef } from "react"
 import type { ReactNode, ErrorInfo } from "react"
 import { Toaster, toast } from "sonner"
 import { AlertTriangle, Menu, Settings } from "lucide-react"
 import { Sidebar } from "@/components/Sidebar"
 import { SettingsDialog } from "@/components/SettingsDialog"
 import { RunSessionProvider } from "@/context/RunSessionProvider"
+import { queryClient } from "@/lib/queryClient"
 import { useRunSession } from "@/hooks/useRunSession"
 import { useBackendHealth } from "@/hooks/useBackendHealth"
 import {
   buildRunRequest,
   generateConfigStream,
-  getDefaultReviewConfig,
   resolveStoredApiKeys,
 } from "@/lib/api"
+import { useDefaultReviewConfig } from "@/hooks/useRunConfig"
 import { Spinner } from "@/components/ui/feedback"
+import { ViewToolbar } from "@/components/ui/view-toolbar"
 import { resolveRunStatus } from "@/lib/constants"
 import {
   Tooltip,
@@ -123,15 +125,17 @@ function AppShell() {
     const stored = localStorage.getItem("sidebar-width")
     return stored ? Math.max(200, Math.min(420, Number(stored))) : 240
   })
-  const [defaultYaml, setDefaultYaml] = useState("")
+  const { data: defaultYaml = "" } = useDefaultReviewConfig()
   const [draftConfig, setDraftConfig] = useState<DraftConfigState | null>(null)
   const [settingsOpen, setSettingsOpen] = useState(false)
   const { isOnline } = useBackendHealth(6000, { suppressOffline: status === "streaming" })
+  const prevOnlineRef = useRef(isOnline)
 
   useEffect(() => {
-    getDefaultReviewConfig()
-      .then((yaml) => setDefaultYaml(yaml))
-      .catch(() => {})
+    if (!prevOnlineRef.current && isOnline) {
+      void queryClient.invalidateQueries()
+    }
+    prevOnlineRef.current = isOnline
   }, [isOnline])
 
   useEffect(() => {
@@ -351,11 +355,13 @@ function AppShell() {
         )}
 
         {/* Top bar -- paddingTop pushes content below the iOS status bar when viewport-fit=cover is active */}
-        <header
-          className="sticky top-0 z-30 glass-toolbar border-b border-border/70 shrink-0"
+        <ViewToolbar
+          sticky
+          bordered
+          className="!h-auto shrink-0"
           style={{ paddingTop: 'env(safe-area-inset-top)' }}
         >
-          <div className="h-14 flex items-center px-4 gap-3">
+          <div className="h-14 flex items-center gap-3 w-full">
             {/* Hamburger: only visible on mobile to open the sidebar drawer */}
             {isMobile && (
               <button
@@ -392,7 +398,7 @@ function AppShell() {
               </div>
             </TooltipProvider>
           </div>
-        </header>
+        </ViewToolbar>
 
         {/* Main content */}
         <div
