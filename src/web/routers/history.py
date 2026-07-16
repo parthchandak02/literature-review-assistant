@@ -8,7 +8,6 @@ import json as _json
 import logging
 import pathlib
 import shutil
-import uuid
 from typing import Any
 
 import aiosqlite
@@ -29,22 +28,17 @@ from src.web.shared import (
     HistoryEntry,
     ResumeRequest,
     RunResponse,
-    _ensure_runtime_db_migrated,
     _normalize_status,
     _NoteBody,
-    _resolve_db_path,
-    _validate_db_path,
 )
 from src.web.state import (
     _active_runs,
-    _collect_terminal_evidence,
+    _lifecycle_coordinator,
     _lifecycle_metrics,
-    _load_event_log_from_db,
     _notes_subscribers,
     _refresh_allowed_roots,
-    _resolve_effective_status,
     _resume_wrapper,
-    _RunRecord,
+    _run_resolver,
 )
 
 _logger = logging.getLogger(__name__)
@@ -165,11 +159,7 @@ async def list_history(response: Response, run_root: str = "runs") -> list[Histo
     if not rows:
         return []
 
-    active_run_id_by_workflow: dict[str, str] = {
-        r.workflow_id: r.run_id
-        for r in _active_runs.values()
-        if r.workflow_id and not r.done and (r.task is None or not r.task.done())
-    }
+    active_run_id_by_workflow = _lifecycle_coordinator.active_run_id_by_workflow()
 
     # Separate rows into cached (terminal) and uncached (need fresh stats).
     # Terminal workflows whose stats are already cached skip DB access entirely.
@@ -198,7 +188,12 @@ async def list_history(response: Response, run_root: str = "runs") -> list[Histo
             diag: dict[str, Any] = {"registry_status": reg_status, "source": "registry_cached"}
             return stats, reg_status, diag
         else:
-            effective_status, diag = await _resolve_effective_status(row, live_run_id, run_root)
+            effective_status, diag = await _run_resolver.reconcile_effective_status(
+                wf_id,
+                run_root,
+                row=row,
+                live_run_id=live_run_id,
+            )
             return stats, effective_status, diag
 
     results = await asyncio.gather(
@@ -310,22 +305,7 @@ async def notes_stream(request: Request) -> EventSourceResponse:
 @router.get("/api/history/{workflow_id}/config")
 async def get_run_config(workflow_id: str, run_root: str = "runs") -> dict[str, str]:
     """Return the original review.yaml for a past run."""
-    registry = pathlib.Path(run_root) / "workflows_registry.db"
-    db_path: str | None = None
-    if registry.exists():
-        try:
-            async with _open_registry_db(str(registry)) as db:
-                db.row_factory = aiosqlite.Row
-                async with db.execute(
-                    "SELECT db_path FROM workflows_registry WHERE workflow_id = ?",
-                    (workflow_id,),
-                ) as cur:
-                    row = await cur.fetchone()
-                    if row:
-                        db_path = row["db_path"]
-        except Exception:
-            pass
-
+    db_path = await _run_resolver.resolve_registry_db_path(workflow_id, run_root)
     if not db_path:
         candidate = pathlib.Path(run_root) / workflow_id / "runtime.db"
         if candidate.exists():
@@ -349,9 +329,9 @@ async def get_run_config(workflow_id: str, run_root: str = "runs") -> dict[str, 
 @router.get("/api/history/active-run")
 async def get_active_run(workflow_id: str) -> RunResponse:
     """Return the run_id for a workflow that is currently being actively resumed."""
-    for record in _active_runs.values():
-        if record.workflow_id == workflow_id and not record.done:
-            return RunResponse(run_id=record.run_id, topic=record.topic or "")
+    record = _lifecycle_coordinator.find_active_by_workflow(workflow_id)
+    if record is not None:
+        return RunResponse(run_id=record.run_id, topic=record.topic or "")
     raise HTTPException(status_code=404, detail="Workflow not actively running")
 
 
@@ -363,58 +343,19 @@ async def resume_run(req: ResumeRequest) -> RunResponse:
             status_code=400,
             detail=f"from_phase must be one of {USER_RESUMABLE_PHASE_ORDER}",
         )
-    for existing in _active_runs.values():
-        if existing.workflow_id == req.workflow_id and not existing.done:
-            raise HTTPException(
-                status_code=409,
-                detail="Workflow is already running. Stop the active run before resuming.",
-            )
-
-    try:
-        run_root = str(pathlib.Path(req.db_path).parent.parent.parent.parent)
-        registry = pathlib.Path(run_root) / "workflows_registry.db"
-        if registry.exists():
-            async with _open_registry_db(str(registry)) as db:
-                db.row_factory = aiosqlite.Row
-                async with db.execute(
-                    "SELECT status FROM workflows_registry WHERE workflow_id = ?",
-                    (req.workflow_id,),
-                ) as cur:
-                    row = await cur.fetchone()
-            registry_status = _normalize_status(str(row["status"])) if row else ""
-            if registry_status in {"running", "awaiting_review"}:
-                raise HTTPException(
-                    status_code=409,
-                    detail="Workflow is already running. Stop the active run before resuming.",
-                )
-    except HTTPException:
-        raise
-    except Exception:
-        pass
-
-    run_id = str(uuid.uuid4())[:8]
-    record = _RunRecord(run_id=run_id, topic=req.topic)
-    record.db_path = req.db_path
-    record.workflow_id = req.workflow_id
-    _active_runs[run_id] = record
-    task = asyncio.create_task(
-        _resume_wrapper(record, req.workflow_id, req.db_path, req.from_phase, req.verbose, req.debug)
-    )
-    record.task = task
+    run_id, _record = await _lifecycle_coordinator.start_resume(req, resume_wrapper=_resume_wrapper)
     return RunResponse(run_id=run_id, topic=req.topic)
 
 
 @router.delete("/api/history/{workflow_id}")
 async def delete_run(workflow_id: str, run_root: str = "runs") -> dict[str, bool]:
     """Delete a run from the registry and remove its run directory."""
-    for record in _active_runs.values():
-        if record.workflow_id == workflow_id and not record.done:
-            raise HTTPException(
-                status_code=409,
-                detail="Cannot delete a run that is currently in progress",
-            )
+    _lifecycle_coordinator.ensure_not_running(
+        workflow_id,
+        detail="Cannot delete a run that is currently in progress",
+    )
 
-    db_path = await _resolve_db_path(run_root, workflow_id)
+    db_path = await _run_resolver.resolve_registry_db_path(workflow_id, run_root)
     if not db_path:
         raise HTTPException(status_code=404, detail="Workflow not found in registry")
 
@@ -444,10 +385,11 @@ async def delete_run(workflow_id: str, run_root: str = "runs") -> dict[str, bool
 
 @router.post("/api/history/{workflow_id}/archive")
 async def archive_history_run(workflow_id: str, run_root: str = "runs") -> dict[str, bool]:
-    for record in _active_runs.values():
-        if record.workflow_id == workflow_id and not record.done:
-            raise HTTPException(status_code=409, detail="Cannot archive a run that is currently in progress")
-    db_path = await _resolve_db_path(run_root, workflow_id)
+    _lifecycle_coordinator.ensure_not_running(
+        workflow_id,
+        detail="Cannot archive a run that is currently in progress",
+    )
+    db_path = await _run_resolver.resolve_registry_db_path(workflow_id, run_root)
     if not db_path:
         raise HTTPException(status_code=404, detail="Workflow not found in registry")
     await _archive_registry_workflow(run_root, workflow_id)
@@ -457,10 +399,11 @@ async def archive_history_run(workflow_id: str, run_root: str = "runs") -> dict[
 
 @router.post("/api/history/{workflow_id}/restore")
 async def restore_history_run(workflow_id: str, run_root: str = "runs") -> dict[str, bool]:
-    for record in _active_runs.values():
-        if record.workflow_id == workflow_id and not record.done:
-            raise HTTPException(status_code=409, detail="Cannot restore a run that is currently in progress")
-    db_path = await _resolve_db_path(run_root, workflow_id)
+    _lifecycle_coordinator.ensure_not_running(
+        workflow_id,
+        detail="Cannot restore a run that is currently in progress",
+    )
+    db_path = await _run_resolver.resolve_registry_db_path(workflow_id, run_root)
     if not db_path:
         raise HTTPException(status_code=404, detail="Workflow not found in registry")
     await _restore_registry_workflow(run_root, workflow_id)
@@ -470,12 +413,11 @@ async def restore_history_run(workflow_id: str, run_root: str = "runs") -> dict[
 
 @router.post("/api/history/{workflow_id}/complete-hide")
 async def hide_completed_history_run(workflow_id: str, run_root: str = "runs") -> dict[str, bool]:
-    for record in _active_runs.values():
-        if record.workflow_id == workflow_id and not record.done:
-            raise HTTPException(
-                status_code=409, detail="Cannot move a run to completed while it is currently in progress"
-            )
-    db_path = await _resolve_db_path(run_root, workflow_id)
+    _lifecycle_coordinator.ensure_not_running(
+        workflow_id,
+        detail="Cannot move a run to completed while it is currently in progress",
+    )
+    db_path = await _run_resolver.resolve_registry_db_path(workflow_id, run_root)
     if not db_path:
         raise HTTPException(status_code=404, detail="Workflow not found in registry")
     await _hide_completed_registry_workflow(run_root, workflow_id)
@@ -485,10 +427,11 @@ async def hide_completed_history_run(workflow_id: str, run_root: str = "runs") -
 
 @router.post("/api/history/{workflow_id}/complete-restore")
 async def restore_completed_history_run(workflow_id: str, run_root: str = "runs") -> dict[str, bool]:
-    for record in _active_runs.values():
-        if record.workflow_id == workflow_id and not record.done:
-            raise HTTPException(status_code=409, detail="Cannot restore a run that is currently in progress")
-    db_path = await _resolve_db_path(run_root, workflow_id)
+    _lifecycle_coordinator.ensure_not_running(
+        workflow_id,
+        detail="Cannot restore a run that is currently in progress",
+    )
+    db_path = await _run_resolver.resolve_registry_db_path(workflow_id, run_root)
     if not db_path:
         raise HTTPException(status_code=404, detail="Workflow not found in registry")
     await _restore_completed_registry_workflow(run_root, workflow_id)
@@ -499,58 +442,6 @@ async def restore_completed_history_run(workflow_id: str, run_root: str = "runs"
 @router.post("/api/history/attach", response_model=RunResponse)
 async def attach_history(req: AttachRequest) -> RunResponse:
     """Create a read-only completed _RunRecord from a historical workflow."""
-    _validate_db_path(req.db_path)
-    run_id = str(uuid.uuid4())[:8]
-    record = _RunRecord(run_id=run_id, topic=req.topic)
-    record.done = True
-    record.db_path = req.db_path
-    record.workflow_id = req.workflow_id
-    await _ensure_runtime_db_migrated(req.db_path)
-    summary_path = pathlib.Path(req.db_path).parent / "run_summary.json"
-    if summary_path.exists():
-        try:
-            record.outputs = _json.loads(summary_path.read_text(encoding="utf-8"))
-        except Exception:
-            pass
-    record.event_log = await _load_event_log_from_db(req.db_path, req.workflow_id)
-    try:
-        evidence = await _collect_terminal_evidence(req.db_path)
-    except Exception:
-        evidence = {"terminal_status": None, "source": None}
-    normalized_req_status = _normalize_status(req.status)
-    effective_attach_status = normalized_req_status
-    evidence_terminal = evidence.get("terminal_status")
-    if evidence_terminal in {"completed", "failed", "interrupted"} and normalized_req_status in {
-        "running",
-        "stale",
-        "awaiting_review",
-    }:
-        effective_attach_status = str(evidence_terminal)
-        _logger.info(
-            "Attach status override for %s: %s -> %s (source=%s)",
-            req.workflow_id,
-            normalized_req_status,
-            evidence_terminal,
-            evidence.get("source"),
-        )
-    if effective_attach_status not in ("completed", "done"):
-        record.error = f"Workflow {effective_attach_status}"
-    if effective_attach_status not in ("completed", "done"):
-        has_terminal = any(
-            isinstance(e, dict) and e.get("type") in ("done", "error", "cancelled") for e in record.event_log
-        )
-        if not has_terminal:
-            record.event_log.append(
-                {
-                    "type": "error",
-                    "msg": (
-                        "Workflow appears orphaned (no terminal event persisted)"
-                        if effective_attach_status == "stale"
-                        else f"Run ended with status: {effective_attach_status}"
-                    ),
-                    "ts": datetime.datetime.now(tz=datetime.UTC).isoformat(),
-                }
-            )
-    _active_runs[run_id] = record
+    run_id, record = await _lifecycle_coordinator.attach_history(req)
     await _refresh_allowed_roots()
-    return RunResponse(run_id=run_id, topic=req.topic)
+    return RunResponse(run_id=run_id, topic=record.topic)

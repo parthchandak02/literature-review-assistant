@@ -51,6 +51,11 @@ class RunRequest(BaseModel):
     run_root: str = "runs"
     parent_db_path: str | None = None
 
+    def resolved_env_overrides(self) -> dict[str, str]:
+        from src.config.env_context import resolve_env_overrides
+
+        return resolve_env_overrides(self)
+
 
 class RunResponse(BaseModel):
     run_id: str

@@ -38,7 +38,13 @@ async def journal_step_start(
         )
         await repo.save_workflow_step(record)
     except Exception:
-        _log.debug("step journal write failed for %s/%s", phase, step_name, exc_info=True)
+        _log.warning(
+            "step journal start persist failed workflow_id=%s phase=%s step_name=%s",
+            workflow_id,
+            phase,
+            step_name,
+            exc_info=True,
+        )
     return record
 
 
@@ -73,4 +79,10 @@ async def journal_step_complete(
     try:
         await repo.save_workflow_step(record)
     except Exception:
-        _log.warning("step journal complete failed for %s", record.step_id, exc_info=True)
+        _log.warning(
+            "step journal complete persist failed workflow_id=%s phase=%s step_id=%s",
+            record.workflow_id,
+            record.phase,
+            record.step_id,
+            exc_info=True,
+        )

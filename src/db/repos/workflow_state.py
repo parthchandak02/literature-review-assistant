@@ -420,3 +420,49 @@ class WorkflowStateRepo:
         )
         row = await cursor.fetchone()
         return int(row[0]) if row else 0
+
+    async def list_recovery_policies(self, workflow_id: str, phase: str | None = None) -> list[RecoveryPolicyRecord]:
+        """Return recovery policies for a workflow, optionally filtered by phase."""
+        if phase:
+            cursor = await self.db.execute(
+                """
+                SELECT workflow_id, phase, step_name, max_retries, max_rewinds,
+                       current_retries, current_rewinds, rewind_target_phase,
+                       policy_status, meta_json, created_at, updated_at
+                FROM recovery_policies
+                WHERE workflow_id = ? AND phase = ?
+                ORDER BY phase, step_name
+                """,
+                (workflow_id, phase),
+            )
+        else:
+            cursor = await self.db.execute(
+                """
+                SELECT workflow_id, phase, step_name, max_retries, max_rewinds,
+                       current_retries, current_rewinds, rewind_target_phase,
+                       policy_status, meta_json, created_at, updated_at
+                FROM recovery_policies
+                WHERE workflow_id = ?
+                ORDER BY phase, step_name
+                """,
+                (workflow_id,),
+            )
+        rows = await cursor.fetchall()
+        return [self._row_to_recovery_policy(row) for row in rows]
+
+    @staticmethod
+    def _row_to_recovery_policy(row: tuple[Any, ...]) -> RecoveryPolicyRecord:
+        return RecoveryPolicyRecord(
+            workflow_id=str(row[0]),
+            phase=str(row[1]),
+            step_name=str(row[2]),
+            max_retries=int(row[3]),
+            max_rewinds=int(row[4]),
+            current_retries=int(row[5]),
+            current_rewinds=int(row[6]),
+            rewind_target_phase=str(row[7]) if row[7] else None,
+            policy_status=str(row[8]),
+            meta_json=str(row[9] or "{}"),
+            created_at=datetime.fromisoformat(str(row[10])) if row[10] else datetime.now(UTC),
+            updated_at=datetime.fromisoformat(str(row[11])) if row[11] else datetime.now(UTC),
+        )

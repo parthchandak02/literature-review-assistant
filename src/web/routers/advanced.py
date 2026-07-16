@@ -15,6 +15,7 @@ import aiosqlite
 from fastapi import APIRouter, HTTPException, Request
 from sse_starlette.sse import EventSourceResponse
 
+from src.web.run_concurrency import acquire_run_slot_or_raise
 from src.web.shared import RunRequest, RunResponse, _resolve_db_path
 from src.web.state import (
     _active_runs,
@@ -374,6 +375,7 @@ async def living_refresh(run_id: str) -> RunResponse:
     new_record.review_yaml = new_yaml
     _active_runs[new_run_id] = new_record
 
+    await acquire_run_slot_or_raise()
     task = asyncio.create_task(_run_wrapper(new_record, tmp.name, req))
     new_record.task = task
 

@@ -18,13 +18,16 @@ from typing import Any
 import aiosqlite
 from fastapi import HTTPException
 
+from src.config.env_context import async_env_override_context
 from src.config.loader import load_configs as _load_configs
 from src.db.workflow_registry import _open_registry as _open_registry_db
 from src.db.workflow_registry import update_heartbeat as _update_registry_heartbeat
 from src.db.workflow_registry import update_status as _update_registry_status
 from src.web.event_replay import load_replay_events
 from src.web.event_store import EventStore
+from src.web.lifecycle_coordinator import bind_active_runs
 from src.web.lifecycle_reconciler import TERMINAL_EVENT_TO_STATUS, LifecycleReconciler
+from src.web.run_resolver import RunResolver
 from src.web.shared import (
     RunRequest,
     _normalize_status,
@@ -149,6 +152,17 @@ _lifecycle_reconciler = LifecycleReconciler(
     stale_grace_seconds=_STALE_GRACE_SECONDS,
     bump_metric=_bump_lifecycle_metric,
 )
+_run_resolver = RunResolver(
+    active_runs=_active_runs,
+    lifecycle_reconciler=_lifecycle_reconciler,
+    lifecycle_metrics=_lifecycle_metrics,
+    anchor_file=__file__,
+)
+_lifecycle_coordinator = bind_active_runs(
+    _active_runs,
+    run_resolver=_run_resolver,
+    lifecycle_reconciler=_lifecycle_reconciler,
+)
 _event_store = EventStore()
 
 # ---------------------------------------------------------------------------
@@ -157,7 +171,7 @@ _event_store = EventStore()
 
 
 def _get_db_path(run_id: str) -> str:
-    record = _active_runs.get(run_id)
+    record = _lifecycle_coordinator.get(run_id)
     if record is None:
         raise HTTPException(status_code=404, detail="Run not found")
     if not record.db_path:
@@ -171,26 +185,7 @@ def _get_db_path(run_id: str) -> str:
 
 async def _resolve_db_path_from_run_or_workflow(identifier: str, run_root: str = "runs") -> str:
     """Resolve a db_path from either an active run_id or a workflow_id."""
-    record = _active_runs.get(identifier)
-    if record is not None:
-        if not record.db_path:
-            raise HTTPException(
-                status_code=503,
-                detail="Database initializing -- retry in a moment",
-                headers={"Retry-After": "2"},
-            )
-        return record.db_path
-
-    if not identifier.startswith("wf-"):
-        raise HTTPException(status_code=404, detail="Run not found")
-
-    from src.db.workflow_registry import candidate_run_roots, resolve_workflow_db_path
-
-    roots = candidate_run_roots(run_root, anchor_file=__file__)
-    db_path = await resolve_workflow_db_path(identifier, roots)
-    if not db_path:
-        raise HTTPException(status_code=404, detail="Run not found")
-    return db_path
+    return await _run_resolver.resolve_db_path(identifier, run_root)
 
 
 # ---------------------------------------------------------------------------
@@ -208,8 +203,10 @@ async def _refresh_allowed_roots() -> None:
                 async with db.execute("SELECT db_path FROM workflows_registry") as cur:
                     rows = await cur.fetchall()
             for (db_path,) in rows:
-                run_root = pathlib.Path(db_path).parent.parent.parent.parent.resolve()
-                roots.add(str(run_root))
+                from src.db.workflow_registry import run_root_from_db_path
+
+                run_root = run_root_from_db_path(str(db_path))
+                roots.add(str(pathlib.Path(run_root).resolve()))
         except Exception:
             pass
     _allowed_roots.update(roots)
@@ -302,11 +299,11 @@ async def _resolve_effective_status(
     live_run_id: str | None,
     run_root: str,
 ) -> tuple[str, dict[str, Any]]:
-    return await _lifecycle_reconciler.resolve_effective_status(
-        row,
-        live_run_id,
+    return await _run_resolver.reconcile_effective_status(
+        str(row["workflow_id"]),
         run_root,
-        lifecycle_metrics=_lifecycle_metrics,
+        row=row,
+        live_run_id=live_run_id,
     )
 
 
@@ -378,81 +375,86 @@ async def _run_wrapper(record: _RunRecord, review_path: str, req: RunRequest) ->
     flusher_task: asyncio.Task[Any] = asyncio.create_task(
         _event_flusher_loop(record, interval=_web_cfg.event_flush_interval_seconds)
     )
-    try:
-        outputs = await start_workflow_run(
-            review_path=review_path,
-            settings_path="config/settings.yaml",
-            run_root=req.run_root,
-            run_context=ctx,
-            parent_db_path=req.parent_db_path,
-        )
-        record.outputs = outputs if isinstance(outputs, dict) else {}
-        record.done = True
+    env_overrides = req.resolved_env_overrides()
+    async with async_env_override_context(env_overrides):
+        try:
+            outputs = await start_workflow_run(
+                review_path=review_path,
+                settings_path="config/settings.yaml",
+                run_root=req.run_root,
+                run_context=ctx,
+                parent_db_path=req.parent_db_path,
+            )
+            record.outputs = outputs if isinstance(outputs, dict) else {}
+            record.done = True
 
-        wf_id = str(record.outputs.get("workflow_id", ""))
-        if wf_id:
-            record.workflow_id = wf_id
-            record.db_path = await _resolve_db_path(req.run_root, wf_id)
-            if record.db_path and record.review_yaml:
+            wf_id = str(record.outputs.get("workflow_id", ""))
+            if wf_id:
+                record.workflow_id = wf_id
+                record.db_path = await _resolve_db_path(req.run_root, wf_id)
+                if record.db_path and record.review_yaml:
+                    try:
+                        yaml_dest = pathlib.Path(record.db_path).parent / "review.yaml"
+                        yaml_dest.write_text(record.review_yaml, encoding="utf-8")
+                    except Exception as exc:
+                        _logger.error("Failed to copy YAML config snapshot to run directory: %s", exc)
+
+            if record.workflow_id and record.run_root:
+                terminal_status = _normalize_status(str(record.outputs.get("status", "")))
+                if terminal_status == "failed":
+                    record.error = str(record.outputs.get("error", "Workflow failed"))
+                    try:
+                        await _update_registry_status(record.run_root, record.workflow_id, "failed")
+                    except Exception as exc:
+                        _logger.error("Failed to update registry status to failed: %s", exc)
+                else:
+                    try:
+                        await _update_registry_status(record.run_root, record.workflow_id, "completed")
+                    except Exception as exc:
+                        _logger.error("Failed to update registry status to completed: %s", exc)
+
+            _done_evt: dict[str, Any] = {"type": "done", "outputs": record.outputs}
+            _append_event(record, _done_evt)
+        except asyncio.CancelledError:
+            record.done = True
+            record.error = "Cancelled"
+            _cancelled_evt: dict[str, Any] = {"type": "cancelled"}
+            _append_event(record, _cancelled_evt)
+            if record.workflow_id and record.run_root:
                 try:
-                    yaml_dest = pathlib.Path(record.db_path).parent / "review.yaml"
-                    yaml_dest.write_text(record.review_yaml, encoding="utf-8")
+                    await _update_registry_status(record.run_root, record.workflow_id, "interrupted")
                 except Exception as exc:
-                    _logger.error("Failed to copy YAML config snapshot to run directory: %s", exc)
+                    _logger.error("Failed to update registry status to interrupted: %s", exc)
+        except Exception as exc:
+            import traceback
 
-        if record.workflow_id and record.run_root:
-            terminal_status = _normalize_status(str(record.outputs.get("status", "")))
-            if terminal_status == "failed":
-                record.error = str(record.outputs.get("error", "Workflow failed"))
+            record.done = True
+            record.error = str(exc)
+            _tb = traceback.format_exc()
+            _logger.exception("Run failed: %s", exc)
+            _error_evt: dict[str, Any] = {
+                "type": "error",
+                "msg": str(exc),
+                "traceback": _tb,
+            }
+            _append_event(record, _error_evt)
+            if record.workflow_id and record.run_root:
                 try:
                     await _update_registry_status(record.run_root, record.workflow_id, "failed")
                 except Exception as exc:
                     _logger.error("Failed to update registry status to failed: %s", exc)
-            else:
-                try:
-                    await _update_registry_status(record.run_root, record.workflow_id, "completed")
-                except Exception as exc:
-                    _logger.error("Failed to update registry status to completed: %s", exc)
-
-        _done_evt: dict[str, Any] = {"type": "done", "outputs": record.outputs}
-        _append_event(record, _done_evt)
-    except asyncio.CancelledError:
-        record.done = True
-        record.error = "Cancelled"
-        _cancelled_evt: dict[str, Any] = {"type": "cancelled"}
-        _append_event(record, _cancelled_evt)
-        if record.workflow_id and record.run_root:
+        finally:
+            if heartbeat_task is not None:
+                heartbeat_task.cancel()
+            flusher_task.cancel()
             try:
-                await _update_registry_status(record.run_root, record.workflow_id, "interrupted")
-            except Exception as exc:
-                _logger.error("Failed to update registry status to interrupted: %s", exc)
-    except Exception as exc:
-        import traceback
+                pathlib.Path(review_path).unlink(missing_ok=True)
+            except Exception:
+                pass
+            await _flush_pending_events(record)
+            from src.web.run_concurrency import release_run_slot
 
-        record.done = True
-        record.error = str(exc)
-        _tb = traceback.format_exc()
-        _logger.exception("Run failed: %s", exc)
-        _error_evt: dict[str, Any] = {
-            "type": "error",
-            "msg": str(exc),
-            "traceback": _tb,
-        }
-        _append_event(record, _error_evt)
-        if record.workflow_id and record.run_root:
-            try:
-                await _update_registry_status(record.run_root, record.workflow_id, "failed")
-            except Exception as exc:
-                _logger.error("Failed to update registry status to failed: %s", exc)
-    finally:
-        if heartbeat_task is not None:
-            heartbeat_task.cancel()
-        flusher_task.cancel()
-        try:
-            pathlib.Path(review_path).unlink(missing_ok=True)
-        except Exception:
-            pass
-        await _flush_pending_events(record)
+            release_run_slot()
 
 
 async def _resume_wrapper(
@@ -464,10 +466,11 @@ async def _resume_wrapper(
     debug: bool = False,
 ) -> None:
     """Async task that resumes an interrupted workflow from its last checkpoint."""
+    from src.db.workflow_registry import run_root_from_db_path
     from src.orchestration.context import WebRunContext
     from src.web.orchestration_facade import resume_workflow_run
 
-    run_root = str(pathlib.Path(db_path).parent.parent.parent.parent)
+    run_root = run_root_from_db_path(db_path)
     record.run_root = run_root
     record.workflow_id = workflow_id
 
@@ -594,3 +597,6 @@ async def _resume_wrapper(
         heartbeat_task.cancel()
         flusher_task.cancel()
         await _flush_pending_events(record)
+        from src.web.run_concurrency import release_run_slot
+
+        release_run_slot()

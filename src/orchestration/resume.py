@@ -14,23 +14,21 @@ logger = logging.getLogger(__name__)
 from src.db.repositories import WorkflowRepository
 from src.models import ExtractionRecord
 from src.models.config import ReviewConfig
+from src.orchestration.phase_catalog import (
+    PHASE_ORDER,
+    SUB_PHASE_CHECKPOINTS,
+    USER_RESUMABLE_PHASE_ORDER,
+)
 from src.orchestration.state import ReviewState
 from src.search.deduplication import deduplicate_papers
 
-PHASE_ORDER = [
-    "phase_2_search",
-    "phase_3_screening",
-    "phase_4_extraction_quality",
-    "phase_4b_embedding",
-    "phase_5_synthesis",
-    "phase_5b_knowledge_graph",
-    "phase_5c_pre_writing_gate",
-    "phase_6_writing",
-    "phase_7_audit",
-    "finalize",
+__all__ = [
+    "PHASE_ORDER",
+    "USER_RESUMABLE_PHASE_ORDER",
+    "ResumeNotAllowedError",
+    "load_resume_state",
+    "validate_resume_allowed",
 ]
-
-USER_RESUMABLE_PHASE_ORDER = [phase for phase in PHASE_ORDER if phase != "phase_7_audit"]
 
 
 class ResumeNotAllowedError(ValueError):
@@ -57,6 +55,9 @@ async def validate_resume_allowed(
             "earlier phases and duplicate screening/extraction work. "
             "Start a fresh run if you need a full rerun."
         )
+
+    if from_phase is None and finalize_done:
+        raise ResumeNotAllowedError("Workflow finalize checkpoint is completed; nothing remains to resume.")
 
     if from_phase is None and all_phases_done:
         raise ResumeNotAllowedError("All workflow phase checkpoints are completed; nothing remains to resume.")
@@ -203,21 +204,6 @@ async def load_resume_state(
         except Exception as _kappa_exc:
             logger.warning("Could not restore kappa from event_log on resume: %s", _kappa_exc)
 
-        # Sub-phase checkpoints that must be cleared when their parent phase is re-run.
-        # These are mid-phase markers not in PHASE_ORDER but used for resume skipping.
-        _SUB_PHASE_CHECKPOINTS: dict[str, list[str]] = {
-            "phase_3_screening": ["phase_3b_fulltext"],
-            "phase_6_writing": [
-                "phase_6a_hyde",
-                "phase_6a2_outline",
-                "phase_6b_phase_a",
-                "phase_6c_phase_b",
-                "phase_6d_assembly",
-                "phase_6e_concepts",
-                "phase_6f_custom_diagrams",
-            ],
-        }
-
         if from_phase is not None:
             if from_phase not in PHASE_ORDER:
                 raise ValueError(f"from_phase must be one of {PHASE_ORDER!r}, got {from_phase!r}")
@@ -242,7 +228,7 @@ async def load_resume_state(
                 # mid-phase skip guards do not incorrectly fire on an explicit re-run.
                 extra: list[str] = []
                 for phase in phases_to_clear:
-                    extra.extend(_SUB_PHASE_CHECKPOINTS.get(phase, []))
+                    extra.extend(SUB_PHASE_CHECKPOINTS.get(phase, []))
                 phases_to_clear = list(phases_to_clear) + extra
                 await repo.delete_checkpoints_for_phases(workflow_id, phases_to_clear)
                 # Clear persisted downstream data so a rewind is a true replay,

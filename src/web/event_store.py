@@ -40,31 +40,58 @@ class EventRecord(Protocol):
 class EventStore:
     """Canonical ReviewEvent persistence to SQLite event_log."""
 
+    def __init__(self) -> None:
+        self._flush_tasks: dict[int, set[asyncio.Task[None]]] = {}
+
     async def persist(self, db_path: str, workflow_id: str, events: list[dict[str, Any]]) -> None:
         if not events or not workflow_id:
             return
-        try:
-            async with open_runtime_db(db_path) as db:
-                await db.executemany(
-                    "INSERT INTO event_log (workflow_id, event_type, payload, ts) VALUES (?, ?, ?, ?)",
-                    [
-                        (
-                            workflow_id,
-                            e.get("type", "unknown"),
-                            json.dumps(e, default=str),
-                            str(e.get("ts", "")),
-                        )
-                        for e in events
-                    ],
-                )
-                await db.commit()
-        except Exception as exc:
-            _logger.warning(
-                "Failed to persist event_log for workflow=%s db=%s: %s",
-                workflow_id,
-                db_path,
-                exc,
+        async with open_runtime_db(db_path) as db:
+            await db.executemany(
+                "INSERT INTO event_log (workflow_id, event_type, payload, ts) VALUES (?, ?, ?, ?)",
+                [
+                    (
+                        workflow_id,
+                        e.get("type", "unknown"),
+                        json.dumps(e, default=str),
+                        str(e.get("ts", "")),
+                    )
+                    for e in events
+                ],
             )
+            await db.commit()
+
+    def _register_flush_task(self, record: EventRecord, task: asyncio.Task[None]) -> None:
+        key = id(record)
+        tasks = self._flush_tasks.setdefault(key, set())
+        tasks.add(task)
+
+        def _on_done(done_task: asyncio.Task[None]) -> None:
+            bucket = self._flush_tasks.get(key)
+            if bucket is None:
+                return
+            bucket.discard(done_task)
+            if not bucket:
+                self._flush_tasks.pop(key, None)
+
+        task.add_done_callback(_on_done)
+
+    async def await_pending_flushes(
+        self,
+        record: EventRecord,
+        *,
+        timeout: float | None = None,
+    ) -> None:
+        """Wait for in-flight durable-event flush tasks for ``record``."""
+        key = id(record)
+        pending = set(self._flush_tasks.get(key, set()))
+        if not pending:
+            return
+        coro = asyncio.gather(*pending, return_exceptions=True)
+        if timeout is None:
+            await coro
+        else:
+            await asyncio.wait_for(coro, timeout=timeout)
 
     async def load(self, db_path: str) -> list[dict[str, Any]]:
         try:
@@ -112,6 +139,7 @@ class EventStore:
             pass
         if event_type in DURABLE_EVENT_TYPES:
             try:
-                asyncio.create_task(self.flush_pending(record))
+                task = asyncio.create_task(self.flush_pending(record))
+                self._register_flush_task(record, task)
             except Exception:
                 pass
