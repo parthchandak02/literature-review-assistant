@@ -1303,6 +1303,12 @@ class WebConfig(BaseModel):
         default=60,
         description="How often (seconds) the heartbeat updates the workflow registry.",
     )
+    max_concurrent_runs: int = Field(
+        ge=1,
+        le=10,
+        default=2,
+        description="Maximum workflow runs executing concurrently via the web API.",
+    )
 
 
 class DiagramGenerationConfig(BaseModel):
