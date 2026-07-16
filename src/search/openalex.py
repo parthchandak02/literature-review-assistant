@@ -2,12 +2,12 @@
 
 from __future__ import annotations
 
-import os
 from datetime import date
 from typing import Any
 
 import aiohttp
 
+from src.config.env_context import get_env
 from src.models import CandidatePaper, SearchResult, SourceCategory
 from src.search.common import HttpSearchConnectorBase
 from src.utils.ssl_context import tcp_connector_with_certifi
@@ -41,7 +41,7 @@ class OpenAlexConnector(HttpSearchConnectorBase):
 
     def __init__(self, workflow_id: str):
         self.workflow_id = workflow_id
-        api_key = os.getenv("OPENALEX_API_KEY")
+        api_key = get_env("OPENALEX_API_KEY")
         if not api_key:
             raise ValueError("OPENALEX_API_KEY is required for OpenAlex connector")
         self._api_key = api_key.strip()

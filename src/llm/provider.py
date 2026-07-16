@@ -11,8 +11,8 @@ from genai_prices import calc_price
 from genai_prices.update_prices import UpdatePrices
 
 from src.db.repositories import WorkflowRepository
-from src.llm.rate_limiter import RateLimiter
 from src.llm.registry import parse_model_ref, rate_tier_for_model
+from src.llm.shared_rate_limiter import get_shared_rate_limiter
 from src.models import CostRecord, SettingsConfig
 
 _log = logging.getLogger(__name__)
@@ -75,11 +75,8 @@ class LLMProvider:
     ):
         self.settings = settings
         self.repository = repository
-        llm_cfg = settings.llm
-        self.rate_limiter = RateLimiter(
-            flash_rpm=llm_cfg.flash_rpm,
-            flash_lite_rpm=llm_cfg.flash_lite_rpm,
-            pro_rpm=llm_cfg.pro_rpm,
+        self.rate_limiter = get_shared_rate_limiter(
+            settings,
             on_waiting=on_waiting,
             on_resolved=on_resolved,
         )
@@ -209,3 +206,27 @@ class LLMProvider:
             cache_write_tokens=cache_write_tokens,
         )
         await self.repository.save_cost_record(record)
+
+
+def resolve_llm_provider(
+    *,
+    provider: LLMProvider | None = None,
+    settings: SettingsConfig | None = None,
+    repository: WorkflowRepository | None = None,
+) -> LLMProvider | None:
+    """Return an explicit provider or build one when settings and repository are available."""
+    if provider is not None:
+        return provider
+    if settings is not None and repository is not None:
+        return LLMProvider(settings=settings, repository=repository)
+    return None
+
+
+def pick_agent_key(settings: SettingsConfig, preferred: str, *fallbacks: str) -> str:
+    """Choose the first configured agent key from preferred and fallback names."""
+    if preferred in settings.agents:
+        return preferred
+    for key in fallbacks:
+        if key in settings.agents:
+            return key
+    return next(iter(settings.agents))

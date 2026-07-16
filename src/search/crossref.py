@@ -2,12 +2,12 @@
 
 from __future__ import annotations
 
-import os
 from datetime import date
 from urllib.parse import quote
 
 import aiohttp
 
+from src.config.env_context import get_env
 from src.models import CandidatePaper, SearchResult, SourceCategory
 from src.utils.ssl_context import tcp_connector_with_certifi
 
@@ -19,7 +19,7 @@ class CrossrefConnector:
 
     def __init__(self, workflow_id: str):
         self.workflow_id = workflow_id
-        self.contact_email = os.getenv("CROSSREF_EMAIL") or "unknown@example.com"
+        self.contact_email = get_env("CROSSREF_EMAIL") or "unknown@example.com"
 
     @staticmethod
     def _to_candidate(item: dict) -> CandidatePaper:

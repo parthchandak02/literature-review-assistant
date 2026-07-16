@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
-import os
 from datetime import date
 
 import aiohttp
 
+from src.config.env_context import get_env
 from src.models import CandidatePaper, SearchResult, SourceCategory
 from src.utils.ssl_context import tcp_connector_with_certifi
 
@@ -18,7 +18,7 @@ class IEEEXploreConnector:
 
     def __init__(self, workflow_id: str):
         self.workflow_id = workflow_id
-        self.api_key = os.getenv("IEEE_API_KEY")
+        self.api_key = get_env("IEEE_API_KEY")
 
     @staticmethod
     def _to_candidate(article: dict) -> CandidatePaper:

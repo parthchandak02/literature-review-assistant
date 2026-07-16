@@ -10,11 +10,11 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import os
 from urllib.parse import quote
 
 import aiohttp
 
+from src.config.env_context import get_env
 from src.models import CandidatePaper, SearchResult, SourceCategory
 from src.utils.ssl_context import tcp_connector_with_certifi
 
@@ -40,7 +40,7 @@ class CitationChaser:
         self.workflow_id = workflow_id
         self.max_per_paper = max_per_paper
         self.timeout_seconds = timeout_seconds
-        self.s2_api_key = os.getenv("SEMANTIC_SCHOLAR_API_KEY")
+        self.s2_api_key = get_env("SEMANTIC_SCHOLAR_API_KEY")
 
     async def chase_citations(
         self,

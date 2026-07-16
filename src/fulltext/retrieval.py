@@ -5,7 +5,6 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-import os
 import re
 from dataclasses import dataclass
 from html.parser import HTMLParser
@@ -13,6 +12,7 @@ from urllib.parse import parse_qsl, quote, urlencode, urljoin, urlparse, urlunpa
 
 import aiohttp
 
+from src.config.env_context import get_env
 from src.search.pdf_parse import parse_pdf_bytes_async
 from src.utils.ssl_context import tcp_connector_with_certifi
 
@@ -250,9 +250,7 @@ async def _fetch_unpaywall(doi: str, diagnostics: list[str] | None = None) -> Fu
     if not bare_doi:
         return None
     _uw_email = (
-        os.environ.get("CROSSREF_EMAIL", "").strip()
-        or os.environ.get("PUBMED_EMAIL", "").strip()
-        or "litreview@app.local"
+        (get_env("CROSSREF_EMAIL") or "").strip() or (get_env("PUBMED_EMAIL") or "").strip() or "litreview@app.local"
     )
     meta_url = f"{_UNPAYWALL_BASE}/{bare_doi}?email={_uw_email}"
     try:
@@ -343,7 +341,7 @@ async def _fetch_semanticscholar(doi: str, diagnostics: list[str] | None = None)
     bare_doi = _normalize_doi(doi)
     if not bare_doi:
         return None
-    s2_key = os.environ.get("SEMANTIC_SCHOLAR_API_KEY", "").strip()
+    s2_key = (get_env("SEMANTIC_SCHOLAR_API_KEY") or "").strip()
     headers: dict[str, str] = {}
     if s2_key:
         headers["x-api-key"] = s2_key
@@ -654,7 +652,7 @@ async def _fetch_openalex_content(
     2. Falls back to open_access.oa_url (direct publisher OA PDF, no key needed).
     Requires OPENALEX_API_KEY to be set for the CDN path.
     """
-    api_key = os.environ.get("OPENALEX_API_KEY", "").strip()
+    api_key = (get_env("OPENALEX_API_KEY") or "").strip()
     if not api_key:
         _append_diag(diagnostics, "OpenAlex", "OPENALEX_API_KEY not set")
         return None
@@ -668,7 +666,7 @@ async def _fetch_openalex_content(
             async with session.get(
                 work_url,
                 params={
-                    "mailto": os.environ.get("PUBMED_EMAIL", "unknown@example.com"),
+                    "mailto": get_env("PUBMED_EMAIL") or get_env("NCBI_EMAIL") or "unknown@example.com",
                     "api_key": api_key,
                 },
                 timeout=aiohttp.ClientTimeout(total=_FT_TIMEOUT),
@@ -851,7 +849,7 @@ async def _fetch_crossref_links(
         return None
     try:
         url = f"{_CROSSREF_WORKS_URL}/{quote(bare)}"
-        email = os.environ.get("CROSSREF_EMAIL") or os.environ.get("PUBMED_EMAIL") or "unknown@example.com"
+        email = get_env("CROSSREF_EMAIL") or get_env("PUBMED_EMAIL") or "unknown@example.com"
         async with aiohttp.ClientSession() as session:
             async with session.get(
                 url,
@@ -1018,7 +1016,7 @@ async def _resolve_doi_from_url_crossref(url: str, diagnostics: list[str] | None
     if not query_tokens:
         return ""
     try:
-        email = os.environ.get("CROSSREF_EMAIL") or os.environ.get("PUBMED_EMAIL") or "unknown@example.com"
+        email = get_env("CROSSREF_EMAIL") or get_env("PUBMED_EMAIL") or "unknown@example.com"
         async with aiohttp.ClientSession(connector=tcp_connector_with_certifi()) as session:
             # Capture redirect-normalized final URL for better matching against Crossref
             # resource/link records when the user-provided URL is a pre-redirect form.
@@ -1600,8 +1598,8 @@ async def fetch_full_text(
     Returns:
         FullTextResult with text (and optionally pdf_bytes for PDF sources).
     """
-    key = scopus_api_key or os.environ.get("SCOPUS_API_KEY", "")
-    insttoken = (scopus_insttoken or os.environ.get("SCOPUS_INSTTOKEN", "")).strip() or None
+    key = scopus_api_key or (get_env("SCOPUS_API_KEY") or "")
+    insttoken = (scopus_insttoken or (get_env("SCOPUS_INSTTOKEN") or "")).strip() or None
     effective_doi = _normalize_doi(doi) if doi else ""
     if not effective_doi and url:
         effective_doi = _extract_doi_from_text(url)
@@ -1677,7 +1675,7 @@ async def fetch_full_text(
         oa_coros.append(_fetch_biorxiv_medrxiv(effective_doi, diagnostics=diagnostics))
 
     # Tier 2c: CORE (institutional repos; ~43M hosted; requires CORE_API_KEY)
-    _core_key = os.environ.get("CORE_API_KEY", "").strip()
+    _core_key = (get_env("CORE_API_KEY") or "").strip()
     if use_core and _core_key and effective_doi:
         oa_coros.append(_fetch_core(effective_doi, _core_key, diagnostics=diagnostics))
     elif use_core and not _core_key:

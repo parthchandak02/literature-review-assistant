@@ -26,12 +26,12 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import os
 from datetime import date
 from typing import Any
 
 import aiohttp
 
+from src.config.env_context import get_env
 from src.models import CandidatePaper, SearchResult, SourceCategory
 from src.utils.ssl_context import tcp_connector_with_certifi
 
@@ -77,7 +77,7 @@ class WebOfScienceConnector:
 
     def __init__(self, workflow_id: str) -> None:
         self.workflow_id = workflow_id
-        api_key = os.getenv("WOS_API_KEY")
+        api_key = get_env("WOS_API_KEY")
         if not api_key:
             raise ValueError("WOS_API_KEY is required for the Web of Science connector")
         self._api_key = api_key.strip()

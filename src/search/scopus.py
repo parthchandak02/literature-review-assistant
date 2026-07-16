@@ -19,12 +19,12 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import os
 from datetime import date
 from typing import Any
 
 import aiohttp
 
+from src.config.env_context import get_env
 from src.models import CandidatePaper, SearchResult, SourceCategory
 from src.search.common import ElsevierConnectorMixin, primary_filter_mode_from_query
 from src.utils.ssl_context import tcp_connector_with_certifi
@@ -49,7 +49,7 @@ class ScopusConnector(ElsevierConnectorMixin):
 
     def __init__(self, workflow_id: str) -> None:
         self.workflow_id = workflow_id
-        api_key = os.getenv("SCOPUS_API_KEY")
+        api_key = get_env("SCOPUS_API_KEY")
         if not api_key:
             raise ValueError("SCOPUS_API_KEY is required for the Scopus connector")
         self._api_key = api_key.strip()
@@ -256,7 +256,7 @@ async def enrich_scopus_abstracts(
     Returns:
         Number of abstracts successfully retrieved.
     """
-    key = api_key or os.getenv("SCOPUS_API_KEY", "")
+    key = api_key or (get_env("SCOPUS_API_KEY") or "")
     if not key:
         logger.warning("enrich_scopus_abstracts: no SCOPUS_API_KEY, skipping")
         return 0

@@ -6,7 +6,6 @@ from pathlib import Path
 from typing import Any
 
 from pydantic_ai import (
-    Agent,
     BinaryImage,
     ImageGenerationTool,
     NativeOutput,
@@ -20,7 +19,7 @@ from pydantic_ai.settings import ModelSettings
 
 from src.llm.provider import AgentRuntimeConfig
 from src.llm.pydantic_client import PydanticAIClient, _run_with_retry
-from src.llm.registry import rate_tier_for_model
+from src.llm.registry import build_agent, normalize_agent_model_prefix, rate_tier_for_model
 from src.models import SettingsConfig
 
 _DEFAULT_TIMEOUT_SECONDS = 120.0
@@ -49,13 +48,7 @@ def get_chat_client(timeout_seconds: float | None = None) -> PydanticAIClient:
 
 def _normalize_embed_model(model: str) -> str:
     """Map settings.yaml ``google:`` aliases to PydanticAI's ``google-gla:`` embedder prefix."""
-    import os
-
-    if model.startswith("google:"):
-        if "GOOGLE_API_KEY" not in os.environ and "GEMINI_API_KEY" in os.environ:
-            os.environ["GOOGLE_API_KEY"] = os.environ["GEMINI_API_KEY"]
-        return "google-gla:" + model[7:]
-    return model
+    return normalize_agent_model_prefix(model)
 
 
 def get_embedder(model: str, dim: int) -> Embedder:
@@ -84,7 +77,7 @@ class PydanticAIImageClient:
         reference_image_paths: list[str] | None = None,
     ) -> tuple[bytes, dict[str, int]]:
         tool = ImageGenerationTool(aspect_ratio=aspect_ratio, size=size)
-        agent: Agent[Any, BinaryImage] = Agent(  # type: ignore[type-var]
+        agent = build_agent(  # type: ignore[type-var]
             model,
             builtin_tools=[tool],
             output_type=BinaryImage,
@@ -137,7 +130,7 @@ async def run_text_with_web_tools(
     timeout_seconds: float = _DEFAULT_TIMEOUT_SECONDS,
 ) -> str:
     """Run a text completion with WebSearch/WebFetch built-ins."""
-    agent: Agent[None, str] = Agent(
+    agent = build_agent(
         model,
         output_type=str,
         builtin_tools=[WebSearchTool(), WebFetchTool()],
@@ -160,7 +153,7 @@ async def run_native_structured_json(
 ) -> str:
     """Run a schema-constrained completion and return JSON string output."""
     output_type = NativeOutput(StructuredDict(schema))
-    agent: Agent[Any, Any] = Agent(model, output_type=output_type)  # type: ignore[type-var]
+    agent = build_agent(model, output_type=output_type)  # type: ignore[type-var]
     result = await _run_with_retry(
         agent,
         prompt,

@@ -2,9 +2,14 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
+
+from pydantic_ai import Agent
 
 if TYPE_CHECKING:
+    from pydantic_ai.models import Model
+    from pydantic_ai.providers import Provider
+
     from src.models import SettingsConfig
 
 # PydanticAI model prefix -> required auth env var.
@@ -40,6 +45,80 @@ PREFIX_TO_PROVIDER_ID: dict[str, str] = {
     # OpenRouter is an OpenAI-compatible gateway for many providers.
     "openrouter:": "openai",
 }
+
+
+def normalize_agent_model_prefix(model: str) -> str:
+    """Map settings.yaml ``google:`` aliases to PydanticAI's ``google-gla:`` agent prefix."""
+    if model.startswith("google:"):
+        return "google-gla:" + model[7:]
+    return model
+
+
+def _api_key_for_model(model: str) -> str | None:
+    from src.config.env_context import get_env
+
+    env_key = env_key_for_model(model)
+    if env_key is None:
+        return None
+    return get_env(env_key)
+
+
+def _provider_with_api_key(provider_name: str, api_key: str | None) -> Provider[Any]:
+    """Construct a pydantic-ai provider with explicit api_key from get_env()."""
+    if provider_name in ("google-vertex", "google-gla"):
+        from pydantic_ai.providers.google import GoogleProvider
+
+        return GoogleProvider(api_key=api_key, vertexai=provider_name == "google-vertex")
+    if provider_name in ("openai", "openai-responses", "openai-chat"):
+        from pydantic_ai.providers.openai import OpenAIProvider
+
+        return OpenAIProvider(api_key=api_key)
+    if provider_name == "anthropic":
+        from pydantic_ai.providers.anthropic import AnthropicProvider
+
+        return AnthropicProvider(api_key=api_key)
+    if provider_name == "groq":
+        from pydantic_ai.providers.groq import GroqProvider
+
+        return GroqProvider(api_key=api_key)
+    if provider_name == "mistral":
+        from pydantic_ai.providers.mistral import MistralProvider
+
+        return MistralProvider(api_key=api_key)
+    if provider_name == "cohere":
+        from pydantic_ai.providers.cohere import CohereProvider
+
+        return CohereProvider(api_key=api_key)
+    if provider_name == "deepseek":
+        from pydantic_ai.providers.deepseek import DeepSeekProvider
+
+        return DeepSeekProvider(api_key=api_key)
+    if provider_name == "openrouter":
+        from pydantic_ai.providers.openrouter import OpenRouterProvider
+
+        return OpenRouterProvider(api_key=api_key)
+
+    from pydantic_ai.providers import infer_provider
+
+    return infer_provider(provider_name)
+
+
+def infer_agent_model(model: str) -> Model:
+    """Resolve a configured model string to a PydanticAI Model with explicit auth."""
+    from pydantic_ai.models import infer_model
+
+    normalized = normalize_agent_model_prefix(model)
+    api_key = _api_key_for_model(model)
+
+    def provider_factory(provider_name: str) -> Provider[Any]:
+        return _provider_with_api_key(provider_name, api_key)
+
+    return infer_model(normalized, provider_factory=provider_factory)
+
+
+def build_agent(model: str, **kwargs: Any) -> Agent[Any, Any]:
+    """Construct an Agent with normalized model prefix and explicit provider auth."""
+    return Agent(infer_agent_model(model), **kwargs)
 
 
 def parse_model_ref(model: str) -> tuple[str, str | None]:

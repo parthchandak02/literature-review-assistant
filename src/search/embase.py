@@ -26,13 +26,13 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import os
 import uuid
 from datetime import date
 from typing import Any
 
 import aiohttp
 
+from src.config.env_context import get_env
 from src.models import CandidatePaper, SearchResult, SourceCategory
 from src.search.common import ElsevierConnectorMixin, primary_filter_mode_from_query
 from src.utils.ssl_context import tcp_connector_with_certifi
@@ -60,7 +60,7 @@ class EmbaseConnector(ElsevierConnectorMixin):
 
     def __init__(self, workflow_id: str) -> None:
         self.workflow_id = workflow_id
-        api_key = os.getenv("EMBASE_API_KEY")
+        api_key = get_env("EMBASE_API_KEY")
         if not api_key:
             raise ValueError(
                 "EMBASE_API_KEY environment variable is required for the Embase connector. "
@@ -68,7 +68,7 @@ class EmbaseConnector(ElsevierConnectorMixin):
                 "Set EMBASE_API_KEY in your .env file and restart the server."
             )
         self._api_key = api_key.strip()
-        self._insttoken = (os.getenv("ELSEVIER_INSTTOKEN") or "").strip() or None
+        self._insttoken = (get_env("ELSEVIER_INSTTOKEN") or "").strip() or None
 
     def _build_headers(self) -> dict[str, str]:
         return self.build_elsevier_headers(self._api_key, self._insttoken)
