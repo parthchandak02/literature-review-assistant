@@ -1,35 +1,25 @@
 import { useCallback, useEffect, useRef, useState } from "react"
+import { useQueryClient } from "@tanstack/react-query"
 import {
-  Archive,
-  BookMarked,
-  Check,
   ChevronLeft,
   ChevronRight,
-  Clock,
   Plus,
-  RefreshCw,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
-import { fetchHistory, type NotesStreamEvent } from "@/lib/api"
+import { type NotesStreamEvent } from "@/lib/api"
 import type { HistoryEntry } from "@/lib/api"
+import { historyFetchErrorMessage, historyQueryKey, useHistory } from "@/hooks/useHistory"
 import { useNotesStream } from "@/hooks/useNotesStream"
 import {
   TooltipProvider,
 } from "@/components/ui/tooltip"
 import { DeleteConfirmDialog } from "@/components/DeleteConfirmDialog"
-import { Spinner } from "@/components/ui/feedback"
-import { ThemeToggle } from "@/components/ThemeToggle"
-import { LiveRunCard } from "@/components/sidebar/LiveRunCard"
-import { InProgressHistoryRow } from "@/components/sidebar/InProgressHistoryRow"
-import { LaneHistoryRow } from "@/components/sidebar/LaneHistoryRow"
-import { buildInProgressRowModel } from "@/components/sidebar/historyRowModel"
 import { SidebarTooltip } from "@/components/sidebar/SidebarTooltip"
+import { SidebarHeader } from "@/components/sidebar/SidebarHeader"
+import { SidebarInProgressSection } from "@/components/sidebar/SidebarInProgressSection"
+import { SidebarCompletedArchivedSection } from "@/components/sidebar/SidebarCompletedArchivedSection"
 import { useRunSession } from "@/hooks/useRunSession"
 export type { LiveRun, PhaseProgress } from "@/components/sidebar/types"
-import {
-  FRONTEND_BUILD_STAMP,
-  shouldShowFrontendBuildStamp,
-} from "@/lib/buildStamp"
 
 interface SidebarProps {
   collapsed: boolean
@@ -69,10 +59,15 @@ export function Sidebar({
     handleGoHome: onGoHome,
   } = useRunSession()
 
+  const queryClient = useQueryClient()
   const selectedWorkflowId = selectedRun?.workflowId ?? null
-  const [history, setHistory] = useState<HistoryEntry[]>([])
-  const [loadingHistory, setLoadingHistory] = useState(false)
-  const [historyError, setHistoryError] = useState<string | null>(null)
+  const {
+    data: history = [],
+    isLoading: loadingHistory,
+    error: historyQueryError,
+    refetch: refetchHistory,
+  } = useHistory()
+  const historyError = historyQueryError ? historyFetchErrorMessage(historyQueryError) : null
   const [openingId, setOpeningId] = useState<string | null>(null)
   const [resumingId, setResumingId] = useState<string | null>(null)
   const [archivingId, setArchivingId] = useState<string | null>(null)
@@ -96,29 +91,14 @@ export function Sidebar({
   // the animation even when the same card receives rapid successive remote updates.
   const [noteFlashCounters, setNoteFlashCounters] = useState<Record<string, number>>({})
 
-  const loadHistory = useCallback(async () => {
-    setLoadingHistory(true)
-    setHistoryError(null)
-    try {
-      const data = await fetchHistory()
-      setHistory(data)
-      // Seed notes map from history response (server is source of truth on load).
-      setNotes((prev) => {
-        const next = { ...prev }
-        for (const entry of data) {
-          if (entry.notes != null) next[entry.workflow_id] = entry.notes
-        }
-        return next
-      })
-    } catch (e) {
-      const msg = e instanceof Error ? e.message : String(e)
-      setHistoryError(
-        msg.toLowerCase().includes("fetch") ? "Cannot reach backend" : msg,
+  const optimisticHistoryUpdate = useCallback(
+    (updater: (prev: HistoryEntry[]) => HistoryEntry[]) => {
+      queryClient.setQueryData<HistoryEntry[]>(historyQueryKey(), (prev) =>
+        updater(prev ?? []),
       )
-    } finally {
-      setLoadingHistory(false)
-    }
-  }, [])
+    },
+    [queryClient],
+  )
 
   const handleNotesStreamMessage = useCallback((data: NotesStreamEvent) => {
     setNotes((prev) => ({ ...prev, [data.workflow_id]: data.note }))
@@ -130,15 +110,17 @@ export function Sidebar({
 
   useNotesStream(handleNotesStreamMessage)
 
-  // Fetch history on mount, poll every 30s (picks up in-progress CLI runs),
-  // and whenever the live run finishes. Pause polling when tab is hidden.
+  // Seed notes map from history response (server is source of truth on load).
   useEffect(() => {
-    void loadHistory()
-    const id = setInterval(() => {
-      if (document.visibilityState === "visible") void loadHistory()
-    }, 30_000)
-    return () => clearInterval(id)
-  }, [loadHistory])
+    if (!history.length) return
+    setNotes((prev) => {
+      const next = { ...prev }
+      for (const entry of history) {
+        if (entry.notes != null) next[entry.workflow_id] = entry.notes
+      }
+      return next
+    })
+  }, [history])
 
   // When a live run reaches terminal state, refresh history after a short
   // delay to pick up the final persisted status from the registry.
@@ -148,11 +130,11 @@ export function Sidebar({
       liveRun?.status === "error" ||
       liveRun?.status === "cancelled"
     ) {
-      void loadHistory()
-      const timer = setTimeout(() => void loadHistory(), 3000)
+      void refetchHistory()
+      const timer = setTimeout(() => void refetchHistory(), 3000)
       return () => clearTimeout(timer)
     }
-  }, [liveRun?.status, loadHistory])
+  }, [liveRun?.status, refetchHistory])
 
   // Drag-to-resize the sidebar
   useEffect(() => {
@@ -207,7 +189,7 @@ export function Sidebar({
   async function handleArchiveConfirm(workflowId: string) {
     setArchivingId(workflowId)
     // Optimistic: move to archived immediately
-    setHistory((prev) =>
+    optimisticHistoryUpdate((prev) =>
       prev.map((e) =>
         e.workflow_id === workflowId
           ? { ...e, is_archived: true, archived_at: new Date().toISOString() }
@@ -218,14 +200,14 @@ export function Sidebar({
       await onArchive(workflowId)
     } finally {
       setArchivingId(null)
-      void loadHistory()
+      void refetchHistory()
     }
   }
 
   async function handleRestoreConfirm(workflowId: string) {
     setRestoringId(workflowId)
     // Optimistic: move out of archived immediately
-    setHistory((prev) =>
+    optimisticHistoryUpdate((prev) =>
       prev.map((e) =>
         e.workflow_id === workflowId
           ? { ...e, is_archived: false, archived_at: null }
@@ -237,14 +219,14 @@ export function Sidebar({
       await onRestore(workflowId)
     } finally {
       setRestoringId(null)
-      void loadHistory()
+      void refetchHistory()
     }
   }
 
   async function handleCompleteConfirm(workflowId: string) {
     setCompletingId(workflowId)
     // Optimistic: move to completed section immediately
-    setHistory((prev) =>
+    optimisticHistoryUpdate((prev) =>
       prev.map((e) =>
         e.workflow_id === workflowId
           ? { ...e, is_completed_hidden: true, completed_hidden_at: new Date().toISOString() }
@@ -255,14 +237,14 @@ export function Sidebar({
       await onHideCompleted(workflowId)
     } finally {
       setCompletingId(null)
-      void loadHistory()
+      void refetchHistory()
     }
   }
 
   async function handleRestoreCompletedConfirm(workflowId: string) {
     setRestoringCompletedId(workflowId)
     // Optimistic: move out of completed section immediately
-    setHistory((prev) =>
+    optimisticHistoryUpdate((prev) =>
       prev.map((e) =>
         e.workflow_id === workflowId
           ? { ...e, is_completed_hidden: false, completed_hidden_at: null }
@@ -273,19 +255,19 @@ export function Sidebar({
       await onRestoreCompleted(workflowId)
     } finally {
       setRestoringCompletedId(null)
-      void loadHistory()
+      void refetchHistory()
     }
   }
 
   async function handleDeleteConfirm(workflowId: string) {
     setDeletingId(workflowId)
     // Optimistic: remove from list immediately
-    setHistory((prev) => prev.filter((e) => e.workflow_id !== workflowId))
+    optimisticHistoryUpdate((prev) => prev.filter((e) => e.workflow_id !== workflowId))
     try {
       await onDelete(workflowId)
     } finally {
       setDeletingId(null)
-      void loadHistory()
+      void refetchHistory()
     }
   }
 
@@ -343,44 +325,12 @@ export function Sidebar({
           }}
         />
 
-        {/* Logo row — home link + theme toggle (separate buttons; no nested interactive elements) */}
-        <div
-          className={cn(
-            "relative z-10 flex items-center h-14 glass-toolbar border-b border-border/70 shrink-0 px-3.5 gap-2 w-full",
-          )}
-        >
-          <button
-            type="button"
-            onClick={() => { onGoHome?.(); if (isMobile) onToggle() }}
-            className={cn(
-              "flex flex-1 items-center gap-2 min-w-0 text-left",
-              "hover:opacity-90 transition-opacity cursor-pointer",
-            )}
-          >
-            <div className="sidebar-brand-chip flex items-center justify-center w-7 h-7 rounded-lg shrink-0">
-              <BookMarked className="h-3.5 w-3.5 text-current" />
-            </div>
-            <span
-              className={cn(
-                "flex items-baseline gap-1.5 min-w-0 transition-all duration-200",
-                collapsed ? "w-0 opacity-0 overflow-hidden" : "w-auto opacity-100",
-              )}
-            >
-              <span className="font-semibold text-sm text-foreground tracking-tight whitespace-nowrap">
-                LitReview
-              </span>
-              {shouldShowFrontendBuildStamp() && (
-                <span
-                  className="text-[10px] font-mono text-muted tabular-nums whitespace-nowrap"
-                  title={`Frontend build ${FRONTEND_BUILD_STAMP}`}
-                >
-                  {FRONTEND_BUILD_STAMP}
-                </span>
-              )}
-            </span>
-          </button>
-          {!collapsed && <ThemeToggle className="shrink-0" />}
-        </div>
+        <SidebarHeader
+          collapsed={collapsed}
+          isMobile={isMobile}
+          onGoHome={onGoHome}
+          onToggle={onToggle}
+        />
 
         {/* New Review button */}
         <div className={cn("relative z-10 px-2.5 pt-3 pb-2 shrink-0", collapsed && "px-2")}>
@@ -400,209 +350,72 @@ export function Sidebar({
           </SidebarTooltip>
         </div>
 
-        {/* Run list -- unified single "IN PROGRESS" section */}
         <nav className="flex-1 overflow-y-auto overflow-x-hidden px-2 pb-2 pt-1 relative z-10">
-          <section>
-            {/* Section header */}
-            {!collapsed && (
-              <div className="flex items-center justify-between px-1 mb-1.5">
-                <span className="label-caps font-semibold text-muted flex items-center gap-1.5">
-                  <span className="flex h-3.5 w-3.5 items-center justify-center rounded-[3px] border border-intent-primary-border bg-intent-primary-subtle text-intent-primary">
-                    <Clock className="h-2.5 w-2.5" />
-                  </span>
-                  In Progress
-                </span>
-                <button
-                  onClick={() => void loadHistory()}
-                  disabled={loadingHistory}
-                  aria-label="Refresh history"
-                  className="text-muted hover:text-foreground transition-colors"
-                >
-                  {loadingHistory ? (
-                    <Spinner size="sm" />
-                  ) : (
-                    <RefreshCw className="h-3 w-3" />
-                  )}
-                </button>
-              </div>
-            )}
-
-            {historyError && !collapsed && (
-              <div className="px-2 py-1.5 mb-2 rounded-md bg-intent-danger-subtle border border-intent-danger-border text-[11px] text-intent-danger">
-                {historyError}
-              </div>
-            )}
-
-            {loadingHistory && inProgressHistory.length === 0 && !liveRun && !collapsed && (
-              <div className="space-y-2">
-                {[1, 2, 3].map((i) => (
-                  <div key={i} className="sidebar-card px-3 py-3">
-                    <div className="h-2.5 bg-surface-3/50 rounded animate-pulse w-3/4 mb-2" />
-                    <div className="h-2 bg-surface-3/50 rounded animate-pulse w-1/2" />
-                  </div>
-                ))}
-              </div>
-            )}
-
-            <div className="space-y-2">
-              {/* Live run card - first in the unified list, handles both collapsed and expanded */}
-              {shouldShowStandaloneLiveCard && liveRun && (
-                <LiveRunCard
-                  liveRun={liveRun}
-                  collapsed={collapsed}
-                  isLiveRunSelected={isLiveRunSelected}
-                  isRunning={isRunning}
-                  isMobile={Boolean(isMobile)}
-                  onToggle={onToggle}
-                  onSelectLiveRun={onSelectLiveRun}
-                  onCancel={onCancel}
-                  onArchive={handleArchiveConfirm}
-                  archivingId={archivingId}
-                  wfIdCopied={wfIdCopied}
-                  onCopyWorkflowId={handleCopyWorkflowId}
-                />
-              )}
-              {inProgressHistory.map((entry) => (
-                <InProgressHistoryRow
-                  key={entry.workflow_id}
-                  model={buildInProgressRowModel(
-                    entry,
-                    liveRun,
-                    selectedWorkflowId,
-                    openingId,
-                    resumingId,
-                    { onResume, onArchive, onHideCompleted },
-                  )}
-                  collapsed={collapsed}
-                  wfIdCopied={wfIdCopied}
-                  noteValue={notes[entry.workflow_id] ?? ""}
-                  noteFlashKey={noteFlashCounters[entry.workflow_id] ?? 0}
-                  archivingId={archivingId}
-                  completingId={completingId}
-                  onSelect={(row) => void handleSelectHistory(row)}
-                  onCopyWorkflowId={handleCopyWorkflowId}
-                  onNoteChange={(val) =>
-                    setNotes((prev) => ({ ...prev, [entry.workflow_id]: val }))
-                  }
-                  onArchive={(id) => void handleArchiveConfirm(id)}
-                  onComplete={(id) => void handleCompleteConfirm(id)}
-                  onResume={(row) => void handleResumeLauncher(row)}
-                  onCancel={onCancel}
-                />
-              ))}
-            </div>
-
-            {!collapsed && !loadingHistory && inProgressHistory.length === 0 && !shouldShowStandaloneLiveCard && (
-              <div className="flex flex-col items-center py-6 gap-2">
-                <Clock className="h-6 w-6 text-border" />
-                <p className="label-muted text-center">
-                  Past reviews will appear here automatically.
-                </p>
-              </div>
-            )}
-          </section>
+          <SidebarInProgressSection
+            collapsed={collapsed}
+            loadingHistory={loadingHistory}
+            historyError={historyError}
+            inProgressHistory={inProgressHistory}
+            shouldShowStandaloneLiveCard={shouldShowStandaloneLiveCard}
+            liveRun={liveRun}
+            isLiveRunSelected={isLiveRunSelected}
+            isRunning={isRunning}
+            isMobile={Boolean(isMobile)}
+            selectedWorkflowId={selectedWorkflowId}
+            openingId={openingId}
+            resumingId={resumingId}
+            archivingId={archivingId}
+            completingId={completingId}
+            wfIdCopied={wfIdCopied}
+            notes={notes}
+            noteFlashCounters={noteFlashCounters}
+            onRefresh={() => void refetchHistory()}
+            onToggle={onToggle}
+            onSelectLiveRun={onSelectLiveRun}
+            onCancel={onCancel}
+            onSelect={(row) => void handleSelectHistory(row)}
+            onResume={(row) => void handleResumeLauncher(row)}
+            onArchive={handleArchiveConfirm}
+            onComplete={(id) => void handleCompleteConfirm(id)}
+            onCopyWorkflowId={handleCopyWorkflowId}
+            onNoteChange={(workflowId, val) =>
+              setNotes((prev) => ({ ...prev, [workflowId]: val }))
+            }
+            sessionResume={onResume}
+            sessionArchive={onArchive}
+            sessionHideCompleted={onHideCompleted}
+          />
         </nav>
 
-        {!collapsed && (
-          <section className="relative z-10 border-t border-border/80 px-2 py-2 shrink-0">
-            <button
-              type="button"
-              onClick={() => setCompletedExpanded((prev) => !prev)}
-              className="mb-1 w-full flex items-center justify-between px-1.5 py-1 rounded-md text-intent-success hover:text-intent-success-fg hover:bg-intent-success-subtle transition-colors"
-            >
-              <span className="label-caps font-semibold flex items-center gap-1.5">
-                <span className="flex h-3.5 w-3.5 items-center justify-center rounded-[3px] border border-intent-success-border bg-intent-success-subtle text-intent-success">
-                  <Check className="h-2.5 w-2.5" />
-                </span>
-                Completed ({completedHistory.length})
-              </span>
-              <ChevronRight
-                className={cn(
-                  "h-3.5 w-3.5 transition-transform",
-                  completedExpanded && "rotate-90",
-                )}
-              />
-            </button>
-            {completedExpanded && (
-              <div className="mb-2 mt-1 max-h-48 overflow-y-auto space-y-1.5 pr-0.5">
-                {completedHistory.length === 0 ? (
-                  <p className="px-2 py-1.5 text-[11px] text-intent-success/55">
-                    No runs in completed.
-                  </p>
-                ) : (
-                  completedHistory.map((entry) => (
-                    <LaneHistoryRow
-                      key={`completed-${entry.workflow_id}`}
-                      entry={entry}
-                      variant="completed"
-                      collapsed={collapsed}
-                      isSelected={selectedWorkflowId === entry.workflow_id}
-                      wfIdCopied={wfIdCopied}
-                      archivingId={archivingId}
-                      restoringCompletedId={restoringCompletedId}
-                      onSelect={(row) => void handleSelectHistory(row)}
-                      onCopyWorkflowId={handleCopyWorkflowId}
-                      onArchive={(id) => void handleArchiveConfirm(id)}
-                      onRestoreCompleted={(id) => void handleRestoreCompletedConfirm(id)}
-                    />
-                  ))
-                )}
-              </div>
-            )}
-            <button
-              type="button"
-              onClick={() => setArchivedExpanded((prev) => !prev)}
-              className="w-full flex items-center justify-between px-1.5 py-1 rounded-md text-muted hover:text-foreground hover:bg-surface-2/60 transition-colors"
-            >
-              <span className="label-caps font-semibold flex items-center gap-1.5">
-                <span className="flex h-3.5 w-3.5 items-center justify-center rounded-[3px] border border-intent-warning-border bg-intent-warning-subtle text-intent-warning">
-                  <Archive className="h-2.5 w-2.5" />
-                </span>
-                Archived ({archivedHistory.length})
-              </span>
-              <ChevronRight
-                className={cn(
-                  "h-3.5 w-3.5 transition-transform",
-                  archivedExpanded && "rotate-90",
-                )}
-              />
-            </button>
-            {archivedExpanded && (
-              <div className="mt-1 max-h-48 overflow-y-auto space-y-1.5 pr-0.5">
-                {archivedHistory.length === 0 ? (
-                  <p className="px-2 py-1.5 text-[11px] text-muted">
-                    No archived chats.
-                  </p>
-                ) : (
-                  archivedHistory.map((entry) => (
-                    <LaneHistoryRow
-                      key={`archived-${entry.workflow_id}`}
-                      entry={entry}
-                      variant="archived"
-                      collapsed={collapsed}
-                      isSelected={selectedWorkflowId === entry.workflow_id}
-                      wfIdCopied={wfIdCopied}
-                      completingId={completingId}
-                      restoringId={restoringId}
-                      openArchivedMenuId={openArchivedMenuId}
-                      onSelect={(row) => void handleSelectHistory(row)}
-                      onCopyWorkflowId={handleCopyWorkflowId}
-                      onComplete={(id) => void handleCompleteConfirm(id)}
-                      onRestore={(id) => void handleRestoreConfirm(id)}
-                      onToggleArchivedMenu={(id) =>
-                        setOpenArchivedMenuId((prev) => (prev === id ? null : id))
-                      }
-                      onDelete={(id) => {
-                        setOpenArchivedMenuId(null)
-                        setDeleteConfirmWorkflowId(id)
-                      }}
-                    />
-                  ))
-                )}
-              </div>
-            )}
-          </section>
-        )}
+        <SidebarCompletedArchivedSection
+          completedHistory={completedHistory}
+          archivedHistory={archivedHistory}
+          completedExpanded={completedExpanded}
+          archivedExpanded={archivedExpanded}
+          collapsed={collapsed}
+          selectedWorkflowId={selectedWorkflowId}
+          wfIdCopied={wfIdCopied}
+          archivingId={archivingId}
+          restoringCompletedId={restoringCompletedId}
+          completingId={completingId}
+          restoringId={restoringId}
+          openArchivedMenuId={openArchivedMenuId}
+          onToggleCompleted={() => setCompletedExpanded((prev) => !prev)}
+          onToggleArchived={() => setArchivedExpanded((prev) => !prev)}
+          onSelect={(row) => void handleSelectHistory(row)}
+          onCopyWorkflowId={handleCopyWorkflowId}
+          onArchive={(id) => void handleArchiveConfirm(id)}
+          onRestoreCompleted={(id) => void handleRestoreCompletedConfirm(id)}
+          onComplete={(id) => void handleCompleteConfirm(id)}
+          onRestore={(id) => void handleRestoreConfirm(id)}
+          onToggleArchivedMenu={(id) =>
+            setOpenArchivedMenuId((prev) => (prev === id ? null : id))
+          }
+          onDelete={(id) => {
+            setOpenArchivedMenuId(null)
+            setDeleteConfirmWorkflowId(id)
+          }}
+        />
 
         {/* Collapse toggle */}
         <button
