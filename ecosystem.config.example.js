@@ -57,10 +57,12 @@ module.exports = {
     {
       name: 'litreview-ui',
       // Dev-only Vite dev server. Omit from PM2 in production when API serves dist.
+      // Use the repo-local Vite binary (not pnpm) so PM2 does not depend on a global
+      // pnpm/corepack path that can go stale across machines or shell profiles.
       // Intentionally autorestart: false so a crashed dev server does not loop-restart
       // under PM2 while you are debugging locally.
-      script: 'pnpm',
-      args: 'dev --port 5173 --host 0.0.0.0',
+      script: `${PROJECT_DIR}/frontend/node_modules/.bin/vite`,
+      args: '--port 5173 --host 0.0.0.0',
       cwd: `${PROJECT_DIR}/frontend`,
       interpreter: 'none',
       exec_mode: 'fork',

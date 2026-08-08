@@ -13,10 +13,19 @@ from collections.abc import AsyncGenerator
 import aiofiles
 import aiosqlite
 from fastapi import APIRouter, HTTPException, Request
+from fastapi.responses import StreamingResponse
 from sse_starlette.sse import EventSourceResponse
 
+from src.export.prisma_flow_export import build_prisma_flow_zip_bytes
 from src.web.run_concurrency import acquire_run_slot_or_raise
-from src.web.shared import RunRequest, RunResponse, _resolve_db_path
+from src.web.shared import (
+    RunRequest,
+    RunResponse,
+    _get_topic_for_db,
+    _make_download_slug,
+    _resolve_db_path,
+    _resolve_workflow_id_from_db,
+)
 from src.web.state import (
     _active_runs,
     _get_db_path,
@@ -248,6 +257,33 @@ async def get_prisma_checklist(run_id: str) -> dict:
             for item in result.items
         ],
     }
+
+
+@router.get("/api/run/{run_id}/prisma-flow.zip")
+async def download_prisma_flow_zip(run_id: str) -> StreamingResponse:
+    """Download PRISMA flow data as a ZIP of CSV files (summary, per-paper records, search identification)."""
+    resolved_db: str | None = None
+    try:
+        resolved_db = _get_db_path(run_id)
+    except HTTPException:
+        resolved_db = await _resolve_db_path("runs", run_id)
+        if resolved_db is None:
+            raise HTTPException(status_code=404, detail="Run not found")
+
+    db_path = resolved_db
+    workflow_id = await _resolve_workflow_id_from_db(db_path) or run_id
+    try:
+        zip_bytes = await build_prisma_flow_zip_bytes(db_path, workflow_id)
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"PRISMA flow export failed: {exc}") from exc
+
+    topic = await _get_topic_for_db(db_path)
+    download_name = _make_download_slug(workflow_id, topic) + "_prisma_flow.zip"
+    return StreamingResponse(
+        iter([zip_bytes]),
+        media_type="application/zip",
+        headers={"Content-Disposition": f'attachment; filename="{download_name}"'},
+    )
 
 
 @router.get("/api/run/{run_id}/grade-sof")

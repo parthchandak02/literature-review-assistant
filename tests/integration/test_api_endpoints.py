@@ -2434,6 +2434,47 @@ async def test_prisma_checklist_endpoint_reads_markdown_artifact(
 
 
 @pytest.mark.asyncio
+async def test_prisma_flow_zip_endpoint_returns_zip(
+    client: httpx.AsyncClient,
+    tmp_path: Path,
+) -> None:
+    run_id = "run-prisma-flow"
+    workflow_id = "wf-prisma-flow"
+    run_dir = tmp_path / "2026-03-17" / "wf-prisma-flow-topic" / "run_01-00-00PM"
+    db_path = run_dir / "runtime.db"
+    run_dir.mkdir(parents=True, exist_ok=True)
+
+    async with get_db(str(db_path)) as db:
+        await db.execute(
+            "INSERT INTO workflows (workflow_id, topic, config_hash, status, dedup_count) VALUES (?, ?, ?, ?, ?)",
+            (workflow_id, "Topic", "hash", "completed", 0),
+        )
+        await db.execute(
+            """
+            INSERT INTO papers (
+                paper_id, title, authors, year, source_database, source_category, doi, url
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            ("p1", "Study", '["Author"]', 2024, "pubmed", "database", "10.1/x", "https://example.com"),
+        )
+        await db.commit()
+
+    record = _RunRecord(run_id, "Topic")
+    record.db_path = str(db_path)
+    record.workflow_id = workflow_id
+    record.done = True
+    _active_runs[run_id] = record
+    try:
+        response = await client.get(f"/api/run/{run_id}/prisma-flow.zip")
+        assert response.status_code == 200
+        assert response.headers.get("content-type", "").startswith("application/zip")
+        assert "attachment" in response.headers.get("content-disposition", "").lower()
+        assert len(response.content) > 100
+    finally:
+        _active_runs.pop(run_id, None)
+
+
+@pytest.mark.asyncio
 async def test_workflow_manuscript_audit_endpoints_return_expected_shapes(
     client: httpx.AsyncClient,
     tmp_path: Path,
