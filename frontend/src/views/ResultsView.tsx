@@ -187,7 +187,7 @@ export function ResultsView({
         }
       >
         <div className="p-4 space-y-3">
-          {prismaDiagramPath ? <PrismaDiagramCard filePath={prismaDiagramPath} /> : null}
+          {prismaDiagramPath ? <PrismaDiagramCard filePath={prismaDiagramPath} runId={exportRunId} /> : null}
 
           <CustomDiagramsCard outputs={effectiveOutputs} />
 

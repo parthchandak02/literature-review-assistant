@@ -148,6 +148,10 @@ export function prosperoFormMarkdownUrl(runId: string): string {
   return `${API_BASE}/run/${encodeURIComponent(runId)}/prospero-form.md`
 }
 
+export function prismaFlowZipUrl(runId: string): string {
+  return `${API_BASE}/run/${encodeURIComponent(runId)}/prisma-flow.zip`
+}
+
 /**
  * Fetch included papers for the References tab.
  * When runId fails with 404 (evicted from _active_runs), retry with workflowId
