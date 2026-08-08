@@ -10,12 +10,14 @@ Use one canonical skill per workflow area. Adjacent skills should point back to 
 | Workflow Area | Canonical Skill | Secondary Skill(s) | Notes |
 |---|---|---|---|
 | Session bootstrap + orientation | `general-rules` | `build-phase`, `research` | `general-rules` owns reusable startup/process defaults; lifecycle routing still comes from `.cursor/docs/INDEX.md`. |
-| Commit/push hygiene | `general-rules` | `setup-pre-commit` | `general-rules` owns commit workflow behavior; `setup-pre-commit` owns hook installation only. |
-| Hook/bootstrap automation | `setup-pre-commit` | `general-rules` | Keep setup mechanics here; avoid repeating commit policy. |
+| Commit/push + hook repair | `general-rules` | none | `general-rules` owns the full landing workflow (probe, doc sync, gate, hooks, commits, push). Use `/commit` as the thin command entrypoint. Not a standalone `commit-and-push` skill. |
 | Skill authoring and de-duplication | `write-a-skill` | `general-rules`, `inception` | `write-a-skill` owns skill structure/workflow; `inception` extracts learnings into skills/gotchas; `general-rules` only provides global constraints. |
 | Session learning extraction | `inception` | `write-a-skill`, `handoff` | `inception` owns retrospective extraction; `write-a-skill` for authoring structure; `handoff` for one-off session transfer without durable artifacts. |
 | External research grounding | `research` | `grill-with-docs` | `research` owns source-backed discovery; `grill-with-docs` owns plan pressure-testing. |
 | Plan pressure-testing | `grill-with-docs` | `research` | Use code/docs contradiction checks and decision-tree questioning here. |
+| Hard-decision escalation | `advisor` | `grill-with-docs`, `research` | `advisor` owns readonly PLAN/CORRECTION/STOP escalation when the executor is stuck; not a substitute for grilling the user or external research. |
+| Minimal-diff / YAGNI mode | `ponytail` | none | Style/efficiency mode only; does not override project invariants, hard exclusions, or contract ownership. |
+| Architecture deepening review | `improve-codebase-architecture` | `grill-with-docs` | Structural boundary and debt review; use `grill-with-docs` when the plan itself still needs pressure-testing. |
 | Session transfer/handoff | `handoff` | `general-rules` | Handoff format and next-step packaging live only in `handoff`. |
 | Runtime review operations | `lit-review` | `run-database-audit`, `general-rules` | `lit-review` owns operator workflow for running/resuming/monitoring reviews with low token burn. |
 | Response compression mode | `caveman` | none | Style mode only; never owns process workflows. |
@@ -35,6 +37,7 @@ Use one canonical skill per workflow area. Adjacent skills should point back to 
 - `section-writer`
 - `prisma-diagram`
 - `ieee-export`
+- `humanizer`
 
 ## Specialist / Optional Skills
 
@@ -43,7 +46,7 @@ Use one canonical skill per workflow area. Adjacent skills should point back to 
 - `search-connector`
 - `prototype`
 - `citation-ledger` (lineage reference; primary writing flow lives in `section-writer`)
-- `setup-pre-commit` (repo commit-hook setup and verification workflow)
+- `frontend-design-taste` (dashboard UI token/taste discipline; preserve-brand, not marketing pages)
 
 ## Collaboration / Meta Skills
 
@@ -51,15 +54,20 @@ Use one canonical skill per workflow area. Adjacent skills should point back to 
 - `handoff` (compact transfer package for next-agent continuation)
 - `write-a-skill` (skill authoring, tailoring, and de-duplication workflow)
 - `inception` (extract session learnings into project skills or gotchas; `/inception` retrospective)
+- `advisor` (readonly hard-decision escalation: PLAN / CORRECTION / STOP)
+- `ponytail` (YAGNI / minimal-diff intensity mode)
+- `improve-codebase-architecture` (architecture deepening and boundary review)
 - `caveman` (ultra-terse response mode on explicit request)
 
 ## Overlap Boundaries
 
 - Use `research` for external-source grounding; use `grill-with-docs` for decision pressure-testing against local code/contracts.
-- Use `general-rules` for broad engineering defaults; use `setup-pre-commit` only for hook bootstrap/repair work.
+- Use `advisor` for readonly escalation when the executor is stuck on a hard fork; use `grill-with-docs` to interview the user and stress-test a plan. They are not interchangeable.
+- Use `ponytail` for YAGNI / shortest-working-diff mode; use `caveman` only for ultra-terse response style. `ponytail` is not `caveman`.
+- Use `general-rules` for broad engineering defaults and hook repair during `/commit`.
 - Use `write-a-skill` only when the task is skill creation/refactor, not normal feature development.
-- Use `general-rules` for commit/push safety flow; do not duplicate full commit sequencing in command docs.
-- Keep command files as entrypoints and pointers to canonical skills, not full duplicate playbooks.
+- Use `general-rules` for commit/push safety flow; do not create a standalone `commit-and-push` skill, and do not duplicate full commit sequencing in command docs.
+- Keep command files as entrypoints and pointers to canonical skills, not full duplicate playbooks. Ship entrypoint: `/commit` (`.cursor/commands/commit.md`).
 
 ## Skill Authoring Contract
 
@@ -73,7 +81,7 @@ When editing a skill, include:
 
 ## Imported Pattern Notes
 
-- `general-rules` includes adapted diagnose/TDD/zoom-out patterns.
+- `general-rules` includes adapted diagnose/TDD/zoom-out patterns and the folded commit/push landing workflow (probe, doc sync, quality gate, clustered commits, output contract).
 - `prototype` is constrained for throwaway validation; promote winners into tested slices.
 
 ## Build-Phase Skill Contract (Key Guidance)

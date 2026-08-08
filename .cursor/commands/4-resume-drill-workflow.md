@@ -69,4 +69,4 @@ Optional `--db-path <runtime.db>` to bypass registry. Fixture: `tests/fixtures/r
 - Target phase(s) completed without regression.
 - `make release-check` or `make local-ci` passed.
 - Replay script passed with `--profile local --fail-on-error`.
-- High-level changes: parity checklist in `IMPLEMENTATION_STATUS.md` before commit (`.cursor/commands/3-pre-commit-workflow.md`).
+- High-level changes: parity checklist in `IMPLEMENTATION_STATUS.md` before commit (`/commit`).

@@ -2,7 +2,7 @@
 
 ## Before you commit (high-level changes)
 
-If your work changes **architecture, phases/checkpoints, public API behavior, persistence/schema, or agent docs under `.cursor/`**, run through **Docs-to-Code Parity Checklist** below and the **Verification Gates** at the bottom of this file before committing. Then follow `.cursor/commands/3-pre-commit-workflow.md` for the actual commit/push sequence (see `general-rules` skill for full hygiene).
+If your work changes **architecture, phases/checkpoints, public API behavior, persistence/schema, or agent docs under `.cursor/`**, run through **Docs-to-Code Parity Checklist** below and the **Verification Gates** at the bottom of this file before committing. Then follow `/commit` (`.cursor/commands/commit.md`; see `general-rules` skill for full hygiene).
 
 Narrow bugfixes that do not alter those contracts can rely on normal tests and hooks only.
 

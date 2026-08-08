@@ -9,8 +9,9 @@ This is the canonical process skill for general execution in this repository.
 
 ## Workflow ownership
 
-- Owns: session orientation, commit/push hygiene, broad engineering defaults.
-- Does not own: hook installation (`setup-pre-commit`), skill-authoring internals (`write-a-skill`), source-backed external research (`research`).
+- Owns: session orientation, commit/push hygiene, pre-commit hook repair, broad engineering defaults.
+- Does not own: skill-authoring internals (`write-a-skill`), source-backed external research (`research`).
+- Commit/push remains here (not a standalone `commit-and-push` skill).
 
 ## Session bootstrap workflow (canonical)
 
@@ -26,16 +27,90 @@ When docs conflict with code, trust code and active rules, then note drift for f
 
 ## Git Security and Commit Practices
 
+Canonical landing workflow for this repo. Push is never automatic: only push when the user explicitly asks (or says "commit and push" / "land this"). If push intent is ambiguous, ask once. Remind the user and get explicit confirmation before commit or push.
+
+### Sequence overview
+
+```
+Phase 0  Probe          git status, branch, diff (scope + intent)
+Phase 1  Doc sync       update docs the diff makes stale
+Phase 2  Quality gate   run project verify/test/lint
+Phase 3  Commit         cluster staging, one concern per commit
+Phase 4  Push           only when the user asked
+Phase 5  Report         output contract + optional next steps
+```
+
 Use this sequence for commit/push work:
 
-1. Audit working tree and summarize change areas.
+1. Audit working tree and summarize change areas (Phase 0).
 2. Security-scan staged/unstaged content for secrets and forbidden artifacts.
-3. Verify project invariants/rules still hold for touched areas.
-4. Stage only safe files; explicitly list exclusions.
-5. Plan commit boundaries by intent (split unrelated concerns).
-6. Write strong conventional commit messages with clear "why".
-7. Remind user before commit/push and get explicit confirmation.
-8. Push only when explicitly requested.
+3. Sync docs the diff makes stale when contracts moved (Phase 1).
+4. Run the quality gate and verify project invariants still hold (Phase 2).
+5. Stage only safe files; explicitly list exclusions.
+6. Plan commit boundaries by intent; split unrelated concerns (Phase 3).
+7. Write strong conventional commit messages with clear "why" (HEREDOC).
+8. Remind user before commit/push and get explicit confirmation.
+9. Push only when explicitly requested (Phase 4).
+10. Report the output contract (Phase 5).
+
+### Phase 0: Probe
+
+From the repo root:
+
+```bash
+git status --short
+git branch -vv
+git diff --stat
+```
+
+Confirm: not detached HEAD, a tracking remote exists if pushing is in scope, and the changes match what the user described. If work spans sessions, read any handoff notes the project already keeps for that purpose.
+
+### Phase 1: Doc sync
+
+Before the first commit, check whether the diff makes project documentation stale. Prefer existing project docs over inventing new ones.
+
+When the diff touches contracts (architecture, phases/checkpoints, public API, persistence/schema, frontend phase alignment, or `.cursor/` agent docs):
+
+1. Update the matching docs under `.cursor/docs/` (route via `.cursor/docs/INDEX.md`).
+2. Run the **Before you commit** section in `.cursor/docs/IMPLEMENTATION_STATUS.md` (docs-to-code parity + verification gates).
+3. Keep `AGENTS.md` and other agent-facing entrypoints consistent if they reference changed paths or workflows.
+
+Common candidates: `AGENTS.md`, `README.md`, `.cursor/docs/*`, `.cursor/rules/*`, skill ownership notes under `.cursor/skills/README.md`.
+
+If nothing needs updating, say so and move on. Do not invent a documentation convention the project does not already have.
+
+### Phase 2: Quality gate
+
+Run the project's existing gate; do not invent one.
+
+1. Prefer `make release-check` when present and the change is release-bound.
+2. Otherwise prefer `make local-ci` when present.
+3. If neither Makefile target applies or exists, fall back as applicable:
+   - Backend: `ruff check` / `uv run pytest` on touched areas
+   - Frontend: `pnpm typecheck` (and lint/build when the change requires it)
+
+Fix failures before committing, or get explicit user sign-off to commit anyway.
+
+#### Hook repair (when pre-commit is missing or broken)
+
+Use this only when hooks fail, are not installed, or the user asks to set them up during `/commit`.
+
+Default to Python `pre-commit` for this repo. Use frontend local hooks only when JS/TS files are in scope. Do not replace with Husky or a generic Node/Swift stack detector unless the user explicitly asks.
+
+1. Inspect existing `.pre-commit-config.yaml`, Ruff config, frontend lint scripts, and CI. Extend what exists; preserve hook IDs, `entry` commands, and `files` globs unless redesign is requested.
+2. Install tooling: `uv add --dev pre-commit` (or `uv tool install pre-commit` when deps must not change).
+3. Ensure `.pre-commit-config.yaml` has fast deterministic checks (whitespace/EOF, YAML/TOML, Ruff). If the Ruff hook has no pinned `rev`, look up the current stable `rev` at install time; keep an existing pin unless upgrading.
+4. Optional frontend local hooks: `pnpm -C frontend lint`, `pnpm -C frontend typecheck` (scoped; skip when frontend untouched).
+5. Install and verify:
+
+```bash
+uv run pre-commit install
+uv run pre-commit run --all-files
+```
+
+Fix root cause before continuing the commit sequence.
+
+### Phase 3: Clustered commits
 
 Atomic commit rule:
 
@@ -43,12 +118,62 @@ Atomic commit rule:
 - Do not mix docs/rules churn with behavioral code changes in the same commit.
 - If a file contains changes from multiple concerns, split by concern before staging.
 
+Recommended cluster order for larger passes (roughly 2-8 commits when needed):
+
+1. Docs / rules / config that other commits depend on being read correctly.
+2. Backend / core logic (`src/`).
+3. Shared libraries or primitives.
+4. Feature-level or UI code (`frontend/src/`).
+5. Scripts, tooling, CI.
+
+Stage explicitly (`git add -- <paths>`) rather than `git add -A` when the working tree has unrelated dirty files. Match existing commit message style from `git log`. Write the "why" in the body when it is not obvious from the subject.
+
 Hard exclusions from staging/commit unless user explicitly requests otherwise:
 
-- `.env` / secrets
+- secrets / credential files
 - `runs/**` or generated runtime artifacts
 - runtime DB files (`*.db`, `*.sqlite`)
 - ignored files that slipped into staging
+
+Safety rules (hard):
+
+- Only commit when the user asked.
+- Never run `git config`.
+- Never use `--force`, `--force-with-lease`, `--no-verify`, or history rewrites unless the user explicitly asks and understands the consequences.
+- Never amend a commit unless the user explicitly requested amend, or the commit succeeded and a hook auto-modified files that need including - and only when that commit has not been pushed and was created in this session. If a commit fails or is rejected by a hook, fix the issue and create a **new** commit; never amend a failed commit.
+
+Write commit messages via HEREDOC:
+
+```bash
+git commit -m "$(cat <<'EOF'
+<subject line>
+
+<body, if any>
+EOF
+)"
+```
+
+### Phase 4: Push
+
+Push only when the user's request included pushing:
+
+```bash
+git push -u origin "$(git branch --show-current)"
+```
+
+If push fails (for example, diverged history), report the exact error and ask before force-pushing or rebasing.
+
+### Phase 5: Output contract
+
+Report:
+
+1. **Doc sync**: files updated, or "none needed".
+2. **Gate**: command run and result, or "no gate found".
+3. **Commits**: subject line per commit (and cluster rationale if more than one).
+4. **Push**: remote and branch, or why it was skipped.
+5. **Remaining dirty state**: any `git status --short` lines left over.
+
+After a successful commit or push, if the diff touched architecture or left known follow-up work, offer a short "Next steps" note in the response (not a new file). Do not implement further unless asked.
 
 ## Documentation Standards
 
@@ -116,13 +241,17 @@ Use `uv` for dependency management and execution.
 
 - Always use `uv` for package installation instead of pip (unless specified otherwise)
 - Prefer `uv run ...` to execute Python commands
-- Activate `.venv` only when direct interpreter workflows are explicitly needed
+- Prefer `uv run ...`; activate the project virtualenv only when direct interpreter workflows are explicitly needed
 
 ## Related skills
 
-- `setup-pre-commit`: use only for hook installation/repair.
 - `write-a-skill`: use only for creating or refactoring skills.
 - `research`: use when external source-backed guidance is required.
+- `advisor`: escalate hard forks, contract risk, or repeated failure for readonly PLAN/CORRECTION/STOP guidance.
+- `grill-with-docs`: pressure-test plans against local contracts before committing to an approach.
+- `ponytail`: YAGNI / minimal-diff mode; does not override hard exclusions or project invariants.
+- `improve-codebase-architecture`: deepen architecture review when structural debt or boundary drift is the task.
+- `handoff`: package session transfer when pausing or switching agents (not a substitute for commit hygiene).
 
 ## Code Quality and Linting
 
