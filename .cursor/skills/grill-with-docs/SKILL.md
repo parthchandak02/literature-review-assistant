@@ -14,6 +14,8 @@ For each question, include your recommended answer and why.
 
 If a question can be answered by reading code/docs, check those first and skip asking.
 
+If the user shifts to implementation ("go", "implement", "stop grilling"), confirm and end grilling mode. Do not implement during the grilling session.
+
 ## Routing and source of truth
 
 Before challenging design details:
@@ -25,6 +27,9 @@ Before challenging design details:
 
 If docs and code conflict, trust code and active rules, then call out drift explicitly.
 
+Doc shapes for this repo: [references/DOC-ROUTING.md](./references/DOC-ROUTING.md).
+Offer ADRs sparingly using [references/ADR-FORMAT.md](./references/ADR-FORMAT.md) only when Doc creation allows it.
+
 ## Grilling behavior
 
 ### Challenge terminology
@@ -32,6 +37,7 @@ If docs and code conflict, trust code and active rules, then call out drift expl
 - Catch overloaded terms immediately.
 - Propose a canonical term when language is fuzzy.
 - Ask the user to choose one term and stick to it.
+- Prefer terms already used in `.cursor/docs/`, `src/models/`, and phase/checkpoint vocabulary over inventing new ones.
 
 ### Probe boundaries with scenarios
 
@@ -54,6 +60,15 @@ If docs and code conflict, trust code and active rules, then call out drift expl
 - Keep typed boundaries intact (`src/models/` contracts).
 - Do not create markdown docs unless explicitly requested by the user.
 - Keep grilling outputs concise and actionable.
+- Do not invent a `CONTEXT.md` convention; this repo routes through `.cursor/docs/`.
+
+## Doc creation
+
+Only create or edit docs when:
+- The user explicitly asks, **or**
+- Offering an ADR and the user accepts (repo already uses `docs/adr/`)
+
+Otherwise keep settled terms in the session status output and note that docs were not written.
 
 ## Output shape per question
 
@@ -63,3 +78,12 @@ Use this format:
 2. **Recommended answer** - a concrete default
 3. **Why** - one to three reasons grounded in code/docs
 4. **What changes if opposite choice** - impact summary
+5. **Status** - `Resolved` or `Open` for that decision
+
+## Session-end contract
+
+At session end (or when grilling stops), report:
+
+- **Resolved**: terms and decisions locked
+- **Open**: remaining decisions and blockers
+- **Next**: next question, or the first implementation step once grilling ends
