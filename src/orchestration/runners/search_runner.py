@@ -116,28 +116,31 @@ async def run_search_node(state: ReviewState, ctx: GraphRunContext[ReviewState])
                 rc.notify_workflow_id(state.workflow_id, state.run_root)
             gate_runner = GateRunner(repository, state.settings)
 
-            csv_result = parse_masterlist_csv(state.review.masterlist_csv_path, state.workflow_id)
-            await repository.save_search_result(csv_result)
+            csv_results = parse_masterlist_csv(state.review.masterlist_csv_path, state.workflow_id)
+            await asyncio.gather(*[repository.save_search_result(sr) for sr in csv_results])
+            csv_total = sum(sr.records_retrieved for sr in csv_results)
+            csv_papers = [paper for sr in csv_results for paper in sr.papers]
 
             if rc:
-                rc.log_connector_result(
-                    name="CSV Import",
-                    status="success",
-                    records=csv_result.records_retrieved,
-                    query=csv_result.search_query,
-                    date_start=None,
-                    date_end=None,
-                    error=None,
-                )
+                for sr in csv_results:
+                    rc.log_connector_result(
+                        name=sr.database_name,
+                        status="success",
+                        records=sr.records_retrieved,
+                        query=sr.search_query,
+                        date_start=None,
+                        date_end=None,
+                        error=None,
+                    )
                 rc.advance_screening("phase_2_search", 1, 1)
             structured_log.log_connector_result(
                 connector="CSV Import",
                 status="success",
-                records=csv_result.records_retrieved,
+                records=csv_total,
                 error=None,
             )
 
-            await gate_runner.run_search_volume_gate(state.workflow_id, "phase_2_search", csv_result.records_retrieved)
+            await gate_runner.run_search_volume_gate(state.workflow_id, "phase_2_search", csv_total)
             if state.settings.gates.profile == "strict":
                 gr = await repository.get_latest_gate_result(state.workflow_id, "phase_2_search", "search_volume")
                 if gr and gr.status == GateStatus.FAILED:
@@ -159,7 +162,7 @@ async def run_search_node(state: ReviewState, ctx: GraphRunContext[ReviewState])
                         rc.emit_phase_done("phase_2_search", {"error": err_msg})
                     return End(summary)
 
-            deduped, dedup_count = deduplicate_papers(csv_result.papers)
+            deduped, dedup_count = deduplicate_papers(csv_papers)
             state.deduped_papers = deduped
             state.dedup_count = dedup_count
             state.connector_init_failures = {}

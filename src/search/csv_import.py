@@ -9,7 +9,9 @@ Two modes:
   - supplementary_csv_paths: added to connector results (multiple files)
 
 Column detection is flexible: the parser probes for known aliases across
-Scopus, Embase, and CINAHL export formats.
+Scopus, Embase, and CINAHL export formats. Per-row source inference uses URL
+patterns, ID columns, and file-format fingerprints before falling back to
+``other``.
 """
 
 from __future__ import annotations
@@ -19,12 +21,18 @@ import io
 import logging
 import re
 import uuid
+from collections import defaultdict
 from datetime import date
 from pathlib import Path
 from typing import Any
 
 from src.models.enums import SourceCategory
 from src.models.papers import CandidatePaper, SearchResult
+from src.search.source_inference import (
+    detect_csv_export_format,
+    infer_csv_row_source,
+    resolve_database_column,
+)
 
 _log = logging.getLogger(__name__)
 
@@ -113,20 +121,11 @@ def _resolve_col(fieldnames: list[str], canonical: str) -> str | None:
 
 
 def _parse_authors(raw: str) -> list[str]:
-    """Split author field using either '; ' or ', ' as delimiter.
-
-    Handles:
-    - Scopus: "Last, F.I.; Last2, F.I."
-    - Embase: "Last F, Last2 F2" (comma-separated without initials separator)
-    - CINAHL: "Last, Firstname; Last2, Firstname2"
-    """
+    """Split author field using either '; ' or ', ' as delimiter."""
     if not raw or not raw.strip():
         return []
-    # Prefer semicolon split when semicolons are present (Scopus / CINAHL style).
     if ";" in raw:
         return [a.strip() for a in raw.split(";") if a.strip()]
-    # Fall back to comma split for Embase style (comma between authors).
-    # Avoid over-splitting "Last, FirstName" which has a single comma.
     parts = [a.strip() for a in raw.split(",") if a.strip()]
     return parts if parts else ["Unknown"]
 
@@ -141,10 +140,7 @@ def _parse_keywords(raw: str) -> list[str] | None:
 
 
 def _parse_year(raw: str) -> int | None:
-    """Extract 4-digit year from string, returning None on failure.
-
-    Handles plain integers ("2021") and date strings ("2021-03-15").
-    """
+    """Extract 4-digit year from string, returning None on failure."""
     if not raw or not raw.strip():
         return None
     match = re.search(r"\b(1[89]\d\d|20[0-2]\d)\b", raw)
@@ -160,60 +156,73 @@ def _clean_doi(raw: str) -> str | None:
     """Strip whitespace and 'https://doi.org/' prefix from DOI."""
     cleaned = (raw or "").strip()
     cleaned = re.sub(r"^https?://doi\.org/", "", cleaned)
+    cleaned = re.sub(r"^https?://dx\.doi\.org/", "", cleaned)
     return cleaned if cleaned else None
 
 
-def _detect_database(path: Path, fieldnames: list[str]) -> str:
-    """Guess the source database from the filename or unique column signatures."""
+def _detect_database_from_filename(path: Path) -> str | None:
+    """Guess source database from filename stem only."""
     stem = path.stem.lower()
     if "embase" in stem:
-        return "Embase"
+        return "embase"
     if "cinahl" in stem or "ebsco" in stem:
-        return "CINAHL"
+        return "cinahl"
     if "pubmed" in stem or "medline" in stem:
-        return "PubMed"
+        return "pubmed"
     if "wos" in stem or "web_of_science" in stem:
-        return "Web of Science"
+        return "web_of_science"
     if "scopus" in stem:
-        return "Scopus"
-    # Column-signature heuristics
-    if "CINAHL AN" in fieldnames or "Accession Number" in fieldnames:
-        return "CINAHL"
-    if "Medline PMID" in fieldnames or "Embase EMID" in fieldnames:
-        return "Embase"
-    if "PMID" in fieldnames:
-        return "PubMed"
-    return "CSV Import"
+        return "scopus"
+    if "ieee" in stem:
+        return "ieee_xplore"
+    return None
+
+
+def _group_papers_into_search_results(
+    papers: list[CandidatePaper],
+    *,
+    workflow_id: str,
+    path: Path,
+) -> list[SearchResult]:
+    """Split parsed papers into one SearchResult per (database, category) pair."""
+    groups: dict[tuple[str, SourceCategory], list[CandidatePaper]] = defaultdict(list)
+    for paper in papers:
+        groups[(paper.source_database, paper.source_category)].append(paper)
+
+    search_date = date.today().isoformat()
+    results: list[SearchResult] = []
+    for (db_name, category), group_papers in sorted(groups.items()):
+        results.append(
+            SearchResult(
+                workflow_id=workflow_id,
+                database_name=db_name,
+                source_category=category,
+                search_date=search_date,
+                search_query=f"Imported from {path.name}",
+                limits_applied=None,
+                records_retrieved=len(group_papers),
+                papers=group_papers,
+            )
+        )
+    return results
 
 
 def _parse_csv_file(
     path: Path,
     workflow_id: str,
     database_label: str | None = None,
-) -> SearchResult:
-    """Parse a single CSV file into a SearchResult.
+) -> list[SearchResult]:
+    """Parse a single CSV file into SearchResult(s) grouped by inferred source.
 
-    Column detection is flexible: title/authors/year/doi/abstract/url/keywords
-    are resolved via _ALIASES so the same function handles Scopus, Embase,
-    CINAHL, and PubMed CSV formats.
-
-    Args:
-        path: Path to the CSV file.
-        workflow_id: Workflow ID to embed in the returned SearchResult.
-        database_label: Override the detected database name.
-
-    Returns:
-        A SearchResult containing all parsed papers.
-
-    Raises:
-        FileNotFoundError: If path does not exist.
-        ValueError: If no recognisable Title column is found.
+    Returns one SearchResult per distinct (source_database, source_category)
+    so PRISMA identification counts consolidate with connector results.
     """
     if not path.exists():
         raise FileNotFoundError(f"CSV not found: {path}")
 
     papers: list[CandidatePaper] = []
     skipped = 0
+    url_samples: list[str] = []
 
     csv_text, dialect = _load_csv_text(path)
     reader = csv.DictReader(io.StringIO(csv_text), dialect=dialect)
@@ -230,10 +239,23 @@ def _parse_csv_file(
     url_col = _resolve_col(fieldnames, "url")
     abstract_col = _resolve_col(fieldnames, "abstract")
     keywords_col = _resolve_col(fieldnames, "keywords")
+    database_col = resolve_database_column(fieldnames)
 
-    db_name = database_label or _detect_database(path, fieldnames)
+    rows = list(reader)
+    for row in rows:
+        url = ((row.get(url_col) if url_col else "") or "").strip()
+        if url:
+            url_samples.append(url)
+        if len(url_samples) >= 200:
+            break
 
-    for i, row in enumerate(reader, start=2):
+    file_hint = (
+        database_label
+        or _detect_database_from_filename(path)
+        or detect_csv_export_format(fieldnames, url_samples)
+    )
+
+    for i, row in enumerate(rows, start=2):
         title = (row.get(title_col) or "").strip()
         if not title:
             skipped += 1
@@ -242,8 +264,19 @@ def _parse_csv_file(
 
         raw_authors = (row.get(authors_col) if authors_col else "") or ""
         authors = _parse_authors(raw_authors) or ["Unknown"]
+        journal = ((row.get(source_col) if source_col else "") or "").strip() or None
+        doi = _clean_doi((row.get(doi_col) if doi_col else "") or "")
+        url = ((row.get(url_col) if url_col else "") or "").strip() or None
+        explicit_db = ((row.get(database_col) if database_col else "") or "").strip() or None
 
-        source_database = ((row.get(source_col) if source_col else "") or "").strip() or db_name
+        source_database, source_category = infer_csv_row_source(
+            url=url,
+            doi=doi,
+            explicit_database=explicit_db,
+            row=row,
+            fieldnames=fieldnames,
+            file_hint=file_hint,
+        )
 
         papers.append(
             CandidatePaper(
@@ -252,93 +285,57 @@ def _parse_csv_file(
                 authors=authors,
                 year=_parse_year((row.get(year_col) if year_col else "") or ""),
                 source_database=source_database,
-                doi=_clean_doi((row.get(doi_col) if doi_col else "") or ""),
+                doi=doi,
                 abstract=((row.get(abstract_col) if abstract_col else "") or "").strip() or None,
-                url=((row.get(url_col) if url_col else "") or "").strip() or None,
+                url=url,
                 keywords=_parse_keywords((row.get(keywords_col) if keywords_col else "") or ""),
-                source_category=SourceCategory.OTHER_SOURCE,
+                journal=journal,
+                source_category=source_category,
             )
         )
 
+    source_counts: dict[str, int] = defaultdict(int)
+    for paper in papers:
+        source_counts[paper.source_database] += 1
+
     _log.info(
-        "CSV import: parsed %d papers from '%s' as '%s' (skipped %d blank-title rows)",
+        "CSV import: parsed %d papers from '%s' (skipped %d blank-title rows); sources=%s",
         len(papers),
         path.name,
-        db_name,
         skipped,
+        dict(source_counts),
     )
 
-    return SearchResult(
-        workflow_id=workflow_id,
-        database_name=db_name,
-        source_category=SourceCategory.OTHER_SOURCE,
-        search_date=date.today().isoformat(),
-        search_query=f"Imported from {path.name}",
-        limits_applied=None,
-        records_retrieved=len(papers),
-        papers=papers,
-    )
+    if not papers:
+        raise ValueError(f"CSV contains no data rows with a non-empty Title column: {path}")
+
+    return _group_papers_into_search_results(papers, workflow_id=workflow_id, path=path)
 
 
 def validate_csv_file(csv_path: str) -> dict[str, Any]:
     """Validate CSV parseability and required schema before launching workflow."""
-    result = _parse_csv_file(Path(csv_path), workflow_id="validation", database_label="CSV Import")
-    if result.records_retrieved <= 0:
+    results = _parse_csv_file(Path(csv_path), workflow_id="validation")
+    total = sum(r.records_retrieved for r in results)
+    if total <= 0:
         raise ValueError("CSV contains no data rows with a non-empty Title column.")
     return {
-        "records_retrieved": result.records_retrieved,
-        "database_name": result.database_name,
+        "records_retrieved": total,
+        "database_name": ", ".join(f"{r.database_name} ({r.records_retrieved})" for r in results),
+        "sources": {r.database_name: r.records_retrieved for r in results},
     }
 
 
-def parse_masterlist_csv(csv_path: str, workflow_id: str) -> SearchResult:
-    """Parse a master list CSV (any supported format) into a SearchResult.
-
-    This is the single-file replacement mode: when masterlist_csv_path is set
-    in ReviewConfig, this function is called and all connectors are bypassed.
-
-    Args:
-        csv_path: Absolute path to the CSV file.
-        workflow_id: Workflow ID to embed in the returned SearchResult.
-
-    Returns:
-        A SearchResult with all parsed papers.
-
-    Raises:
-        FileNotFoundError: If csv_path does not exist.
-        ValueError: If the file has no recognisable Title column.
-    """
-    return _parse_csv_file(Path(csv_path), workflow_id, database_label="CSV Import")
+def parse_masterlist_csv(csv_path: str, workflow_id: str) -> list[SearchResult]:
+    """Parse a master list CSV into SearchResults grouped by inferred source."""
+    return _parse_csv_file(Path(csv_path), workflow_id)
 
 
 def parse_supplementary_csvs(
     csv_paths: list[str],
     workflow_id: str,
 ) -> list[SearchResult]:
-    """Parse multiple supplementary CSV exports into a list of SearchResults.
-
-    Used when supplementary_csv_paths is set in ReviewConfig. Unlike
-    masterlist_csv_path, these files are ADDED to connector results rather than
-    replacing them. Each file produces its own SearchResult so PRISMA counts
-    remain accurate per-source.
-
-    Filenames are used to auto-detect the source database name; include
-    'embase', 'cinahl', 'pubmed', or 'wos' in the filename for automatic
-    labelling (e.g. 'embase_export.csv', 'cinahl_results.csv').
-
-    Args:
-        csv_paths: List of absolute paths to CSV files.
-        workflow_id: Workflow ID to embed in returned SearchResults.
-
-    Returns:
-        List of SearchResult objects, one per file, in input order.
-
-    Raises:
-        FileNotFoundError: If any path does not exist.
-        ValueError: If any file has no recognisable Title column.
-    """
+    """Parse supplementary CSV exports; one or more SearchResults per file."""
     results: list[SearchResult] = []
     for p in csv_paths:
-        result = _parse_csv_file(Path(p), workflow_id)
-        results.append(result)
+        results.extend(_parse_csv_file(Path(p), workflow_id))
     return results
