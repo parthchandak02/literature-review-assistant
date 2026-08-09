@@ -217,24 +217,48 @@ class ScreeningRepo:
         rows = await cursor.fetchall()
         return {str(row[0]) for row in rows}
 
-    async def get_included_paper_ids(self, workflow_id: str) -> set[str]:
-        """Paper IDs in canonical synthesis cohort (fallback to fulltext includes)."""
-        cursor = await self.db.execute(
-            """
-            SELECT paper_id
-            FROM study_cohort_membership
-            WHERE workflow_id = ? AND synthesis_eligibility = 'included_primary'
-            """,
-            (workflow_id,),
-        )
-        rows = await cursor.fetchall()
-        if rows:
-            return {str(row[0]) for row in rows}
+    async def resolve_canonical_included_paper_ids(self, workflow_id: str) -> tuple[set[str], str]:
+        """Resolve product-facing synthesis-included paper IDs with documented precedence."""
+        cohort_ids = await self.get_synthesis_included_paper_ids(workflow_id)
+        if cohort_ids:
+            return cohort_ids, "study_cohort_membership_synthesis_included_primary"
 
+        primary_extraction_ids = await self._get_primary_extraction_paper_ids(workflow_id)
+        if primary_extraction_ids:
+            return primary_extraction_ids, "extraction_records_primary"
+
+        dual_ids = await self._get_dual_fulltext_include_ids(workflow_id)
+        if dual_ids:
+            return dual_ids, "dual_screening_results_fulltext"
+
+        return set(), "none"
+
+    async def get_included_paper_ids(self, workflow_id: str) -> set[str]:
+        """Paper IDs in canonical synthesis cohort (matches PRISMA included count)."""
+        ids, _ = await self.resolve_canonical_included_paper_ids(workflow_id)
+        return ids
+
+    async def _get_dual_fulltext_include_ids(self, workflow_id: str) -> set[str]:
         cursor = await self.db.execute(
             """
             SELECT paper_id FROM dual_screening_results
             WHERE workflow_id = ? AND stage = 'fulltext' AND final_decision IN ('include', 'uncertain')
+            """,
+            (workflow_id,),
+        )
+        rows = await cursor.fetchall()
+        return {str(row[0]) for row in rows}
+
+    async def _get_primary_extraction_paper_ids(self, workflow_id: str) -> set[str]:
+        """Primary empirical extraction survivors (excludes secondary/protocol/non-empirical)."""
+        cursor = await self.db.execute(
+            """
+            SELECT DISTINCT paper_id
+            FROM extraction_records
+            WHERE workflow_id = ?
+              AND COALESCE(json_extract(data, '$.primary_study_status'), 'primary') NOT IN (
+                  'secondary_review', 'protocol_only', 'non_empirical'
+              )
             """,
             (workflow_id,),
         )

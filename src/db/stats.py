@@ -8,6 +8,7 @@ from typing import Any
 
 import aiosqlite
 
+from src.db.repos.screening import ScreeningRepo
 from src.db.source_of_truth import RUN_STATS_PRECEDENCE
 
 _logger = logging.getLogger(__name__)
@@ -32,62 +33,60 @@ class RunStatsResolver:
 
     async def papers_included(self, db: aiosqlite.Connection, *, workflow_id: str | None = None) -> IncludedStudyCount:
         wf_id = workflow_id or await self.latest_workflow_id(db)
+        screening = ScreeningRepo(db)
+        included_ids, source_key = await screening.resolve_canonical_included_paper_ids(wf_id)
 
-        included_from_cohort = await (
-            await db.execute(
-                """
-                SELECT COUNT(DISTINCT scm.paper_id)
-                FROM study_cohort_membership scm
-                WHERE scm.workflow_id = ?
-                  AND scm.synthesis_eligibility = 'included_primary'
-                """,
-                (wf_id,),
-            )
-        ).fetchone()
-        included_from_dual = await (
-            await db.execute(
-                """
-                SELECT COUNT(DISTINCT paper_id)
-                FROM dual_screening_results
-                WHERE stage = 'fulltext' AND final_decision IN ('include', 'uncertain')
-                """
-            )
-        ).fetchone()
-
-        source_key = RUN_STATS_PRECEDENCE.papers_included_order[0]
-        if included_from_cohort and included_from_cohort[0] is not None and int(included_from_cohort[0]) > 0:
-            count = int(included_from_cohort[0])
-        elif included_from_dual and included_from_dual[0] is not None and int(included_from_dual[0]) > 0:
-            count = int(included_from_dual[0])
-            source_key = "dual_screening_results_fulltext"
-        else:
-            included_from_event = await (
+        if included_ids:
+            included_from_cohort = await (
                 await db.execute(
                     """
-                    SELECT json_extract(payload, '$.summary.included')
-                    FROM event_log
-                    WHERE event_type = 'phase_done'
-                      AND json_extract(payload, '$.phase') = 'phase_3_screening'
-                    ORDER BY id DESC
-                    LIMIT 1
-                    """
+                    SELECT COUNT(DISTINCT scm.paper_id)
+                    FROM study_cohort_membership scm
+                    WHERE scm.workflow_id = ?
+                      AND scm.synthesis_eligibility = 'included_primary'
+                    """,
+                    (wf_id,),
                 )
             ).fetchone()
-            if included_from_event and included_from_event[0] is not None:
-                count = int(included_from_event[0])
-                source_key = "event_log_phase_done_phase_3_screening"
-            else:
-                fallback_row = await (await db.execute("SELECT COUNT(*) FROM extraction_records")).fetchone()
-                count = int(fallback_row[0]) if fallback_row else 0
-                source_key = "extraction_records"
+            included_from_dual = await (
+                await db.execute(
+                    """
+                    SELECT COUNT(DISTINCT paper_id)
+                    FROM dual_screening_results
+                    WHERE workflow_id = ? AND stage = 'fulltext' AND final_decision IN ('include', 'uncertain')
+                    """,
+                    (wf_id,),
+                )
+            ).fetchone()
+            await self._log_divergence_if_needed(
+                db,
+                source_key=source_key,
+                included_from_cohort=included_from_cohort,
+                included_from_dual=included_from_dual,
+            )
+            return IncludedStudyCount(count=len(included_ids), source_key=source_key)
 
-        await self._log_divergence_if_needed(
-            db,
-            source_key=source_key,
-            included_from_cohort=included_from_cohort,
-            included_from_dual=included_from_dual,
-        )
-        return IncludedStudyCount(count=count, source_key=source_key)
+        included_from_event = await (
+            await db.execute(
+                """
+                SELECT json_extract(payload, '$.summary.included')
+                FROM event_log
+                WHERE event_type = 'phase_done'
+                  AND json_extract(payload, '$.phase') = 'phase_3_screening'
+                ORDER BY id DESC
+                LIMIT 1
+                """
+            )
+        ).fetchone()
+        if included_from_event and included_from_event[0] is not None:
+            return IncludedStudyCount(
+                count=int(included_from_event[0]),
+                source_key="event_log_phase_done_phase_3_screening",
+            )
+
+        fallback_row = await (await db.execute("SELECT COUNT(*) FROM extraction_records")).fetchone()
+        count = int(fallback_row[0]) if fallback_row else 0
+        return IncludedStudyCount(count=count, source_key="extraction_records")
 
     async def total_cost(self, db: aiosqlite.Connection) -> float:
         row = await (await db.execute("SELECT COALESCE(SUM(cost_usd), 0.0) FROM cost_records")).fetchone()
@@ -147,5 +146,24 @@ class RunStatsResolver:
                     _cohort_inc,
                     _dual_inc,
                 )
+            if source_key == "extraction_records_primary" and _dual_inc > 0 and _cohort_inc == 0:
+                _primary_count_row = await (
+                    await db.execute(
+                        """
+                        SELECT COUNT(DISTINCT paper_id)
+                        FROM extraction_records
+                        WHERE COALESCE(json_extract(data, '$.primary_study_status'), 'primary') NOT IN (
+                            'secondary_review', 'protocol_only', 'non_empirical'
+                        )
+                        """
+                    )
+                ).fetchone()
+                _primary_count = int(_primary_count_row[0]) if _primary_count_row else 0
+                if _dual_inc != _primary_count and _primary_count > 0:
+                    _logger.info(
+                        "run-stats: using extraction primary count=%s over dual_screening=%s",
+                        _primary_count,
+                        _dual_inc,
+                    )
         except Exception:
             pass

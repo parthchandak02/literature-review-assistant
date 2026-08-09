@@ -96,7 +96,7 @@ async def run_writing_setup(
             _removed_stale_grade,
         )
 
-    _canonical_included_ids_for_prisma = await repository.get_synthesis_included_paper_ids(state.workflow_id)
+    _canonical_included_ids_for_prisma, _ = await repository.resolve_canonical_included_paper_ids(state.workflow_id)
     if not _canonical_included_ids_for_prisma:
         _canonical_included_ids_for_prisma = {str(p.paper_id) for p in state.included_papers if p.paper_id}
     prisma_counts = await build_prisma_counts(

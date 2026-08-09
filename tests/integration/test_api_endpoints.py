@@ -1059,6 +1059,42 @@ async def test_history_stats_falls_back_to_dual_when_cohort_missing(tmp_path: Pa
     assert stats["papers_included_source"] == "dual_screening_results_fulltext"
 
 
+@pytest.mark.asyncio
+async def test_history_stats_prefers_primary_extraction_over_dual_when_cohort_missing(tmp_path: Path) -> None:
+    db_path = tmp_path / "runtime_history_stats_extraction.db"
+    async with get_db(str(db_path)) as db:
+        await db.execute(
+            "INSERT INTO workflows (workflow_id, topic, config_hash, status) VALUES (?, ?, ?, ?)",
+            ("wf-extract", "Topic", "hash", "completed"),
+        )
+        for idx, status in enumerate(["primary", "secondary_review"], start=1):
+            paper_id = f"p{idx}"
+            await db.execute(
+                "INSERT INTO papers (paper_id, title, authors, source_database) VALUES (?, ?, ?, ?)",
+                (paper_id, f"Paper {idx}", '["A"]', "openalex"),
+            )
+            await db.execute(
+                """
+                INSERT INTO dual_screening_results (
+                    workflow_id, paper_id, stage, agreement, final_decision, adjudication_needed
+                ) VALUES (?, ?, 'fulltext', 1, 'include', 0)
+                """,
+                ("wf-extract", paper_id),
+            )
+            await db.execute(
+                """
+                INSERT INTO extraction_records (workflow_id, paper_id, study_design, primary_study_status, data)
+                VALUES (?, ?, 'rct', ?, ?)
+                """,
+                ("wf-extract", paper_id, status, f'{{"primary_study_status": "{status}"}}'),
+            )
+        await db.commit()
+    stats = await _fetch_run_stats(str(db_path))
+    assert stats.get("ok") is True
+    assert stats["papers_included"] == 1
+    assert stats["papers_included_source"] == "extraction_records_primary"
+
+
 # ---------------------------------------------------------------------------
 # Test 9: GET /api/run/{run_id}/papers-reference returns 404 for unknown run_id
 #         (not in _active_runs and not in workflows_registry)

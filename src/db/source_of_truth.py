@@ -38,11 +38,13 @@ class RunStatsPrecedence:
 
     # Source of included studies count:
     # 1) study_cohort_membership synthesis included_primary (canonical cohort)
-    # 2) dual_screening_results fulltext include/uncertain (durable factual table)
-    # 3) phase_3_screening phase_done summary.included (historical fallback)
-    # 4) extraction_records count (legacy fallback)
+    # 2) extraction_records primary empirical studies (post non-primary filter)
+    # 3) dual_screening_results fulltext include/uncertain (pre-extraction only)
+    # 4) phase_3_screening phase_done summary.included (historical fallback)
+    # 5) extraction_records count (legacy fallback)
     papers_included_order: tuple[str, ...] = (
         "study_cohort_membership_synthesis_included_primary",
+        "extraction_records_primary",
         "dual_screening_results_fulltext",
         "event_log_phase_done_phase_3_screening",
         "extraction_records",
