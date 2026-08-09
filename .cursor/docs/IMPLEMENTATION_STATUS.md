@@ -2,7 +2,7 @@
 
 ## Before you commit (high-level changes)
 
-If your work changes **architecture, phases/checkpoints, public API behavior, persistence/schema, or agent docs under `.cursor/`**, run through **Docs-to-Code Parity Checklist** below and the **Verification Gates** at the bottom of this file before committing. Then follow `/commit` (`.cursor/commands/commit.md`; see `general-rules` skill for full hygiene).
+If your work changes **architecture, phases/checkpoints, public API behavior, persistence/schema, or agent docs under `.cursor/`**, run through **Docs-to-Code Parity Checklist** below and the **Verification Gates** at the bottom of this file before committing. Then follow `.cursor/skills/commit/SKILL.md` (`/commit`).
 
 Narrow bugfixes that do not alter those contracts can rely on normal tests and hooks only.
 
@@ -16,6 +16,15 @@ Top-level runtime checkpoints listed in `src/orchestration/resume.py` are implem
 - Workflow replay validation: `scripts/validate_workflow_replay.py`
 - Core backend tests: `tests/unit`, `tests/integration`
 - Frontend contract checks: `frontend` lint and typecheck scripts
+- Frontend UI redesign phases: `.cursor/docs/UI_REDESIGN_PHASES.md` (tracker + manual regression checklist)
+
+## Frontend UI Work Gate
+
+When changing run navigation, primary tabs, or `frontend/src/views/*`:
+
+1. Run `cd frontend && pnpm test && pnpm typecheck`
+2. Complete the **Frontend UI regression checklist** in `UI_REDESIGN_PHASES.md`
+3. Update `UI_ARCHITECTURE.md` if tab or Results category contracts change
 
 ## Docs-to-Code Parity Checklist
 
@@ -26,14 +35,14 @@ Use this checklist before and after major refactors:
 3. Phase order docs match `src/orchestration/resume.py`.
 4. Frontend phase constants and backend resume order stay aligned.
 5. Table and schema claims map to `src/db/schema.sql` and repository code.
-6. Rules, commands, and skills in `.cursor/` do not contradict each other.
+6. Rules and skills in `.cursor/` do not contradict each other.
 
 ## Drift Policy
 
 When behavior changes:
 
 - Update `.cursor/docs/*` first (canonical)
-- Then update `.cursor/rules/*`, `.cursor/commands/*`, `.cursor/skills/*`
+- Then update `.cursor/rules/*`, `.cursor/skills/*`
 - Finally refresh root entry docs (`AGENTS.md`, `README.md`) and canonical `.cursor/docs/*` files
 
 ## Reliability Refactor Sequence

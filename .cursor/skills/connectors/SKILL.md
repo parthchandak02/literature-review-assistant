@@ -1,5 +1,5 @@
 ---
-name: search-connector
+name: connectors
 description: Implements database connectors conforming to SearchConnector protocol. Use when adding OpenAlex, PubMed, arXiv, IEEE Xplore connectors or implementing search strategy.
 ---
 

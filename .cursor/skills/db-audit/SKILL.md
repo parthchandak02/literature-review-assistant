@@ -1,5 +1,5 @@
 ---
-name: run-database-audit
+name: db-audit
 description: Audits live or completed run databases using SQL queries, CSV exports, and YAML alignment checks. Use when the user asks for manual run verification, why papers were included or excluded, mid-workflow validation, runtime.db analysis, or database-driven debugging across running, cancelled, interrupted, or completed runs.
 ---
 

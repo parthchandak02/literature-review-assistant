@@ -1,5 +1,5 @@
 ---
-name: citation-ledger
+name: citations
 description: Implements citation lineage (claim -> evidence -> citation chain). Use when building src/citation/ or enforcing citation integrity.
 ---
 

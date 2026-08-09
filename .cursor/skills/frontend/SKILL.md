@@ -1,12 +1,19 @@
 ---
-name: frontend-design-taste
-description: Enforces preserve-brand design tokens and anti-slop UI rules for the literature-review React dashboard. Use when editing frontend/src styling, theming, glass components, semantic status colors, or auditing token consistency.
+name: frontend
+description: Dashboard UI token discipline and anti-slop rules for the literature-review React app. Use when editing frontend/src styling, theming, glass components, semantic status colors, or invoking /frontend / frontend-design-taste.
 disable-model-invocation: true
 ---
 
-# Frontend Design Taste (Preserve Brand)
+# Frontend (Dashboard UI)
 
 Use this skill for the app dashboard UI, not marketing pages.
+
+## Skill routing
+
+| Surface | Skill |
+|---------|-------|
+| Dashboard / dense product UI (`frontend/src/`) | **This skill** (`frontend`) |
+| Landing / marketing / portfolio pages | User global `design-taste-frontend` (do not vendor into this repo) |
 
 Reference philosophy: [taste-skill](https://github.com/Leonxlnx/taste-skill)
 

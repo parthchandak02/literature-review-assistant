@@ -1,7 +1,7 @@
 # Frontend Design Taste Audit Checklist
 
 Use this checklist after scanning peers, tokens, and shared primitives for the
-literature-review dashboard (`frontend-design-taste`).
+literature-review dashboard (`frontend`).
 
 ## Structure and primitives
 

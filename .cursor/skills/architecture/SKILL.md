@@ -1,9 +1,9 @@
 ---
-name: improve-codebase-architecture
-description: Finds architectural friction and deepens modules through small interfaces, real seams, locality, and testability. Use when planning large refactors, pass-through files pile up, or module boundaries feel shallow or leaky.
+name: architecture
+description: Finds architectural friction and deepens modules through small interfaces, real seams, locality, and testability. Use when planning large refactors, pass-through files pile up, invoking /architecture, or improve-codebase-architecture.
 ---
 
-# Improve Codebase Architecture
+# Architecture Review
 
 Read this skill as a readonly architecture review unless the user explicitly
 asks for implementation. Its goal is to find where a codebase is hard to
@@ -74,7 +74,7 @@ a large refactor.
 ### 3. Grill the chosen candidate
 
 For terminology, scope, or contract ambiguity, load and follow the project's
-`grill-with-docs` skill (`.cursor/skills/grill-with-docs/SKILL.md`) before a
+`grill` skill (`.cursor/skills/grill/SKILL.md`) before a
 large refactor. Use it to pressure-test the chosen candidate against docs and
 code. Resolve one decision at a time:
 

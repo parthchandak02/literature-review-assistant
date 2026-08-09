@@ -1,5 +1,5 @@
 ---
-description: Use run-database-audit skill for database-first run audits using runtime.db SQL queries, CSV exports, and YAML alignment checks when run behavior is questioned.
+description: Use db-audit skill for database-first run audits using runtime.db SQL queries, CSV exports, and YAML alignment checks when run behavior is questioned.
 globs:
   - src/screening/**
   - src/web/**
@@ -14,7 +14,7 @@ alwaysApply: false
 
 # Run Database Audit Skill Trigger
 
-Use the `run-database-audit` skill whenever the user asks for manual verification of screening quality, especially requests such as:
+Use the `db-audit` skill whenever the user asks for manual verification of screening quality, especially requests such as:
 - manual check
 - why included or why excluded
 - mid-workflow screening test

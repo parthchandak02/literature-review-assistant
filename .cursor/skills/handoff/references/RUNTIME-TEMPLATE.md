@@ -47,7 +47,7 @@ Optional bullets to paste under **State** when relevant. Delete unused lines.
 
 ## Suggested skills
 
-- (subset of: grill-with-docs, prototype, improve-codebase-architecture, research, advisor, ponytail)
+- (subset of: grill, prototype, architecture, research, advisor, ponytail)
 
 ## Reference artifacts
 

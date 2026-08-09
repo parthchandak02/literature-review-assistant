@@ -1,10 +1,10 @@
 ---
-name: write-a-skill
-description: Creates or refines project skills with clear triggers, compact instructions, and reusable structure. Use when the user asks to create, import, tailor, merge, or clean up skills under `.cursor/skills/`.
+name: author
+description: Creates or refines project skills with clear triggers, compact instructions, and reusable structure. Use when creating, importing, tailoring, or cleaning up skills, or invoking /author / write-a-skill.
 disable-model-invocation: true
 ---
 
-# Write A Skill
+# Author Skills
 
 Use this workflow to create high-signal skills for this repository.
 
@@ -63,7 +63,7 @@ Use lints/diagnostics if available for changed files.
 ## Scope boundary
 
 This skill owns skill authoring/refactoring only.
-For general coding workflow, commit hygiene, or session bootstrap, use `general-rules`.
+For general coding workflow, use `bootstrap` and `commit`.
 
 ## Repository guardrails
 

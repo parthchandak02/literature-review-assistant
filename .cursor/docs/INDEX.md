@@ -17,6 +17,7 @@ If any statement here conflicts with `.cursor/rules/core/`, trust the rule and t
 - `API_CONTRACT.md` - API surfaces, endpoint ownership, SSE behavior
 - `PERSISTENCE.md` - `runtime.db`, `workflows_registry.db`, and canonical table usage
 - `UI_ARCHITECTURE.md` - frontend structure, view model, and API client boundaries
+- `UI_REDESIGN_PHASES.md` - frontend seamless-UX phase tracker and regression checklist
 - `LLM_AND_COSTS.md` - model routing, rate limiting, and cost accounting contracts
 
 ## Lifecycle Routing
@@ -25,8 +26,9 @@ If any statement here conflicts with `.cursor/rules/core/`, trust the rule and t
 - Plan: read `PIPELINE.md` and `IMPLEMENTATION_STATUS.md`
 - Build: read domain skill in `.cursor/skills/**/SKILL.md` plus relevant contract doc
 - Review: read `API_CONTRACT.md`, `PERSISTENCE.md`, `UI_ARCHITECTURE.md`
+- Frontend UI redesign: read `UI_REDESIGN_PHASES.md` before changing run navigation or views
 - Test: run parity and replay checks documented in `IMPLEMENTATION_STATUS.md`
-- Ship: follow `.cursor/skills/general-rules/SKILL.md` for canonical commit/push workflow; use `/commit` (`.cursor/commands/commit.md`) as the thin launcher.
+- Ship: follow `.cursor/skills/commit/SKILL.md` (`/commit`). Session startup: `.cursor/skills/bootstrap/SKILL.md`.
 
 ## Compatibility Notes
 
