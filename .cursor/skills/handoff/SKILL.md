@@ -44,9 +44,9 @@ Optional section labels and stack bullets: [references/RUNTIME-TEMPLATE.md](./re
 
 Only list skills that fit the next work. Omit the rest.
 
-- `grill-with-docs` - plan / terminology still fuzzy
+- `grill` - plan / terminology still fuzzy
 - `prototype` - need to try a design before committing
-- `improve-codebase-architecture` - deepening or seam work
+- `architecture` - deepening or seam work
 - `research` - version-sensitive or contested facts
 - `advisor` - costly fork, stuck, or need a second opinion
 - `ponytail` - risk of over-building; force the minimal path

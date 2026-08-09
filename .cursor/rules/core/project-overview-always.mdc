@@ -58,7 +58,7 @@ alwaysApply: true
 - Use `workflows_registry.db` `db_path` to resolve runtime DB locations; never reconstruct run paths.
 
 ## Strict Commit Safety
-- Never stage or commit `.env`, `runs/**`, runtime DB files, or generated run artifacts unless explicitly requested.
+- Never stage or commit credential files, `runs/**`, runtime DB files, or generated run artifacts unless explicitly requested.
 - Before any commit, verify staged files do not contain secrets or runtime outputs.
 
 ## Where Detailed Guidance Lives
@@ -68,6 +68,6 @@ alwaysApply: true
 - API and persistence contracts: `.cursor/docs/API_CONTRACT.md`, `.cursor/docs/PERSISTENCE.md`.
 - Pipeline and status contracts: `.cursor/docs/PIPELINE.md`, `.cursor/docs/IMPLEMENTATION_STATUS.md`.
 - Endpoint parity anchor: `.cursor/docs/API_ENDPOINTS.md` Section 10.1.
-- Bootstrap and operational checklist: `.cursor/commands/0-session-bootstrap.md`.
+- Bootstrap and operational checklist: `.cursor/skills/bootstrap/SKILL.md`.
 - Task-specific deep guidance: `.cursor/skills/**/SKILL.md`.
 - Live gotchas: `.cursor/rules/core/gotchas-agent.mdc`; historical archive: `.cursor/rules/core/gotchas-archive.mdc`.

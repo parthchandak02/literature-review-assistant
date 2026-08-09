@@ -1,6 +1,6 @@
 ---
-name: protocol-generator
-description: Generates PROSPERO-format protocol from ReviewConfig. Use when building src/protocol/ or Phase 2 protocol output.
+name: protocol
+description: Generates PROSPERO-format protocol from ReviewConfig. Use when building src/protocol/, Phase 2 protocol output, or invoking /protocol.
 ---
 
 # Protocol Generator Implementation

@@ -9,9 +9,8 @@ If you read only one file, read this one first.
 1. Read `.cursor/docs/INDEX.md`
 2. Read one task-specific contract doc from `.cursor/docs/`
 3. Read one relevant skill in `.cursor/skills/**/SKILL.md`
-4. For broad execution defaults, load `.cursor/skills/general-rules/SKILL.md`
-
-Use `.cursor/commands/0-session-bootstrap.md` only as a quick launcher/pointer.
+4. For session startup: `.cursor/skills/bootstrap/SKILL.md`
+5. For cross-cutting defaults: `.cursor/skills/general-rules/SKILL.md`
 
 ## Non-Cursor Tools
 
@@ -50,9 +49,9 @@ If sources conflict, follow this order and verify in code.
 
 ## Commit and Push
 
-Before `git commit` or `git push`, follow `.cursor/skills/general-rules/SKILL.md` (canonical).
-Use `.cursor/commands/commit.md` (`/commit`) as the compact entrypoint.
-If the change is **high level** (architecture, phases, API, persistence, frontend phase alignment, or `.cursor/` docs), run the **Before you commit** section in `.cursor/docs/IMPLEMENTATION_STATUS.md` first; if not, normal hooks/tests are enough.
+Use `.cursor/skills/commit/SKILL.md` (`/commit`).
+
+If the change is **high level** (architecture, phases, API, persistence, frontend phase alignment, or `.cursor/` docs), run the **Before you commit** section in `.cursor/docs/IMPLEMENTATION_STATUS.md` first.
 
 ## Compatibility Notes
 

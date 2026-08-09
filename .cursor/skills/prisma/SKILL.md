@@ -1,6 +1,6 @@
 ---
-name: prisma-diagram
-description: Implements PRISMA 2020 flow diagram and visualizations. Use when building src/prisma/, timeline, or geographic distribution.
+name: prisma
+description: Implements PRISMA 2020 flow diagram and visualizations. Use when building src/prisma/, timeline, geographic distribution, or invoking /prisma.
 ---
 
 # PRISMA Diagram & Visualizations

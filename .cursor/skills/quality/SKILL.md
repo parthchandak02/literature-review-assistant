@@ -1,5 +1,5 @@
 ---
-name: quality-assessment
+name: quality
 description: Implements risk of bias assessment (RoB 2, ROBINS-I, CASP), GRADE, and study routing. Use when building src/quality/, extraction study classifier, or traffic-light figure.
 ---
 

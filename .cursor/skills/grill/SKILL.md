@@ -1,10 +1,10 @@
 ---
-name: grill-with-docs
-description: Runs a focused grilling session that stress-tests plans against repository contracts, terminology, and code reality. Use when the user asks to pressure-test a plan, challenge assumptions, or validate decisions against docs and implementation.
+name: grill
+description: Stress-tests plans against repository contracts, terminology, and code reality. Use when pressure-testing a plan, challenging assumptions, or invoking /grill / grill-with-docs.
 disable-model-invocation: true
 ---
 
-# Grill With Docs
+# Grill
 
 Interview the user relentlessly until the design is precise and internally consistent.
 

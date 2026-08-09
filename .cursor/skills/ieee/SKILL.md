@@ -1,6 +1,6 @@
 ---
-name: ieee-export
-description: Implements IEEE LaTeX export and submission packaging. Use when building export, PRISMA checklist validator, or IEEE compliance checks.
+name: ieee
+description: Implements IEEE LaTeX export and submission packaging. Use when building export, PRISMA checklist validator, IEEE compliance checks, or invoking /ieee.
 ---
 
 # IEEE Export & Submission Packaging

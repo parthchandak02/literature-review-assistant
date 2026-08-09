@@ -60,7 +60,7 @@ rg -i "keyword|error phrase|module name" .cursor/skills .cursor/rules/core/gotch
 | Partial overlap | Add variant subsection to existing skill |
 | Stale/wrong | Deprecate in Notes; point to replacement |
 
-Also read `write-a-skill` before authoring or merging skills.
+Also read `author` before authoring or merging skills.
 
 ### Step 2 — Identify the knowledge
 
@@ -109,7 +109,7 @@ Repository guardrails for all extracted content:
 - Skills live in `.cursor/skills/<name>/SKILL.md` only (not `~/.cursor/skills-cursor/`)
 - Descriptions in third person; max 1024 chars
 - Link canonical paths from `AGENTS.md` instead of duplicating architecture
-- No secrets, `.env` values, or tunnel URLs
+- No secrets, credential file values, or tunnel URLs
 - Preserve invariants: typed `src/models/` boundaries, `config/settings.yaml` for models, deterministic stats
 
 ### Step 6 — Verify
@@ -163,7 +163,7 @@ During work, ask:
 
 ## Related skills
 
-- Authoring structure: `write-a-skill`
+- Authoring structure: `author`
 - Session transfer without durable extraction: `handoff`
-- Commit/doc hygiene after high-level changes: `general-rules`
+- Commit/doc hygiene after high-level changes: `commit`
 - Live operational quirks list: `.cursor/rules/core/gotchas-agent.mdc`
