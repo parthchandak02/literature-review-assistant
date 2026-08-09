@@ -6,6 +6,8 @@ import csv
 import io
 import json
 import zipfile
+from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 
 from src.db.database import get_db
@@ -297,12 +299,20 @@ def _write_csv(columns: list[str], rows: list[dict[str, Any]]) -> str:
     return buffer.getvalue()
 
 
-async def build_prisma_flow_zip_bytes(db_path: str, workflow_id: str) -> bytes:
-    """Build a ZIP archive with PRISMA flow summary, per-paper records, and search identification."""
+@dataclass(frozen=True)
+class PrismaFlowExportPayload:
+    summary_csv: str
+    records_csv: str
+    search_csv: str
+    readme: str
+
+
+async def build_prisma_flow_payload(db_path: str, workflow_id: str) -> PrismaFlowExportPayload:
+    """Build PRISMA flow CSV payloads from runtime database state."""
     async with get_db(db_path) as db:
         repo = WorkflowRepository(db)
         dedup_count = int(await repo.get_dedup_count(workflow_id) or 0)
-        included_ids = await repo.get_synthesis_included_paper_ids(workflow_id)
+        included_ids, _ = await repo.resolve_canonical_included_paper_ids(workflow_id)
         included_qualitative = 0
         included_quantitative = len(included_ids)
         counts = await build_prisma_counts(
@@ -338,20 +348,32 @@ async def build_prisma_flow_zip_bytes(db_path: str, workflow_id: str) -> bytes:
 
     record_rows = await _fetch_record_rows(db_path, workflow_id)
     search_rows = await _fetch_search_rows(db_path, workflow_id)
+    return PrismaFlowExportPayload(
+        summary_csv=_write_csv(_SUMMARY_COLUMNS, [summary_row]),
+        records_csv=_write_csv(_RECORD_COLUMNS, record_rows),
+        search_csv=_write_csv(_SEARCH_COLUMNS, search_rows),
+        readme=_README,
+    )
+
+
+async def export_prisma_flow_to_directory(out_dir: Path, db_path: str, workflow_id: str) -> None:
+    """Write PRISMA flow CSVs (and README) into a submission supplementary directory."""
+    payload = await build_prisma_flow_payload(db_path, workflow_id)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    (out_dir / "README_prisma_flow.txt").write_text(payload.readme, encoding="utf-8")
+    (out_dir / "prisma_flow_summary.csv").write_text(payload.summary_csv, encoding="utf-8")
+    (out_dir / "prisma_records.csv").write_text(payload.records_csv, encoding="utf-8")
+    (out_dir / "search_identification.csv").write_text(payload.search_csv, encoding="utf-8")
+
+
+async def build_prisma_flow_zip_bytes(db_path: str, workflow_id: str) -> bytes:
+    """Build a ZIP archive with PRISMA flow summary, per-paper records, and search identification."""
+    payload = await build_prisma_flow_payload(db_path, workflow_id)
 
     zip_buffer = io.BytesIO()
     with zipfile.ZipFile(zip_buffer, mode="w", compression=zipfile.ZIP_DEFLATED) as archive:
-        archive.writestr("README.txt", _README)
-        archive.writestr(
-            "prisma_flow_summary.csv",
-            _write_csv(_SUMMARY_COLUMNS, [summary_row]),
-        )
-        archive.writestr(
-            "prisma_records.csv",
-            _write_csv(_RECORD_COLUMNS, record_rows),
-        )
-        archive.writestr(
-            "search_identification.csv",
-            _write_csv(_SEARCH_COLUMNS, search_rows),
-        )
+        archive.writestr("README.txt", payload.readme)
+        archive.writestr("prisma_flow_summary.csv", payload.summary_csv)
+        archive.writestr("prisma_records.csv", payload.records_csv)
+        archive.writestr("search_identification.csv", payload.search_csv)
     return zip_buffer.getvalue()

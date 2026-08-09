@@ -27,18 +27,44 @@ _EXCLUSION_REASON_LABELS: dict[str, str] = {
     "other": "Other",
 }
 
+_SOURCE_LABEL_OVERRIDES: dict[str, str] = {
+    "scopus": "Scopus",
+    "ieee xplore": "IEEE Xplore",
+    "semantic scholar": "Semantic Scholar",
+    "pubmed": "PubMed",
+    "openalex": "OpenAlex",
+    "wos": "Web of Science",
+    "web of science": "Web of Science",
+    "csv import": "CSV Import",
+    "other": "Other",
+    "perplexity search": "Perplexity",
+    "perplexity": "Perplexity",
+}
+
+
+def _format_source_label(name: str) -> str:
+    normalized = name.strip().lower().replace("_", " ")
+    if normalized in _SOURCE_LABEL_OVERRIDES:
+        return _SOURCE_LABEL_OVERRIDES[normalized]
+    return name.replace("_", " ").strip().title()
+
+
+def _positive_breakdown(raw: dict[str, int]) -> dict[str, int]:
+    return {_format_source_label(name): count for name, count in raw.items() if int(count) > 0}
+
 
 def _map_counts_to_library_format(
     counts: PRISMACounts,
 ) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any] | None]:
     """Map PRISMACounts to prisma-flow-diagram library format.
 
-    When other-source records (e.g. Perplexity/grey literature) are screened
-    in the same pass as database records, the PRISMA library arithmetic fails
-    because it computes availability as databases - duplicates, which excludes
-    the other-source pool. To keep the math consistent we fold other-source
-    records into the databases identification total and suppress the separate
-    other_methods column. The search appendix still documents all sources.
+    Per-database and per-source identification counts are passed as mapping
+    breakdowns so the identification box lists each connector (Scopus, PubMed,
+    CSV Import, etc.) like journal PRISMA figures.
+
+    When other-source records exist they are listed in the same identification
+    breakdown (combined screening pool). Use a separate other-methods column only
+    when callers supply per-source screening splits in the future.
     """
     excluded_reasons: dict[str, int] = {}
     for k, v in counts.reports_excluded_with_reasons.items():
@@ -53,20 +79,25 @@ def _map_counts_to_library_format(
     ):
         excluded_reasons = {"None identified": 0}
 
-    # Use combined total so library math: (db+other) - duplicates - automation - other = screened
-    combined_identified = counts.total_identified_databases + counts.total_identified_other
-    records_after_dedup = combined_identified - counts.duplicates_removed
-    # Use the structured automation_excluded count when available; fall back to
-    # computing the gap for PRISMACounts objects built before this field existed.
+    records_after_dedup = counts.total_identified_databases + counts.total_identified_other - counts.duplicates_removed
     automation_removed = (
         counts.automation_excluded
         if counts.automation_excluded > 0
         else max(0, records_after_dedup - counts.records_screened)
     )
 
+    database_breakdown = _positive_breakdown(counts.databases_records)
+    other_breakdown = _positive_breakdown(counts.other_sources_records)
+    combined_identification = {**database_breakdown, **other_breakdown}
+    databases_identified: dict[str, int] | int = (
+        combined_identification
+        if combined_identification
+        else counts.total_identified_databases + counts.total_identified_other
+    )
+
     db_registers: dict[str, Any] = {
         "identification": {
-            "databases": combined_identified,
+            "databases": databases_identified,
             "registers": 0,
         },
         "removed_before_screening": {
@@ -87,22 +118,7 @@ def _map_counts_to_library_format(
     }
     total_studies = counts.studies_included_qualitative + counts.studies_included_quantitative
     included: dict[str, Any] = {"studies": total_studies, "reports": total_studies}
-    # Suppress other_methods column: all sources were screened together, so
-    # splitting them into a separate column would double-count the screened pool.
     other_methods: dict[str, Any] | None = None
-    if False and counts.other_sources_records:
-        other_methods = {
-            "identification": counts.other_sources_records,
-            "removed_before_screening": {"duplicates": 0, "automation": 0, "other": 0},
-            "records": {"screened": 0, "excluded": 0},
-            "reports": {
-                "sought": 0,
-                "not_retrieved": 0,
-                "assessed": 0,
-                "excluded_reasons": {},
-            },
-            "included": {"studies": 0, "reports": 0},
-        }
     return db_registers, included, other_methods
 
 

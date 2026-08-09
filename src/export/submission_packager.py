@@ -28,6 +28,7 @@ from src.export.prisma_checklist import (
     render_prisma_markdown_table,
     validate_prisma,
 )
+from src.export.prisma_flow_export import export_prisma_flow_to_directory
 from src.writing.citation_grounding import extract_numeric_citation_refs, extract_used_citekeys
 
 logger = logging.getLogger(__name__)
@@ -755,6 +756,7 @@ async def package_submission(
 
     await _export_screening_decisions(db_path, workflow_id, supp_dir / "screening_decisions.csv")
     await _export_extraction_records(db_path, workflow_id, supp_dir / "extracted_data.csv")
+    await export_prisma_flow_to_directory(supp_dir, db_path, workflow_id)
 
     (supp_dir / "cover_letter.md").write_text(
         "# Cover Letter\n\n[Add cover letter content here.]\n",
