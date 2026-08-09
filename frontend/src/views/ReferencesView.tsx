@@ -4,7 +4,7 @@ import { BookOpen, Download, ExternalLink, FileText, FileX, RefreshCw } from "lu
 import { Button } from "@/components/ui/button"
 import { EmptyState, FetchError, LoadingPane, Spinner } from "@/components/ui/feedback"
 import { ViewToolbar } from "@/components/ui/view-toolbar"
-import { fetchPdfsForRun, paperFileUrl } from "@/lib/api"
+import { fetchPdfsForRun, paperFileUrl, studyFilesZipUrl } from "@/lib/api"
 import type { FetchPdfsProgressEvent, FetchPdfsResult, PaperReference } from "@/lib/api"
 import { referencesQueryKey, useReferences } from "@/hooks/useReferences"
 import { cn } from "@/lib/utils"
@@ -14,7 +14,8 @@ interface ReferencesViewProps {
   /** workflow_id (e.g. wf-0007) for 404 retry when runId evicted from _active_runs */
   workflowId?: string | null
   isDone: boolean
-  onGoToSubmissionReferencePapers?: () => void
+  /** Skip outer card chrome when embedded in Results panel. */
+  embedded?: boolean
 }
 
 function SourceBadge({ source }: { source: string }) {
@@ -73,7 +74,7 @@ export function ReferencesView({
   runId,
   workflowId,
   isDone,
-  onGoToSubmissionReferencePapers,
+  embedded = false,
 }: ReferencesViewProps) {
   const queryClient = useQueryClient()
   const [fetching, setFetching] = useState(false)
@@ -161,101 +162,109 @@ export function ReferencesView({
       : 0
   const showFetchMeta = fetching || fetchResult != null || fetchError != null
 
+  const fetchMetaPanel = showFetchMeta ? (
+    <div className="border-t border-border/70 px-4 py-2.5">
+      {fetching && fetchProgress && (
+        <div className="flex flex-col gap-1.5 max-w-md ml-auto">
+          <div className="h-1 overflow-hidden rounded-full bg-surface-3/40">
+            <div
+              className="h-full bg-intent-active transition-all duration-300"
+              style={{ width: `${fetchProgressPercent}%` }}
+            />
+          </div>
+          <p className="text-[11px] text-muted text-right tabular-nums">
+            {fetchProgress.current} / {fetchProgress.total} papers
+            {fetchProgress.succeeded > 0 && (
+              <span className="text-intent-success ml-1">
+                -- {fetchProgress.succeeded} retrieved
+              </span>
+            )}
+          </p>
+          <p
+            className="text-[11px] text-muted text-right truncate"
+            title={fetchProgress.currentTitle}
+          >
+            {fetchProgress.currentTitle}
+          </p>
+        </div>
+      )}
+      {fetching && !fetchProgress && (
+        <p className="text-[11px] text-muted text-right">Connecting...</p>
+      )}
+      {fetchResult && !fetching && (
+        <p className="text-[11px] text-muted text-right">
+          Retrieved {fetchResult.succeeded} of {fetchResult.attempted} --{" "}
+          {fetchResult.failed > 0 ? `${fetchResult.failed} unavailable` : "all found"}
+          {fetchResult.skipped > 0 ? `, ${fetchResult.skipped} already saved` : ""}
+        </p>
+      )}
+      {fetchError && !fetching && (
+        <p className="text-[11px] text-intent-danger text-right">{fetchError}</p>
+      )}
+    </div>
+  ) : null
+
+  const headerToolbar = (
+    <ViewToolbar
+      className={embedded ? "!h-auto py-3 items-start border-b border-border/70" : "!h-auto py-3 items-start"}
+      title={
+        <div className="min-w-0">
+          <h2 className="text-base font-semibold text-foreground">Included Studies</h2>
+          <p className="text-xs text-muted mt-0.5 font-normal">
+            {papers.length} {papers.length === 1 ? "paper" : "papers"} included in this review
+            {abstractOnlyCount > 0 && (
+              <span className="text-intent-warning ml-1">
+                -- {abstractOnlyCount} without full text (abstract-only extraction)
+              </span>
+            )}
+          </p>
+        </div>
+      }
+      actions={
+        <div className="flex flex-wrap items-center justify-end gap-x-3 gap-y-2">
+          <div className="flex items-center gap-3 text-[11px] text-muted">
+            <span className="inline-flex items-center gap-1">
+              <span className="h-2 w-2 rounded-full bg-intent-success" />
+              Full text
+            </span>
+            <span className="inline-flex items-center gap-1">
+              <span className="h-2 w-2 rounded-full bg-surface-4" />
+              Abstract only
+            </span>
+          </div>
+          <Button
+            size="sm"
+            variant="outline"
+            asChild
+            className="border-border text-foreground hover:text-foreground"
+          >
+            <a href={studyFilesZipUrl(effectiveId)} download title="Download all included study files as ZIP">
+              <Download className="h-3 w-3" />
+              Reference papers ZIP
+            </a>
+          </Button>
+          {(someFilesMissing || fetchResult) && (
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={handleFetchPdfs}
+              disabled={fetching}
+              className="border-border text-foreground hover:text-foreground"
+            >
+              {fetching ? <Spinner size="sm" /> : <RefreshCw className="h-3 w-3" />}
+              {fetching ? "Fetching..." : "Fetch PDFs"}
+            </Button>
+          )}
+        </div>
+      }
+    />
+  )
+
   return (
     <div className="flex flex-col gap-4">
-      <div className="card-surface overflow-hidden">
-        <ViewToolbar
-          className="!h-auto py-3 items-start"
-          title={
-            <div className="min-w-0">
-              <h2 className="text-base font-semibold text-foreground">Included Studies</h2>
-              <p className="text-xs text-muted mt-0.5 font-normal">
-                {papers.length} {papers.length === 1 ? "paper" : "papers"} included in this review
-                {abstractOnlyCount > 0 && (
-                  <span className="text-intent-warning ml-1">
-                    -- {abstractOnlyCount} without full text (abstract-only extraction)
-                  </span>
-                )}
-              </p>
-            </div>
-          }
-          actions={
-            <div className="flex flex-wrap items-center justify-end gap-x-3 gap-y-2">
-              <div className="flex items-center gap-3 text-[11px] text-muted">
-                <span className="inline-flex items-center gap-1">
-                  <span className="h-2 w-2 rounded-full bg-intent-success" />
-                  Full text
-                </span>
-                <span className="inline-flex items-center gap-1">
-                  <span className="h-2 w-2 rounded-full bg-surface-4" />
-                  Abstract only
-                </span>
-              </div>
-              <Button
-                size="sm"
-                variant="outline"
-                onClick={onGoToSubmissionReferencePapers}
-                className="border-border text-foreground hover:text-foreground"
-              >
-                Download All
-              </Button>
-              {(someFilesMissing || fetchResult) && (
-                <Button
-                  size="sm"
-                  variant="outline"
-                  onClick={handleFetchPdfs}
-                  disabled={fetching}
-                  className="border-border text-foreground hover:text-foreground"
-                >
-                  {fetching ? <Spinner size="sm" /> : <RefreshCw className="h-3 w-3" />}
-                  {fetching ? "Fetching..." : "Fetch PDFs"}
-                </Button>
-              )}
-            </div>
-          }
-        />
-
-        {showFetchMeta && (
-          <div className="border-t border-border/70 px-4 py-2.5">
-            {fetching && fetchProgress && (
-              <div className="flex flex-col gap-1.5 max-w-md ml-auto">
-                <div className="h-1 overflow-hidden rounded-full bg-surface-3/40">
-                  <div
-                    className="h-full bg-intent-active transition-all duration-300"
-                    style={{ width: `${fetchProgressPercent}%` }}
-                  />
-                </div>
-                <p className="text-[11px] text-muted text-right tabular-nums">
-                  {fetchProgress.current} / {fetchProgress.total} papers
-                  {fetchProgress.succeeded > 0 && (
-                    <span className="text-intent-success ml-1">
-                      -- {fetchProgress.succeeded} retrieved
-                    </span>
-                  )}
-                </p>
-                <p
-                  className="text-[11px] text-muted text-right truncate"
-                  title={fetchProgress.currentTitle}
-                >
-                  {fetchProgress.currentTitle}
-                </p>
-              </div>
-            )}
-            {fetching && !fetchProgress && (
-              <p className="text-[11px] text-muted text-right">Connecting...</p>
-            )}
-            {fetchResult && !fetching && (
-              <p className="text-[11px] text-muted text-right">
-                Retrieved {fetchResult.succeeded} of {fetchResult.attempted} --{" "}
-                {fetchResult.failed > 0 ? `${fetchResult.failed} unavailable` : "all found"}
-                {fetchResult.skipped > 0 ? `, ${fetchResult.skipped} already saved` : ""}
-              </p>
-            )}
-            {fetchError && !fetching && (
-              <p className="text-[11px] text-intent-danger text-right">{fetchError}</p>
-            )}
-          </div>
-        )}
+      <div className={embedded ? "overflow-hidden" : "card-surface overflow-hidden"}>
+        {headerToolbar}
+        {fetchMetaPanel}
       </div>
 
       {/* Paper cards */}

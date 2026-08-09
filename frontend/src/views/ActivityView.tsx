@@ -544,10 +544,8 @@ export function ActivityView({
                 <span className="text-[11px] text-muted">
                   {resumeHint ?? (canResumeEligibility ? "Tap a phase once, tap again to resume from it" : resumeBlockedReason)}
                 </span>
-              ) : canResumeEligibility ? (
-                <span className="text-[11px] text-muted">
-                  Use Resume from last checkpoint in the sidebar
-                </span>
+              ) : resumeBlockedReason ? (
+                <span className="text-[11px] text-muted">{resumeBlockedReason}</span>
               ) : null
             }
           />

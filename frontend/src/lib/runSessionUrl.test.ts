@@ -1,5 +1,15 @@
 import { describe, expect, it } from "vitest"
-import { parseRunUrl } from "./runSessionUrl"
+import type { RunTab } from "@/context/runSessionTypes"
+import { VALID_RUN_TABS, parseRunUrl } from "./runSessionUrl"
+
+const ALL_RUN_TABS: RunTab[] = [
+  "activity",
+  "results",
+  "database",
+  "cost",
+  "config",
+  "review-screening",
+]
 
 describe("parseRunUrl", () => {
   it("parses workflow and default activity tab", () => {
@@ -14,6 +24,15 @@ describe("parseRunUrl", () => {
       workflowId: "wf-0102",
       tab: "results",
     })
+  })
+
+  it("parses every primary RunTab segment", () => {
+    for (const tab of ALL_RUN_TABS) {
+      expect(parseRunUrl(`/run/wf-test/${tab}`)).toEqual({
+        workflowId: "wf-test",
+        tab,
+      })
+    }
   })
 
   it("falls back invalid tab to activity", () => {
@@ -37,5 +56,13 @@ describe("parseRunUrl", () => {
   it("returns null for non-run paths", () => {
     expect(parseRunUrl("/")).toBeNull()
     expect(parseRunUrl("/settings")).toBeNull()
+  })
+})
+
+describe("VALID_RUN_TABS", () => {
+  it("matches RunTab union from runSessionTypes", () => {
+    const fromSet = [...VALID_RUN_TABS].sort()
+    const expected = [...ALL_RUN_TABS].sort()
+    expect(fromSet).toEqual(expected)
   })
 })

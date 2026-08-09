@@ -21,7 +21,7 @@ interface SettingsDialogProps {
 
 const TABS: { id: SettingsTab; label: string; icon: typeof Key }[] = [
   { id: "keys", label: "API Keys", icon: Key },
-  { id: "costs", label: "Costs", icon: BarChart3 },
+  { id: "costs", label: "Global Costs", icon: BarChart3 },
 ]
 
 export function SettingsDialog({ open, onOpenChange, initialTab = "keys" }: SettingsDialogProps) {
@@ -35,7 +35,7 @@ export function SettingsDialog({ open, onOpenChange, initialTab = "keys" }: Sett
             <div>
               <DialogTitle className="text-foreground">Settings</DialogTitle>
               <DialogDescription className="mt-0.5 text-muted">
-                Manage API credentials and view cost analytics.
+                API credentials and cross-run cost history. Per-run spend is on the Cost tab.
               </DialogDescription>
             </div>
             <Button

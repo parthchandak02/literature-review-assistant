@@ -95,9 +95,7 @@ interface RunViewProps {
   onResumeFromPhase?: (phase: string) => Promise<void>
   /** True when resume controls were opened from the sidebar launcher. */
   resumeModeActive?: boolean
-  /** Navigate References CTA to Results/Submission Files hub. */
-  onGoToSubmissionReferencePapers?: () => void
-  /** Highlight target used by Results/Artifacts submission download hub. */
+  /** Highlight target used by Results Files category deep-link. */
   submissionFocusTarget?: "reference-papers" | null
   submissionFocusToken?: number
   draftConfig?: DraftConfigContext | null
@@ -119,7 +117,6 @@ export function RunView({
   isLive,
   onResumeFromPhase,
   resumeModeActive = false,
-  onGoToSubmissionReferencePapers,
   submissionFocusTarget = null,
   submissionFocusToken = 0,
   draftConfig = null,
@@ -231,92 +228,92 @@ export function RunView({
         style={{ touchAction: "pan-x" }}
       >
         <div className="flex items-center gap-2 min-w-0 overflow-x-auto scrollbar-none">
-        <span className={cn("font-semibold shrink-0", statusClass)}>
-          {statusLabel}
-        </span>
-        {(run.workflowId ?? run.runId) && (
-          <>
-            <InfoPill dim>|</InfoPill>
-            <InfoPill dim>
-              <button
-                type="button"
-                onClick={async () => {
-                  const id = run.workflowId ?? run.runId
-                  if (id) {
-                    await navigator.clipboard.writeText(id)
-                    setWfIdCopied(true)
-                    setTimeout(() => setWfIdCopied(false), 1500)
-                  }
-                }}
-                className="hover:text-foreground transition-colors cursor-pointer"
-                title="Copy workflow ID"
-              >
-                {wfIdCopied ? "Copied!" : formatWorkflowId(run.workflowId ?? run.runId)}
-              </button>
-            </InfoPill>
-          </>
-        )}
-        {run.createdAt && (
-          <>
-            <InfoPill dim>|</InfoPill>
-            <InfoPill>{formatRunDate(run.createdAt)}</InfoPill>
-          </>
-        )}
-        {/* Paper funnel: shows each filtering stage as count -> count -> ... */}
-        {displayFunnelStages.length > 0 ? (
-          <>
-            <InfoPill dim>|</InfoPill>
-            <InfoPill>
-              <span className="flex items-baseline gap-1 flex-wrap">
-                {displayFunnelStages.map((stage, i) => (
-                  <span key={stage.key} className="flex items-baseline gap-1 shrink-0">
-                    {i > 0 && (
-                      <span className="text-muted select-none mx-0.5">&gt;</span>
-                    )}
-                    <span className={cn("font-semibold", stage.colorClass)}>
-                      {stage.count.toLocaleString()}
+          <span className={cn("font-semibold shrink-0", statusClass)}>
+            {statusLabel}
+          </span>
+          {(run.workflowId ?? run.runId) && (
+            <>
+              <InfoPill dim>|</InfoPill>
+              <InfoPill dim>
+                <button
+                  type="button"
+                  onClick={async () => {
+                    const id = run.workflowId ?? run.runId
+                    if (id) {
+                      await navigator.clipboard.writeText(id)
+                      setWfIdCopied(true)
+                      setTimeout(() => setWfIdCopied(false), 1500)
+                    }
+                  }}
+                  className="hover:text-foreground transition-colors cursor-pointer"
+                  title="Copy workflow ID"
+                >
+                  {wfIdCopied ? "Copied!" : formatWorkflowId(run.workflowId ?? run.runId)}
+                </button>
+              </InfoPill>
+            </>
+          )}
+          {run.createdAt && (
+            <>
+              <InfoPill dim>|</InfoPill>
+              <InfoPill>{formatRunDate(run.createdAt)}</InfoPill>
+            </>
+          )}
+          {/* Paper funnel: shows each filtering stage as count -> count -> ... */}
+          {displayFunnelStages.length > 0 ? (
+            <>
+              <InfoPill dim>|</InfoPill>
+              <InfoPill>
+                <span className="flex items-baseline gap-1 flex-wrap">
+                  {displayFunnelStages.map((stage, i) => (
+                    <span key={stage.key} className="flex items-baseline gap-1 shrink-0">
+                      {i > 0 && (
+                        <span className="text-muted select-none mx-0.5">&gt;</span>
+                      )}
+                      <span className={cn("font-semibold", stage.colorClass)}>
+                        {stage.count.toLocaleString()}
+                      </span>
+                      <span className="text-muted">{stage.label}</span>
                     </span>
-                    <span className="text-muted">{stage.label}</span>
-                  </span>
-                ))}
-              </span>
-            </InfoPill>
-          </>
-        ) : (
-          <>
-            {fallbackFound != null && fallbackFound > 0 && (
-              <>
-                <InfoPill dim>|</InfoPill>
-                <InfoPill>
-                  <span className="text-intent-info">{fallbackFound.toLocaleString()}</span>
-                  <span> found</span>
-                </InfoPill>
-              </>
-            )}
-            {fallbackIncluded != null && fallbackIncluded > 0 && (
-              <>
-                <InfoPill dim>|</InfoPill>
-                <InfoPill>
-                  <span className="text-intent-success">{fallbackIncluded.toLocaleString()}</span>
-                  <span> included</span>
-                </InfoPill>
-              </>
-            )}
-          </>
-        )}
-        {displayCost != null && displayCost > 0 && (
-          <>
-            <InfoPill dim>|</InfoPill>
-            <InfoPill>
-              <button
-                onClick={() => onTabChange("cost")}
-                className="text-intent-warning hover:text-intent-warning transition-colors"
-              >
-                ${displayCost.toFixed(3)}
-              </button>
-            </InfoPill>
-          </>
-        )}
+                  ))}
+                </span>
+              </InfoPill>
+            </>
+          ) : (
+            <>
+              {fallbackFound != null && fallbackFound > 0 && (
+                <>
+                  <InfoPill dim>|</InfoPill>
+                  <InfoPill>
+                    <span className="text-intent-info">{fallbackFound.toLocaleString()}</span>
+                    <span> found</span>
+                  </InfoPill>
+                </>
+              )}
+              {fallbackIncluded != null && fallbackIncluded > 0 && (
+                <>
+                  <InfoPill dim>|</InfoPill>
+                  <InfoPill>
+                    <span className="text-intent-success">{fallbackIncluded.toLocaleString()}</span>
+                    <span> included</span>
+                  </InfoPill>
+                </>
+              )}
+            </>
+          )}
+          {displayCost != null && displayCost > 0 && (
+            <>
+              <InfoPill dim>|</InfoPill>
+              <InfoPill>
+                <button
+                  onClick={() => onTabChange("cost")}
+                  className="text-intent-warning hover:text-intent-warning transition-colors"
+                >
+                  ${displayCost.toFixed(3)}
+                </button>
+              </InfoPill>
+            </>
+          )}
         </div>
 
         {isViewingLiveRun && isRunning && (
@@ -369,7 +366,6 @@ export function RunView({
               workflowId={run.workflowId}
               historyOutputs={historyOutputs}
               exportRunId={isDone ? run.runId : null}
-              onGoToSubmissionReferencePapers={onGoToSubmissionReferencePapers}
               submissionFocusTarget={submissionFocusTarget}
               submissionFocusToken={submissionFocusToken}
             />

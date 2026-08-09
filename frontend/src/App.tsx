@@ -113,7 +113,6 @@ function AppShell() {
     handleStartWithMasterlistCsv,
     handleTimelineResumePhase,
     handleTabChange,
-    handleGoToSubmissionReferencePapers,
     openDraftRunShell,
   } = useRunSession()
 
@@ -275,7 +274,11 @@ function AppShell() {
       !isDraftRun &&
       !isViewingLiveRun &&
       ["completed", "done"].includes((selectedRun.historicalStatus ?? "").toLowerCase())
-    const resumeModeActive = completedHistoricalRun
+    const failedHistoricalRun =
+      !isDraftRun &&
+      !isViewingLiveRun &&
+      ["failed", "error", "cancelled", "interrupted"].includes((selectedRun.historicalStatus ?? "").toLowerCase())
+    const resumeModeActive = completedHistoricalRun || failedHistoricalRun
 
     return (
       <RunView
@@ -286,7 +289,6 @@ function AppShell() {
         costStats={isViewingLiveRun ? costStats : { total_cost: 0, total_tokens_in: 0, total_tokens_out: 0, total_calls: 0, by_model: [], by_phase: [] }}
         activeTab={activeRunTab}
         onTabChange={handleTabChange}
-        onGoToSubmissionReferencePapers={handleGoToSubmissionReferencePapers}
         historyOutputs={historyOutputs}
         liveOutputs={isViewingLiveRun ? liveOutputs : {}}
         dbUnlocked={Boolean(dbUnlocked)}
@@ -302,8 +304,8 @@ function AppShell() {
     )
   }
 
-  const breadcrumbTopic = selectedRun?.topic ?? null
   const mainMargin = isMobile ? 0 : sidebarCollapsed ? 56 : sidebarWidth
+  const breadcrumbTopic = selectedRun?.topic ?? null
 
   async function handleCopyTopic() {
     if (!breadcrumbTopic) return
@@ -354,15 +356,14 @@ function AppShell() {
           </div>
         )}
 
-        {/* Top bar -- paddingTop pushes content below the iOS status bar when viewport-fit=cover is active */}
+        {/* Top bar -- topic breadcrumb for runs; "New Review" on setup */}
         <ViewToolbar
           sticky
           bordered
           className="!h-auto shrink-0"
-          style={{ paddingTop: 'env(safe-area-inset-top)' }}
+          style={{ paddingTop: "env(safe-area-inset-top)" }}
         >
           <div className="h-14 flex items-center gap-3 w-full">
-            {/* Hamburger: only visible on mobile to open the sidebar drawer */}
             {isMobile && (
               <button
                 onClick={() => setSidebarCollapsed(false)}
@@ -372,7 +373,6 @@ function AppShell() {
                 <Menu className="h-5 w-5" />
               </button>
             )}
-            {/* Breadcrumb */}
             <TooltipProvider delayDuration={0}>
               <div className="flex items-center gap-1.5 text-sm flex-1 min-w-0">
                 {breadcrumbTopic ? (

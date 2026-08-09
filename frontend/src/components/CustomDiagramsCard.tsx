@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react"
 import { AlertTriangle, ImageIcon, Sparkles } from "lucide-react"
-import { CollapsibleSection } from "@/components/ui/section"
+import { ResultsBlock } from "@/components/ui/section"
 import { Spinner } from "@/components/ui/feedback"
 import { fetchArtifactText, downloadUrl } from "@/lib/api"
 import {
@@ -75,13 +75,11 @@ export function CustomDiagramsCard({ outputs }: CustomDiagramsCardProps) {
   const hasDiagrams = diagrams.length > 0
 
   return (
-    <CollapsibleSection
+    <ResultsBlock
       icon={Sparkles}
       title="Custom diagrams"
-      description="AI-generated figures grounded in included-study evidence"
-      defaultOpen={hasDiagrams}
     >
-      <div className="p-4 flex flex-col gap-4">
+      <div className="flex flex-col gap-4">
         {metaLoading && !hasDiagrams ? (
           <div className="flex items-center gap-2 text-sm text-muted">
             <Spinner size="sm" />
@@ -120,7 +118,7 @@ export function CustomDiagramsCard({ outputs }: CustomDiagramsCardProps) {
           </p>
         ) : null}
       </div>
-    </CollapsibleSection>
+    </ResultsBlock>
   )
 }
 

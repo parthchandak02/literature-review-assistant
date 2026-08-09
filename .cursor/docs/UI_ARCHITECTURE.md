@@ -25,6 +25,35 @@ Primary run tabs (`RunTab` in `frontend/src/context/runSessionTypes.ts`; rendere
 
 `Review Screening` (`review-screening`) is conditional and appears when workflow status is `awaiting_review`.
 
+## Results Tab Categories
+
+The Results tab (`results`) uses a second navigation layer inside `ResultsView` (`frontend/src/views/ResultsView.tsx`). Category ids and resolution logic live in `frontend/src/lib/resultsCategories.ts` (vitest-covered).
+
+| Category id | When shown | Primary content |
+|-------------|------------|-----------------|
+| `manuscript` | `doc_manuscript` artifact exists | `ManuscriptViewer`, export actions in `ManuscriptActions` |
+| `figures` | PRISMA diagram path or custom diagram pipeline | `PrismaDiagramCard`, `CustomDiagramsCard`, figure rows from `ArtifactFileList` |
+| `quality` | Run has `exportRunId` (completed export path) | `GradeSofCard`, `EvidenceNetworkSection` |
+| `files` | Always (with results) | `ProsperoDownloadsCard`, document groups in `ArtifactFileList` |
+| `references` | Always (with results) | `ReferencesView` (`embedded`) |
+
+**Defaults:** Manuscript when present; otherwise Files.
+
+**Deep links:** `submissionFocusTarget === "reference-papers"` opens Files and highlights the Reference papers ZIP row (`SUBMISSION_FOCUS_RESULTS_CATEGORY` in `resultsCategories.ts`).
+
+**Legacy URLs:** `/run/:id/quality` and `/run/:id/references` still parse to the Results tab (`parseRunUrl`); category is not encoded in the URL yet.
+
+## Draft Run Shell
+
+`/run/draft/config` uses the run shell with `ConfigView` in draft mode before a real workflow exists. Not a separate route contract.
+
+## Run Chrome
+
+- **App bar:** topic breadcrumb (copy on click); "New Review" on setup
+- **Run info strip:** single line in `RunView` — status, workflow id, date, paper funnel, cost link, live indicator when streaming
+- **Tabs:** `GlassTabs` row below the info strip
+- **Phase progress:** Activity tab only (`PHASE TIMELINE` + log). No duplicate phase chips in the header.
+
 ## API Usage Boundaries
 
 - Prefer typed helpers in `frontend/src/lib/api.ts`.

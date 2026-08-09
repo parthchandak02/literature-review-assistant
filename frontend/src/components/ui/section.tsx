@@ -105,6 +105,48 @@ export function CollapsibleSection({
 }
 
 // ---------------------------------------------------------------------------
+// ResultsBlock — flat subsection header inside a single Results panel (no nested card)
+// ---------------------------------------------------------------------------
+
+interface ResultsBlockProps {
+  icon?: LucideIcon
+  title: string
+  actions?: React.ReactNode
+  children: React.ReactNode
+  className?: string
+}
+
+export function ResultsBlock({
+  icon: Icon,
+  title,
+  actions,
+  children,
+  className,
+}: ResultsBlockProps) {
+  return (
+    <section
+      className={cn(
+        "flex flex-col gap-3 pb-4 mb-4 border-b border-border/60 last:border-b-0 last:pb-0 last:mb-0",
+        className,
+      )}
+    >
+      <div className="flex items-center justify-between gap-2 min-h-5">
+        <div className="flex items-center gap-2 min-w-0">
+          {Icon && <Icon className="h-3.5 w-3.5 text-muted shrink-0" />}
+          <p className="label-caps">{title}</p>
+        </div>
+        {actions && (
+          <div className="flex items-center gap-1.5 shrink-0" onClick={(e) => e.stopPropagation()}>
+            {actions}
+          </div>
+        )}
+      </div>
+      {children}
+    </section>
+  )
+}
+
+// ---------------------------------------------------------------------------
 // PageSection
 // ---------------------------------------------------------------------------
 
