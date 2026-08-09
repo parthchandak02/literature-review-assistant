@@ -227,8 +227,15 @@ async def _delete_stale_search_results(db: aiosqlite.Connection, workflow_id: st
     return int(cursor.rowcount)
 
 
+async def _search_results_columns(db: aiosqlite.Connection) -> set[str]:
+    async with db.execute("PRAGMA table_info(search_results)") as cur:
+        rows = await cur.fetchall()
+    return {str(row[1]) for row in rows}
+
+
 async def _insert_search_result_row(db: aiosqlite.Connection, result: SearchResult) -> None:
     """Insert or merge search_results row (add CSV counts to existing connector totals)."""
+    columns = await _search_results_columns(db)
     async with db.execute(
         """
         SELECT records_retrieved FROM search_results
@@ -267,25 +274,44 @@ async def _insert_search_result_row(db: aiosqlite.Connection, result: SearchResu
         )
         return
 
-    await db.execute(
-        """
-        INSERT INTO search_results (
-            database_name, source_category, search_date, search_query,
-            limits_applied, records_retrieved, diagnostic_cause, query_variant, workflow_id
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """,
-        (
-            result.database_name,
-            result.source_category.value,
-            result.search_date,
-            result.search_query,
-            result.limits_applied,
-            result.records_retrieved,
-            result.diagnostic_cause,
-            result.query_variant or "primary",
-            result.workflow_id,
-        ),
-    )
+    if "diagnostic_cause" in columns:
+        await db.execute(
+            """
+            INSERT INTO search_results (
+                database_name, source_category, search_date, search_query,
+                limits_applied, records_retrieved, diagnostic_cause, query_variant, workflow_id
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                result.database_name,
+                result.source_category.value,
+                result.search_date,
+                result.search_query,
+                result.limits_applied,
+                result.records_retrieved,
+                result.diagnostic_cause,
+                result.query_variant or "primary",
+                result.workflow_id,
+            ),
+        )
+    else:
+        await db.execute(
+            """
+            INSERT INTO search_results (
+                database_name, source_category, search_date, search_query,
+                limits_applied, records_retrieved, workflow_id
+            ) VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                result.database_name,
+                result.source_category.value,
+                result.search_date,
+                result.search_query,
+                result.limits_applied,
+                result.records_retrieved,
+                result.workflow_id,
+            ),
+        )
 
 
 async def _papers_has_journal_column(db: aiosqlite.Connection) -> bool:
