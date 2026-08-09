@@ -334,7 +334,7 @@ async def run_search_node(state: ReviewState, ctx: GraphRunContext[ReviewState])
         if supp_paths:
             try:
                 supp_results = parse_supplementary_csvs(supp_paths, state.workflow_id)
-                await asyncio.gather(*[repository.save_search_result(sr) for sr in supp_results])
+                await asyncio.gather(*[repository.merge_search_result(sr) for sr in supp_results])
                 for sr in supp_results:
                     all_papers.extend(sr.papers)
                     if rc:

@@ -170,6 +170,67 @@ class PapersRepo:
             await self.save_paper(paper)
         await self.db.commit()
 
+    async def merge_search_result(self, result: SearchResult) -> None:
+        """Add supplementary import counts to an existing connector row when present."""
+        cursor = await self.db.execute(
+            """
+            SELECT records_retrieved FROM search_results
+            WHERE workflow_id = ?
+              AND database_name = ?
+              AND source_category = ?
+            """,
+            (
+                result.workflow_id,
+                result.database_name,
+                result.source_category.value,
+            ),
+        )
+        row = await cursor.fetchone()
+        if row:
+            merged = int(row[0]) + int(result.records_retrieved)
+            await self.db.execute(
+                """
+                UPDATE search_results
+                SET records_retrieved = ?,
+                    search_date = ?,
+                    search_query = ?
+                WHERE workflow_id = ?
+                  AND database_name = ?
+                  AND source_category = ?
+                """,
+                (
+                    merged,
+                    result.search_date,
+                    result.search_query,
+                    result.workflow_id,
+                    result.database_name,
+                    result.source_category.value,
+                ),
+            )
+        else:
+            await self.db.execute(
+                """
+                INSERT INTO search_results (
+                    database_name, source_category, search_date, search_query,
+                    limits_applied, records_retrieved, diagnostic_cause, query_variant, workflow_id
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    result.database_name,
+                    result.source_category.value,
+                    result.search_date,
+                    result.search_query,
+                    result.limits_applied,
+                    result.records_retrieved,
+                    result.diagnostic_cause,
+                    result.query_variant or "primary",
+                    result.workflow_id,
+                ),
+            )
+        for paper in result.papers:
+            await self.save_paper(paper)
+        await self.db.commit()
+
     async def get_search_counts(self, workflow_id: str) -> dict[str, int]:
         cursor = await self.db.execute(
             """
