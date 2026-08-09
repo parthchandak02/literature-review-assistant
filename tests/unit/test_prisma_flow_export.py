@@ -9,7 +9,7 @@ from pathlib import Path
 import pytest
 
 from src.db.database import get_db
-from src.export.prisma_flow_export import build_prisma_flow_zip_bytes
+from src.export.prisma_flow_export import build_prisma_flow_zip_bytes, export_prisma_flow_to_directory
 
 
 @pytest.mark.asyncio
@@ -109,3 +109,23 @@ async def test_build_prisma_flow_zip_contains_expected_csvs(tmp_path: Path) -> N
 
         search_csv = archive.read("search_identification.csv").decode("utf-8")
         assert "pubmed" in search_csv
+
+
+@pytest.mark.asyncio
+async def test_export_prisma_flow_to_directory_writes_supplementary_files(tmp_path: Path) -> None:
+    workflow_id = "wf-prisma-dir"
+    db_path = tmp_path / "runtime.db"
+    out_dir = tmp_path / "supplementary"
+
+    async with get_db(str(db_path)) as db:
+        await db.execute(
+            "INSERT INTO workflows (workflow_id, topic, config_hash, status, dedup_count) VALUES (?, ?, ?, ?, ?)",
+            (workflow_id, "Topic", "hash", "completed", 0),
+        )
+        await db.commit()
+
+    await export_prisma_flow_to_directory(out_dir, str(db_path), workflow_id)
+    assert (out_dir / "prisma_flow_summary.csv").exists()
+    assert (out_dir / "prisma_records.csv").exists()
+    assert (out_dir / "search_identification.csv").exists()
+    assert (out_dir / "README_prisma_flow.txt").exists()

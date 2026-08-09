@@ -13,7 +13,7 @@ from collections.abc import AsyncGenerator
 import aiofiles
 import aiosqlite
 from fastapi import APIRouter, HTTPException, Request
-from fastapi.responses import StreamingResponse
+from fastapi.responses import FileResponse, StreamingResponse
 from sse_starlette.sse import EventSourceResponse
 
 from src.export.prisma_flow_export import build_prisma_flow_zip_bytes
@@ -257,6 +257,37 @@ async def get_prisma_checklist(run_id: str) -> dict:
             for item in result.items
         ],
     }
+
+
+@router.get("/api/run/{run_id}/prisma-diagram.png")
+async def download_prisma_diagram_png(run_id: str) -> FileResponse:
+    """Serve the latest PRISMA flow diagram PNG for a run (bypasses browser cache on artifact path)."""
+    resolved_db: str | None = None
+    try:
+        resolved_db = _get_db_path(run_id)
+    except HTTPException:
+        resolved_db = await _resolve_db_path("runs", run_id)
+        if resolved_db is None:
+            raise HTTPException(status_code=404, detail="Run not found")
+
+    run_dir = pathlib.Path(resolved_db).parent
+    candidates = [
+        run_dir / "fig_prisma_flow.png",
+        run_dir / "submission" / "figures" / "fig_prisma_flow.png",
+    ]
+    diagram_path = next((p for p in candidates if p.exists()), None)
+    if diagram_path is None:
+        raise HTTPException(status_code=404, detail="PRISMA diagram not found for this run")
+
+    workflow_id = await _resolve_workflow_id_from_db(resolved_db) or run_id
+    topic = await _get_topic_for_db(resolved_db)
+    download_name = _make_download_slug(workflow_id, topic) + "_prisma_flow.png"
+    return FileResponse(
+        path=str(diagram_path),
+        filename=download_name,
+        media_type="image/png",
+        headers={"Cache-Control": "no-store"},
+    )
 
 
 @router.get("/api/run/{run_id}/prisma-flow.zip")

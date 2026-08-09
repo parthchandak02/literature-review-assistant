@@ -7,7 +7,36 @@ from pathlib import Path
 from unittest.mock import patch
 
 from src.models import PRISMACounts
-from src.prisma.diagram import render_prisma_diagram
+from src.prisma.diagram import _map_counts_to_library_format, render_prisma_diagram
+
+
+def test_map_counts_to_library_format_lists_per_database_breakdown() -> None:
+    """Identification box should list each database connector separately."""
+    counts = PRISMACounts(
+        databases_records={"scopus": 500, "ieee_xplore": 200},
+        other_sources_records={"CSV Import": 1316},
+        total_identified_databases=700,
+        total_identified_other=1316,
+        duplicates_removed=143,
+        automation_excluded=29,
+        records_screened=1865,
+        records_excluded_screening=1621,
+        reports_sought=244,
+        reports_not_retrieved=156,
+        reports_assessed=88,
+        reports_excluded_with_reasons={"wrong_population": 5},
+        studies_included_qualitative=0,
+        studies_included_quantitative=41,
+        arithmetic_valid=True,
+    )
+    db_registers, included, other_methods = _map_counts_to_library_format(counts)
+    assert db_registers["identification"]["databases"] == {
+        "Scopus": 500,
+        "IEEE Xplore": 200,
+        "CSV Import": 1316,
+    }
+    assert other_methods is None
+    assert included["studies"] == 41
 
 
 def test_render_prisma_diagram_creates_file() -> None:
