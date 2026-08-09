@@ -11,7 +11,7 @@ export {
   type StoredApiKeys,
   type StoredLiveRun,
 } from "./storage"
-export { downloadUrl, studyFilesZipUrl, submissionZipUrl } from "./urls"
+export { downloadUrl, prismaDiagramUrl, studyFilesZipUrl, submissionZipUrl } from "./urls"
 export {
   fetchRunEvents,
   fetchWorkflowEvents,

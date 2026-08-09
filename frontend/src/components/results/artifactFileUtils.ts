@@ -96,7 +96,11 @@ export function fileGroupKey(file: OutputFile): DocGroup {
     name === "submission.zip" ||
     name === "references.bib" ||
     name === "cover_letter.md" ||
-    name.startsWith("prisma_checklist.")
+    name.startsWith("prisma_checklist.") ||
+    name.startsWith("prisma_flow_") ||
+    name === "prisma_records.csv" ||
+    name === "search_identification.csv" ||
+    name === "readme_prisma_flow.txt"
   ) return "submission"
   if (
     /\.(docx)$/i.test(name) ||

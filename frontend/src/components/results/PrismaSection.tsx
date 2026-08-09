@@ -1,7 +1,8 @@
 import { Download, FileText } from "lucide-react"
 import { Button } from "@/components/ui/button"
-import { CollapsibleSection } from "@/components/ui/section"
-import { downloadUrl, prismaFlowZipUrl } from "@/lib/api"
+import { ResultsBlock } from "@/components/ui/section"
+import { downloadUrl, prismaDiagramUrl, prismaFlowZipUrl } from "@/lib/api"
+import { RESULTS_DOWNLOAD_BTN_CLS } from "./resultsShared"
 
 interface PrismaDiagramCardProps {
   filePath: string
@@ -10,18 +11,16 @@ interface PrismaDiagramCardProps {
 
 export function PrismaDiagramCard({ filePath, runId }: PrismaDiagramCardProps) {
   return (
-    <CollapsibleSection
+    <ResultsBlock
       icon={FileText}
       title="PRISMA Diagram"
-      defaultOpen={false}
       actions={
         runId ? (
           <Button
             size="sm"
             variant="outline"
             asChild
-            className="h-7 gap-1 text-xs border-border text-foreground"
-            onClick={(e) => e.stopPropagation()}
+            className={RESULTS_DOWNLOAD_BTN_CLS}
           >
             <a href={prismaFlowZipUrl(runId)} download title="Download PRISMA flow data (summary + per-paper records)">
               <Download className="h-3 w-3" />
@@ -31,11 +30,13 @@ export function PrismaDiagramCard({ filePath, runId }: PrismaDiagramCardProps) {
         ) : null
       }
     >
-      <div className="p-4">
-        <div className="rounded-xl border border-border bg-card p-2">
-          <img src={downloadUrl(filePath)} alt="PRISMA flow diagram" className="w-full h-auto rounded-lg" />
-        </div>
+      <div className="rounded-lg border border-border bg-card p-2">
+        <img
+          src={runId ? prismaDiagramUrl(runId) : downloadUrl(filePath)}
+          alt="PRISMA flow diagram"
+          className="w-full h-auto rounded-lg"
+        />
       </div>
-    </CollapsibleSection>
+    </ResultsBlock>
   )
 }

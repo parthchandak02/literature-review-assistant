@@ -12,6 +12,7 @@ export {
   saveApiKeys,
   saveLiveRun,
   downloadUrl,
+  prismaDiagramUrl,
   studyFilesZipUrl,
   submissionZipUrl,
   fetchRunEvents,

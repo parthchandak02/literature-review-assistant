@@ -2,13 +2,14 @@ import { useCallback, useEffect, useMemo, useState } from "react"
 import { AlertTriangle, Download, FileCode, FileType, RefreshCw } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Spinner } from "@/components/ui/feedback"
-import { APIResponseError, downloadUrl, triggerExport } from "@/lib/api"
+import { APIResponseError, downloadUrl, submissionZipUrl, triggerExport } from "@/lib/api"
 import {
   findFileByName,
   formatExportError,
   hasCompleteSubmission,
   hasPartialSubmission,
 } from "./manuscriptUtils"
+import { RESULTS_DOWNLOAD_BTN_CLS } from "./resultsShared"
 
 type ExportState = "idle" | "loading" | "done" | "error"
 
@@ -119,7 +120,9 @@ export function ManuscriptActions({
     [mergedOutputs, docxPath],
   )
 
-  const sharedCls = "h-7 gap-1 text-xs border-border text-muted hover:text-foreground hover:border-border"
+  const sharedCls = RESULTS_DOWNLOAD_BTN_CLS
+
+  const submissionReady = completeSubmission || exportState === "done"
 
   return (
     <div className="flex items-center gap-1.5">
@@ -186,6 +189,18 @@ export function ManuscriptActions({
             >
               <RefreshCw className="h-3 w-3 text-intent-success" />
               Refresh
+            </Button>
+          )}
+          {exportRunId && submissionReady && (
+            <Button
+              size="sm"
+              asChild
+              className="h-7 gap-1 text-xs bg-intent-success hover:bg-intent-success text-intent-success-fg border-0 shadow-none"
+            >
+              <a href={submissionZipUrl(exportRunId)} download title="Download full IEEE submission package">
+                <Download className="h-3 w-3" />
+                Submission Package
+              </a>
             </Button>
           )}
         </>

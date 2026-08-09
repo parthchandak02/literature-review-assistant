@@ -32,6 +32,7 @@ import {
   parseCsv,
   resolveFileUrl,
 } from "./artifactFileUtils"
+import { RESULTS_DOWNLOAD_BTN_CLS } from "./resultsShared"
 
 hljs.registerLanguage("latex", latex)
 
@@ -44,6 +45,10 @@ export interface ArtifactFileListProps {
   /** Optional highlight target for deep-linking into Submission Files. */
   submissionFocusTarget?: "reference-papers" | null
   submissionFocusToken?: number
+  /** When true, only render figure rows (no document groups). */
+  figuresOnly?: boolean
+  /** When true, skip the Figures section (document groups only). */
+  hideFigures?: boolean
 }
 
 function FileRow({ file }: { file: OutputFile }) {
@@ -52,9 +57,9 @@ function FileRow({ file }: { file: OutputFile }) {
     <div className="flex items-center justify-between gap-2">
       <span className="flex items-center gap-2 min-w-0">
         <Icon className={`h-4 w-4 shrink-0 ${iconClass}`} />
-        <span className="text-sm truncate text-muted">{file.label}</span>
+        <span className="text-sm truncate text-foreground">{file.label}</span>
       </span>
-      <Button size="sm" variant="outline" asChild className="shrink-0 border-border text-muted hover:text-foreground">
+      <Button size="sm" variant="outline" asChild className={`shrink-0 ${RESULTS_DOWNLOAD_BTN_CLS}`}>
         <a href={resolveFileUrl(file.path)} download={file.label} className="gap-1.5">
           <Download className="h-3.5 w-3.5" />
           Download
@@ -223,7 +228,7 @@ function InlineDocRow({ file }: { file: OutputFile }) {
       <div className="flex items-center justify-between gap-2">
         <span className="flex items-center gap-2 min-w-0">
           <Icon className={`h-4 w-4 shrink-0 ${iconClass}`} />
-          <span className="text-sm truncate text-muted">{file.label}</span>
+          <span className="text-sm truncate text-foreground">{file.label}</span>
         </span>
         <div className="flex items-center gap-1.5 shrink-0">
           <Button
@@ -231,7 +236,7 @@ function InlineDocRow({ file }: { file: OutputFile }) {
             variant="ghost"
             onClick={handleToggle}
             disabled={loading}
-            className="border border-border gap-1 text-muted hover:text-foreground"
+            className={`border border-border gap-1 ${RESULTS_DOWNLOAD_BTN_CLS}`}
           >
             {loading ? "Loading..." : open ? (
               <><ChevronUp className="h-3.5 w-3.5" />Hide</>
@@ -239,7 +244,7 @@ function InlineDocRow({ file }: { file: OutputFile }) {
               <><ChevronDown className="h-3.5 w-3.5" />View</>
             )}
           </Button>
-          <Button size="sm" variant="outline" asChild className="border-border text-muted hover:text-foreground">
+          <Button size="sm" variant="outline" asChild className={RESULTS_DOWNLOAD_BTN_CLS}>
             <a href={resolveFileUrl(file.path)} download={file.label} className="gap-1.5">
               <Download className="h-3.5 w-3.5" />
               Download
@@ -270,10 +275,10 @@ function FigureRow({ file }: { file: OutputFile }) {
       <div className="flex items-center justify-between gap-2">
         <span className="flex items-center gap-2 min-w-0">
           <Icon className={`h-4 w-4 shrink-0 ${iconClass}`} />
-          <span className="text-sm truncate text-muted">{file.label}</span>
+          <span className="text-sm truncate text-foreground">{file.label}</span>
         </span>
         {!imgError ? (
-          <Button size="sm" variant="outline" asChild className="shrink-0 border-border text-muted hover:text-foreground">
+          <Button size="sm" variant="outline" asChild className={`shrink-0 ${RESULTS_DOWNLOAD_BTN_CLS}`}>
             <a href={resolveFileUrl(file.path)} download={file.label} className="gap-1.5">
               <Download className="h-3.5 w-3.5" />
               Download
@@ -335,6 +340,8 @@ export function ArtifactFileList({
   runId = null,
   submissionFocusTarget = null,
   submissionFocusToken = 0,
+  figuresOnly = false,
+  hideFigures = false,
 }: ArtifactFileListProps) {
   const allFiles = collectFiles(outputs)
   const files = excludePaths
@@ -368,6 +375,19 @@ export function ArtifactFileList({
 
   if (files.length === 0) {
     return <EmptyState icon={FileText} heading="No output files to display." className="py-16" />
+  }
+
+  if (figuresOnly) {
+    if (figs.length === 0) {
+      return <EmptyState icon={FileText} heading="No figures in this run." className="py-10" />
+    }
+    return (
+      <div className="flex flex-col gap-3">
+        {figs.map((f) => (
+          <FigureRow key={f.key} file={f} />
+        ))}
+      </div>
+    )
   }
 
   const groupedDocs = buildGroupedDocs(docs, runId)
@@ -407,7 +427,7 @@ export function ArtifactFileList({
         )
       })}
 
-      {figs.length > 0 && (
+      {!hideFigures && figs.length > 0 && (
         <div>
           <p className="label-caps pb-2">Figures</p>
           <div className="flex flex-col gap-3">

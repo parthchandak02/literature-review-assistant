@@ -1,7 +1,13 @@
 const BASE = "/api"
 
-export function downloadUrl(path: string): string {
-  return `${BASE}/download?path=${encodeURIComponent(path)}`
+export function downloadUrl(path: string, cacheBust?: string | number): string {
+  const base = `${BASE}/download?path=${encodeURIComponent(path)}`
+  if (cacheBust == null) return base
+  return `${base}&v=${encodeURIComponent(String(cacheBust))}`
+}
+
+export function prismaDiagramUrl(runId: string): string {
+  return `${BASE}/run/${encodeURIComponent(runId)}/prisma-diagram.png`
 }
 
 export function submissionZipUrl(runId: string): string {

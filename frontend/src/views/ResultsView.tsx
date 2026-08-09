@@ -1,12 +1,18 @@
 import { useEffect, useMemo, useState } from "react"
-import { FileText, BookOpen, Download, Lock } from "lucide-react"
-import { Button } from "@/components/ui/button"
+import {
+  FileText,
+  BookOpen,
+  Lock,
+  Image,
+  ShieldCheck,
+  FolderOpen,
+} from "lucide-react"
 import { EmptyState } from "@/components/ui/feedback"
-import { CollapsibleSection } from "@/components/ui/section"
+import { ViewToolbar } from "@/components/ui/view-toolbar"
 import { CustomDiagramsCard } from "@/components/CustomDiagramsCard"
 import { ResultsPanel } from "@/components/ResultsPanel"
 import { ReferencesView } from "@/views/ReferencesView"
-import { collectCustomDiagramItems } from "@/lib/customDiagrams"
+import { collectCustomDiagramItems, customDiagramPipelineTouched } from "@/lib/customDiagrams"
 import { submissionZipUrl } from "@/lib/api"
 import { ManuscriptViewer } from "@/components/results/ManuscriptViewer"
 import { ManuscriptActions } from "@/components/results/ManuscriptActions"
@@ -15,9 +21,19 @@ import { ProsperoDownloadsCard } from "@/components/results/ProsperoSection"
 import { PrismaDiagramCard } from "@/components/results/PrismaSection"
 import { EvidenceNetworkSection } from "@/components/results/EvidenceNetworkSection"
 import {
+  ResultsCategoryNav,
+  type ResultsCategoryItem,
+} from "@/components/results/ResultsCategoryNav"
+import type { ResultsCategory } from "@/lib/resultsCategories"
+import {
+  buildResultsCategoryIds,
+  defaultResultsCategory,
+  resolveActiveResultsCategory,
+  SUBMISSION_FOCUS_RESULTS_CATEGORY,
+} from "@/lib/resultsCategories"
+import {
   findAllFilesByExt,
   findFileByName,
-  hasSubmissionArtifacts,
 } from "@/components/results/manuscriptUtils"
 
 interface ResultsViewProps {
@@ -27,7 +43,6 @@ interface ResultsViewProps {
   workflowId: string | null
   historyOutputs?: Record<string, string>
   exportRunId?: string | null
-  onGoToSubmissionReferencePapers?: () => void
   submissionFocusTarget?: "reference-papers" | null
   submissionFocusToken?: number
 }
@@ -39,7 +54,6 @@ export function ResultsView({
   workflowId,
   historyOutputs = {},
   exportRunId,
-  onGoToSubmissionReferencePapers,
   submissionFocusTarget = null,
   submissionFocusToken = 0,
 }: ResultsViewProps) {
@@ -62,9 +76,6 @@ export function ResultsView({
   const isHistorical = !isDone && Object.keys(historyOutputs).length > 0
   const hasResults = isDone || isHistorical
   const canExport = exportRunId != null && hasResults
-  const [artifactsOpen, setArtifactsOpen] = useState(false)
-  const [referencesOpen, setReferencesOpen] = useState(false)
-  const [submissionReady, setSubmissionReady] = useState(false)
 
   const manuscriptPath = useMemo(
     () => findFileByName(effectiveOutputs, "doc_manuscript"),
@@ -89,7 +100,12 @@ export function ResultsView({
     [effectiveOutputs],
   )
 
-  // Paths to exclude from Artifacts panel (they live in the left panel header actions)
+  const hasCustomDiagrams = useMemo(
+    () => collectCustomDiagramItems(effectiveOutputs).length > 0 || customDiagramPipelineTouched(effectiveOutputs),
+    [effectiveOutputs],
+  )
+
+  // Paths excluded from Files list (shown in Manuscript or Figures categories)
   const manuscriptExcludePaths = useMemo<Set<string>>(() => {
     const paths = new Set<string>()
     if (manuscriptPath) paths.add(manuscriptPath)
@@ -101,15 +117,42 @@ export function ResultsView({
     return paths
   }, [effectiveOutputs, manuscriptPath, docxPath, customDiagramPaths, prismaDiagramPath])
 
-  useEffect(() => {
-    setSubmissionReady(hasSubmissionArtifacts(effectiveOutputs))
-  }, [effectiveOutputs])
+  const categoryIds = useMemo(
+    () =>
+      buildResultsCategoryIds({
+        hasManuscript: Boolean(manuscriptPath),
+        hasFiguresSection: Boolean(prismaDiagramPath) || hasCustomDiagrams,
+        hasExportRunId: Boolean(exportRunId),
+      }),
+    [manuscriptPath, prismaDiagramPath, hasCustomDiagrams, exportRunId],
+  )
+
+  const categoryItems = useMemo<ResultsCategoryItem[]>(() => {
+    const byId: Record<ResultsCategory, ResultsCategoryItem> = {
+      manuscript: { id: "manuscript", label: "Manuscript", icon: FileText },
+      figures: { id: "figures", label: "Figures", icon: Image },
+      quality: { id: "quality", label: "Quality", icon: ShieldCheck },
+      files: { id: "files", label: "Files", icon: FolderOpen },
+      references: { id: "references", label: "References", icon: BookOpen },
+    }
+    return categoryIds.map((id) => byId[id])
+  }, [categoryIds])
+
+  const [category, setCategory] = useState<ResultsCategory>(() =>
+    defaultResultsCategory(Boolean(manuscriptPath)),
+  )
 
   useEffect(() => {
-    if (submissionFocusTarget && !artifactsOpen) {
-      setArtifactsOpen(true)
+    setCategory(defaultResultsCategory(Boolean(manuscriptPath)))
+  }, [manuscriptPath, runId])
+
+  useEffect(() => {
+    if (submissionFocusTarget === "reference-papers") {
+      setCategory(SUBMISSION_FOCUS_RESULTS_CATEGORY)
     }
-  }, [submissionFocusTarget, submissionFocusToken, artifactsOpen])
+  }, [submissionFocusTarget, submissionFocusToken])
+
+  const activeCategory = resolveActiveResultsCategory(category, categoryIds)
 
   if (!hasResults) {
     return (
@@ -134,95 +177,85 @@ export function ResultsView({
 
   return (
     <div className="flex flex-col gap-3 min-h-[520px]">
-      {manuscriptPath && (
-        <CollapsibleSection
-          icon={FileText}
-          title="Manuscript"
-          defaultOpen={false}
-          actions={
-            <ManuscriptActions
-              docxPath={docxPath}
-              canExport={canExport}
-              exportRunId={exportRunId}
-              allOutputs={effectiveOutputs}
-              onExportReadyChange={setSubmissionReady}
+      <ResultsCategoryNav
+        items={categoryItems}
+        activeCategory={activeCategory}
+        onCategoryChange={setCategory}
+      />
+
+      <div
+        className="card-surface overflow-hidden min-h-[480px]"
+        role="tabpanel"
+        id={`tabpanel-${activeCategory}`}
+        aria-labelledby={`tab-${activeCategory}`}
+      >
+        {activeCategory === "manuscript" && manuscriptPath && (
+          <>
+            <ViewToolbar
+              className="!h-auto py-3"
+              title={
+                <span className="text-sm font-medium text-foreground">Manuscript</span>
+              }
+              actions={
+                <ManuscriptActions
+                  docxPath={docxPath}
+                  canExport={canExport}
+                  exportRunId={exportRunId}
+                  allOutputs={effectiveOutputs}
+                />
+              }
             />
-          }
-        >
-          <ManuscriptViewer filePath={manuscriptPath} />
-        </CollapsibleSection>
-      )}
+            <ManuscriptViewer filePath={manuscriptPath} />
+          </>
+        )}
 
-      <CollapsibleSection
-        icon={FileText}
-        title="Artifacts"
-        description="Protocol, data files, figures, quality summaries"
-        open={artifactsOpen}
-        onToggle={() => setArtifactsOpen((v) => !v)}
-        actions={
-          exportRunId ? (
-            submissionReady ? (
-              <Button
-                size="sm"
-                asChild
-                className="h-7 gap-1 text-xs bg-intent-success hover:bg-intent-success text-intent-success-fg border-0 shadow-none"
-              >
-                <a href={submissionZipUrl(exportRunId)} download>
-                  <Download className="h-3 w-3" />
-                  Submission Package
-                </a>
-              </Button>
-            ) : (
-              <Button
-                size="sm"
-                disabled
-                className="h-7 gap-1 text-xs bg-surface-2 text-muted border-0 shadow-none cursor-not-allowed"
-                title="Run manuscript export first"
-              >
-                <Download className="h-3 w-3" />
-                Submission Package
-              </Button>
-            )
-          ) : null
-        }
-      >
-        <div className="p-4 space-y-3">
-          {prismaDiagramPath ? <PrismaDiagramCard filePath={prismaDiagramPath} runId={exportRunId} /> : null}
+        {activeCategory === "figures" && (
+          <div className="p-4 space-y-1">
+            {prismaDiagramPath ? (
+              <PrismaDiagramCard filePath={prismaDiagramPath} runId={exportRunId} />
+            ) : null}
+            <CustomDiagramsCard outputs={effectiveOutputs} />
+            <ResultsPanel
+              outputs={effectiveOutputs}
+              excludePaths={manuscriptExcludePaths}
+              runId={exportRunId}
+              figuresOnly
+            />
+          </div>
+        )}
 
-          <CustomDiagramsCard outputs={effectiveOutputs} />
+        {activeCategory === "quality" && exportRunId && (
+          <div className="p-4 space-y-1">
+            <GradeSofCard runId={exportRunId} />
+            <EvidenceNetworkSection runId={exportRunId} />
+          </div>
+        )}
 
-          {exportRunId ? <GradeSofCard runId={exportRunId} /> : null}
+        {activeCategory === "files" && (
+          <div className="p-4 space-y-1">
+            {exportRunId ? <ProsperoDownloadsCard runId={exportRunId} /> : null}
+            <ResultsPanel
+              outputs={effectiveOutputs}
+              excludePaths={manuscriptExcludePaths}
+              runId={exportRunId}
+              hideFigures
+              submissionFocusTarget={submissionFocusTarget}
+              submissionFocusToken={submissionFocusToken}
+            />
+          </div>
+        )}
 
-          {exportRunId ? <ProsperoDownloadsCard runId={exportRunId} /> : null}
-
-          {exportRunId ? <EvidenceNetworkSection runId={exportRunId} /> : null}
-
-          <ResultsPanel
-            outputs={effectiveOutputs}
-            excludePaths={manuscriptExcludePaths}
-            runId={exportRunId}
-            submissionFocusTarget={submissionFocusTarget}
-            submissionFocusToken={submissionFocusToken}
-          />
-        </div>
-      </CollapsibleSection>
-
-      <CollapsibleSection
-        icon={BookOpen}
-        title="References"
-        description="Included studies and source files"
-        open={referencesOpen}
-        onToggle={() => setReferencesOpen((v) => !v)}
-      >
-        <div className="p-4">
-          <ReferencesView
-            runId={runId}
-            workflowId={workflowId}
-            isDone={isDone}
-            onGoToSubmissionReferencePapers={onGoToSubmissionReferencePapers}
-          />
-        </div>
-      </CollapsibleSection>
+        {activeCategory === "references" && (
+          <div className="p-4">
+            <ReferencesView
+              runId={runId}
+              workflowId={workflowId}
+              isDone={isDone}
+              embedded
+            />
+          </div>
+        )}
+      </div>
     </div>
   )
 }

@@ -351,7 +351,7 @@
   }
 
   /* ------------------------------------------------------------------ */
-  /* Reduced motion (frontend-design-taste pre-flight)                   */
+  /* Reduced motion (frontend pre-flight)                   */
   /* ------------------------------------------------------------------ */
   @media (prefers-reduced-motion: reduce) {
     .glass-interactive,
