@@ -14,16 +14,21 @@ def test_parse_masterlist_csv_parses_scopus_headers(tmp_path: Path) -> None:
     csv_path = tmp_path / "masterlist.csv"
     csv_path.write_text(
         "Authors,Title,Year,Source title,DOI,Link,Abstract,Author Keywords\n"
-        '"A. Author; B. Author","Test Paper",2024,"Journal X","10.1000/abc","https://example.org","Some abstract","kw1; kw2"\n',
+        '"A. Author; B. Author","Test Paper",2024,"Journal X","10.1000/abc",'
+        '"https://www.scopus.com/inward/record.uri?eid=2-s2.0-123","Some abstract","kw1; kw2"\n',
         encoding="utf-8",
     )
 
-    result = parse_masterlist_csv(str(csv_path), workflow_id="wf-test")
+    results = parse_masterlist_csv(str(csv_path), workflow_id="wf-test")
+    assert len(results) == 1
+    result = results[0]
     assert result.records_retrieved == 1
-    assert result.database_name == "CSV Import"
+    assert result.database_name == "scopus"
     assert result.papers[0].title == "Test Paper"
     assert result.papers[0].doi == "10.1000/abc"
-    assert result.papers[0].source_category == SourceCategory.OTHER_SOURCE
+    assert result.papers[0].journal == "Journal X"
+    assert result.papers[0].source_database == "scopus"
+    assert result.papers[0].source_category == SourceCategory.DATABASE
 
 
 def test_parse_masterlist_csv_missing_title_column_raises(tmp_path: Path) -> None:
@@ -46,13 +51,14 @@ def test_parse_masterlist_csv_handles_cp1252_and_semicolon(tmp_path: Path) -> No
     csv_path = tmp_path / "latin.csv"
     content = (
         "Authors;Title;Year;Source title;DOI;Link;Abstract;Author Keywords\n"
-        'A. Author;Therapy efficacy;2023;Journal Y;10.1000/xyz;https://example.org;Summary;"term1,term2"\n'
+        'A. Author;Therapy efficacy;2023;Journal Y;10.1000/xyz;'
+        "https://www.scopus.com/inward/record.uri?eid=2-s2.0-456;Summary;term1,term2\n"
     )
     csv_path.write_bytes(content.encode("cp1252"))
 
-    result = parse_masterlist_csv(str(csv_path), workflow_id="wf-test")
-    assert result.records_retrieved == 1
-    assert result.papers[0].title == "Therapy efficacy"
+    results = parse_masterlist_csv(str(csv_path), workflow_id="wf-test")
+    assert results[0].records_retrieved == 1
+    assert results[0].papers[0].title == "Therapy efficacy"
 
 
 def test_deduplicate_prefers_richer_metadata_for_same_doi() -> None:
