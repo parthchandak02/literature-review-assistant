@@ -76,3 +76,7 @@ ecosystem.config.js
 
 # Reference materials (PDFs, manuscripts -- not source code)
 reference/
+
+# Institutional session exports (operator-local; never commit)
+*scopus*cookies*
+*.har

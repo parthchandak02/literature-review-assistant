@@ -19,3 +19,8 @@ Copy example
 ^\.[e]nv$
 ^\.[e]nv\.local$
 ^\.v[e]nv/
+^v[e]nv/$
+\.gitignore:[0-9]+:\.[e]nv
+\.gitignore:[0-9]+:\.[e]nv\.local
+\.gitignore:[0-9]+:\.v[e]nv/
+\.gitignore:[0-9]+:v[e]nv/
