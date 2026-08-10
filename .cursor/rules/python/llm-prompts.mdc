@@ -1,5 +1,5 @@
 ---
-description:
+description: LLM prompt patterns for pipeline phases
 globs: src/screening/**/*.py, src/extraction/**/*.py, src/quality/**/*.py, src/writing/**/*.py
 alwaysApply: false
 ---

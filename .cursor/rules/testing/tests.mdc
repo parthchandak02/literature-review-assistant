@@ -1,5 +1,5 @@
 ---
-description:
+description: Test patterns and conventions
 globs: tests/**/*.py
 alwaysApply: false
 ---
@@ -44,10 +44,10 @@ uv run pytest tests/integration -q   # slower, may use LLM
 
 ## Environment / API Keys In Tests
 `tests/conftest.py` (project root) calls `load_dotenv(override=True)` at pytest session
-start. This ensures `.env` values take precedence over any stale key exported in the shell.
+start. This ensures local dotenv values take precedence over any stale key exported in the shell.
 Tests that require a real LLM key should use `pytest.mark.skipif(not (os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")), ...)`.
 The application uses `GEMINI_API_KEY`; `GOOGLE_API_KEY` is an older alias some shell environments still export.
-Do NOT rely on a key being set in the shell -- always ensure `.env` is populated and that
+Do NOT rely on a key being set in the shell -- always ensure the project dotenv file is populated and that
 `tests/conftest.py` is present so `load_dotenv(override=True)` runs.
 
 ## Property-Based Testing (Hypothesis)
@@ -70,5 +70,5 @@ def test_escape_latex_always_ascii(text: str) -> None:
 ## Artifact Hygiene
 - Test runs may produce runtime artifacts under `runs/`.
 - Do not stage or commit runtime artifacts by default.
-- Never stage `.env` or other secret-bearing files.
+- Never stage the project dotenv file or other secret-bearing files.
 - Add `.hypothesis/` to `.gitignore` to exclude property-based test corpus from commits.

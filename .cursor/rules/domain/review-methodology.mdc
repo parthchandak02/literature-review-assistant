@@ -1,6 +1,5 @@
 ---
-description: Core systematic review methodology rules. Apply when implementing any phase of the systematic review pipeline, writing screening logic, implementing quality assessment, or generating manuscript sections. Contains PRISMA 2020, GRADE, and Cochrane methodology requirements.
-globs:
+description: PRISMA, GRADE, and Cochrane methodology
 alwaysApply: false
 ---
 

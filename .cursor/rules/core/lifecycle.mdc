@@ -1,6 +1,5 @@
 ---
-description: Cursor-first lifecycle routing for agent requests. Apply to map user intent into think, plan, build, review, test, ship stages.
-globs:
+description: Route tasks through think, plan, build, review, test, ship
 alwaysApply: true
 ---
 

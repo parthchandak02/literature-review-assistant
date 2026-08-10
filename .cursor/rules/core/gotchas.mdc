@@ -1,13 +1,11 @@
 ---
-description: Codebase-specific behavioral quirks and non-obvious facts. Apply when debugging PRISMA endpoints, run history, production deploys, or any behavior that seems wrong.
-globs:
+description: Operational quirks and debugging gotchas
 alwaysApply: false
 ---
 
-# Operational Gotchas
+# Gotchas
 
-This file is the live, high-signal gotchas list used during normal development.
-Historical or niche gotchas belong in `gotchas-archive.mdc`.
+Live, high-signal quirks used during normal development.
 
 ## Run and History Semantics
 

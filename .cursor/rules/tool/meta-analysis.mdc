@@ -1,5 +1,5 @@
 ---
-description: Meta-analysis implementation patterns using statsmodels. Apply when working on src/synthesis/ files, implementing effect size calculations, forest plots, or funnel plots. Critical rule: LLMs must NEVER compute statistics.
+description: Meta-analysis with statsmodels (no LLM math)
 globs: src/synthesis/**/*.py, src/visualization/**/*.py
 alwaysApply: false
 ---

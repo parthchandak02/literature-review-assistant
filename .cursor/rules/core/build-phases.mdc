@@ -1,6 +1,5 @@
 ---
-description: Build phase status and test commands. Apply when asked about implementation status, adding new phases, or running acceptance criteria tests.
-globs:
+description: Build phase status and acceptance tests
 alwaysApply: false
 ---
 

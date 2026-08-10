@@ -1,5 +1,5 @@
 ---
-description: Require a quick snapshot of active and recent agent work before starting tasks
+description: Snapshot active agent work before starting
 alwaysApply: false
 ---
 

@@ -1,6 +1,5 @@
 ---
-description:
-globs:
+description: Project identity, invariants, and canonical paths
 alwaysApply: true
 ---
 
@@ -42,7 +41,7 @@ alwaysApply: true
 - Web API: `src/web/app.py`
 - Run diagnostics API: `GET /api/run/{run_id}/diagnostics` (step journal, failures, fallbacks, writing manifests)
 - Frontend typed API/events: `frontend/src/lib/api.ts`
-- Operational edge cases: `.cursor/rules/core/gotchas-agent.mdc`
+- Operational edge cases: `.cursor/rules/core/gotchas.mdc`
 
 ## Runtime and Operations
 - PM2 process names are exact: `litreview-api`, `litreview-ui`, `litreview-tunnel`.
@@ -70,4 +69,4 @@ alwaysApply: true
 - Endpoint parity anchor: `.cursor/docs/API_ENDPOINTS.md` Section 10.1.
 - Bootstrap and operational checklist: `.cursor/skills/bootstrap/SKILL.md`.
 - Task-specific deep guidance: `.cursor/skills/**/SKILL.md`.
-- Live gotchas: `.cursor/rules/core/gotchas-agent.mdc`; historical archive: `.cursor/rules/core/gotchas-archive.mdc`.
+- Live gotchas: `.cursor/rules/core/gotchas.mdc`
