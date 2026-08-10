@@ -1,10 +1,34 @@
-# API Endpoints Parity Table
+# API
 
-This file is the endpoint parity anchor for `scripts/check_spec_endpoint_parity.py`.
+## Canonical sources
 
-When API routes change in `src/web/app.py`, update this table in the same change.
+- **Routes:** `src/web/app.py`
+- **Frontend client:** `frontend/src/lib/api.ts`
+- **DB resolve:** `resolve_runtime_db()` in `src/web/run_resolver.py` (accepts active `run_id` or `wf-*`)
 
-## 10. API Contract
+## Domains
+
+- Run lifecycle: `/api/run*`, `/api/stream/{run_id}`, `/api/cancel/{run_id}`
+- History/registry: `/api/history*`, `/api/notes*`
+- DB explorer and costs: `/api/db/{run_id}/*`, `/api/history/costs/*`
+- Streams: `/api/logs/stream`, `/api/notes/stream`
+- Artifacts/exports: `/api/run/{run_id}/*`
+- Validation/audit: `/api/workflow/{workflow_id}/validation/*`, manuscript-audit routes
+- Draft: `POST /api/workflow/reserve`, `PUT /api/workflow/{workflow_id}/config-draft`
+- PROSPERO: `POST /api/run/{run_id}/submit-prospero`
+
+## Gotchas
+
+- `/api/config/generate/stream` is POST, not GET.
+- `/api/run` is JSON; CSV uploads use multipart endpoints.
+- `/api/history/active-run` requires `workflow_id` query param.
+- SSE run events: `/api/stream/{run_id}`.
+
+## Endpoint parity
+
+Enforced by `scripts/check_spec_endpoint_parity.py` against Section 10.1 below. Update this table when adding routes.
+
+### 10. API Contract
 
 ### 10.1 REST Endpoints
 
@@ -77,7 +101,6 @@ When API routes change in `src/web/app.py`, update this table in the same change
 | GET | /api/run/{run_id}/diagnostics | Step journal summary, recovery/fallback counts, writing manifests for run diagnostics |
 | GET | /api/logs/stream | SSE tail of per-run `app.jsonl` (via `run_id` or `workflow_id`) or PM2 logs fallback |
 
-### 10.1.1 Endpoint Parity Checklist
+### 10.1.1 Endpoint parity checklist
 
-Endpoint parity is enforced by `scripts/check_spec_endpoint_parity.py` against `src/web/app.py`.
-The checker compares `/api/*` routes with `include_in_schema=True` and ignores catch-all `{...:path}` handlers.
+`scripts/check_spec_endpoint_parity.py` compares `/api/*` routes with `include_in_schema=True` in `src/web/app.py`.

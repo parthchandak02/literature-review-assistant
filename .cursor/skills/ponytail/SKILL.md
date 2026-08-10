@@ -75,7 +75,7 @@ Laziness never overrides these:
 - Never hardcode model id strings; use `config/settings.yaml`.
 
 When unsure about architecture ownership, read `AGENTS.md` and
-`.cursor/docs/ARCHITECTURE.md` before inventing a new seam.
+`docs/ARCHITECTURE.md` before inventing a new seam.
 
 ## Boundaries
 

@@ -11,7 +11,7 @@ Lean reference for PROSPERO protocol output during Phase 2.
 
 - Implementation: `src/protocol/generator.py`
 - Phase routing and acceptance context: `.cursor/skills/build-phase/SKILL.md`
-- Lifecycle contract: `.cursor/docs/PIPELINE.md`
+- Lifecycle contract: `docs/ARCHITECTURE.md#pipeline`
 
 ## Expected Artifacts
 

@@ -28,7 +28,7 @@ Extract when the session involved:
 4. **Tool integration gaps** — PydanticAI, aiosqlite, Vite proxy, PM2 restart timing not covered by docs
 5. **Workflow optimizations** — replay/resume commands, monitor scripts, verification sequences that worked
 
-Skip extraction for: one-off typos, generic Python/React advice, or anything already in `AGENTS.md` / `.cursor/docs/`.
+Skip extraction for: one-off typos, generic Python/React advice, or anything already in `AGENTS.md` / `docs/`.
 
 ## Where knowledge goes
 
@@ -36,7 +36,7 @@ Skip extraction for: one-off typos, generic Python/React advice, or anything alr
 |----------------|----------------|------|
 | Repeatable workflow or domain procedure | `.cursor/skills/<name>/SKILL.md` | Multi-step process with clear triggers |
 | Single operational quirk | `.cursor/rules/core/gotchas.mdc` | One bullet; symptom → fix |
-| Architecture / contract change | Relevant `.cursor/docs/*.md` | User asked or change is high-level |
+| Architecture / contract change | Relevant `docs/*.md` | User asked or change is high-level |
 | Session transfer only | Use `handoff` skill | No durable reuse expected |
 
 **Never** store fixes as guidance to patch `runs/` artifacts. Process fixes belong in `src/` or `frontend/src/`.
@@ -49,7 +49,7 @@ Search before creating:
 
 ```bash
 rg --files -g 'SKILL.md' .cursor/skills
-rg -i "keyword|error phrase|module name" .cursor/skills .cursor/rules/core/gotchas.mdc .cursor/docs
+rg -i "keyword|error phrase|module name" .cursor/skills .cursor/rules/core/gotchas.mdc docs
 ```
 
 | Found | Action |
@@ -88,7 +88,7 @@ Skip search for repo-internal semantics (resume rollback, `workflows_registry.db
 One or two sentences: symptom, actual cause, fix. Include exact endpoint/phase/table names.
 ```
 
-**Doc update** — only for contract-level changes; follow `.cursor/docs/INDEX.md` routing.
+**Doc update** — only for contract-level changes; follow `docs/CONTEXT.md` routing.
 
 ### Step 5 — Write the skill
 
@@ -157,7 +157,7 @@ During work, ask:
 
 - Over-extraction of mundane fixes
 - Vague descriptions ("helps with API issues")
-- Duplicating `.cursor/docs/` or `AGENTS.md`
+- Duplicating `docs/` or `AGENTS.md`
 - Personal skills for repo-specific knowledge (prefer project `.cursor/skills/`)
 - Extracting unverified theories
 

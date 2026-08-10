@@ -7,7 +7,7 @@ alwaysApply: true
 
 ## Canonical Routing Input
 
-- `.cursor/docs/INDEX.md` (single routing narrative)
+- `docs/CONTEXT.md` (single routing narrative)
 
 ## Intent to Stage Mapping
 
@@ -20,7 +20,7 @@ alwaysApply: true
 
 ## Stage-to-Docs Routing
 
-Use `.cursor/docs/INDEX.md` as the single lifecycle routing narrative.
+Use `docs/CONTEXT.md` as the single lifecycle routing narrative.
 Open other docs and skills only when routed by that index.
 Ship stage should use `.cursor/skills/commit/SKILL.md` for commit/push workflow. Session startup: `.cursor/skills/bootstrap/SKILL.md`.
 
@@ -28,5 +28,5 @@ Ship stage should use `.cursor/skills/commit/SKILL.md` for commit/push workflow.
 
 - Use the narrowest stage that satisfies the request.
 - If request spans multiple stages, complete them in lifecycle order.
-- Treat `.cursor/docs/*` as canonical docs before root entry docs.
-- Keep `.cursor/docs/API_ENDPOINTS.md` usage limited to endpoint parity compatibility.
+- Treat `docs/*` as canonical project docs.
+- Keep `docs/API.md#rest-endpoints` usage limited to endpoint parity compatibility.

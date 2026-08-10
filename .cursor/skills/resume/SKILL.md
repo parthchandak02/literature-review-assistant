@@ -11,7 +11,7 @@ Operational replay verification after `src/` orchestration, resume, or persisten
 ## Canonical sources
 
 - Resume vs rerun: `.cursor/rules/core/rerun-workflows.mdc`
-- Verification gates: `.cursor/docs/IMPLEMENTATION_STATUS.md`
+- Verification gates: `docs/TASKS.md`
 - PM2 restart: `.cursor/rules/core/pm2-restart.mdc`
 - Operator/WhatsApp flows: `lit-review` skill
 
@@ -72,4 +72,4 @@ uv run python scripts/validate_workflow_replay.py \
 - Target phase(s) completed without regression.
 - Release/local CI passed.
 - Replay script passed with `--profile local --fail-on-error`.
-- High-level changes: parity checklist in `IMPLEMENTATION_STATUS.md` before `commit` skill.
+- High-level changes: parity checklist in `docs/TASKS.md` before `commit` skill.

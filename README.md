@@ -5,7 +5,8 @@ An open-source tool that automates systematic literature reviews end-to-end -- f
 It runs a full PRISMA 2020-compliant pipeline: searches academic databases (defaults from `config/review.yaml`; additional databases can be enabled per review), dual-reviews papers that pass prefiltering with independent AI reviewers, extracts data, assesses risk of bias (RoB 2, ROBINS-I, GRADE), synthesizes evidence (meta-analysis or narrative), and writes the manuscript with citation lineage enforced throughout.
 
 **Use it via browser (web UI) or terminal (CLI).**
-For agent onboarding, start with `AGENTS.md`.
+
+**Agents:** start with [`AGENTS.md`](AGENTS.md), then [`docs/CONTEXT.md`](docs/CONTEXT.md) for routing.
 
 ---
 
@@ -271,23 +272,23 @@ Two config files control behavior:
 - Quality gate thresholds
 - Search depth (records per database)
 
-Full documentation of agent/runtime contracts now lives in `.cursor/docs/`.
-Use `.cursor/docs/INDEX.md` as the canonical entrypoint.
+Full documentation of agent/runtime contracts now lives in `docs/`.
+Use `docs/CONTEXT.md` as the canonical entrypoint.
 Configuration and runtime details are split across:
-- `.cursor/docs/ARCHITECTURE.md`
-- `.cursor/docs/PIPELINE.md`
-- `.cursor/docs/API_CONTRACT.md`
-- `.cursor/docs/PERSISTENCE.md`
-- `.cursor/docs/UI_ARCHITECTURE.md`
-- `.cursor/docs/LLM_AND_COSTS.md`
-- `.cursor/docs/IMPLEMENTATION_STATUS.md`
+- `docs/ARCHITECTURE.md`
+- `docs/ARCHITECTURE.md#pipeline`
+- `docs/API.md`
+- `docs/ARCHITECTURE.md#persistence`
+- `docs/UI.md`
+- `docs/ARCHITECTURE.md#llm-and-costs`
+- `docs/TASKS.md`
 
 ---
 
 ## How It Works
 
 The pipeline runs as a staged PydanticAI graph (with enhancement sub-phases). Each phase writes results to SQLite immediately so a crash can resume from the first incomplete checkpoint.
-Naming note: this is a high-level build narrative; canonical persisted runtime checkpoint keys and order live in `.cursor/docs/PIPELINE.md` and `src/orchestration/resume.py`.
+Naming note: this is a high-level build narrative; canonical persisted runtime checkpoint keys and order live in `docs/ARCHITECTURE.md#pipeline` and `src/orchestration/resume.py`.
 
 ```text
 Phase 1: Foundation/startup (load config, initialize DB, set run artifacts and workflow state)

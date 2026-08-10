@@ -252,8 +252,9 @@ def _render_endpoint_set(title: str, values: set[Endpoint]) -> None:
 
 
 def run_parity_check(endpoints_doc_path: Path, app_path: Path) -> int:
+    doc_path = Path(str(endpoints_doc_path).split("#", 1)[0])
     try:
-        document_text = endpoints_doc_path.read_text(encoding="utf-8")
+        document_text = doc_path.read_text(encoding="utf-8")
         source_paths = [app_path]
         routers_dir = app_path.parent / "routers"
         if routers_dir.is_dir():
@@ -284,11 +285,11 @@ def run_parity_check(endpoints_doc_path: Path, app_path: Path) -> int:
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Check endpoint parity between .cursor/docs/API_ENDPOINTS.md and src/web/app.py decorators."
+        description="Check endpoint parity between docs/API.md#rest-endpoints and src/web/app.py decorators."
     )
     parser.add_argument(
         "--endpoints-doc-path",
-        default=".cursor/docs/API_ENDPOINTS.md",
+        default="docs/API.md",
         help="Path to API endpoints markdown file",
     )
     parser.add_argument("--app-path", default="src/web/app.py", help="Path to FastAPI app source file")

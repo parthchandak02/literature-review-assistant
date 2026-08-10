@@ -53,7 +53,7 @@ Only list skills that fit the next work. Omit the rest.
 
 ## Repository-specific guidance
 
-- Reference canonical docs via `.cursor/docs/INDEX.md` when they affect next steps.
+- Reference canonical docs via `docs/CONTEXT.md` when they affect next steps.
 - Include concrete verification commands when relevant (tests, replay checks, parity checks).
 - Point to specific code paths in `src/` or `frontend/src/` that were touched or should be touched next.
 
@@ -88,7 +88,7 @@ Link or cite those artifacts instead.
 Point at artifacts that already hold the truth:
 
 - Code: file paths under `src/` or `frontend/src/` (and line ranges where useful), not pasted bodies.
-- Docs: `.cursor/docs/INDEX.md`, ADRs, `AGENTS.md`, README, issue/PR URLs.
+- Docs: `docs/CONTEXT.md`, ADRs, `AGENTS.md`, README, issue/PR URLs.
 - Git: branch name, short `git status` summary, unpushed commits by hash/subject.
 - Open PR / ticket by URL or key.
 

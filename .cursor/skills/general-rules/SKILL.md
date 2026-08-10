@@ -45,7 +45,7 @@ Keep documentation minimal and focused on getting started. Prioritize "How to us
 ### Zoom-out before deep edits
 
 - Identify entrypoints, typed boundaries, canonical source-of-truth tables/files
-- Confirm lifecycle stage via `.cursor/docs/INDEX.md`
+- Confirm lifecycle stage via `docs/CONTEXT.md`
 - Note blast radius (orchestration, API contract, persistence, UI)
 
 ## Script organization

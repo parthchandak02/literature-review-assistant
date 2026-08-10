@@ -26,9 +26,9 @@ Task started
 Include paths and constraints from:
 
 - `AGENTS.md`
-- `.cursor/docs/INDEX.md`
-- `.cursor/docs/ARCHITECTURE.md`
-- `.cursor/docs/IMPLEMENTATION_STATUS.md` when gates or phase status matter
+- `docs/CONTEXT.md`
+- `docs/ARCHITECTURE.md`
+- `docs/TASKS.md` when gates or phase status matter
 
 Always restate lit-review invariants when the stuck point touches pipeline,
 persistence, LLM config, or manuscript/export contracts:
@@ -55,7 +55,7 @@ Tried and observed:
 
 Relevant paths and constraints:
 <files, compatibility, tests, scope, performance, security>
-Repo docs consulted: AGENTS.md / .cursor/docs/INDEX.md / ARCHITECTURE.md
+Repo docs consulted: AGENTS.md / docs/CONTEXT.md / docs/ARCHITECTURE.md
 Invariants: no runs/ patches; typed src/models/; models from config/settings.yaml
 
 Respond with exactly one first-line label:
@@ -77,7 +77,7 @@ Readonly advisor panel, implementation lane. Do not use tools or implement.
 Goal: <goal>
 Candidate approach: <lean hypothesis>
 Files and constraints: <paths and constraints>
-Repo contracts: AGENTS.md, .cursor/docs/ARCHITECTURE.md
+Repo contracts: AGENTS.md, docs/ARCHITECTURE.md
 Invariants: no runs/ patches; typed src/models/; models from config/settings.yaml
 
 Return: recommended approach, file-level steps, validation plan, and what not
@@ -107,7 +107,7 @@ Readonly advisor panel, contract lane. Do not use tools or implement.
 List every interface, schema, protocol, storage format, and compatibility
 promise touched by this proposal. For each, identify owners, callers, tests,
 migration needs, and likely gaps. Prefer typed contracts under src/models/ and
-canonical docs under .cursor/docs/.
+canonical docs under `docs/`.
 
 Return: a gap list or a complete parity plan.
 ```
@@ -116,7 +116,7 @@ Return: a gap list or a complete parity plan.
 
 Do not escalate:
 
-- Before reading the relevant code and documentation under `.cursor/docs/`.
+- Before reading the relevant code and documentation under `docs/`.
 - To decide between styles already established by project conventions.
 - For a simple factual lookup or direct test failure with an obvious fix.
 - Repeatedly for the same stuck point without new evidence.

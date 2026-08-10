@@ -10,8 +10,8 @@ Canonical session startup for literature-review-assistant. Load this skill at th
 
 ## Sequence
 
-1. Read `AGENTS.md` and `.cursor/docs/INDEX.md`.
-2. Read only task-routed docs from `.cursor/docs/INDEX.md`.
+1. Read `AGENTS.md` and `docs/CONTEXT.md`.
+2. Read only task-routed docs from `docs/CONTEXT.md`.
 3. Review recent git context (`git log`, `git status`) before edits.
 4. Build a quick zoom-out map: lifecycle stage, entrypoints, typed boundaries, blast radius.
 5. Run task-appropriate checks before claiming completion.

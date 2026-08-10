@@ -51,6 +51,6 @@ Optional bullets to paste under **State** when relevant. Delete unused lines.
 
 ## Reference artifacts
 
-- Docs via `.cursor/docs/INDEX.md`:
+- Docs via `docs/CONTEXT.md`:
 - Code paths (`src/`, `frontend/src/`):
 - PR / ticket:

@@ -19,8 +19,8 @@ this state model / data shape hold up").
 
 ## Required Inputs
 
-- `.cursor/docs/INDEX.md`
-- One relevant domain contract from `.cursor/docs/`
+- `docs/CONTEXT.md`
+- One relevant domain contract from `docs/`
 - Relevant module entrypoints in `src/` or `frontend/src/`
 
 ## Ground rules (apply to every prototype)
@@ -42,7 +42,7 @@ this state model / data shape hold up").
 4. If prototype crosses phase boundaries, keep typed models at boundaries (`src/models/` contracts remain authoritative).
 5. Prefer deterministic checks over subjective output inspection.
 6. Convert winning prototype to a production slice with tests before declaring completion.
-7. Route via `.cursor/docs/INDEX.md`; do not bypass established lifecycle contracts.
+7. Route via `docs/CONTEXT.md`; do not bypass established lifecycle contracts.
 
 ## Pick a branch
 

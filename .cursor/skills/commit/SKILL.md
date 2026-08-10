@@ -33,8 +33,8 @@ Confirm: not detached HEAD, a tracking remote exists if pushing is in scope, and
 
 When the diff touches contracts (architecture, phases/checkpoints, public API, persistence/schema, frontend phase alignment, or `.cursor/` agent docs):
 
-1. Update matching docs under `.cursor/docs/` (route via `.cursor/docs/INDEX.md`).
-2. Run **Before you commit** in `.cursor/docs/IMPLEMENTATION_STATUS.md`.
+1. Update matching docs under `docs/` (route via `docs/CONTEXT.md`).
+2. Run **Before you commit** in `docs/TASKS.md`.
 3. Keep `AGENTS.md` and skill catalog (`.cursor/skills/README.md`) consistent if paths changed.
 
 Small localized fixes may skip the full checklist; use judgment.

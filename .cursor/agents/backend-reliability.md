@@ -13,7 +13,7 @@ Make the backend stay responsive during active reviews by:
 
 ## Always read first
 - `.cursor/plans/backend-permanent-reliability-8f801171.plan.md` (or latest reliability plan)
-- `.cursor/docs/ARCHITECTURE.md`
+- `docs/ARCHITECTURE.md`
 - `.cursor/rules/core/overview.mdc`
 
 ## Engineering invariants
@@ -21,7 +21,7 @@ Make the backend stay responsive during active reviews by:
 - Typed contracts from `src/models/` at phase boundaries
 - All HTTP via aiohttp; all DB via aiosqlite
 - PyMuPDF must run via `asyncio.to_thread` or dedicated thread pool — never inline on event loop
-- Preserve endpoint parity in `.cursor/docs/API_ENDPOINTS.md` Section 10.1
+- Preserve endpoint parity in `docs/API.md#rest-endpoints` Section 10.1
 
 ## When invoked
 1. Identify which phase (0-4) the task belongs to
