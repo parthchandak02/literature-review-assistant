@@ -4,6 +4,37 @@
 import { PHASE_ORDER } from "@/lib/constants"
 import type { ReviewEvent } from "@/lib/api"
 
+export const PROSPERO_GATE_PHASE = "phase_1_prospero_gate"
+
+/** True when the run is parked at or actively in the PROSPERO registration gate. */
+export function detectAwaitingProspero(input: {
+  historicalStatus?: string | null
+  status?: string
+  events?: ReviewEvent[]
+  isRunning?: boolean
+  prosperoPrepareInProgress?: boolean
+}): boolean {
+  const {
+    historicalStatus,
+    status = "",
+    events = [],
+    isRunning = false,
+    prosperoPrepareInProgress = false,
+  } = input
+  if (
+    historicalStatus === "awaiting_prospero" ||
+    status === "awaiting_prospero" ||
+    prosperoPrepareInProgress
+  ) {
+    return true
+  }
+  if (!isRunning) return false
+  return (
+    events.some((e) => e.type === "phase_start" && e.phase === PROSPERO_GATE_PHASE) &&
+    !events.some((e) => e.type === "phase_done" && e.phase === PROSPERO_GATE_PHASE)
+  )
+}
+
 export interface PhaseProgress {
   /** Fraction of total phases completed (0-1). */
   value: number
@@ -65,7 +96,10 @@ export function computePhaseProgress(events: ReviewEvent[]): PhaseProgress {
 
   for (const phase of PHASE_ORDER) {
     const state = states[phase]
-    if (!state) break
+    if (!state) {
+      // Older runs may omit optional protocol phases (for example PROSPERO gate).
+      continue
+    }
     if (state.status === "done") {
       completedPhases += 1
     } else if (state.status === "running" && state.progress && state.progress.total > 0) {

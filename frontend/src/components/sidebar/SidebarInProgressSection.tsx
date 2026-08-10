@@ -1,4 +1,4 @@
-import { Clock, RefreshCw } from "lucide-react"
+import { Clock, FileText, RefreshCw } from "lucide-react"
 import type { HistoryEntry } from "@/lib/api"
 import { Spinner } from "@/components/ui/feedback"
 import { LiveRunCard } from "@/components/sidebar/LiveRunCard"
@@ -10,6 +10,7 @@ export interface SidebarInProgressSectionProps {
   collapsed: boolean
   loadingHistory: boolean
   historyError: string | null
+  prosperoPendingHistory: HistoryEntry[]
   inProgressHistory: HistoryEntry[]
   shouldShowStandaloneLiveCard: boolean
   liveRun: LiveRun | null
@@ -44,6 +45,7 @@ export function SidebarInProgressSection({
   collapsed,
   loadingHistory,
   historyError,
+  prosperoPendingHistory,
   inProgressHistory,
   shouldShowStandaloneLiveCard,
   liveRun,
@@ -72,7 +74,55 @@ export function SidebarInProgressSection({
   sessionArchive,
   sessionHideCompleted,
 }: SidebarInProgressSectionProps) {
+  const renderHistoryRow = (entry: HistoryEntry) => (
+    <InProgressHistoryRow
+      key={entry.workflow_id}
+      model={buildInProgressRowModel(
+        entry,
+        liveRun,
+        selectedWorkflowId,
+        openingId,
+        resumingId,
+        {
+          onResume: sessionResume,
+          onArchive: sessionArchive,
+          onHideCompleted: sessionHideCompleted,
+        },
+      )}
+      collapsed={collapsed}
+      wfIdCopied={wfIdCopied}
+      noteValue={notes[entry.workflow_id] ?? ""}
+      noteFlashKey={noteFlashCounters[entry.workflow_id] ?? 0}
+      archivingId={archivingId}
+      completingId={completingId}
+      onSelect={onSelect}
+      onCopyWorkflowId={onCopyWorkflowId}
+      onNoteChange={(val) => onNoteChange(entry.workflow_id, val)}
+      onArchive={onArchive}
+      onComplete={onComplete}
+      onResume={onResume}
+      onCancel={onCancel}
+    />
+  )
+
   return (
+    <>
+      {prosperoPendingHistory.length > 0 && (
+        <section className="mb-4">
+          {!collapsed && (
+            <div className="flex items-center justify-between px-1 mb-1.5">
+              <span className="label-caps font-semibold text-muted flex items-center gap-1.5">
+                <span className="flex h-3.5 w-3.5 items-center justify-center rounded-[3px] border border-intent-warning-border bg-intent-warning-subtle text-intent-warning">
+                  <FileText className="h-2.5 w-2.5" />
+                </span>
+                PROSPERO Pending
+              </span>
+            </div>
+          )}
+          <div className="space-y-2">{prosperoPendingHistory.map(renderHistoryRow)}</div>
+        </section>
+      )}
+
     <section>
       {!collapsed && (
         <div className="flex items-center justify-between px-1 mb-1.5">
@@ -131,39 +181,10 @@ export function SidebarInProgressSection({
             onCopyWorkflowId={onCopyWorkflowId}
           />
         )}
-        {inProgressHistory.map((entry) => (
-          <InProgressHistoryRow
-            key={entry.workflow_id}
-            model={buildInProgressRowModel(
-              entry,
-              liveRun,
-              selectedWorkflowId,
-              openingId,
-              resumingId,
-              {
-                onResume: sessionResume,
-                onArchive: sessionArchive,
-                onHideCompleted: sessionHideCompleted,
-              },
-            )}
-            collapsed={collapsed}
-            wfIdCopied={wfIdCopied}
-            noteValue={notes[entry.workflow_id] ?? ""}
-            noteFlashKey={noteFlashCounters[entry.workflow_id] ?? 0}
-            archivingId={archivingId}
-            completingId={completingId}
-            onSelect={onSelect}
-            onCopyWorkflowId={onCopyWorkflowId}
-            onNoteChange={(val) => onNoteChange(entry.workflow_id, val)}
-            onArchive={onArchive}
-            onComplete={onComplete}
-            onResume={onResume}
-            onCancel={onCancel}
-          />
-        ))}
+        {inProgressHistory.map(renderHistoryRow)}
       </div>
 
-      {!collapsed && !loadingHistory && inProgressHistory.length === 0 && !shouldShowStandaloneLiveCard && (
+      {!collapsed && !loadingHistory && inProgressHistory.length === 0 && !shouldShowStandaloneLiveCard && prosperoPendingHistory.length === 0 && (
         <div className="flex flex-col items-center py-6 gap-2">
           <Clock className="h-6 w-6 text-border" />
           <p className="label-muted text-center">
@@ -172,5 +193,6 @@ export function SidebarInProgressSection({
         </div>
       )}
     </section>
+    </>
   )
 }

@@ -29,6 +29,7 @@ from src.export.prisma_checklist import (
     validate_prisma,
 )
 from src.export.prisma_flow_export import export_prisma_flow_to_directory
+from src.search.pdf_parse import path_is_valid_pdf
 from src.writing.citation_grounding import extract_numeric_citation_refs, extract_used_citekeys
 
 logger = logging.getLogger(__name__)
@@ -209,7 +210,7 @@ async def _copy_included_study_pdfs(
         src = Path(str(file_path_str))
         if not src.exists() or not src.is_file():
             continue
-        if src.suffix.lower() != ".pdf":
+        if not path_is_valid_pdf(src):
             continue
         dst = dst_dir / f"{paper_id}.pdf"
         shutil.copy2(src, dst)

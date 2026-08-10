@@ -17,7 +17,7 @@ Lean reference for implementing or modifying search connectors.
 6. Persist query/date/database/count metadata for appendices and audits.
 
 ## Reference Implementations
-- Core databases: `src/search/openalex.py`, `src/search/pubmed.py`, `src/search/arxiv.py`, `src/search/ieee_xplore.py`, `src/search/scopus.py`, `src/search/web_of_science.py`, `src/search/embase.py`
+- Core databases: `src/search/openalex.py`, `src/search/pubmed.py`, `src/search/arxiv.py`, `src/search/ieee_xplore.py`, `src/search/scopus.py`, `src/search/scopus_session.py`, `src/search/web_of_science.py`, `src/search/embase.py`
 - Shared connector helpers: `src/search/common.py` (`HttpSearchConnectorBase`, `ElsevierConnectorMixin`)
 - Auxiliary / other-source discovery: `src/search/semantic_scholar.py`, `src/search/crossref.py`, `src/search/perplexity_search.py`, `src/search/clinicaltrials.py`
 - Import and expansion helpers: `src/search/csv_import.py`, `src/search/citation_chasing.py`
@@ -28,3 +28,11 @@ Lean reference for implementing or modifying search connectors.
 - Mock API responses.
 - Verify field mapping to candidate/search models.
 - Verify retry/rate-limit behavior and failure surfaces.
+
+## Scopus institutional session (optional)
+
+When `SCOPUS_API_KEY` Search API entitlement is missing or returns empty results, set
+`SCOPUS_SESSION_COOKIE_FILE` in your local dotenv file to a **local path outside the repo** (Netscape
+`cookies.txt` or raw `Cookie:` header file) exported from the operator's own
+institutional Scopus browser login. Sessions expire; re-export after re-auth. Never
+commit cookie files or HAR captures.

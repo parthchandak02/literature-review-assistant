@@ -16,6 +16,7 @@ import os
 import sys
 from collections.abc import Sequence
 from pathlib import Path
+from typing import Any
 
 import aiohttp
 import aiosqlite
@@ -30,10 +31,17 @@ from src.db.workflow_registry import (
 )
 from src.db.workflow_registry import update_status as update_registry_status
 from src.export import package_submission, validate_ieee, validate_prisma
+from src.models.workflow import WorkflowRunResult
 from src.orchestration import run_workflow_resume, run_workflow_sync
 from src.orchestration.context import RunContext, create_progress
 from src.orchestration.workflow import _hash_config
 from src.utils.structured_log import load_events_from_jsonl
+
+
+def _as_summary_dict(result: WorkflowRunResult | dict[str, Any]) -> dict[str, Any]:
+    if isinstance(result, WorkflowRunResult):
+        return result.to_output_dict()
+    return result
 
 
 async def _run_export(workflow_id: str, run_root: str) -> str | None:
@@ -61,14 +69,16 @@ async def _run_prospero(
         if _snapshot.exists():
             review_path = str(_snapshot)
 
-    summary = await run_workflow_resume(
-        workflow_id=workflow_id,
-        topic=None,
-        review_path=review_path,
-        settings_path=settings_path,
-        run_root=run_root,
-        run_context=run_context,
-        from_phase="finalize",
+    summary = _as_summary_dict(
+        await run_workflow_resume(
+            workflow_id=workflow_id,
+            topic=None,
+            review_path=review_path,
+            settings_path=settings_path,
+            run_root=run_root,
+            run_context=run_context,
+            from_phase="finalize",
+        )
     )
     artifacts = summary.get("artifacts", {})
     path = artifacts.get("prospero_form")
@@ -363,10 +373,14 @@ async def _backfill_event_log(log_dir: str, workflow_id: str) -> None:
 
 def _infer_terminal_registry_status(summary: dict) -> str:
     status = str(summary.get("status", "")).strip().lower()
-    if status in {"failed", "error"}:
+    if status in {"failed", "error", "gate_blocked"}:
         return "failed"
     if status in {"cancelled", "interrupted"}:
         return "interrupted"
+    if status == "awaiting_prospero":
+        return "awaiting_prospero"
+    if status == "awaiting_review":
+        return "awaiting_review"
     # Successful run summaries may omit explicit status; treat as completed.
     return "completed"
 
@@ -427,12 +441,14 @@ def main(argv: Sequence[str] | None = None) -> int:
                     offline=offline,
                     progress=progress,
                 )
-                summary = run_workflow_sync(
-                    review_path=args.config,
-                    settings_path=args.settings,
-                    run_root=args.run_root,
-                    run_context=run_context,
-                    fresh=getattr(args, "fresh", False),
+                summary = _as_summary_dict(
+                    run_workflow_sync(
+                        review_path=args.config,
+                        settings_path=args.settings,
+                        run_root=args.run_root,
+                        run_context=run_context,
+                        fresh=getattr(args, "fresh", False),
+                    )
                 )
             _print_run_summary(console, summary)
             log_dir = summary.get("log_dir")
@@ -489,15 +505,17 @@ def main(argv: Sequence[str] | None = None) -> int:
                     offline=False,
                     progress=progress,
                 )
-                summary = asyncio.run(
-                    run_workflow_resume(
-                        workflow_id=getattr(args, "workflow_id", None),
-                        topic=getattr(args, "topic", None),
-                        review_path=args.config,
-                        settings_path=args.settings,
-                        run_root=args.run_root,
-                        run_context=run_context,
-                        from_phase=getattr(args, "from_phase", None),
+                summary = _as_summary_dict(
+                    asyncio.run(
+                        run_workflow_resume(
+                            workflow_id=getattr(args, "workflow_id", None),
+                            topic=getattr(args, "topic", None),
+                            review_path=args.config,
+                            settings_path=args.settings,
+                            run_root=args.run_root,
+                            run_context=run_context,
+                            from_phase=getattr(args, "from_phase", None),
+                        )
                     )
                 )
             _print_run_summary(console, summary)

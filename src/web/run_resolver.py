@@ -113,3 +113,16 @@ class RunResolver:
                     return await cur.fetchone()
         except Exception:
             return None
+
+
+async def resolve_runtime_db(
+    identifier: str,
+    run_root: str = "runs",
+    *,
+    resolver: RunResolver | None = None,
+) -> str:
+    """Resolve runtime.db path from an active run_id or wf-* workflow_id."""
+    active_resolver = resolver
+    if active_resolver is None:
+        from src.web.state import _run_resolver as active_resolver
+    return await active_resolver.resolve_db_path(identifier, run_root)

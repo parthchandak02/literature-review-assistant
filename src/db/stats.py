@@ -8,7 +8,7 @@ from typing import Any
 
 import aiosqlite
 
-from src.db.repos.screening import ScreeningRepo
+from src.db.repos.screening import _NON_PRIMARY_EXTRACTION_STATUSES, ScreeningRepo
 from src.db.source_of_truth import RUN_STATS_PRECEDENCE
 
 _logger = logging.getLogger(__name__)
@@ -152,10 +152,9 @@ class RunStatsResolver:
                         """
                         SELECT COUNT(DISTINCT paper_id)
                         FROM extraction_records
-                        WHERE COALESCE(json_extract(data, '$.primary_study_status'), 'primary') NOT IN (
-                            'secondary_review', 'protocol_only', 'non_empirical'
-                        )
-                        """
+                        WHERE primary_study_status NOT IN (?, ?, ?)
+                        """,
+                        _NON_PRIMARY_EXTRACTION_STATUSES,
                     )
                 ).fetchone()
                 _primary_count = int(_primary_count_row[0]) if _primary_count_row else 0

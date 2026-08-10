@@ -49,6 +49,7 @@ export interface RunRequest {
   wos_api_key?: string
   scopus_api_key?: string
   run_root?: string
+  workflow_id?: string
 }
 
 export interface RunResponse {

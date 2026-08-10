@@ -32,7 +32,7 @@ Use this checklist before and after major refactors:
 
 1. Every doc path reference resolves to an existing file.
 2. Endpoint docs match `src/web/app.py` decorators.
-3. Phase order docs match `src/orchestration/resume.py`.
+3. Phase order docs match `src/orchestration/phase_catalog.py` (`PHASE_ORDER`).
 4. Frontend phase constants and backend resume order stay aligned.
 5. Table and schema claims map to `src/db/schema.sql` and repository code.
 6. Rules and skills in `.cursor/` do not contradict each other.
@@ -51,7 +51,7 @@ Use this sequence when planning major reliability refactors:
 
 1. Contract convergence
    - Align runtime checkpoints to `src/orchestration/resume.py` and frontend `RESUME_PHASE_ORDER`.
-   - Remove stale phase assumptions (for example, `phase_7_audit`) from docs/rules/comments.
+   - Document `phase_7_audit` as an internal, non-user-resumable checkpoint (present in `PHASE_ORDER`, excluded from `USER_RESUMABLE_PHASE_ORDER`).
 2. Orchestration hardening
    - Ensure `RUN_GRAPH` transitions and resume routing are type-safe and deterministic.
    - Preserve compatibility for legacy checkpoint rows without reintroducing old checkpoint contracts.

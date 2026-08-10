@@ -4,6 +4,9 @@ import { computeFunnelStages } from "@/lib/funnelStages"
 import { useSSEStream } from "@/hooks/useSSEStream"
 import { useCostStats } from "@/hooks/useCostStats"
 import { clearLiveRun, loadLiveRun, saveLiveRun } from "@/lib/api"
+import { clearLiveRunUi as clearLiveRunUiState } from "@/lib/runSession"
+import { historyQueryKey } from "@/hooks/useHistory"
+import { queryClient } from "@/lib/queryClient"
 import type { LiveRun } from "@/components/sidebar/types"
 
 export function useLiveRunStream() {
@@ -78,13 +81,15 @@ export function useLiveRunStream() {
   )
 
   function clearLiveRunUi() {
-    clearLiveRun()
-    reset()
-    setLiveRunId(null)
-    setLiveWorkflowId(null)
-    setLiveTopic(null)
-    setLiveStartedAt(null)
-    wasStreamingRef.current = false
+    clearLiveRunUiState({
+      reset,
+      setLiveRunId,
+      setLiveWorkflowId,
+      setLiveTopic,
+      setLiveStartedAt,
+      liveRunNavigatedRef,
+      wasStreamingRef,
+    })
   }
 
   /* eslint-disable react-hooks/set-state-in-effect -- SSE terminal status and workflow_id_ready sync live card state */
@@ -110,6 +115,7 @@ export function useLiveRunStream() {
       setLiveWorkflowId(wfId)
       const stored = loadLiveRun()
       if (stored) saveLiveRun({ ...stored, workflowId: wfId })
+      void queryClient.invalidateQueries({ queryKey: historyQueryKey() })
     }
   }, [events, liveWorkflowId])
   /* eslint-enable react-hooks/set-state-in-effect */

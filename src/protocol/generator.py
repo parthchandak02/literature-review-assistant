@@ -53,6 +53,8 @@ _PLACEHOLDER_PATTERNS: tuple[str, ...] = (
 
 
 _NOT_PROVIDED = "Not provided"
+_PROSPERO_PENDING_PLACEHOLDER = "[PENDING - submit to PROSPERO]"
+_PROSPERO_TIMELINE_PLACEHOLDER = "[TO BE COMPLETED]"
 
 
 def _contains_placeholder_text(value: str) -> bool:
@@ -60,6 +62,20 @@ def _contains_placeholder_text(value: str) -> bool:
     if not text:
         return True
     return any(re.search(pattern, text, flags=re.IGNORECASE) for pattern in _PLACEHOLDER_PATTERNS)
+
+
+def _prospero_registration_display(config: ReviewConfig) -> str:
+    number = str(getattr(config.protocol, "registration_number", "") or "").strip()
+    if number:
+        return number
+    return _PROSPERO_PENDING_PLACEHOLDER
+
+
+def _prospero_timeline_display(config: ReviewConfig) -> str:
+    reg_date = str(getattr(config.protocol, "registration_date", "") or "").strip()
+    if reg_date:
+        return reg_date
+    return _PROSPERO_TIMELINE_PLACEHOLDER
 
 
 def _collect_placeholder_warnings(config: ReviewConfig) -> list[str]:
@@ -237,6 +253,8 @@ class ProtocolGenerator:
         language_restrictions = "No language restrictions applied."
         if "english" in _criteria_blob:
             language_restrictions = "English-language restriction applied."
+        date_start = str(config.date_range_start) if config.date_range_start else _NOT_PROVIDED
+        date_end = str(config.date_range_end) if config.date_range_end else _NOT_PROVIDED
         synthesis_str = run_data.synthesis_method or protocol.planned_synthesis_method
 
         # --- Document title --------------------------------------------------
@@ -280,7 +298,7 @@ class ProtocolGenerator:
         doc.add_paragraph(_NOT_PROVIDED)
 
         _heading2("PROSPERO registration number")
-        doc.add_paragraph(_NOT_PROVIDED)
+        doc.add_paragraph(_prospero_registration_display(config))
 
         # =====================================================================
         # SECTION 2: ELIGIBILITY CRITERIA
@@ -344,9 +362,7 @@ class ProtocolGenerator:
         doc.add_paragraph(_NOT_PROVIDED)
 
         _heading2("Review timeline")
-        date_start = str(config.date_range_start) if config.date_range_start else _NOT_PROVIDED
-        date_end = str(config.date_range_end) if config.date_range_end else _NOT_PROVIDED
-        doc.add_paragraph(f"Start date: {date_start}          End date: {date_end}")
+        doc.add_paragraph(f"Planned registration date: {_prospero_timeline_display(config)}")
 
         _heading2("Date of registration in PROSPERO")
         doc.add_paragraph(_NOT_PROVIDED)
@@ -545,6 +561,8 @@ class ProtocolGenerator:
         protocol: ProtocolDocument,
         config: ReviewConfig,
         run_data: ProsperoRunData,
+        *,
+        pre_registration: bool = False,
     ) -> str:
         """Render the PROSPERO registration form as markdown."""
         db_list = ", ".join(config.target_databases) if config.target_databases else _NOT_PROVIDED
@@ -561,6 +579,8 @@ class ProtocolGenerator:
         scope_str = config.scope or _NOT_PROVIDED
         domain_str = config.domain or _NOT_PROVIDED
         run_date = _format_run_date(run_data.run_id)
+        registration_number = _prospero_registration_display(config)
+        timeline_display = _prospero_timeline_display(config)
         date_start = str(config.date_range_start) if config.date_range_start else _NOT_PROVIDED
         date_end = str(config.date_range_end) if config.date_range_end else _NOT_PROVIDED
         synthesis_str = run_data.synthesis_method or protocol.planned_synthesis_method
@@ -601,7 +621,7 @@ class ProtocolGenerator:
             _NOT_PROVIDED,
             "",
             "### PROSPERO registration number",
-            _NOT_PROVIDED,
+            registration_number,
             "",
             "## ELIGIBILITY CRITERIA",
             "",
@@ -657,7 +677,11 @@ class ProtocolGenerator:
                 _NOT_PROVIDED,
                 "",
                 "### Review timeline",
-                f"Start date: {date_start}          End date: {date_end}",
+                (
+                    f"Planned registration date: {timeline_display}"
+                    if pre_registration
+                    else f"Start date: {date_start}          End date: {date_end}"
+                ),
                 "",
                 "### Date of registration in PROSPERO",
                 _NOT_PROVIDED,
@@ -681,7 +705,7 @@ class ProtocolGenerator:
                 "",
             ]
         )
-        if run_data.search_counts:
+        if not pre_registration and run_data.search_counts:
             lines.extend(
                 [
                     "#### Records retrieved per database",
@@ -695,7 +719,11 @@ class ProtocolGenerator:
                 language_restrictions,
                 "",
                 "### Search date restrictions",
-                f"Literature published between {date_start} and {date_end}.",
+                (
+                    "Literature search dates will be recorded after search execution."
+                    if pre_registration
+                    else f"Literature published between {date_start} and {date_end}."
+                ),
                 "",
                 "### Other methods of identifying studies",
                 (
@@ -711,9 +739,13 @@ class ProtocolGenerator:
                 "",
                 "### Other relevant information about searching and screening",
                 (
-                    f"Total records identified: {sum(run_data.search_counts.values()) if run_data.search_counts else '[Not yet available]'}. "
-                    f"Records after deduplication and screening: {run_data.included_count} studies included. "
-                    f"Full texts retrieved: {run_data.fulltext_retrieved_count}."
+                    "Search and screening counts will be recorded after the search phase completes."
+                    if pre_registration
+                    else (
+                        f"Total records identified: {sum(run_data.search_counts.values()) if run_data.search_counts else '[Not yet available]'}. "
+                        f"Records after deduplication and screening: {run_data.included_count} studies included. "
+                        f"Full texts retrieved: {run_data.fulltext_retrieved_count}."
+                    )
                 ),
                 "",
                 "## DATA COLLECTION PROCESS",
@@ -762,12 +794,25 @@ class ProtocolGenerator:
                 "## CURRENT REVIEW STAGE",
                 "",
                 "### Stage of the review at this submission",
-                "- [x] Preliminary searches",
-                "- [x] Piloting of the study selection process",
-                "- [x] Formal screening of search results against eligibility criteria",
-                "- [x] Data extraction",
-                "- [x] Risk of bias (quality) assessment",
-                "- [x] Data analysis",
+                *(
+                    [
+                        "- [ ] Preliminary searches",
+                        "- [ ] Piloting of the study selection process",
+                        "- [ ] Formal screening of search results against eligibility criteria",
+                        "- [ ] Data extraction",
+                        "- [ ] Risk of bias (quality) assessment",
+                        "- [ ] Data analysis",
+                    ]
+                    if pre_registration
+                    else [
+                        "- [x] Preliminary searches",
+                        "- [x] Piloting of the study selection process",
+                        "- [x] Formal screening of search results against eligibility criteria",
+                        "- [x] Data extraction",
+                        "- [x] Risk of bias (quality) assessment",
+                        "- [x] Data analysis",
+                    ]
+                ),
                 "",
                 "### Publication of review results",
                 _NOT_PROVIDED,
@@ -790,8 +835,13 @@ class ProtocolGenerator:
                 "",
                 "### Additional information",
                 (
-                    f"This systematic review was conducted using the Literature Review Assistant workflow. "
-                    f"Search conducted on: {run_date}. Full run artifacts are available in the run directory."
+                    "This systematic review protocol was generated prospectively before literature search. "
+                    "Full run artifacts will be available in the run directory after workflow completion."
+                    if pre_registration
+                    else (
+                        f"This systematic review was conducted using the Literature Review Assistant workflow. "
+                        f"Search conducted on: {run_date}. Full run artifacts are available in the run directory."
+                    )
                 ),
                 "",
                 "### Review conflict of interest",
@@ -813,6 +863,44 @@ class ProtocolGenerator:
                 ]
             )
         return "\n".join(lines).strip() + "\n"
+
+    def generate_pre_registration_artifacts(
+        self,
+        workflow_id: str,
+        config: ReviewConfig,
+        settings: SettingsConfig | None = None,
+    ) -> dict[str, Path]:
+        """Write protocol and pre-registration PROSPERO artifacts before literature search."""
+        from src.export.docx_exporter import generate_docx as _generate_docx
+        from src.models import ProsperoRunData
+
+        protocol = self.generate(workflow_id, config, settings)
+        protocol_markdown = self.render_markdown(protocol, config)
+        protocol_path = self.write_markdown(workflow_id, protocol_markdown)
+
+        run_data = ProsperoRunData(
+            search_counts={},
+            search_queries={},
+            included_count=0,
+            fulltext_retrieved_count=0,
+            run_id="",
+            synthesis_method=protocol.planned_synthesis_method,
+            other_methods_searched=[],
+        )
+        prospero_markdown = self.render_prospero_markdown(
+            protocol,
+            config,
+            run_data,
+            pre_registration=True,
+        )
+        prospero_md_path = self.write_prospero_markdown(prospero_markdown)
+        prospero_docx_path = self.output_dir / "doc_prospero_registration.docx"
+        _generate_docx(prospero_md_path, prospero_docx_path)
+        return {
+            "protocol": protocol_path,
+            "prospero_markdown": prospero_md_path,
+            "prospero_docx": prospero_docx_path,
+        }
 
     def write_prospero_markdown(self, markdown_text: str) -> Path:
         """Write PROSPERO markdown artifact to run output dir."""

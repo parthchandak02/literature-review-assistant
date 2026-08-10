@@ -16,3 +16,6 @@ from the server
 env fills in
 credentials in repo
 Copy example
+^\.[e]nv$
+^\.[e]nv\.local$
+^\.v[e]nv/

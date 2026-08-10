@@ -26,20 +26,15 @@ from src.db.workflow_registry import (
 )
 from src.models import (
     ExtractionRecord,
-    FailureCategory,
     PreWritingGateReport,
-    RecoveryAction,
     ReviewConfig,
-    StepStatus,
+    WorkflowRunResult,
     WorkflowStepRecord,
 )
 from src.orchestration.context import RunContext
 from src.orchestration.embedding_node import EmbeddingNode
 from src.orchestration.helpers.extraction_metrics import (
     ABSTRACT_ONLY_EXTRACTION_SOURCES as HELPER_ABSTRACT_ONLY_EXTRACTION_SOURCES,
-)
-from src.orchestration.helpers.extraction_metrics import (
-    compute_extraction_quality_metrics as helper_compute_extraction_quality_metrics,
 )
 from src.orchestration.helpers.extraction_metrics import (
     has_participant_evidence as helper_has_participant_evidence,
@@ -77,14 +72,12 @@ from src.orchestration.helpers.pre_writing_gate import (
 from src.orchestration.helpers.pre_writing_gate import (
     select_pre_writing_rewind_phase as helper_select_pre_writing_rewind_phase,
 )
-from src.orchestration.helpers.runtime import evaluate_rag_health as helper_evaluate_rag_health
 from src.orchestration.helpers.runtime import hash_config as helper_hash_config
 from src.orchestration.helpers.runtime import llm_available as helper_llm_available
 from src.orchestration.helpers.runtime import now_utc as helper_now_utc
 from src.orchestration.helpers.runtime import rc as helper_rc
 from src.orchestration.helpers.runtime import rc_print as helper_rc_print
 from src.orchestration.helpers.search_connectors import build_connectors as helper_build_connectors
-from src.orchestration.helpers.step_journal import journal_step_complete as helper_journal_step_complete
 from src.orchestration.helpers.step_journal import journal_step_start as helper_journal_step_start
 from src.orchestration.helpers.writing_manuscript import (
     build_citation_coverage_patch as helper_build_citation_coverage_patch,
@@ -110,6 +103,7 @@ from src.orchestration.nodes.finalize import FinalizeNode
 from src.orchestration.nodes.human_review import HumanReviewCheckpointNode
 from src.orchestration.nodes.manuscript_audit import ManuscriptAuditNode
 from src.orchestration.nodes.pre_writing_gate import PreWritingGateNode
+from src.orchestration.nodes.prospero_gate import ProsperoGateNode
 from src.orchestration.nodes.resume_start import ResumeStartNode
 from src.orchestration.nodes.screening import ScreeningNode
 from src.orchestration.nodes.search import SearchNode
@@ -135,20 +129,6 @@ def _now_utc() -> str:
 
 def _hash_config(path: str) -> str:
     return helper_hash_config(path)
-
-
-def _evaluate_rag_health(
-    *,
-    empty_sections: int,
-    error_sections: int,
-    max_empty_sections: int,
-) -> tuple[bool, str]:
-    """Return (breached, message) for run-level RAG health gate."""
-    return helper_evaluate_rag_health(
-        empty_sections=empty_sections,
-        error_sections=error_sections,
-        max_empty_sections=max_empty_sections,
-    )
 
 
 def _llm_available(settings: ReviewState | None = None, settings_cfg=None) -> bool:
@@ -190,25 +170,6 @@ async def _journal_step_start(
     )
 
 
-async def _journal_step_complete(
-    repo: WorkflowRepository,
-    record: WorkflowStepRecord,
-    *,
-    status: StepStatus = StepStatus.SUCCEEDED,
-    error_message: str | None = None,
-    failure_category: FailureCategory | None = None,
-    recovery_action: RecoveryAction | None = None,
-) -> None:
-    await helper_journal_step_complete(
-        repo,
-        record,
-        status=status,
-        error_message=error_message,
-        failure_category=failure_category,
-        recovery_action=recovery_action,
-    )
-
-
 def _should_exclude_low_quality_record(
     record: ExtractionRecord,
     *,
@@ -231,15 +192,6 @@ _ABSTRACT_ONLY_EXTRACTION_SOURCES = HELPER_ABSTRACT_ONLY_EXTRACTION_SOURCES
 
 def _has_participant_evidence(record: ExtractionRecord) -> bool:
     return helper_has_participant_evidence(record)
-
-
-def _compute_extraction_quality_metrics(
-    records: list[ExtractionRecord],
-    included_papers: list,
-    fulltext_paper_ids: set[str] | None = None,
-) -> tuple[float, float, str]:
-    """Return composite extraction quality, weak-evidence rate, and metric details."""
-    return helper_compute_extraction_quality_metrics(records, included_papers, fulltext_paper_ids)
 
 
 def _load_fulltext_artifact_paper_ids(run_artifacts: dict[str, str], db_path: str) -> set[str]:
@@ -361,6 +313,7 @@ RUN_GRAPH = Graph(
     nodes=[
         StartNode,
         ResumeStartNode,
+        ProsperoGateNode,
         SearchNode,
         ScreeningNode,
         HumanReviewCheckpointNode,
@@ -374,7 +327,7 @@ RUN_GRAPH = Graph(
         FinalizeNode,
     ],
     state_type=ReviewState,
-    run_end_type=dict,
+    run_end_type=WorkflowRunResult,
 )
 
 
@@ -404,7 +357,7 @@ async def run_workflow_resume(
     run_root: str = "runs",
     run_context: RunContext | None = None,
     from_phase: str | None = None,
-) -> dict[str, str | int | dict[str, int] | dict[str, str]]:
+) -> WorkflowRunResult:
     """Resume a workflow from its last checkpoint."""
     if workflow_id is None and topic is None:
         raise ValueError("Either workflow_id or topic must be provided for resume")
@@ -459,7 +412,8 @@ async def run_workflow(
     run_context: RunContext | None = None,
     fresh: bool = False,
     parent_db_path: str | None = None,
-) -> dict[str, str | int | dict[str, int] | dict[str, str]]:
+    workflow_id: str | None = None,
+) -> WorkflowRunResult:
     review, settings = load_configs(review_path, settings_path)
     config_hash = _hash_config(review_path)
     matches = await find_by_topic(run_root, review.research_question, config_hash)
@@ -519,6 +473,7 @@ async def run_workflow(
         run_root=run_root,
         run_context=run_context,
         parent_db_path=parent_db_path,
+        workflow_id=(workflow_id or "").strip(),
     )
     result = await RUN_GRAPH.run(start, state=initial)
     return result.output
@@ -530,7 +485,7 @@ def run_workflow_sync(
     run_root: str = "runs",
     run_context: RunContext | None = None,
     fresh: bool = False,
-) -> dict[str, str | int | dict[str, int] | dict[str, str]]:
+) -> WorkflowRunResult:
     return asyncio.run(
         run_workflow(
             review_path=review_path,

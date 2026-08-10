@@ -9,10 +9,30 @@ import pytest
 from src.search.pdf_parse import (
     configure_pdf_parse_pool,
     is_binary_garbage,
+    is_html_bytes,
+    is_pdf_bytes,
     parse_pdf_bytes,
     parse_pdf_bytes_async,
+    path_is_valid_pdf,
     validated_full_text,
 )
+
+
+def test_is_pdf_bytes_and_html_detection() -> None:
+    assert is_pdf_bytes(b"%PDF-1.4\n" + b"x" * 100) is True
+    assert is_pdf_bytes(b"x" * 200) is False
+    assert is_pdf_bytes(None) is False
+    assert is_html_bytes(b"<!DOCTYPE html><html>") is True
+    assert is_html_bytes(b"%PDF-1.4") is False
+
+
+def test_path_is_valid_pdf(tmp_path) -> None:
+    good = tmp_path / "paper.pdf"
+    good.write_bytes(b"%PDF-1.4 fake")
+    bad = tmp_path / "fake.pdf"
+    bad.write_text("<!DOCTYPE html>")
+    assert path_is_valid_pdf(good) is True
+    assert path_is_valid_pdf(bad) is False
 
 
 def test_parse_pdf_bytes_rejects_tiny_payload() -> None:

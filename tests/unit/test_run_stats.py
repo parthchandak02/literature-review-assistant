@@ -74,6 +74,39 @@ async def test_papers_included_prefers_primary_extraction_over_dual_when_cohort_
 
 
 @pytest.mark.asyncio
+async def test_papers_included_counts_unknown_primary_study_status_as_primary(tmp_path) -> None:
+    """Column default 'unknown' is not a non-primary exclusion status."""
+    db_path = tmp_path / "stats_unknown.db"
+    async with get_db(str(db_path)) as db:
+        await db.execute(
+            "INSERT INTO workflows (workflow_id, topic, config_hash, status) VALUES ('wf1', 't', 'h', 'completed')"
+        )
+        await db.execute(
+            "INSERT INTO papers (paper_id, title, authors, source_database) VALUES ('p1', 'Paper', ?, 'openalex')",
+            ('["A"]',),
+        )
+        await db.execute(
+            """
+            INSERT INTO dual_screening_results (
+                workflow_id, paper_id, stage, agreement, final_decision, adjudication_needed
+            ) VALUES ('wf1', 'p1', 'fulltext', 1, 'include', 0)
+            """
+        )
+        await db.execute(
+            """
+            INSERT INTO extraction_records (workflow_id, paper_id, study_design, primary_study_status, data)
+            VALUES ('wf1', 'p1', 'rct', 'unknown', '{}')
+            """
+        )
+        await db.commit()
+
+        resolver = RunStatsResolver()
+        included = await resolver.papers_included(db, workflow_id="wf1")
+        assert included.count == 1
+        assert included.source_key == "extraction_records_primary"
+
+
+@pytest.mark.asyncio
 async def test_total_cost_sums_cost_records(tmp_path) -> None:
     db_path = tmp_path / "costs.db"
     async with get_db(str(db_path)) as db:

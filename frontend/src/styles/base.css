@@ -106,12 +106,6 @@
   display: none;
 }
 
-/* Syntax highlighting: swap to light stylesheet in light mode */
-html[data-theme="light"] .hljs {
-  background: #f5f3f0 !important;
-  color: #141414 !important;
-}
-
 /* Scrollbar styling */
 ::-webkit-scrollbar {
   width: 6px;

@@ -9,6 +9,7 @@ import { cn } from "@/lib/utils"
 import { type NotesStreamEvent } from "@/lib/api"
 import type { HistoryEntry } from "@/lib/api"
 import { historyFetchErrorMessage, historyQueryKey, useHistory } from "@/hooks/useHistory"
+import { isProsperoPendingStatus } from "@/lib/constants"
 import { useNotesStream } from "@/hooks/useNotesStream"
 import {
   TooltipProvider,
@@ -286,7 +287,9 @@ export function Sidebar({
 
   const activeHistory = history.filter((entry) => !entry.is_archived)
   const completedHistory = activeHistory.filter((entry) => Boolean(entry.is_completed_hidden))
-  const inProgressHistory = activeHistory.filter((entry) => !entry.is_completed_hidden)
+  const visibleHistory = activeHistory.filter((entry) => !entry.is_completed_hidden)
+  const prosperoPendingHistory = visibleHistory.filter((entry) => isProsperoPendingStatus(entry.status))
+  const inProgressHistory = visibleHistory.filter((entry) => !isProsperoPendingStatus(entry.status))
   const archivedHistory = history.filter((entry) => Boolean(entry.is_archived))
 
   return (
@@ -355,6 +358,7 @@ export function Sidebar({
             collapsed={collapsed}
             loadingHistory={loadingHistory}
             historyError={historyError}
+            prosperoPendingHistory={prosperoPendingHistory}
             inProgressHistory={inProgressHistory}
             shouldShowStandaloneLiveCard={shouldShowStandaloneLiveCard}
             liveRun={liveRun}

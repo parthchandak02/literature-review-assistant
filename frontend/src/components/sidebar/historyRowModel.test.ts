@@ -62,4 +62,16 @@ describe("buildInProgressRowModel", () => {
     expect(model.progressValue).toBe(1)
     expect(model.rowIsRunning).toBe(false)
   })
+
+  it("treats awaiting_prospero as parked, not running", () => {
+    const entry = { ...baseEntry, status: "awaiting_prospero" }
+    const model = buildInProgressRowModel(entry, null, null, null, null, {
+      onHideCompleted: async () => {},
+    })
+    expect(model.statusKey).toBe("awaiting_prospero")
+    expect(model.rowIsRunning).toBe(false)
+    expect(model.isReconnectingRow).toBe(false)
+    expect(model.isCompletedLaneEligible).toBe(false)
+    expect(model.progressValue).toBeUndefined()
+  })
 })

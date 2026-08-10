@@ -14,11 +14,16 @@ def _rc(state: ReviewState):
     return getattr(state, "run_context", None)
 
 
+def _is_web_mode(state: ReviewState) -> bool:
+    rc = _rc(state)
+    return rc is not None and bool(getattr(rc, "web_mode", False))
+
+
 logger = logging.getLogger(__name__)
 
 
 async def run_human_review_checkpoint(state: ReviewState) -> bool:
-    """Return True when HITL is enabled and checkpoint was executed."""
+    """Return True when HITL is enabled and the workflow should park in ``awaiting_review`` (web/API)."""
     rc = _rc(state)
     assert state.settings is not None
     hitl = state.settings.human_in_the_loop
@@ -34,6 +39,18 @@ async def run_human_review_checkpoint(state: ReviewState) -> bool:
         )
 
     await update_status(state.run_root, state.workflow_id, "awaiting_review")
+
+    if _is_web_mode(state):
+        if rc:
+            rc.emit_phase_done(
+                "human_review_checkpoint",
+                {
+                    "paused": True,
+                    "awaiting_review": True,
+                    "workflow_id": state.workflow_id,
+                },
+            )
+        return True
 
     import asyncio as _asyncio
 
@@ -61,4 +78,4 @@ async def run_human_review_checkpoint(state: ReviewState) -> bool:
 
     if rc:
         rc.emit_phase_done("human_review_checkpoint", {"approved": True})
-    return True
+    return False

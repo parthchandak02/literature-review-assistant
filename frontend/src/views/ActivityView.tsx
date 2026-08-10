@@ -457,6 +457,9 @@ export function ActivityView({
     if (normalizedHistoricalStatus === "awaiting_review") {
       return "Approve screening first before resuming from later phases."
     }
+    if (normalizedHistoricalStatus === "awaiting_prospero") {
+      return "Complete PROSPERO registration first before resuming from later phases."
+    }
     return null
   })()
   const canResumeEligibility = resumeBlockedReason === null

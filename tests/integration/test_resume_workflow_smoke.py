@@ -1,4 +1,4 @@
-"""Resume smoke: real orchestration_facade.resume_workflow_run with mocked LLM only."""
+"""Resume smoke: real run_workflow_resume with mocked LLM only."""
 
 from __future__ import annotations
 
@@ -15,7 +15,7 @@ from src.db.workflow_registry import register as register_workflow
 from src.llm.pydantic_client import PydanticAIClient
 from src.models.enums import SourceCategory
 from src.models.papers import CandidatePaper
-from src.web.orchestration_facade import resume_workflow_run
+from src.orchestration.workflow import run_workflow_resume
 
 _MINIMAL_REVIEW = {
     "research_question": "What is the effect of the intervention on the primary outcome in the target population?",
@@ -193,7 +193,7 @@ async def test_resume_workflow_run_zero_papers_advances_checkpoints(
     db_path = await _seed_interrupted_runtime(run_root, with_paper=False)
     workflow_id = "wf-resume-smoke"
 
-    result = await resume_workflow_run(
+    result = await run_workflow_resume(
         workflow_id=workflow_id,
         review_path=str(review_path),
         settings_path=str(settings_path),
@@ -255,7 +255,7 @@ async def test_resume_workflow_run_rejects_completed_workflow(
     )
 
     with pytest.raises(ResumeNotAllowedError, match="nothing remains to resume"):
-        await resume_workflow_run(
+        await run_workflow_resume(
             workflow_id=workflow_id,
             review_path=str(review_path),
             settings_path=str(settings_path),

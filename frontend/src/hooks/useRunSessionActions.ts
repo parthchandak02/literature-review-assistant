@@ -3,28 +3,30 @@ import { useQueryClient } from "@tanstack/react-query"
 import type { Dispatch, SetStateAction } from "react"
 import type { NavigateFunction } from "react-router-dom"
 import { toast } from "sonner"
-import { beginLiveRun, runRequestToStoredKeys } from "@/lib/runSession"
+import { beginLiveRun, connectLiveRun, runRequestToStoredKeys } from "@/lib/runSession"
 import {
   isSameRunSelection,
   isSameWorkflowSelection,
   isTerminalHistoricalStatus,
 } from "@/lib/runSelection"
+import { isProsperoPendingStatus } from "@/lib/constants"
 import {
   archiveRun,
   attachHistory,
   cancelRun,
   deleteRun,
   fetchActiveRun,
+  fetchHistory,
   hideCompletedRun,
   resumeRun,
   restoreCompletedRun,
   restoreRun,
-  saveLiveRun,
   startRun,
   startRunWithMasterlist,
   startRunWithSupplementaryCsv,
+  submitProsperoRegistration,
 } from "@/lib/api"
-import type { HistoryEntry, RunRequest, RunResponse } from "@/lib/api"
+import type { HistoryEntry, ProsperoRegistration, RunRequest, RunResponse } from "@/lib/api"
 import type { useLiveRunStream } from "@/hooks/useLiveRunStream"
 import type { RunSessionActions, RunTab, SelectedRun } from "@/context/runSessionTypes"
 
@@ -151,32 +153,27 @@ export function useRunSessionActions({
 
   const handleResumeRun = useCallback(
     (res: RunResponse, workflowId: string) => {
-      const now = new Date()
-      reset()
-      wasStreamingRef.current = false
-      liveRunNavigatedRef.current = workflowId
-      setLiveRunId(res.run_id)
-      setLiveTopic(res.topic)
-      setLiveStartedAt(now)
-      setLiveWorkflowId(workflowId)
-      saveLiveRun({
-        runId: res.run_id,
-        topic: res.topic,
-        startedAt: now.toISOString(),
-        workflowId,
-      })
-      const run: SelectedRun = {
-        runId: res.run_id,
-        workflowId,
-        topic: res.topic,
-        dbPath: null,
-        isDone: false,
-        startedAt: now,
-        createdAt: now.toISOString(),
-      }
-      setSelectedRun(run)
-      setActiveRunTab("activity")
-      navigate(`/run/${workflowId}/activity`, { replace: true })
+      connectLiveRun(
+        {
+          reset,
+          setLiveRunId,
+          setLiveTopic,
+          setLiveStartedAt,
+          setLiveWorkflowId,
+          setSelectedRun,
+          setActiveRunTab,
+          navigate,
+          liveRunNavigatedRef,
+          wasStreamingRef,
+        },
+        {
+          runId: res.run_id,
+          topic: res.topic,
+          workflowId,
+          tab: "activity",
+          navigatePath: `/run/${workflowId}/activity`,
+        },
+      )
     },
     [
       navigate,
@@ -209,7 +206,7 @@ export function useRunSessionActions({
   }, [selectedRun])
 
   const beginLiveRunFromResponse = useCallback(
-    (res: RunResponse) => {
+    (res: RunResponse, options?: { tab?: RunTab }) => {
       beginLiveRun({
         res,
         reset,
@@ -221,9 +218,12 @@ export function useRunSessionActions({
         setActiveRunTab,
         liveRunNavigatedRef,
         wasStreamingRef,
+        tab: options?.tab ?? "activity",
       })
+      void queryClient.invalidateQueries({ queryKey: ["history"] })
     },
     [
+      queryClient,
       reset,
       setActiveRunTab,
       setLiveRunId,
@@ -237,35 +237,35 @@ export function useRunSessionActions({
   )
 
   const handleStart = useCallback(
-    async (req: RunRequest) => {
+    async (req: RunRequest, options?: { tab?: RunTab }) => {
       const res = await startRun(req)
-      beginLiveRunFromResponse(res)
+      beginLiveRunFromResponse(res, options)
     },
     [beginLiveRunFromResponse],
   )
 
   const handleStartWithSupplementaryCsv = useCallback(
-    async (csvFile: File, req: RunRequest) => {
+    async (csvFile: File, req: RunRequest, options?: { tab?: RunTab }) => {
       const res = await startRunWithSupplementaryCsv(
         csvFile,
         req.review_yaml,
         runRequestToStoredKeys(req),
         req.run_root,
       )
-      beginLiveRunFromResponse(res)
+      beginLiveRunFromResponse(res, options)
     },
     [beginLiveRunFromResponse],
   )
 
   const handleStartWithMasterlistCsv = useCallback(
-    async (csvFile: File, req: RunRequest) => {
+    async (csvFile: File, req: RunRequest, options?: { tab?: RunTab }) => {
       const res = await startRunWithMasterlist(
         csvFile,
         req.review_yaml,
         runRequestToStoredKeys(req),
         req.run_root,
       )
-      beginLiveRunFromResponse(res)
+      beginLiveRunFromResponse(res, options)
     },
     [beginLiveRunFromResponse],
   )
@@ -308,8 +308,9 @@ export function useRunSessionActions({
   const handleSelectHistory = useCallback(
     async (entry: HistoryEntry) => {
       const focusSelectedWorkflow = () => {
-        setActiveRunTab("activity")
-        navigate(`/run/${entry.workflow_id}/activity`, { replace: true })
+        const tab = isProsperoPendingStatus(entry.status) ? "config" : "activity"
+        setActiveRunTab(tab)
+        navigate(`/run/${entry.workflow_id}/${tab}`, { replace: true })
       }
 
       if (isSameWorkflowSelection(selectedRun?.workflowId, entry.workflow_id)) {
@@ -358,31 +359,34 @@ export function useRunSessionActions({
           return
 
         case "connect_live": {
-          const now = new Date()
-          if (liveRunId !== transition.runId) {
-            reset()
-          }
-          liveRunNavigatedRef.current = entry.workflow_id
-          setLiveRunId(transition.runId)
-          setLiveTopic(transition.topic)
-          setLiveStartedAt(now)
-          setLiveWorkflowId(entry.workflow_id)
-          saveLiveRun({
-            runId: transition.runId,
-            topic: transition.topic,
-            startedAt: now.toISOString(),
-            workflowId: entry.workflow_id,
-          })
-          setSelectedRun({
-            runId: transition.runId,
-            workflowId: entry.workflow_id,
-            topic: transition.topic,
-            dbPath: entry.db_path || null,
-            isDone: false,
-            startedAt: now,
-            createdAt: entry.created_at,
-          })
-          focusSelectedWorkflow()
+          const tab = isProsperoPendingStatus(entry.status) ? "config" : "activity"
+          connectLiveRun(
+            {
+              reset,
+              setLiveRunId,
+              setLiveTopic,
+              setLiveStartedAt,
+              setLiveWorkflowId,
+              setSelectedRun,
+              setActiveRunTab,
+              navigate,
+              liveRunNavigatedRef,
+              wasStreamingRef,
+            },
+            {
+              runId: transition.runId,
+              topic: transition.topic,
+              workflowId: entry.workflow_id,
+              dbPath: entry.db_path || null,
+              createdAt: entry.created_at,
+              tab,
+              navigatePath: `/run/${entry.workflow_id}/${tab}`,
+            },
+            {
+              skipResetIfSameRun: true,
+              currentLiveRunId: liveRunId,
+            },
+          )
           return
         }
 
@@ -394,7 +398,9 @@ export function useRunSessionActions({
               runId: res.run_id,
             }),
           )
-          navigate(`/run/${entry.workflow_id}/activity`)
+          const tab = isProsperoPendingStatus(entry.status) ? "config" : "activity"
+          setActiveRunTab(tab)
+          navigate(`/run/${entry.workflow_id}/${tab}`)
           return
         }
       }
@@ -412,6 +418,7 @@ export function useRunSessionActions({
       setLiveTopic,
       setLiveWorkflowId,
       setSelectedRun,
+      wasStreamingRef,
     ],
   )
 
@@ -541,6 +548,44 @@ export function useRunSessionActions({
     }
   }, [navigate, selectedRun, setActiveRunTab, setSubmissionFocusTarget, setSubmissionFocusToken])
 
+  const handleSubmitProsperoAndResume = useCallback(
+    async (runId: string, registration: ProsperoRegistration) => {
+      await submitProsperoRegistration(runId, registration)
+
+      let entry = selectedRunToHistoryEntry()
+      if (!entry && selectedRun?.workflowId) {
+        const history = await fetchHistory()
+        const match = history.find((item) => item.workflow_id === selectedRun.workflowId)
+        if (match) {
+          entry = {
+            ...match,
+            db_path: match.db_path || selectedRun.dbPath || "",
+          }
+        }
+      }
+
+      if (entry?.db_path) {
+        try {
+          const res = await resumeRun(entry)
+          handleResumeRun(res, entry.workflow_id)
+          void queryClient.invalidateQueries({ queryKey: ["history"] })
+          toast.success("Research started")
+          return
+        } catch (error) {
+          const msg = error instanceof Error ? error.message : String(error)
+          if (!msg.includes("409")) {
+            toast.error(msg || "Failed to resume workflow after PROSPERO submission")
+            throw error
+          }
+        }
+      }
+
+      void queryClient.invalidateQueries({ queryKey: ["history"] })
+      toast.success("PROSPERO registration submitted")
+    },
+    [handleResumeRun, queryClient, selectedRun, selectedRunToHistoryEntry],
+  )
+
   const openDraftRunShell = useCallback(
     (topic: string) => {
       const now = new Date()
@@ -577,6 +622,7 @@ export function useRunSessionActions({
     handleSidebarRestoreCompleted,
     handleTabChange,
     handleGoToSubmissionReferencePapers,
+    handleSubmitProsperoAndResume,
     openDraftRunShell,
   }
 }

@@ -11,6 +11,7 @@ if TYPE_CHECKING:
     from src.orchestration.embedding_node import EmbeddingNode
     from src.orchestration.knowledge_graph_node import KnowledgeGraphNode
     from src.orchestration.nodes.human_review import HumanReviewCheckpointNode
+    from src.orchestration.nodes.prospero_gate import ProsperoGateNode
     from src.orchestration.workflow import (
         ExtractionQualityNode,
         FinalizeNode,
@@ -29,7 +30,8 @@ class ResumeStartNode(BaseNode[ReviewState]):
     async def run(
         self, ctx: GraphRunContext[ReviewState]
     ) -> (
-        SearchNode
+        ProsperoGateNode
+        | SearchNode
         | ScreeningNode
         | HumanReviewCheckpointNode
         | ExtractionQualityNode
@@ -46,6 +48,7 @@ class ResumeStartNode(BaseNode[ReviewState]):
         from src.orchestration.embedding_node import EmbeddingNode
         from src.orchestration.knowledge_graph_node import KnowledgeGraphNode
         from src.orchestration.nodes.human_review import HumanReviewCheckpointNode
+        from src.orchestration.nodes.prospero_gate import ProsperoGateNode
         from src.orchestration.workflow import (
             ExtractionQualityNode,
             FinalizeNode,
@@ -59,6 +62,8 @@ class ResumeStartNode(BaseNode[ReviewState]):
 
         if phase == "human_review_checkpoint":
             return HumanReviewCheckpointNode()
+        if phase == "phase_1_prospero_gate":
+            return ProsperoGateNode()
         if phase == "phase_2_search":
             return SearchNode()
         if phase == "phase_3_screening":

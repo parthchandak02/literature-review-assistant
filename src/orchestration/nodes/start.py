@@ -8,13 +8,13 @@ from src.orchestration.runners.start_runner import run_start_node
 from src.orchestration.state import ReviewState
 
 if TYPE_CHECKING:
-    from src.orchestration.workflow import SearchNode
+    from src.orchestration.nodes.prospero_gate import ProsperoGateNode
 
 
 class StartNode(BaseNode[ReviewState]):
-    async def run(self, ctx: GraphRunContext[ReviewState]) -> SearchNode:
+    async def run(self, ctx: GraphRunContext[ReviewState]) -> ProsperoGateNode:
         state = ctx.state
         await run_start_node(state)
-        from src.orchestration.workflow import SearchNode
+        from src.orchestration.nodes.prospero_gate import ProsperoGateNode
 
-        return SearchNode()
+        return ProsperoGateNode()

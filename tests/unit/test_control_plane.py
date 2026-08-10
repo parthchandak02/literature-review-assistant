@@ -327,7 +327,7 @@ async def test_reconcile_stale_running_steps_marks_superseded_attempts(repo):
 @pytest.mark.asyncio
 async def test_journal_step_complete_rejects_invalid_failure_category(repo):
     """Passing a non-existent FailureCategory must raise ValueError immediately."""
-    from src.orchestration.workflow import _journal_step_complete
+    from src.orchestration.helpers.step_journal import journal_step_complete
 
     step = WorkflowStepRecord(
         step_id="step-bad-fc",
@@ -339,7 +339,7 @@ async def test_journal_step_complete_rejects_invalid_failure_category(repo):
     await repo.save_workflow_step(step)
 
     with pytest.raises(ValueError, match="Invalid FailureCategory"):
-        await _journal_step_complete(
+        await journal_step_complete(
             repo,
             step,
             status=StepStatus.FAILED,
@@ -352,7 +352,7 @@ async def test_journal_step_complete_rejects_invalid_failure_category(repo):
 @pytest.mark.asyncio
 async def test_journal_step_complete_rejects_invalid_recovery_action(repo):
     """Passing a non-existent RecoveryAction must raise ValueError immediately."""
-    from src.orchestration.workflow import _journal_step_complete
+    from src.orchestration.helpers.step_journal import journal_step_complete
 
     step = WorkflowStepRecord(
         step_id="step-bad-ra",
@@ -364,7 +364,7 @@ async def test_journal_step_complete_rejects_invalid_recovery_action(repo):
     await repo.save_workflow_step(step)
 
     with pytest.raises(ValueError, match="Invalid RecoveryAction"):
-        await _journal_step_complete(
+        await journal_step_complete(
             repo,
             step,
             status=StepStatus.FAILED,
@@ -377,7 +377,7 @@ async def test_journal_step_complete_rejects_invalid_recovery_action(repo):
 @pytest.mark.asyncio
 async def test_journal_step_complete_rejects_invalid_step_status(repo):
     """Passing a non-existent StepStatus must raise ValueError immediately."""
-    from src.orchestration.workflow import _journal_step_complete
+    from src.orchestration.helpers.step_journal import journal_step_complete
 
     step = WorkflowStepRecord(
         step_id="step-bad-ss",
@@ -389,7 +389,7 @@ async def test_journal_step_complete_rejects_invalid_step_status(repo):
     await repo.save_workflow_step(step)
 
     with pytest.raises(ValueError, match="Invalid StepStatus"):
-        await _journal_step_complete(
+        await journal_step_complete(
             repo,
             step,
             status="done",  # type: ignore[arg-type]
@@ -399,7 +399,7 @@ async def test_journal_step_complete_rejects_invalid_step_status(repo):
 @pytest.mark.asyncio
 async def test_journal_step_complete_accepts_all_valid_failure_categories(repo):
     """Every FailureCategory member must be accepted without error."""
-    from src.orchestration.workflow import _journal_step_complete
+    from src.orchestration.helpers.step_journal import journal_step_complete
 
     for i, fc in enumerate(FailureCategory):
         step = WorkflowStepRecord(
@@ -410,7 +410,7 @@ async def test_journal_step_complete_accepts_all_valid_failure_categories(repo):
             status=StepStatus.RUNNING,
         )
         await repo.save_workflow_step(step)
-        await _journal_step_complete(
+        await journal_step_complete(
             repo,
             step,
             status=StepStatus.FAILED,
@@ -424,7 +424,7 @@ async def test_journal_step_complete_accepts_all_valid_failure_categories(repo):
 @pytest.mark.asyncio
 async def test_journal_step_complete_accepts_all_valid_recovery_actions(repo):
     """Every RecoveryAction member must be accepted without error."""
-    from src.orchestration.workflow import _journal_step_complete
+    from src.orchestration.helpers.step_journal import journal_step_complete
 
     for i, ra in enumerate(RecoveryAction):
         step = WorkflowStepRecord(
@@ -435,7 +435,7 @@ async def test_journal_step_complete_accepts_all_valid_recovery_actions(repo):
             status=StepStatus.RUNNING,
         )
         await repo.save_workflow_step(step)
-        await _journal_step_complete(
+        await journal_step_complete(
             repo,
             step,
             status=StepStatus.FAILED,
@@ -449,7 +449,7 @@ async def test_journal_step_complete_accepts_all_valid_recovery_actions(repo):
 @pytest.mark.asyncio
 async def test_journal_step_complete_allows_none_for_optional_enums(repo):
     """None must be valid for failure_category and recovery_action (success path)."""
-    from src.orchestration.workflow import _journal_step_complete
+    from src.orchestration.helpers.step_journal import journal_step_complete
 
     step = WorkflowStepRecord(
         step_id="step-none-ok",
@@ -459,7 +459,7 @@ async def test_journal_step_complete_allows_none_for_optional_enums(repo):
         status=StepStatus.RUNNING,
     )
     await repo.save_workflow_step(step)
-    await _journal_step_complete(repo, step)
+    await journal_step_complete(repo, step)
     assert step.status == StepStatus.SUCCEEDED
     assert step.failure_category is None
     assert step.recovery_action is None
@@ -504,20 +504,17 @@ def _collect_enum_attr_accesses(source: str) -> list[tuple[int, str, str]]:
 
 
 def test_workflow_module_uses_only_valid_enum_members():
-    """Scan src/orchestration/workflow.py for enum attribute accesses and
-    verify every one refers to a real member.  This would have caught
-    FailureCategory.GATE_FAILURE and RecoveryAction.STOP before runtime.
-    """
-    workflow_src = Path(
-        inspect.getfile(__import__("src.orchestration.workflow", fromlist=["_journal_step_complete"]))
+    """Scan step_journal helper for enum attribute accesses and verify each is valid."""
+    step_journal_src = Path(
+        inspect.getfile(__import__("src.orchestration.helpers.step_journal", fromlist=["journal_step_complete"]))
     ).read_text(encoding="utf-8")
 
-    accesses = _collect_enum_attr_accesses(workflow_src)
-    assert accesses, "Expected at least one enum access in workflow.py"
+    accesses = _collect_enum_attr_accesses(step_journal_src)
+    assert accesses, "Expected at least one enum access in step_journal.py"
 
     invalid: list[str] = []
     for lineno, cls_name, member_name in accesses:
         if member_name not in _ENUM_MEMBERS[cls_name]:
             invalid.append(f"  line {lineno}: {cls_name}.{member_name} (valid: {sorted(_ENUM_MEMBERS[cls_name])})")
 
-    assert not invalid, "workflow.py references non-existent enum members:\n" + "\n".join(invalid)
+    assert not invalid, "step_journal.py references non-existent enum members:\n" + "\n".join(invalid)

@@ -105,6 +105,8 @@ from src.models.workflow import (
     ValidationArtifactRecord,
     ValidationCheckRecord,
     ValidationRunRecord,
+    WorkflowRunResult,
+    WorkflowRunStatus,
     WorkflowStepRecord,
     WritingManifestRecord,
 )
@@ -232,6 +234,8 @@ __all__ = [
     "ValidationArtifactRecord",
     "ValidationCheckRecord",
     "ValidationRunRecord",
+    "WorkflowRunResult",
+    "WorkflowRunStatus",
     "WorkflowStepRecord",
     "WritingConfig",
     "WritingManifestRecord",

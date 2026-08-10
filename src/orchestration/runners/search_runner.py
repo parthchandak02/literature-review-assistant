@@ -18,6 +18,7 @@ from src.db.workflow_registry import (
     update_status as update_registry_status,
 )
 from src.models import GateStatus, WorkflowStepRecord
+from src.models.workflow import WorkflowRunResult
 from src.orchestration.gates import GateRunner
 from src.orchestration.helpers.runtime import hash_config as helper_hash_config
 from src.orchestration.helpers.runtime import rc as helper_rc
@@ -160,7 +161,7 @@ async def run_search_node(state: ReviewState, ctx: GraphRunContext[ReviewState])
                     await update_registry_status(state.run_root, state.workflow_id, "failed")
                     if rc:
                         rc.emit_phase_done("phase_2_search", {"error": err_msg})
-                    return End(summary)
+                    return End(WorkflowRunResult.from_summary(summary))
 
             deduped, dedup_count = deduplicate_papers(csv_papers)
             state.deduped_papers = deduped
@@ -169,10 +170,12 @@ async def run_search_node(state: ReviewState, ctx: GraphRunContext[ReviewState])
             state.search_counts = await repository.get_search_counts(state.workflow_id)
             await repository.save_dedup_count(state.workflow_id, dedup_count)
 
-            protocol_generator = ProtocolGenerator(output_dir=state.output_dir)
-            protocol = protocol_generator.generate(state.workflow_id, state.review, state.settings)
-            protocol_markdown = protocol_generator.render_markdown(protocol, state.review)
-            protocol_generator.write_markdown(state.workflow_id, protocol_markdown)
+            protocol_md_path = Path(state.output_dir) / "doc_protocol.md"
+            if not protocol_md_path.exists():
+                protocol_generator = ProtocolGenerator(output_dir=state.output_dir)
+                protocol = protocol_generator.generate(state.workflow_id, state.review, state.settings)
+                protocol_markdown = protocol_generator.render_markdown(protocol, state.review)
+                protocol_generator.write_markdown(state.workflow_id, protocol_markdown)
             if not await repository.has_checkpoint_integrity(state.workflow_id):
                 await repository.create_workflow(state.workflow_id, state.review.research_question, config_hash)
             await repository.save_checkpoint(state.workflow_id, "phase_2_search", papers_processed=len(deduped))
@@ -325,7 +328,7 @@ async def run_search_node(state: ReviewState, ctx: GraphRunContext[ReviewState])
                 await update_registry_status(state.run_root, state.workflow_id, "failed")
                 if rc:
                     rc.emit_phase_done("phase_2_search", {"error": err_msg})
-                return End(summary)
+                return End(WorkflowRunResult.from_summary(summary))
 
         all_papers = [paper for result in results for paper in result.papers]
 
@@ -410,10 +413,12 @@ async def run_search_node(state: ReviewState, ctx: GraphRunContext[ReviewState])
         state.search_counts = await repository.get_search_counts(state.workflow_id)
         await repository.save_dedup_count(state.workflow_id, dedup_count)
 
-        protocol_generator = ProtocolGenerator(output_dir=state.output_dir)
-        protocol = protocol_generator.generate(state.workflow_id, state.review, state.settings)
-        protocol_markdown = protocol_generator.render_markdown(protocol, state.review)
-        protocol_generator.write_markdown(state.workflow_id, protocol_markdown)
+        protocol_md_path = Path(state.output_dir) / "doc_protocol.md"
+        if not protocol_md_path.exists():
+            protocol_generator = ProtocolGenerator(output_dir=state.output_dir)
+            protocol = protocol_generator.generate(state.workflow_id, state.review, state.settings)
+            protocol_markdown = protocol_generator.render_markdown(protocol, state.review)
+            protocol_generator.write_markdown(state.workflow_id, protocol_markdown)
         if not await repository.has_checkpoint_integrity(state.workflow_id):
             await repository.create_workflow(state.workflow_id, state.review.research_question, config_hash)
         await repository.save_checkpoint(state.workflow_id, "phase_2_search", papers_processed=len(deduped))

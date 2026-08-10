@@ -31,6 +31,7 @@ from src.models import (
     StudyDesign,
     WorkflowStepRecord,
 )
+from src.models.workflow import WorkflowRunResult
 from src.orchestration.gates import GateRunner
 from src.orchestration.helpers.extraction_metrics import (
     compute_extraction_quality_metrics,
@@ -55,7 +56,7 @@ from src.quality import (
     StudyRouter,
 )
 from src.quality.grade import _PLACEHOLDER_OUTCOME_NAMES
-from src.search.pdf_parse import parse_pdf_bytes_async
+from src.search.pdf_parse import is_pdf_bytes, parse_pdf_bytes_async
 from src.visualization import render_rob_traffic_light
 from src.writing.context_builder import sanitize_summary_text_for_writing
 
@@ -532,14 +533,10 @@ async def run_extraction_quality_node(state: ReviewState, ctx: GraphRunContext[R
                     try:
                         papers_dir_path.mkdir(parents=True, exist_ok=True)
                         saved_path: str | None = None
-                        if ft_result and ft_result.pdf_bytes and len(ft_result.pdf_bytes) > 1000:
+                        if ft_result and is_pdf_bytes(ft_result.pdf_bytes):
                             pdf_dest = papers_dir_path / f"{paper.paper_id}.pdf"
                             pdf_dest.write_bytes(ft_result.pdf_bytes)
                             saved_path = str(pdf_dest)
-                        elif full_text and ft_result and ft_result.source not in ("abstract", ""):
-                            txt_dest = papers_dir_path / f"{paper.paper_id}.txt"
-                            txt_dest.write_text(full_text, encoding="utf-8")
-                            saved_path = str(txt_dest)
                         if papers_manifest_path.name:
                             import json as _json
 
@@ -1072,7 +1069,7 @@ async def run_extraction_quality_node(state: ReviewState, ctx: GraphRunContext[R
                     failure_category=FailureCategory.TERMINAL,
                     recovery_action=RecoveryAction.ABORT,
                 )
-            return End(summary)
+            return End(WorkflowRunResult.from_summary(summary))
 
         _rob_paper_lookup = {p.paper_id: p for p in state.included_papers}
         render_rob_traffic_light(

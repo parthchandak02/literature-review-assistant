@@ -7,6 +7,8 @@ import { EmptyState } from "@/components/ui/feedback"
 import { Button } from "@/components/ui/button"
 import { YamlEditor } from "@/components/YamlEditor"
 import { ViewToolbar } from "@/components/ui/view-toolbar"
+import { ProsperoGatePanel } from "@/components/config/ProsperoGatePanel"
+import type { ProsperoRegistration } from "@/lib/api"
 
 // ---------------------------------------------------------------------------
 // ConfigView
@@ -22,6 +24,12 @@ export interface ConfigViewProps {
   draftConfig?: DraftConfigContext | null
   onRetryDraftGeneration?: () => void
   onLaunchDraft?: (yaml: string) => void
+  runId?: string | null
+  isAwaitingProspero?: boolean
+  prosperoPrepareInProgress?: boolean
+  prosperoSubmitting?: boolean
+  onPrepareProspero?: (yaml: string) => void
+  onStartResearchAfterProspero?: (registration: ProsperoRegistration) => void | Promise<void>
 }
 
 export interface DraftConfigContext {
@@ -69,9 +77,14 @@ export function ConfigView({
   createdAt,
   draftConfig = null,
   onRetryDraftGeneration,
-  onLaunchDraft,
+  runId = null,
+  isAwaitingProspero = false,
+  prosperoPrepareInProgress = false,
+  prosperoSubmitting = false,
+  onPrepareProspero,
+  onStartResearchAfterProspero,
 }: ConfigViewProps) {
-  const isDraft = workflowId === "draft" && draftConfig !== null
+  const isDraft = draftConfig !== null
   const streamedDraftYaml = draftConfig?.yaml ?? ""
   const [draftYamlOverride, setDraftYamlOverride] = useState<string | null>(null)
   const draftYaml = draftYamlOverride ?? streamedDraftYaml
@@ -113,6 +126,11 @@ export function ConfigView({
     if (!draftConfig) return -1
     return CONFIG_GEN_STEPS.findIndex((step) => step.key === draftConfig.activeStep)
   }, [draftConfig])
+
+  const showProsperoGate = isAwaitingProspero || prosperoPrepareInProgress
+  const showDraftPrepareButton = isDraft && !showProsperoGate
+  const savedDraftYaml = draftConfig?.yaml ?? ""
+  const effectiveYaml = isDraft ? draftYaml : (yamlContent ?? savedDraftYaml)
 
   if (loading && !isDraft) {
     return (
@@ -250,23 +268,52 @@ export function ConfigView({
                         Launch is disabled for pasted/legacy configs started from setup.
                       </span>
                     )}
-                    <Button
-                      onClick={() => onLaunchDraft?.(draftYaml)}
-                      disabled={
-                        !onLaunchDraft ||
-                        draftConfig?.request === null ||
-                        draftConfig?.isGenerating ||
-                        !draftYaml.trim()
-                      }
-                    >
-                      Launch Review
-                    </Button>
+                    {showDraftPrepareButton ? (
+                      <Button
+                        onClick={() => onPrepareProspero?.(draftYaml)}
+                        disabled={
+                          !onPrepareProspero ||
+                          draftConfig?.request === null ||
+                          draftConfig?.isGenerating ||
+                          prosperoPrepareInProgress ||
+                          !draftYaml.trim()
+                        }
+                      >
+                        {prosperoPrepareInProgress ? (
+                          <>
+                            <Spinner size="sm" className="mr-2" />
+                            Generating PROSPERO draft...
+                          </>
+                        ) : (
+                          "Generate PROSPERO Draft"
+                        )}
+                      </Button>
+                    ) : null}
                   </div>
+                  {showProsperoGate && onStartResearchAfterProspero ? (
+                    <ProsperoGatePanel
+                      runId={runId}
+                      workflowId={workflowId}
+                      disabled={prosperoPrepareInProgress && !isAwaitingProspero}
+                      isSubmitting={prosperoSubmitting}
+                      onStartResearch={onStartResearchAfterProspero}
+                    />
+                  ) : null}
                 </>
               ) : (
-                <pre className="text-xs font-mono text-foreground whitespace-pre-wrap break-words max-h-[70vh] overflow-y-auto leading-relaxed">
-                  {yamlContent}
-                </pre>
+                <>
+                  <pre className="text-xs font-mono text-foreground whitespace-pre-wrap break-words max-h-[70vh] overflow-y-auto leading-relaxed">
+                    {effectiveYaml}
+                  </pre>
+                  {showProsperoGate && onStartResearchAfterProspero ? (
+                    <ProsperoGatePanel
+                      runId={runId}
+                      workflowId={workflowId}
+                      isSubmitting={prosperoSubmitting}
+                      onStartResearch={onStartResearchAfterProspero}
+                    />
+                  ) : null}
+                </>
               )}
             </div>
           </div>

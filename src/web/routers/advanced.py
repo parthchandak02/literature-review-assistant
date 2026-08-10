@@ -27,8 +27,8 @@ from src.web.shared import (
     _resolve_workflow_id_from_db,
 )
 from src.web.state import (
-    _active_runs,
     _get_db_path,
+    _lifecycle_coordinator,
     _run_wrapper,
     _RunRecord,
 )
@@ -379,7 +379,7 @@ async def living_refresh(run_id: str) -> RunResponse:
 
     import yaml as _yaml
 
-    record = _active_runs.get(run_id)
+    record = _lifecycle_coordinator.get(run_id)
     if record is None:
         resolved_parent_db = await _resolve_db_path("runs", run_id)
         if resolved_parent_db is None:
@@ -440,7 +440,7 @@ async def living_refresh(run_id: str) -> RunResponse:
 
     new_record = _RunRecord(run_id=new_run_id, topic=topic)
     new_record.review_yaml = new_yaml
-    _active_runs[new_run_id] = new_record
+    _lifecycle_coordinator.set(new_run_id, new_record)
 
     await acquire_run_slot_or_raise()
     task = asyncio.create_task(_run_wrapper(new_record, tmp.name, req))
@@ -460,7 +460,7 @@ async def stream_logs(
 ) -> EventSourceResponse:
     """Stream a run's app.jsonl log file or a PM2 log file over SSE."""
     if run_id:
-        record = _active_runs.get(run_id)
+        record = _lifecycle_coordinator.get(run_id)
         if record and record.db_path:
             log_path = pathlib.Path(record.db_path).parent / "app.jsonl"
         elif workflow_id:

@@ -19,6 +19,7 @@ from fastapi.responses import FileResponse, StreamingResponse
 from src.config.loader import load_configs as _load_configs
 from src.export.submission_packager import package_submission
 from src.manuscript.readiness import compute_readiness_scorecard
+from src.search.pdf_parse import is_pdf_bytes, path_is_valid_pdf
 from src.web.control_plane_service import ControlPlaneService
 from src.web.diagnostics_utils import summarize_phase_performance
 from src.web.shared import (
@@ -455,8 +456,9 @@ async def get_papers_reference(run_id: str) -> dict[str, Any]:
                 authors_fmt = raw_authors
 
             entry = manifest.get(paper_id, {})
-            file_type = entry.get("file_type")
-            has_file = bool(entry.get("file_path") and pathlib.Path(entry["file_path"]).exists())
+            file_path_str = entry.get("file_path")
+            has_file = bool(file_path_str and path_is_valid_pdf(file_path_str))
+            file_type = "pdf" if has_file else None
 
             papers_out.append(
                 {
@@ -508,8 +510,13 @@ async def get_paper_file(run_id: str, paper_id: str) -> StreamingResponse:
     file_path = pathlib.Path(file_path_str)
     if not file_path.exists():
         raise HTTPException(status_code=404, detail="Full-text file not found on disk.")
+    if not path_is_valid_pdf(file_path):
+        raise HTTPException(
+            status_code=404,
+            detail="Valid PDF not available for this paper. Use fetch-pdfs to retry retrieval.",
+        )
 
-    media_type = "application/pdf" if file_path.suffix == ".pdf" else "text/plain"
+    media_type = "application/pdf"
     safe_title = "".join(c if c.isalnum() or c in " -_" else "_" for c in (entry.get("title", paper_id)[:60]))
     filename = f"{safe_title}{file_path.suffix}"
 
@@ -572,14 +579,13 @@ async def download_study_files_zip(run_id: str) -> StreamingResponse:
         file_path = pathlib.Path(file_path_str)
         if not file_path.exists() or not file_path.is_file():
             continue
-        suffix = file_path.suffix.lower()
-        if suffix not in {".pdf", ".txt"}:
+        if not path_is_valid_pdf(file_path):
             continue
-        zip_entries.append((file_path, f"{paper_id}{suffix}"))
+        zip_entries.append((file_path, f"{paper_id}.pdf"))
 
     if not zip_entries:
         raise HTTPException(
-            status_code=404, detail="No downloadable study files found (PDF/TXT not available for included studies)."
+            status_code=404, detail="No valid PDF study files found for included studies."
         )
 
     workflow_id = await _resolve_workflow_id_from_db(db_path)
@@ -680,7 +686,7 @@ async def fetch_pdfs_for_run(run_id: str) -> StreamingResponse:
             title = row["title"] or "Untitled"
             existing = manifest.get(paper_id, {})
             existing_path = existing.get("file_path")
-            if existing_path and pathlib.Path(existing_path).exists():
+            if existing_path and path_is_valid_pdf(existing_path):
                 skipped += 1
                 results.append(
                     {
@@ -695,10 +701,14 @@ async def fetch_pdfs_for_run(run_id: str) -> StreamingResponse:
                 )
                 yield f"data: {_json.dumps({'type': 'progress', 'current': idx + 1, 'total': total, 'paper_id': paper_id, 'title': title, 'status': 'skipped', 'source': existing.get('source')})}\n\n"
             else:
+                if existing_path:
+                    stale = pathlib.Path(existing_path)
+                    if stale.exists():
+                        stale.unlink(missing_ok=True)
                 fetch_work.append((idx, row))
 
         if fetch_work:
-            _sem = asyncio.Semaphore(8)
+            _sem = asyncio.Semaphore(3)
 
             async def _fetch_one(orig_idx: int, row: Any) -> tuple:
                 paper_id = row["paper_id"]
@@ -724,15 +734,10 @@ async def fetch_pdfs_for_run(run_id: str) -> StreamingResponse:
                         ft_result = await retriever.retrieve(paper)
                         reason_code = ft_result.reason_code
                         diagnostics = list(ft_result.diagnostics or [])
-                        if ft_result.success and ft_result.pdf_bytes and len(ft_result.pdf_bytes) > 1000:
+                        if ft_result.success and is_pdf_bytes(ft_result.pdf_bytes):
                             pdf_dest = papers_dir / f"{paper_id}.pdf"
                             pdf_dest.write_bytes(ft_result.pdf_bytes)
                             saved_path = str(pdf_dest)
-                            source = ft_result.source
-                        elif ft_result.success and ft_result.full_text and len(ft_result.full_text) >= 500:
-                            txt_dest = papers_dir / f"{paper_id}.txt"
-                            txt_dest.write_text(ft_result.full_text, encoding="utf-8")
-                            saved_path = str(txt_dest)
                             source = ft_result.source
                         else:
                             source = ft_result.source if ft_result.success else "abstract"
@@ -755,7 +760,7 @@ async def fetch_pdfs_for_run(run_id: str) -> StreamingResponse:
                 orig_idx, paper_id, title, saved_path, source, reason_code, diagnostics, error_msg = item
                 doi = rows[orig_idx]["doi"] or ""
                 url = rows[orig_idx]["url"] or ""
-                file_type = "pdf" if (saved_path and saved_path.endswith(".pdf")) else ("txt" if saved_path else None)
+                file_type = "pdf" if saved_path else None
                 manifest[paper_id] = {
                     "title": title,
                     "authors": rows[orig_idx]["authors"] or "",

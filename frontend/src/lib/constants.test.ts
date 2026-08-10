@@ -3,6 +3,7 @@ import {
   auditStatusToVariant,
   confidenceToVariant,
   humanizeReason,
+  isProsperoRegistrationNumberValid,
   phaseColor,
   prismaStatusToVariant,
   RESUME_PHASE_ORDER,
@@ -15,7 +16,10 @@ describe("constants semantic mappings", () => {
   it("maps historical/backend statuses to canonical run status", () => {
     expect(resolveRunStatus("completed")).toBe("done")
     expect(resolveRunStatus("running")).toBe("streaming")
-    expect(resolveRunStatus("awaiting_review")).toBe("streaming")
+    expect(resolveRunStatus("awaiting_review")).toBe("awaiting_review")
+    expect(resolveRunStatus("awaiting_prospero")).toBe("awaiting_prospero")
+    expect(resolveRunStatus("config_generating")).toBe("config_generating")
+    expect(resolveRunStatus("config_ready")).toBe("config_ready")
     expect(resolveRunStatus("interrupted")).toBe("cancelled")
     expect(resolveRunStatus("stale")).toBe("stale")
   })
@@ -47,8 +51,16 @@ describe("constants semantic mappings", () => {
     expect(STATUS_PROGRESS.done).toBe("bg-intent-success")
   })
 
+  it("validates PROSPERO registration number format", () => {
+    expect(isProsperoRegistrationNumberValid("CRD42025678901")).toBe(true)
+    expect(isProsperoRegistrationNumberValid("crd42025678901")).toBe(true)
+    expect(isProsperoRegistrationNumberValid("CRD123")).toBe(false)
+    expect(isProsperoRegistrationNumberValid("")).toBe(false)
+  })
+
   it("keeps resume phase order parity contract (no removed phases)", () => {
     expect(RESUME_PHASE_ORDER).toEqual([
+      "phase_1_prospero_gate",
       "phase_2_search",
       "phase_3_screening",
       "phase_4_extraction_quality",

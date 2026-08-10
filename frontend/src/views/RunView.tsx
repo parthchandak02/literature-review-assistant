@@ -12,6 +12,7 @@ import { formatRunDate, formatWorkflowId } from "@/lib/format"
 import { Spinner } from "@/components/ui/feedback"
 import { LiveStreamStatus } from "@/components/run-status"
 import { resolveRunHeaderStatus } from "@/lib/constants"
+import { detectAwaitingProspero } from "@/lib/phaseProgress"
 import { GlassTabs } from "@/components/ui/glass-tabs"
 import { ViewBoundary } from "@/components/ViewBoundary"
 import { ActivityView } from "@/views/ActivityView"
@@ -20,6 +21,7 @@ import { useHistoricalEvents } from "@/hooks/useHistoricalEvents"
 import type { CostStats } from "@/hooks/useCostStats"
 import { computeFunnelStages } from "@/lib/funnelStages"
 import type { DraftConfigContext } from "@/views/ConfigView"
+import type { ProsperoRegistration } from "@/lib/api"
 import type { RunTab, SelectedRun } from "@/context/runSessionTypes"
 
 export type { RunTab, SelectedRun } from "@/context/runSessionTypes"
@@ -101,6 +103,10 @@ interface RunViewProps {
   draftConfig?: DraftConfigContext | null
   onRetryDraftGeneration?: () => void
   onLaunchDraft?: (yaml: string) => void
+  prosperoPrepareInProgress?: boolean
+  prosperoSubmitting?: boolean
+  onPrepareProspero?: (yaml: string) => void
+  onStartResearchAfterProspero?: (registration: ProsperoRegistration) => void | Promise<void>
 }
 
 export function RunView({
@@ -122,6 +128,10 @@ export function RunView({
   draftConfig = null,
   onRetryDraftGeneration,
   onLaunchDraft,
+  prosperoPrepareInProgress = false,
+  prosperoSubmitting = false,
+  onPrepareProspero,
+  onStartResearchAfterProspero,
 }: RunViewProps) {
   const [wfIdCopied, setWfIdCopied] = useState(false)
   const isHistorical = !isViewingLiveRun
@@ -145,6 +155,14 @@ export function RunView({
     (isRunning &&
       events.some((e) => e.type === "phase_start" && e.phase === "human_review_checkpoint") &&
       !events.some((e) => e.type === "phase_done" && e.phase === "human_review_checkpoint"))
+
+  const isAwaitingProspero = detectAwaitingProspero({
+    historicalStatus: run.historicalStatus,
+    status,
+    events,
+    isRunning,
+    prosperoPrepareInProgress,
+  })
 
   // historicalStatus is the authoritative backend status for completed/cancelled/failed runs.
   // Check it before isDone, because isDone is true for ALL terminal states (including
@@ -210,6 +228,7 @@ export function RunView({
     isCancelled,
     isFailed,
     isAwaitingReview,
+    isAwaitingProspero,
   })
 
   return (
@@ -397,6 +416,12 @@ export function RunView({
               draftConfig={draftConfig}
               onRetryDraftGeneration={onRetryDraftGeneration}
               onLaunchDraft={onLaunchDraft}
+              runId={run.runId}
+              isAwaitingProspero={isAwaitingProspero}
+              prosperoPrepareInProgress={prosperoPrepareInProgress}
+              prosperoSubmitting={prosperoSubmitting}
+              onPrepareProspero={onPrepareProspero}
+              onStartResearchAfterProspero={onStartResearchAfterProspero}
             />
           )}
 

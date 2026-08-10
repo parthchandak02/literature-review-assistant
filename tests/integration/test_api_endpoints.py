@@ -1568,7 +1568,7 @@ async def test_resume_does_not_flip_registry_failed_when_runtime_completed(
         run_summary.write_text(json.dumps({"status": "done", "artifacts": {"dummy": "ok"}}), encoding="utf-8")
         raise RuntimeError("post-finalize logging failure")
 
-    monkeypatch.setattr("src.web.orchestration_facade.resume_workflow_run", _fake_run_workflow_resume)
+    monkeypatch.setattr("src.orchestration.workflow.run_workflow_resume", _fake_run_workflow_resume)
 
     resp = await client.post(
         "/api/history/resume",

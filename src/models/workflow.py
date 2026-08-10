@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import json
 from datetime import UTC, datetime
+from enum import Enum
+from typing import Any
 
 from pydantic import BaseModel, Field
 
@@ -13,6 +15,103 @@ from src.models.enums import (
     RecoveryAction,
     StepStatus,
 )
+
+
+class WorkflowRunStatus(str, Enum):
+    """Terminal workflow run outcomes returned from RUN_GRAPH End nodes."""
+
+    COMPLETED = "completed"
+    FAILED = "failed"
+    AWAITING_PROSPERO = "awaiting_prospero"
+    AWAITING_REVIEW = "awaiting_review"
+    GATE_BLOCKED = "gate_blocked"
+
+
+class WorkflowRunResult(BaseModel):
+    """Typed terminal payload from workflow graph End nodes and run entrypoints."""
+
+    status: WorkflowRunStatus
+    workflow_id: str = ""
+    db_path: str | None = None
+    output_dir: str | None = None
+    error: str | None = None
+    phase: str | None = None
+    gate: str | None = None
+    details: dict[str, Any] = Field(default_factory=dict)
+
+    def to_output_dict(self) -> dict[str, Any]:
+        """Flatten for SSE/CLI consumers that expect the legacy summary dict shape."""
+        legacy_status = {
+            WorkflowRunStatus.COMPLETED: "done",
+            WorkflowRunStatus.FAILED: "failed",
+            WorkflowRunStatus.AWAITING_PROSPERO: "awaiting_prospero",
+            WorkflowRunStatus.AWAITING_REVIEW: "awaiting_review",
+            WorkflowRunStatus.GATE_BLOCKED: "gate_blocked",
+        }[self.status]
+        base: dict[str, Any] = {"status": legacy_status, "workflow_id": self.workflow_id}
+        if self.db_path is not None:
+            base["db_path"] = self.db_path
+        if self.output_dir is not None:
+            base["output_dir"] = self.output_dir
+        if self.error is not None:
+            base["error"] = self.error
+        if self.phase is not None:
+            base["phase"] = self.phase
+        if self.gate is not None:
+            base["gate"] = self.gate
+        base.update(self.details)
+        return base
+
+    @classmethod
+    def from_summary(cls, summary: dict[str, Any]) -> WorkflowRunResult:
+        raw_status = str(summary.get("status", "")).strip().lower()
+        manuscript_audit = summary.get("manuscript_audit")
+        gate_blocked = bool(summary.get("gate_blocked")) or (
+            isinstance(manuscript_audit, dict) and bool(manuscript_audit.get("gate_blocked"))
+        )
+        if gate_blocked and raw_status in ("failed", "error"):
+            status = WorkflowRunStatus.GATE_BLOCKED
+        elif raw_status in ("done", "completed", "success"):
+            status = WorkflowRunStatus.COMPLETED
+        elif raw_status in ("failed", "error"):
+            status = WorkflowRunStatus.FAILED
+        elif raw_status == "awaiting_prospero":
+            status = WorkflowRunStatus.AWAITING_PROSPERO
+        elif raw_status == "awaiting_review":
+            status = WorkflowRunStatus.AWAITING_REVIEW
+        elif raw_status == "gate_blocked":
+            status = WorkflowRunStatus.GATE_BLOCKED
+        else:
+            status = WorkflowRunStatus.COMPLETED
+
+        core_keys = {"status", "workflow_id", "db_path", "output_dir", "error", "phase", "gate", "gate_blocked"}
+        details = {key: value for key, value in summary.items() if key not in core_keys}
+        return cls(
+            status=status,
+            workflow_id=str(summary.get("workflow_id", "")),
+            db_path=summary.get("db_path"),
+            output_dir=summary.get("output_dir"),
+            error=summary.get("error"),
+            phase=summary.get("phase"),
+            gate=summary.get("gate"),
+            details=details,
+        )
+
+    @classmethod
+    def awaiting_prospero(cls, workflow_id: str, db_path: str) -> WorkflowRunResult:
+        return cls(
+            status=WorkflowRunStatus.AWAITING_PROSPERO,
+            workflow_id=workflow_id,
+            db_path=db_path,
+        )
+
+    @classmethod
+    def awaiting_review(cls, workflow_id: str, db_path: str) -> WorkflowRunResult:
+        return cls(
+            status=WorkflowRunStatus.AWAITING_REVIEW,
+            workflow_id=workflow_id,
+            db_path=db_path,
+        )
 
 
 class GateResult(BaseModel):

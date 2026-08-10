@@ -10,7 +10,7 @@ from fastapi import HTTPException
 
 from src.db.workflow_registry import register
 from src.web.lifecycle_reconciler import LifecycleReconciler
-from src.web.run_resolver import RunResolver
+from src.web.run_resolver import RunResolver, resolve_runtime_db
 
 
 @dataclass
@@ -35,6 +35,16 @@ def _make_resolver(
         lifecycle_metrics=lifecycle_metrics or {},
         anchor_file=__file__,
     )
+
+
+@pytest.mark.asyncio
+async def test_resolve_runtime_db_delegates_to_resolver() -> None:
+    resolver = _make_resolver(
+        {
+            "abc12345": _StubRunRecord(db_path="/tmp/runtime.db"),
+        }
+    )
+    assert await resolve_runtime_db("abc12345", resolver=resolver) == "/tmp/runtime.db"
 
 
 @pytest.mark.asyncio

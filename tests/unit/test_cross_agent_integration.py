@@ -382,6 +382,7 @@ def test_next_phase_returns_first_incomplete() -> None:
     from src.orchestration.resume import _next_phase
 
     checkpoints = {
+        "phase_1_prospero_gate": "completed",
         "phase_2_search": "completed",
         "phase_3_screening": "completed",
         "phase_4_extraction_quality": "partial",
@@ -399,19 +400,19 @@ def test_next_phase_all_completed() -> None:
 def test_next_phase_empty_checkpoints() -> None:
     from src.orchestration.resume import _next_phase
 
-    assert _next_phase({}) == "phase_2_search"
+    assert _next_phase({}) == "phase_1_prospero_gate"
 
 
-def test_phases_from_returns_suffix() -> None:
-    from src.orchestration.resume import _phases_from
+def test_rollback_cascade_for_returns_suffix() -> None:
+    from src.orchestration.phase_catalog import rollback_cascade_for
 
-    result = _phases_from("phase_6_writing")
+    result = rollback_cascade_for("phase_6_writing")
     assert result[0] == "phase_6_writing"
     assert "phase_7_audit" in result
     assert "finalize" in result
 
 
-def test_phases_from_invalid_phase() -> None:
-    from src.orchestration.resume import _phases_from
+def test_rollback_cascade_for_invalid_phase() -> None:
+    from src.orchestration.phase_catalog import rollback_cascade_for
 
-    assert _phases_from("nonexistent") == []
+    assert rollback_cascade_for("nonexistent") == []

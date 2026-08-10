@@ -142,6 +142,7 @@ export function ResultsView({
     defaultResultsCategory(Boolean(manuscriptPath)),
   )
 
+  /* eslint-disable react-hooks/set-state-in-effect -- reset category when run/manuscript context changes */
   useEffect(() => {
     setCategory(defaultResultsCategory(Boolean(manuscriptPath)))
   }, [manuscriptPath, runId])
@@ -151,6 +152,7 @@ export function ResultsView({
       setCategory(SUBMISSION_FOCUS_RESULTS_CATEGORY)
     }
   }, [submissionFocusTarget, submissionFocusToken])
+  /* eslint-enable react-hooks/set-state-in-effect */
 
   const activeCategory = resolveActiveResultsCategory(category, categoryIds)
 

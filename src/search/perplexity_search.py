@@ -9,9 +9,9 @@ import aiohttp
 
 from src.config.env_context import get_env
 from src.models import CandidatePaper, SearchResult, SourceCategory
+from src.search.source_inference import PERPLEXITY_WEB
+from src.search.source_inference import infer_source_from_url as _infer_source_from_url_shared
 from src.utils.ssl_context import tcp_connector_with_certifi
-
-from src.search.source_inference import PERPLEXITY_WEB, infer_source_from_url as _infer_source_from_url_shared
 
 
 def _infer_source_from_url(url: str | None) -> tuple[str, SourceCategory]:

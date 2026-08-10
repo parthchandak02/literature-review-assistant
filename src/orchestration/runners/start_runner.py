@@ -5,10 +5,14 @@ from __future__ import annotations
 from pathlib import Path
 
 from src.config.loader import load_configs
-from src.db.workflow_registry import allocate_workflow_id, find_by_workflow_id
+from src.db.database import get_db
+from src.db.repositories import WorkflowRepository
+from src.db.workflow_registry import DRAFT_REGISTRY_STATUSES, allocate_workflow_id, find_by_workflow_id
+from src.db.workflow_registry import register as register_workflow
+from src.orchestration.helpers.runtime import hash_config as helper_hash_config
 from src.orchestration.state import ReviewState
 from src.utils import structured_log
-from src.utils.logging_paths import create_run_paths
+from src.utils.logging_paths import create_run_paths, default_run_artifacts
 
 
 def _rc(state: ReviewState):
@@ -30,6 +34,51 @@ async def run_start_node(state: ReviewState) -> None:
     state.review = review
     state.settings = settings
     state.run_id = _now_utc()
+
+    reserved_id = (state.workflow_id or "").strip()
+    reg_entry = await find_by_workflow_id(state.run_root, reserved_id) if reserved_id else None
+    if reg_entry is not None and reg_entry.status in DRAFT_REGISTRY_STATUSES:
+        state.workflow_id = reserved_id
+        state.db_path = reg_entry.db_path
+        run_dir = Path(reg_entry.db_path).parent
+        state.log_dir = str(run_dir)
+        state.output_dir = str(run_dir)
+        structured_log.configure_run_logging(state.log_dir)
+        structured_log.bind_run(state.workflow_id, state.run_id, log_dir=state.log_dir)
+        state.artifacts.update(default_run_artifacts(run_dir))
+
+        config_src = Path(state.review_path) if Path(state.review_path).exists() else Path("config/review.yaml")
+        header = f"# workflow_id: {state.workflow_id}\n# run_dir: {run_dir}\n# created_at: {state.run_id}\n#\n"
+        if config_src.exists():
+            yaml_text = config_src.read_text(encoding="utf-8")
+            (run_dir / "config_snapshot.yaml").write_text(header + yaml_text, encoding="utf-8")
+            (run_dir / "review.yaml").write_text(yaml_text, encoding="utf-8")
+            config_hash = helper_hash_config(str(config_src))
+        else:
+            (run_dir / "config_snapshot.yaml").write_text(header, encoding="utf-8")
+            config_hash = ""
+
+        async with get_db(state.db_path) as db:
+            repository = WorkflowRepository(db)
+            await repository.create_workflow(state.workflow_id, state.review.research_question, config_hash)
+
+        await register_workflow(
+            run_root=state.run_root,
+            workflow_id=state.workflow_id,
+            topic=state.review.research_question,
+            config_hash=config_hash,
+            db_path=state.db_path,
+            status="running",
+        )
+
+        if rc is not None:
+            if hasattr(rc, "notify_workflow_id"):
+                rc.notify_workflow_id(state.workflow_id, state.run_root)
+            rc.emit_phase_done("start", {"workflow_id": state.workflow_id})
+            if hasattr(rc, "set_db_path"):
+                rc.set_db_path(state.db_path)
+        return
+
     state.workflow_id = await allocate_workflow_id(state.run_root)
 
     run_paths = create_run_paths(
@@ -42,36 +91,7 @@ async def run_start_node(state: ReviewState) -> None:
     state.db_path = str(run_paths.runtime_db)
     structured_log.configure_run_logging(state.log_dir)
     structured_log.bind_run(state.workflow_id, state.run_id, log_dir=state.log_dir)
-    state.artifacts["run_summary"] = str(run_paths.run_summary)
-    state.artifacts["search_appendix"] = str(run_paths.search_appendix)
-    state.artifacts["protocol"] = str(run_paths.protocol_markdown)
-    state.artifacts["coverage_report"] = str(run_paths.run_dir / "doc_fulltext_retrieval_coverage.md")
-    state.artifacts["disagreements_report"] = str(run_paths.run_dir / "doc_disagreements_report.md")
-    state.artifacts["rob_traffic_light"] = str(run_paths.run_dir / "fig_rob_traffic_light.png")
-    state.artifacts["rob2_traffic_light"] = str(run_paths.run_dir / "fig_rob2_traffic_light.png")
-    state.artifacts["narrative_synthesis"] = str(run_paths.run_dir / "data_narrative_synthesis.json")
-    state.artifacts["manuscript_md"] = str(run_paths.run_dir / "doc_manuscript.md")
-    state.artifacts["manuscript_tex"] = str(run_paths.run_dir / "doc_manuscript.tex")
-    state.artifacts["references_bib"] = str(run_paths.run_dir / "references.bib")
-    state.artifacts["prisma_diagram"] = str(run_paths.run_dir / "fig_prisma_flow.png")
-    state.artifacts["timeline"] = str(run_paths.run_dir / "fig_publication_timeline.png")
-    state.artifacts["geographic"] = str(run_paths.run_dir / "fig_geographic_distribution.png")
-    state.artifacts["fig_forest_plot"] = str(run_paths.run_dir / "fig_forest_plot.png")
-    state.artifacts["fig_funnel_plot"] = str(run_paths.run_dir / "fig_funnel_plot.png")
-    state.artifacts["concept_taxonomy"] = str(run_paths.run_dir / "fig_concept_taxonomy.svg")
-    state.artifacts["conceptual_framework"] = str(run_paths.run_dir / "fig_conceptual_framework.svg")
-    state.artifacts["methodology_flow"] = str(run_paths.run_dir / "fig_methodology_flow.svg")
-    state.artifacts["custom_diagram_01"] = str(run_paths.run_dir / "fig_custom_01.png")
-    state.artifacts["custom_diagram_02"] = str(run_paths.run_dir / "fig_custom_02.png")
-    state.artifacts["custom_diagram_03"] = str(run_paths.run_dir / "fig_custom_03.png")
-    state.artifacts["diagram_brief_pack"] = str(run_paths.run_dir / "data_diagram_brief_pack.json")
-    state.artifacts["diagram_placement_plan"] = str(run_paths.run_dir / "data_diagram_placement_plan.json")
-    state.artifacts["diagram_generation_report"] = str(run_paths.run_dir / "data_diagram_generation_report.json")
-    state.artifacts["evidence_network"] = str(run_paths.run_dir / "fig_evidence_network.png")
-    state.artifacts["papers_dir"] = str(run_paths.run_dir / "papers")
-    state.artifacts["papers_manifest"] = str(run_paths.run_dir / "data_papers_manifest.json")
-    state.artifacts["prospero_form_md"] = str(run_paths.run_dir / "doc_prospero_registration.md")
-    state.artifacts["prospero_form"] = str(run_paths.run_dir / "doc_prospero_registration.docx")
+    state.artifacts.update(default_run_artifacts(run_paths.run_dir))
 
     config_src = Path(state.review_path) if Path(state.review_path).exists() else Path("config/review.yaml")
     snapshot_dest = run_paths.run_dir / "config_snapshot.yaml"
@@ -84,7 +104,27 @@ async def run_start_node(state: ReviewState) -> None:
     else:
         snapshot_dest.write_text(header, encoding="utf-8")
 
-    if rc:
+    review_yaml_dest = run_paths.run_dir / "review.yaml"
+    if config_src.exists():
+        review_yaml_dest.write_text(config_src.read_text(encoding="utf-8"), encoding="utf-8")
+
+    config_hash = helper_hash_config(state.review_path)
+    async with get_db(state.db_path) as db:
+        repository = WorkflowRepository(db)
+        await repository.create_workflow(state.workflow_id, state.review.research_question, config_hash)
+
+    await register_workflow(
+        run_root=state.run_root,
+        workflow_id=state.workflow_id,
+        topic=state.review.research_question,
+        config_hash=config_hash,
+        db_path=state.db_path,
+        status="running",
+    )
+
+    if rc is not None:
+        if hasattr(rc, "notify_workflow_id"):
+            rc.notify_workflow_id(state.workflow_id, state.run_root)
         rc.emit_phase_done("start", {"workflow_id": state.workflow_id})
         if hasattr(rc, "set_db_path"):
             rc.set_db_path(state.db_path)
@@ -101,6 +141,8 @@ async def resolve_resume_next_phase(state: ReviewState) -> str:
         reg_entry = await find_by_workflow_id(state.run_root, state.workflow_id)
         if reg_entry and str(getattr(reg_entry, "status", "")) == "awaiting_review":
             return "human_review_checkpoint"
+        if reg_entry and str(getattr(reg_entry, "status", "")) == "awaiting_prospero":
+            return "phase_1_prospero_gate"
     except Exception:
         pass
-    return state.next_phase or "phase_2_search"
+    return state.next_phase or "phase_1_prospero_gate"
