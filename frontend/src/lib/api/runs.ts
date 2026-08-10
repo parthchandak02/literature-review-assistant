@@ -84,3 +84,20 @@ export async function cancelRun(runId: string): Promise<void> {
   const res = await fetch(`${API_BASE}/cancel/${runId}`, { method: "POST" })
   if (!res.ok) throw await apiError(res, "Cancel failed")
 }
+
+export interface ProsperoRegistration {
+  registration_number: string
+  registration_date: string
+}
+
+export async function submitProsperoRegistration(
+  runId: string,
+  registration: ProsperoRegistration,
+): Promise<void> {
+  const res = await fetch(`${API_BASE}/run/${encodeURIComponent(runId)}/submit-prospero`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(registration),
+  })
+  if (!res.ok) throw await apiError(res, "Failed to submit PROSPERO registration")
+}

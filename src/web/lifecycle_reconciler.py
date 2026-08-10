@@ -138,7 +138,7 @@ class LifecycleReconciler:
             "live_run_id": live_run_id,
             "source": "registry",
         }
-        live_run_active = bool(live_run_id and registry_status in {"running", "awaiting_review"})
+        live_run_active = bool(live_run_id and registry_status in {"running", "awaiting_review", "awaiting_prospero"})
         if live_run_active and not self.running_heartbeat_stale(row):
             diagnostics["source"] = "active_run"
             return registry_status, diagnostics
@@ -151,6 +151,7 @@ class LifecycleReconciler:
             "running",
             "stale",
             "awaiting_review",
+            "awaiting_prospero",
         }:
             diagnostics["source"] = str(evidence.get("source") or "runtime")
             diagnostics["override"] = f"{registry_status}->{terminal}"

@@ -8,7 +8,7 @@ from typing import Any
 import aiosqlite
 from fastapi import APIRouter, HTTPException
 
-from src.web.state import _get_db_path, _resolve_db_path_from_run_or_workflow
+from src.web.run_resolver import resolve_runtime_db
 
 router = APIRouter(tags=["database_explorer"])
 
@@ -16,7 +16,7 @@ router = APIRouter(tags=["database_explorer"])
 @router.get("/api/db/{run_id}/papers-facets")
 async def get_papers_facets(run_id: str) -> dict[str, Any]:
     """Return distinct values for all filter columns (used by autocomplete dropdowns)."""
-    db_path = _get_db_path(run_id)
+    db_path = await resolve_runtime_db(run_id)
     try:
         async with aiosqlite.connect(db_path) as db:
             db.row_factory = aiosqlite.Row
@@ -73,7 +73,7 @@ async def get_papers_suggest(
     """Return distinct matching values for a column for autocomplete (title and author)."""
     if column not in ("title", "author"):
         raise HTTPException(status_code=400, detail="column must be 'title' or 'author'")
-    db_path = _get_db_path(run_id)
+    db_path = await resolve_runtime_db(run_id)
     try:
         async with aiosqlite.connect(db_path) as db:
             like = f"%{q}%"
@@ -130,7 +130,7 @@ async def get_papers_all(
     limit: int = 50,
 ) -> dict[str, Any]:
     """Unified per-paper table joining papers with final screening decisions."""
-    db_path = _get_db_path(run_id)
+    db_path = await resolve_runtime_db(run_id)
     try:
         async with aiosqlite.connect(db_path) as db:
             db.row_factory = aiosqlite.Row
@@ -255,7 +255,7 @@ async def get_papers_all(
 @router.get("/api/db/{run_id}/tables")
 async def get_db_tables(run_id: str) -> dict[str, Any]:
     """Vision-extracted quantitative outcome table rows grouped by paper."""
-    db_path = _get_db_path(run_id)
+    db_path = await resolve_runtime_db(run_id)
     try:
         async with aiosqlite.connect(db_path) as db:
             db.row_factory = aiosqlite.Row
@@ -303,7 +303,7 @@ async def get_db_tables(run_id: str) -> dict[str, Any]:
 @router.get("/api/db/{run_id}/rag-diagnostics")
 async def get_db_rag_diagnostics(run_id: str, run_root: str = "runs") -> dict[str, Any]:
     """Return per-section RAG retrieval diagnostics for a run."""
-    db_path = await _resolve_db_path_from_run_or_workflow(run_id, run_root)
+    db_path = await resolve_runtime_db(run_id, run_root)
     try:
         async with aiosqlite.connect(db_path) as db:
             db.row_factory = aiosqlite.Row

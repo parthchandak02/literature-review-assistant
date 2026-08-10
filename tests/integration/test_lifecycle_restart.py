@@ -238,7 +238,7 @@ async def test_resume_allowed_for_stale_registry_running_claim(
         resume_started.set()
         return {"status": "completed", "workflow_id": workflow_id}
 
-    monkeypatch.setattr("src.web.orchestration_facade.resume_workflow_run", _fake_resume)
+    monkeypatch.setattr("src.orchestration.workflow.run_workflow_resume", _fake_resume)
 
     resp = await client.post(
         "/api/history/resume",
@@ -322,7 +322,7 @@ async def test_resume_wrapper_flushes_durable_events_on_cancel(
             run_context.on_event({"type": "phase_start", "phase": "phase_4_extraction_quality"})
         await asyncio.Event().wait()
 
-    monkeypatch.setattr("src.web.orchestration_facade.resume_workflow_run", _fake_resume)
+    monkeypatch.setattr("src.orchestration.workflow.run_workflow_resume", _fake_resume)
 
     record = _RunRecord("run-resume-flush", "Lifecycle restart topic")
     record.db_path = str(db_path)

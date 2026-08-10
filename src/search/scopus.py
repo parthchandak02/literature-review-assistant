@@ -27,6 +27,7 @@ import aiohttp
 from src.config.env_context import get_env
 from src.models import CandidatePaper, SearchResult, SourceCategory
 from src.search.common import ElsevierConnectorMixin, primary_filter_mode_from_query
+from src.search.scopus_session import load_scopus_session_cookie, search_via_session_gateway
 from src.utils.ssl_context import tcp_connector_with_certifi
 
 logger = logging.getLogger(__name__)
@@ -49,10 +50,12 @@ class ScopusConnector(ElsevierConnectorMixin):
 
     def __init__(self, workflow_id: str) -> None:
         self.workflow_id = workflow_id
-        api_key = get_env("SCOPUS_API_KEY")
-        if not api_key:
-            raise ValueError("SCOPUS_API_KEY is required for the Scopus connector")
-        self._api_key = api_key.strip()
+        self._api_key = (get_env("SCOPUS_API_KEY") or "").strip()
+        self._session_cookie = load_scopus_session_cookie()
+        if not self._api_key and not self._session_cookie:
+            raise ValueError(
+                "Scopus connector requires SCOPUS_API_KEY and/or SCOPUS_SESSION_COOKIE_FILE"
+            )
 
     @staticmethod
     def _primary_filter_mode(query: str) -> str:
@@ -127,6 +130,38 @@ class ScopusConnector(ElsevierConnectorMixin):
         date_end: int | None = None,
     ) -> SearchResult:
         """Run a Scopus search and return all results up to max_results."""
+        if self._session_cookie:
+            try:
+                session_result = await search_via_session_gateway(
+                    workflow_id=self.workflow_id,
+                    query=query,
+                    max_results=max_results,
+                    date_start=date_start,
+                    date_end=date_end,
+                    cookie_header=self._session_cookie,
+                )
+                if session_result.papers:
+                    return session_result
+                logger.warning(
+                    "Scopus session gateway returned 0 papers; falling back to API if configured"
+                )
+            except Exception as exc:
+                if not self._api_key:
+                    raise
+                logger.warning("Scopus session gateway failed; falling back to API: %s", exc)
+
+        if not self._api_key:
+            return SearchResult(
+                workflow_id=self.workflow_id,
+                database_name=self.name,
+                source_category=self.source_category,
+                search_date=date.today().isoformat(),
+                search_query=query,
+                limits_applied=f"max_results={max_results},transport=session_gateway_failed",
+                records_retrieved=0,
+                papers=[],
+            )
+
         papers: list[CandidatePaper] = []
         headers = self.build_elsevier_headers(self._api_key)
 

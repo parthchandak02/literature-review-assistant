@@ -23,17 +23,17 @@ The system automates systematic reviews from research question to submission art
 ## Canonical Source-of-Truth Paths
 
 - Runtime graph: `src/orchestration/workflow.py` (`RUN_GRAPH`)
-- Resume order: `src/orchestration/resume.py` (`PHASE_ORDER`)
+- Phase order (canonical): `src/orchestration/phase_catalog.py` (`PHASE_ORDER`; re-exported from `src/orchestration/resume.py`)
 - Typed contracts: `src/models/`
 - DB schema: `src/db/schema.sql`
 - Registry and workflow history: `src/db/workflow_registry.py`
 - Stats precedence and truth rules: `src/db/source_of_truth.py`
-- API surface: `src/web/routers/` (`system`, `config`, `run_lifecycle`, `history`, `database_explorer`, `costs`, `validation`, `artifacts`, `screening_review`, `advanced`; registered from `src/web/app.py`)
+- API surface: `src/web/routers/` (`system`, `config`, `run_lifecycle`, `history`, `database_explorer`, `costs`, `validation`, `artifacts`, `screening_review`, `advanced`, `prospero_gate`, `workflow_draft`; registered from `src/web/app.py`)
 - Frontend API client: `frontend/src/lib/api.ts`
 - Frontend phase constants: `frontend/src/lib/constants.ts`
 
 ## Phase Naming Rule
 
 Build phases (1-8) are planning labels.
-Runtime checkpoints are the backend keys in `src/orchestration/resume.py`.
+Runtime checkpoints are the backend keys in `src/orchestration/phase_catalog.py` (`PHASE_ORDER`).
 Do not treat these naming systems as interchangeable.

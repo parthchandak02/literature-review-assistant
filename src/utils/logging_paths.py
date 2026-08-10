@@ -41,6 +41,42 @@ class RunPaths:
     protocol_markdown: Path
 
 
+def default_run_artifacts(run_dir: Path) -> dict[str, str]:
+    """Canonical artifact path map for a run directory (start + resume)."""
+    return {
+        "run_summary": str(run_dir / "run_summary.json"),
+        "search_appendix": str(run_dir / "doc_search_strategies_appendix.md"),
+        "protocol": str(run_dir / "doc_protocol.md"),
+        "coverage_report": str(run_dir / "doc_fulltext_retrieval_coverage.md"),
+        "disagreements_report": str(run_dir / "doc_disagreements_report.md"),
+        "rob_traffic_light": str(run_dir / "fig_rob_traffic_light.png"),
+        "rob2_traffic_light": str(run_dir / "fig_rob2_traffic_light.png"),
+        "narrative_synthesis": str(run_dir / "data_narrative_synthesis.json"),
+        "manuscript_md": str(run_dir / "doc_manuscript.md"),
+        "manuscript_tex": str(run_dir / "doc_manuscript.tex"),
+        "references_bib": str(run_dir / "references.bib"),
+        "prisma_diagram": str(run_dir / "fig_prisma_flow.png"),
+        "timeline": str(run_dir / "fig_publication_timeline.png"),
+        "geographic": str(run_dir / "fig_geographic_distribution.png"),
+        "fig_forest_plot": str(run_dir / "fig_forest_plot.png"),
+        "fig_funnel_plot": str(run_dir / "fig_funnel_plot.png"),
+        "concept_taxonomy": str(run_dir / "fig_concept_taxonomy.svg"),
+        "conceptual_framework": str(run_dir / "fig_conceptual_framework.svg"),
+        "methodology_flow": str(run_dir / "fig_methodology_flow.svg"),
+        "custom_diagram_01": str(run_dir / "fig_custom_01.png"),
+        "custom_diagram_02": str(run_dir / "fig_custom_02.png"),
+        "custom_diagram_03": str(run_dir / "fig_custom_03.png"),
+        "diagram_brief_pack": str(run_dir / "data_diagram_brief_pack.json"),
+        "diagram_placement_plan": str(run_dir / "data_diagram_placement_plan.json"),
+        "diagram_generation_report": str(run_dir / "data_diagram_generation_report.json"),
+        "evidence_network": str(run_dir / "fig_evidence_network.png"),
+        "papers_dir": str(run_dir / "papers"),
+        "papers_manifest": str(run_dir / "data_papers_manifest.json"),
+        "prospero_form_md": str(run_dir / "doc_prospero_registration.md"),
+        "prospero_form": str(run_dir / "doc_prospero_registration.docx"),
+    }
+
+
 def create_run_paths(run_root: str, workflow_description: str, workflow_id: str = "") -> RunPaths:
     """Create and return all paths for a new workflow run.
 

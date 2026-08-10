@@ -5,6 +5,7 @@ from __future__ import annotations
 import csv
 import io
 import json
+import re
 import zipfile
 from dataclasses import dataclass
 from pathlib import Path
@@ -12,6 +13,11 @@ from typing import Any
 
 from src.db.database import get_db
 from src.db.repositories import WorkflowRepository
+from src.export.reviewer_export import (
+    format_identification_type,
+    format_information_source,
+    reviewer_record_link,
+)
 from src.prisma.diagram import _EXCLUSION_REASON_LABELS, build_prisma_counts
 
 _EXCLUSION_REASON_LABELS_EXPORT = dict(_EXCLUSION_REASON_LABELS)
@@ -37,56 +43,62 @@ _SUMMARY_COLUMNS = [
 ]
 
 _RECORD_COLUMNS = [
-    "workflow_id",
-    "paper_id",
     "title",
     "authors",
     "year",
     "journal",
-    "source_database",
-    "source_category",
+    "information_source",
+    "identification_type",
     "doi",
-    "url",
-    "openalex_id",
+    "record_link",
     "prisma_stage",
-    "terminal_decision",
-    "exclusion_reason_code",
-    "exclusion_reason_label",
-    "exclusion_rationale",
-    "screening_status",
-    "fulltext_status",
-    "synthesis_eligibility",
-    "ta_final_decision",
-    "ft_final_decision",
-    "included_in_synthesis",
+    "screening_outcome",
+    "exclusion_reason",
+    "included_in_review",
+    "workflow_id",
+    "paper_id",
 ]
 
 _SEARCH_COLUMNS = [
-    "workflow_id",
-    "database_name",
-    "source_category",
+    "information_source",
+    "identification_type",
     "search_date",
-    "search_query",
-    "records_retrieved",
+    "records_identified",
+    "workflow_id",
 ]
 
-_README = """PRISMA 2020 Flow Data Export
-=============================
+_README = """PRISMA 2020 Flow Data Export (Supplementary Materials)
+======================================================
 
-This ZIP contains the data backing the PRISMA flow diagram for this review.
+This ZIP supports PRISMA 2020 and PRISMA-S reporting. Per PRISMA-S, record counts
+for each database and information source should appear in supplementary materials
+even when the flow diagram shows only totals.
 
-Files:
-- prisma_flow_summary.csv: aggregate counts that should match the PRISMA diagram boxes
-- prisma_records.csv: one row per persisted paper with terminal disposition and exclusion reasons
-- search_identification.csv: per-database identification counts from the search phase
-- README.txt: this file
+Files
+-----
+- prisma_flow_summary.csv
+    Aggregate counts matching the PRISMA flow diagram boxes.
+- search_identification.csv
+    Records identified per database or other information source at the search phase.
+- prisma_records.csv
+    One row per screened record with reviewer-friendly bibliographic fields.
+- README.txt
+    This file.
 
-Important limitations:
-- Duplicate records removed during deduplication are counted in prisma_flow_summary.csv but
-  are not listed as individual rows in prisma_records.csv (they were never persisted).
-- The diagram may fold other-source identification into the databases total for arithmetic
-  consistency; see search_identification.csv for per-source breakdown.
-- Abstract text is omitted from exports by default.
+Column guide (prisma_records.csv)
+---------------------------------
+- information_source: Where the record was identified (e.g. Scopus, PubMed, IEEE Xplore).
+- identification_type: PRISMA column — "Database" or "Other source".
+- record_link: Persistent public link for reviewers (DOI resolver preferred).
+  API or connector endpoints are not included.
+- prisma_stage: Last PRISMA stage reached (included, excluded_ta, excluded_ft, etc.).
+- screening_outcome: Final disposition (include, exclude, not_retrieved, automation_exclude).
+- exclusion_reason: Plain-language exclusion reason when applicable.
+
+Limitations
+-----------
+- Duplicate records removed during deduplication appear only in prisma_flow_summary.csv.
+- Full search strategies belong in the manuscript Methods or search_strategies_appendix.pdf.
 """
 
 
@@ -244,25 +256,31 @@ async def _fetch_record_rows(db_path: str, workflow_id: str) -> list[dict[str, A
                 "authors": _format_authors(str(authors_raw) if authors_raw else None),
                 "year": year if year is not None else "",
                 "journal": journal or "",
-                "source_database": source_database or "",
-                "source_category": source_category or "",
-                "doi": doi or "",
-                "url": url or "",
-                "openalex_id": openalex_id or "",
+                "information_source": format_information_source(str(source_database) if source_database else None),
+                "identification_type": format_identification_type(
+                    str(source_category) if source_category else None
+                ),
+                "doi": _clean_export_doi(str(doi) if doi else None),
+                "record_link": reviewer_record_link(
+                    doi=str(doi) if doi else None,
+                    url=str(url) if url else None,
+                    openalex_id=str(openalex_id) if openalex_id else None,
+                ),
                 "prisma_stage": prisma_stage,
-                "terminal_decision": terminal_decision,
-                "exclusion_reason_code": exclusion_code or "",
-                "exclusion_reason_label": _reason_label(exclusion_code),
-                "exclusion_rationale": (str(exclusion_rationale) if exclusion_rationale else "")[:500],
-                "screening_status": screening_status or "",
-                "fulltext_status": fulltext_status or "",
-                "synthesis_eligibility": synthesis_eligibility or "",
-                "ta_final_decision": ta_decision or "",
-                "ft_final_decision": ft_decision or "",
-                "included_in_synthesis": "true" if synthesis_eligibility == "included_primary" else "false",
+                "screening_outcome": terminal_decision,
+                "exclusion_reason": _reason_label(exclusion_code),
+                "included_in_review": "yes" if synthesis_eligibility == "included_primary" else "no",
             }
         )
     return records
+
+
+def _clean_export_doi(doi: str | None) -> str:
+    if not doi:
+        return ""
+    cleaned = str(doi).strip()
+    cleaned = re.sub(r"^https?://(dx\.)?doi\.org/", "", cleaned, flags=re.IGNORECASE)
+    return cleaned
 
 
 async def _fetch_search_rows(db_path: str, workflow_id: str) -> list[dict[str, Any]]:
@@ -280,11 +298,10 @@ async def _fetch_search_rows(db_path: str, workflow_id: str) -> list[dict[str, A
     return [
         {
             "workflow_id": workflow_id,
-            "database_name": str(row[0]),
-            "source_category": str(row[1]),
+            "information_source": format_information_source(str(row[0])),
+            "identification_type": format_identification_type(str(row[1])),
             "search_date": str(row[2]),
-            "search_query": str(row[3]),
-            "records_retrieved": int(row[4]),
+            "records_identified": int(row[4]),
         }
         for row in rows
     ]

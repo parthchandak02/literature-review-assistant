@@ -18,9 +18,11 @@ from src.orchestration.phase_catalog import (
     PHASE_ORDER,
     SUB_PHASE_CHECKPOINTS,
     USER_RESUMABLE_PHASE_ORDER,
+    rollback_cascade_for,
 )
 from src.orchestration.state import ReviewState
 from src.search.deduplication import deduplicate_papers
+from src.utils.logging_paths import default_run_artifacts
 
 __all__ = [
     "PHASE_ORDER",
@@ -73,15 +75,6 @@ def _next_phase(checkpoints: dict[str, str]) -> str:
         if checkpoints.get(phase) != "completed":
             return phase
     return "finalize"
-
-
-def _phases_from(from_phase: str) -> list[str]:
-    """Return from_phase and all later phases in PHASE_ORDER."""
-    try:
-        idx = PHASE_ORDER.index(from_phase)
-        return list(PHASE_ORDER[idx:])
-    except ValueError:
-        return []
 
 
 def _extract_screening_kappa_from_phase_done_payloads(
@@ -223,7 +216,7 @@ async def load_resume_state(
                     next_phase = fallback
                     break
             else:
-                phases_to_clear = _phases_from(from_phase)
+                phases_to_clear = rollback_cascade_for(from_phase)
                 # Also clear any sub-phase checkpoints for phases being re-run so that
                 # mid-phase skip guards do not incorrectly fire on an explicit re-run.
                 extra: list[str] = []
@@ -273,38 +266,7 @@ async def load_resume_state(
                     await repo.delete_checkpoints_for_phases(workflow_id, ["phase_6_writing"])
                     next_phase = "phase_6_writing"
 
-    artifacts = {
-        "run_summary": str(run_dir / "run_summary.json"),
-        "search_appendix": str(run_dir / "doc_search_strategies_appendix.md"),
-        "protocol": str(run_dir / "doc_protocol.md"),
-        "coverage_report": str(run_dir / "doc_fulltext_retrieval_coverage.md"),
-        "disagreements_report": str(run_dir / "doc_disagreements_report.md"),
-        "rob_traffic_light": str(run_dir / "fig_rob_traffic_light.png"),
-        "rob2_traffic_light": str(run_dir / "fig_rob2_traffic_light.png"),
-        "narrative_synthesis": str(run_dir / "data_narrative_synthesis.json"),
-        "manuscript_md": str(run_dir / "doc_manuscript.md"),
-        "manuscript_tex": str(run_dir / "doc_manuscript.tex"),
-        "references_bib": str(run_dir / "references.bib"),
-        "evidence_network": str(run_dir / "fig_evidence_network.png"),
-        "papers_dir": str(run_dir / "papers"),
-        "papers_manifest": str(run_dir / "data_papers_manifest.json"),
-        "prisma_diagram": str(run_dir / "fig_prisma_flow.png"),
-        "timeline": str(run_dir / "fig_publication_timeline.png"),
-        "geographic": str(run_dir / "fig_geographic_distribution.png"),
-        "fig_forest_plot": str(run_dir / "fig_forest_plot.png"),
-        "fig_funnel_plot": str(run_dir / "fig_funnel_plot.png"),
-        "concept_taxonomy": str(run_dir / "fig_concept_taxonomy.svg"),
-        "conceptual_framework": str(run_dir / "fig_conceptual_framework.svg"),
-        "methodology_flow": str(run_dir / "fig_methodology_flow.svg"),
-        "custom_diagram_01": str(run_dir / "fig_custom_01.png"),
-        "custom_diagram_02": str(run_dir / "fig_custom_02.png"),
-        "custom_diagram_03": str(run_dir / "fig_custom_03.png"),
-        "diagram_brief_pack": str(run_dir / "data_diagram_brief_pack.json"),
-        "diagram_placement_plan": str(run_dir / "data_diagram_placement_plan.json"),
-        "diagram_generation_report": str(run_dir / "data_diagram_generation_report.json"),
-        "prospero_form_md": str(run_dir / "doc_prospero_registration.md"),
-        "prospero_form": str(run_dir / "doc_prospero_registration.docx"),
-    }
+    artifacts = default_run_artifacts(run_dir)
 
     state = ReviewState(
         review_path=review_path,

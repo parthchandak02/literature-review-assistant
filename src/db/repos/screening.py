@@ -8,8 +8,15 @@ import aiosqlite
 
 from src.models import (
     CohortMembershipRecord,
+    PrimaryStudyStatus,
     ScreeningDecision,
     ScreeningDecisionType,
+)
+
+_NON_PRIMARY_EXTRACTION_STATUSES = (
+    PrimaryStudyStatus.SECONDARY_REVIEW.value,
+    PrimaryStudyStatus.PROTOCOL_ONLY.value,
+    PrimaryStudyStatus.NON_EMPIRICAL.value,
 )
 
 _logger = logging.getLogger(__name__)
@@ -256,11 +263,9 @@ class ScreeningRepo:
             SELECT DISTINCT paper_id
             FROM extraction_records
             WHERE workflow_id = ?
-              AND COALESCE(json_extract(data, '$.primary_study_status'), 'primary') NOT IN (
-                  'secondary_review', 'protocol_only', 'non_empirical'
-              )
+              AND primary_study_status NOT IN (?, ?, ?)
             """,
-            (workflow_id,),
+            (workflow_id, *_NON_PRIMARY_EXTRACTION_STATUSES),
         )
         rows = await cursor.fetchall()
         return {str(row[0]) for row in rows}

@@ -1,5 +1,6 @@
 import { useEffect, useState, Suspense, lazy, Component, useRef } from "react"
 import type { ReactNode, ErrorInfo } from "react"
+import { useNavigate } from "react-router-dom"
 import { Toaster, toast } from "sonner"
 import { AlertTriangle, Menu, Settings } from "lucide-react"
 import { Sidebar } from "@/components/Sidebar"
@@ -11,12 +12,15 @@ import { useBackendHealth } from "@/hooks/useBackendHealth"
 import {
   buildRunRequest,
   generateConfigStream,
+  reserveWorkflowDraft,
   resolveStoredApiKeys,
+  saveWorkflowConfigDraft,
 } from "@/lib/api"
 import { useDefaultReviewConfig } from "@/hooks/useRunConfig"
 import { Spinner } from "@/components/ui/feedback"
 import { ViewToolbar } from "@/components/ui/view-toolbar"
-import { resolveRunStatus } from "@/lib/constants"
+import { isConfigDraftStatus, resolveRunStatus } from "@/lib/constants"
+import { detectAwaitingProspero } from "@/lib/phaseProgress"
 import {
   Tooltip,
   TooltipContent,
@@ -95,8 +99,10 @@ export default function App() {
 }
 
 function AppShell() {
+  const navigate = useNavigate()
   const {
     selectedRun,
+    setSelectedRun,
     activeRunTab,
     historyOutputs,
     submissionFocusTarget,
@@ -113,6 +119,8 @@ function AppShell() {
     handleStartWithMasterlistCsv,
     handleTimelineResumePhase,
     handleTabChange,
+    handleSubmitProsperoAndResume,
+    setActiveRunTab,
     openDraftRunShell,
   } = useRunSession()
 
@@ -126,9 +134,18 @@ function AppShell() {
   })
   const { data: defaultYaml = "" } = useDefaultReviewConfig()
   const [draftConfig, setDraftConfig] = useState<DraftConfigState | null>(null)
+  const [prosperoPrepareInProgress, setProsperoPrepareInProgress] = useState(false)
+  const [prosperoSubmitting, setProsperoSubmitting] = useState(false)
   const [settingsOpen, setSettingsOpen] = useState(false)
   const { isOnline } = useBackendHealth(6000, { suppressOffline: status === "streaming" })
   const prevOnlineRef = useRef(isOnline)
+
+  useEffect(() => {
+    if (selectedRun === null) {
+      setDraftConfig(null)
+      setProsperoPrepareInProgress(false)
+    }
+  }, [selectedRun])
 
   useEffect(() => {
     if (!prevOnlineRef.current && isOnline) {
@@ -159,7 +176,6 @@ function AppShell() {
   }, [])
 
   async function handleStartDraftConfig(req: ConfigGenerateRequest) {
-    openDraftRunShell(req.question)
     setDraftConfig({
       request: req,
       yaml: "",
@@ -170,7 +186,25 @@ function AppShell() {
       fallbackReason: null,
       generationError: null,
     })
+    let workflowId: string | null = null
     try {
+      const reserved = await reserveWorkflowDraft(req.question)
+      workflowId = reserved.workflow_id
+      const now = new Date()
+      setSelectedRun({
+        runId: reserved.workflow_id,
+        workflowId: reserved.workflow_id,
+        topic: req.question,
+        dbPath: reserved.db_path,
+        isDone: false,
+        historicalStatus: "config_generating",
+        startedAt: now,
+        createdAt: now.toISOString(),
+      })
+      setActiveRunTab("config")
+      navigate(`/run/${reserved.workflow_id}/config`, { replace: true })
+      void queryClient.invalidateQueries({ queryKey: ["history"] })
+
       const yaml = await generateConfigStream(
         req.question,
         req.deepseekKey,
@@ -192,10 +226,24 @@ function AppShell() {
           })
         },
       )
+      await saveWorkflowConfigDraft(reserved.workflow_id, yaml)
       setDraftConfig((prev) => (prev ? { ...prev, yaml, isGenerating: false, generationError: null } : prev))
+      setSelectedRun((prev) => (
+        prev?.workflowId === reserved.workflow_id
+          ? { ...prev, historicalStatus: "config_ready" }
+          : prev
+      ))
+      void queryClient.invalidateQueries({ queryKey: ["history"] })
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
       setDraftConfig((prev) => (prev ? { ...prev, isGenerating: false, generationError: message } : prev))
+      if (workflowId) {
+        setSelectedRun((prev) => (
+          prev?.workflowId === workflowId
+            ? { ...prev, historicalStatus: "config_generating" }
+            : prev
+        ))
+      }
     }
   }
 
@@ -216,6 +264,54 @@ function AppShell() {
   async function handleRetryDraftConfigGeneration() {
     if (!draftConfig?.request) return
     await handleStartDraftConfig(draftConfig.request)
+  }
+
+  async function handlePrepareProsperoConfig(yaml: string) {
+    if (!draftConfig?.request) return
+    const reservedWorkflowId =
+      selectedRun?.workflowId && selectedRun.workflowId !== "draft"
+        ? selectedRun.workflowId
+        : undefined
+    const req = buildRunRequest(
+      yaml,
+      resolveStoredApiKeys({ deepseek: draftConfig.request.deepseekKey }),
+      undefined,
+      reservedWorkflowId,
+    )
+    const prepareRequest = draftConfig.request
+    setProsperoPrepareInProgress(true)
+    try {
+      if (prepareRequest.csvFile && prepareRequest.csvMode === "masterlist") {
+        await handleStartWithMasterlistCsv(prepareRequest.csvFile, req, { tab: "config" })
+      } else if (prepareRequest.csvFile) {
+        await handleStartWithSupplementaryCsv(prepareRequest.csvFile, req, { tab: "config" })
+      } else {
+        await handleStart(req, { tab: "config" })
+      }
+      setDraftConfig((prev) => (prev ? { ...prev, yaml, isGenerating: false } : prev))
+      setActiveRunTab("config")
+    } catch (error) {
+      setProsperoPrepareInProgress(false)
+      const message = error instanceof Error ? error.message : String(error)
+      toast.error(message || "Failed to generate PROSPERO draft")
+    }
+  }
+
+  async function handleStartResearchAfterProspero(
+    registration: { registration_number: string; registration_date: string },
+  ) {
+    const runId = selectedRun?.runId
+    if (!runId || runId === "draft") return
+    setProsperoSubmitting(true)
+    try {
+      await handleSubmitProsperoAndResume(runId, registration)
+      setProsperoPrepareInProgress(false)
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      toast.error(message || "Failed to start research")
+    } finally {
+      setProsperoSubmitting(false)
+    }
   }
 
   async function handleLaunchDraftConfig(yaml: string) {
@@ -259,17 +355,33 @@ function AppShell() {
       )
     }
 
-    const isDraftRun = selectedRun.workflowId === "draft"
-    const draftStatus = draftConfig?.isGenerating ? "streaming" : "awaiting_review"
+    const isDraftRun =
+      selectedRun.workflowId === "draft" ||
+      draftConfig !== null ||
+      isConfigDraftStatus(selectedRun.historicalStatus)
+    const draftStatus = draftConfig?.isGenerating || selectedRun.historicalStatus === "config_generating"
+      ? "config_generating"
+      : selectedRun.historicalStatus === "config_ready"
+        ? "config_ready"
+        : "idle"
 
-    // Map the registry's raw status string to an SSE-style status for historical runs.
+    // Map the registry's raw status string to the canonical RunStatus.
     const resolvedHistoricalStatus = isDraftRun
       ? draftStatus
-      : (() => {
-          const raw = selectedRun.historicalStatus ?? "completed"
-          if (raw.toLowerCase() === "awaiting_review") return "awaiting_review"
-          return resolveRunStatus(raw)
-        })()
+      : resolveRunStatus(selectedRun.historicalStatus ?? "completed")
+    const liveAwaitingProspero =
+      isViewingLiveRun &&
+      detectAwaitingProspero({
+        status,
+        events: viewEvents,
+        isRunning: true,
+        prosperoPrepareInProgress,
+      })
+    const liveStatus = isViewingLiveRun
+      ? liveAwaitingProspero
+        ? "awaiting_prospero"
+        : status
+      : resolvedHistoricalStatus
     const completedHistoricalRun =
       !isDraftRun &&
       !isViewingLiveRun &&
@@ -285,7 +397,7 @@ function AppShell() {
         run={selectedRun}
         events={viewEvents}
         isViewingLiveRun={isViewingLiveRun}
-        status={isViewingLiveRun ? status : resolvedHistoricalStatus}
+        status={liveStatus}
         costStats={isViewingLiveRun ? costStats : { total_cost: 0, total_tokens_in: 0, total_tokens_out: 0, total_calls: 0, by_model: [], by_phase: [] }}
         activeTab={activeRunTab}
         onTabChange={handleTabChange}
@@ -300,6 +412,12 @@ function AppShell() {
         draftConfig={isDraftRun ? draftConfig : null}
         onRetryDraftGeneration={() => { void handleRetryDraftConfigGeneration() }}
         onLaunchDraft={(yaml) => { void handleLaunchDraftConfig(yaml) }}
+        prosperoPrepareInProgress={prosperoPrepareInProgress}
+        prosperoSubmitting={prosperoSubmitting}
+        onPrepareProspero={(yaml) => { void handlePrepareProsperoConfig(yaml) }}
+        onStartResearchAfterProspero={(registration) => {
+          void handleStartResearchAfterProspero(registration)
+        }}
       />
     )
   }

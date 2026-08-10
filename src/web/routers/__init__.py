@@ -6,10 +6,12 @@ from src.web.routers.config import router as config_router
 from src.web.routers.costs import router as costs_router
 from src.web.routers.database_explorer import router as database_explorer_router
 from src.web.routers.history import router as history_router
+from src.web.routers.prospero_gate import router as prospero_gate_router
 from src.web.routers.run_lifecycle import router as run_lifecycle_router
 from src.web.routers.screening_review import router as screening_review_router
 from src.web.routers.system import router as system_router
 from src.web.routers.validation import router as validation_router
+from src.web.routers.workflow_draft import router as workflow_draft_router
 
 __all__ = [
     "advanced_router",
@@ -18,8 +20,10 @@ __all__ = [
     "costs_router",
     "database_explorer_router",
     "history_router",
+    "prospero_gate_router",
     "run_lifecycle_router",
     "screening_review_router",
     "system_router",
     "validation_router",
+    "workflow_draft_router",
 ]

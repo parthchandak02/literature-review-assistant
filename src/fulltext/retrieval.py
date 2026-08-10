@@ -13,7 +13,7 @@ from urllib.parse import parse_qsl, quote, urlencode, urljoin, urlparse, urlunpa
 import aiohttp
 
 from src.config.env_context import get_env
-from src.search.pdf_parse import parse_pdf_bytes_async
+from src.search.pdf_parse import is_html_bytes, is_pdf_bytes, parse_pdf_bytes_async
 from src.utils.ssl_context import tcp_connector_with_certifi
 
 logger = logging.getLogger(__name__)
@@ -41,6 +41,8 @@ _CORE_SEARCH_URL = "https://api.core.ac.uk/v3/search/outputs"
 _CORE_OUTPUT_URL = "https://api.core.ac.uk/v3/outputs"
 _EUROPEPMC_SEARCH_URL = "https://www.ebi.ac.uk/europepmc/webservices/rest/search"
 _EUROPEPMC_FULLTEXT_URL = "https://www.ebi.ac.uk/europepmc/webservices/rest/articles"
+_EUROPEPMC_PDF_RENDER_URL = "https://europepmc.org/articles/{pmcid}?pdf=render"
+_PMC_OA_URL = "https://www.ncbi.nlm.nih.gov/pmc/utils/oa/oa.fcgi"
 _S2_PAPER_URL = "https://api.semanticscholar.org/graph/v1/paper/DOI:"
 _ARXIV_PDF_BASE = "https://arxiv.org/pdf"
 _BIORXIV_PDF_BASE = "https://www.biorxiv.org/content"
@@ -49,6 +51,7 @@ _OPENALEX_WORKS_URL = "https://api.openalex.org/works"
 _OPENALEX_CONTENT_BASE = "https://content.openalex.org/works"
 _CROSSREF_WORKS_URL = "https://api.crossref.org/works"
 _FT_TIMEOUT = _get_tier_timeout()
+_EPMC_PDF_TIMEOUT = max(_FT_TIMEOUT, 90)
 _DOI_RE = re.compile(r"10\.\d{4,9}/[-._;()/:A-Z0-9]+", re.IGNORECASE)
 _PUBMED_PMID_RE = re.compile(r"/(\d{5,9})(?:/|$)")
 _IEEE_DOCUMENT_RE = re.compile(r"/document/(\d+)(?:/|$)")
@@ -169,7 +172,7 @@ async def _fetch_sciencedirect_pdf(
                         ) as r2:
                             if r2.status == 200:
                                 body = await r2.read()
-                                if body and len(body) > 1000:
+                                if is_pdf_bytes(body):
                                     return FullTextResult(
                                         text="",
                                         source="sciencedirect_pdf",
@@ -182,9 +185,12 @@ async def _fetch_sciencedirect_pdf(
                     logger.debug("ScienceDirect PDF: HTTP %d for doi=%s", resp.status, doi)
                     return None
                 body = await resp.read()
-        if body and len(body) > 1000:
+        if is_pdf_bytes(body):
             return FullTextResult(text="", source="sciencedirect_pdf", pdf_bytes=body)
-        _append_diag(diagnostics, "ScienceDirect PDF", "response too small (<1KB)")
+        if is_html_bytes(body):
+            _append_diag(diagnostics, "ScienceDirect PDF", "HTML response (not PDF)")
+        else:
+            _append_diag(diagnostics, "ScienceDirect PDF", "response too small or not PDF")
         return None
     except Exception as exc:
         _append_diag(diagnostics, "ScienceDirect PDF", str(exc))
@@ -224,6 +230,9 @@ async def _fetch_sciencedirect(
                 payload = await resp.json(content_type=None)
         orig = payload.get("full-text-retrieval-response", {}).get("originalText", "")
         if isinstance(orig, str) and len(orig) >= _SD_MIN_CHARS:
+            pmc_pdf = await _fetch_pmc_pdf_by_doi(doi, diagnostics=diagnostics)
+            if pmc_pdf:
+                return pmc_pdf
             return FullTextResult(text=orig, source="sciencedirect")
         _append_diag(diagnostics, "ScienceDirect JSON", f"originalText < {_SD_MIN_CHARS} chars")
         return None
@@ -299,7 +308,7 @@ async def _fetch_unpaywall(doi: str, diagnostics: list[str] | None = None) -> Fu
                         if not pdf_bytes:
                             last_err = "no PDF bytes"
                             continue
-                        if "pdf" in ct.lower() or pdf_bytes[:4] == b"%PDF":
+                        if is_pdf_bytes(pdf_bytes):
                             return FullTextResult(
                                 text="",
                                 source="unpaywall_pdf",
@@ -380,8 +389,8 @@ async def _fetch_semanticscholar(doi: str, diagnostics: list[str] | None = None)
                     _append_diag(diagnostics, "SemanticScholar", f"PDF fetch HTTP {presp.status}")
                     return None
                 pdf_bytes = await presp.read()
-            if not pdf_bytes or len(pdf_bytes) < 1000:
-                _append_diag(diagnostics, "SemanticScholar", "PDF too small or empty")
+            if not is_pdf_bytes(pdf_bytes):
+                _append_diag(diagnostics, "SemanticScholar", "response is not a PDF")
                 return None
             return FullTextResult(text="", source="semanticscholar_pdf", pdf_bytes=pdf_bytes)
     except Exception as exc:
@@ -461,7 +470,7 @@ async def _fetch_core(doi: str, api_key: str, diagnostics: list[str] | None = No
             ) as dresp:
                 if dresp.status == 200:
                     body = await dresp.read()
-                    if body and len(body) > 1000:
+                    if is_pdf_bytes(body):
                         return FullTextResult(text="", source="core_pdf", pdf_bytes=body)
             _append_diag(diagnostics, "CORE", "no full text or PDF")
             return None
@@ -507,10 +516,13 @@ async def _fetch_europepmc(
             if not pmcid:
                 _append_diag(diagnostics, "EuropePMC", "no pmcid in result")
                 return None
-            pmcid_str = str(pmcid).strip()
-            if not pmcid_str.upper().startswith("PMC"):
-                pmcid_str = f"PMC{pmcid_str}"
+            pmcid_str = _normalize_pmcid(str(pmcid))
 
+        pdf_result = await _fetch_europepmc_pdf_render(pmcid_str, diagnostics=diagnostics)
+        if pdf_result:
+            return pdf_result
+
+        async with aiohttp.ClientSession() as session:
             async with session.get(
                 f"{_EUROPEPMC_FULLTEXT_URL}/{pmcid_str}/fullTextXML",
                 timeout=aiohttp.ClientTimeout(total=_FT_TIMEOUT),
@@ -569,8 +581,8 @@ async def _fetch_arxiv(
                     _append_diag(diagnostics, "arXiv", f"PDF fetch HTTP {resp.status}")
                     return None
                 body = await resp.read()
-        if not body or len(body) < 500:
-            _append_diag(diagnostics, "arXiv", "PDF too small or empty")
+        if not is_pdf_bytes(body):
+            _append_diag(diagnostics, "arXiv", "response is not a PDF")
             return None
         # Parse PDF to text for consistency with other tiers
         text = await _parse_pdf_body(body, max_chars=_SD_MIN_CHARS * 2)
@@ -620,7 +632,7 @@ async def _fetch_biorxiv_medrxiv(
                         if resp.status != 200:
                             continue
                         body = await resp.read()
-                if not body or len(body) < 500:
+                if not is_pdf_bytes(body):
                     continue
                 text = await _parse_pdf_body(body, max_chars=_SD_MIN_CHARS * 2)
                 if len(text.strip()) >= _SD_MIN_CHARS:
@@ -712,7 +724,7 @@ async def _fetch_openalex_content(
                             _append_diag(diagnostics, "OpenAlex", f"PDF HTTP {resp.status} for {pdf_url[:50]}")
                             continue
                         body = await resp.read()
-                if not body or len(body) < 500:
+                if not is_pdf_bytes(body):
                     continue
                 text = await _parse_pdf_body(body, max_chars=_SD_MIN_CHARS * 2)
                 if len(text.strip()) >= _SD_MIN_CHARS:
@@ -733,74 +745,157 @@ async def _fetch_openalex_content(
 # Tier 4: PubMed Central full text
 # ---------------------------------------------------------------------------
 
+_EPMC_PDF_HEADERS = {
+    "User-Agent": (
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) "
+        "Chrome/120.0.0.0 Safari/537.36"
+    ),
+    "Accept": "application/pdf,*/*",
+}
+
+
+def _normalize_pmcid(pmcid: str | None) -> str:
+    s = str(pmcid or "").strip()
+    if not s:
+        return ""
+    return s if s.upper().startswith("PMC") else f"PMC{s}"
+
+
+async def _resolve_pmcid(
+    session: aiohttp.ClientSession,
+    doi: str,
+    pmid: str | None = None,
+    diagnostics: list[str] | None = None,
+) -> str | None:
+    """Resolve DOI or PMID to PMCID via NCBI esearch."""
+    if not doi and not pmid:
+        return None
+    search_params = {
+        "db": "pmc",
+        "term": f"{doi}[DOI]" if doi else f"{pmid}[PMID]",
+        "retmode": "json",
+        "retmax": "1",
+    }
+    async with session.get(
+        _PMC_SEARCH_URL,
+        params=search_params,
+        timeout=aiohttp.ClientTimeout(total=_FT_TIMEOUT),
+    ) as resp:
+        if resp.status != 200:
+            _append_diag(diagnostics, "PMC", f"esearch HTTP {resp.status}")
+            return None
+        data = await resp.json(content_type=None)
+    ids = data.get("esearchresult", {}).get("idlist", [])
+    if not ids:
+        _append_diag(diagnostics, "PMC", "no PMCID for DOI")
+        return None
+    return _normalize_pmcid(str(ids[0]))
+
+
+async def _fetch_europepmc_pdf_render(
+    pmcid: str,
+    diagnostics: list[str] | None = None,
+) -> FullTextResult | None:
+    """Fetch open-access PMC PDF via Europe PMC render endpoint."""
+    pmcid_norm = _normalize_pmcid(pmcid)
+    if not pmcid_norm:
+        return None
+    pdf_url = _EUROPEPMC_PDF_RENDER_URL.format(pmcid=pmcid_norm)
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(
+                pdf_url,
+                headers=_EPMC_PDF_HEADERS,
+                timeout=aiohttp.ClientTimeout(total=_EPMC_PDF_TIMEOUT),
+                allow_redirects=True,
+            ) as resp:
+                if resp.status != 200:
+                    _append_diag(diagnostics, "EuropePMC PDF", f"HTTP {resp.status}")
+                    return None
+                body = await resp.read()
+        if not is_pdf_bytes(body):
+            _append_diag(
+                diagnostics,
+                "EuropePMC PDF",
+                "response is not a PDF" if not is_html_bytes(body) else "HTML response",
+            )
+            return None
+        text = await _parse_pdf_body(body, max_chars=_LP_MAX_CHARS)
+        logger.info("EuropePMC: PDF retrieved for %s", pmcid_norm)
+        return FullTextResult(text=text, pdf_bytes=body, source="europepmc_pdf")
+    except Exception as exc:
+        _append_diag(diagnostics, "EuropePMC PDF", str(exc))
+        logger.debug("EuropePMC PDF fetch error for %s: %s", pmcid, exc)
+        return None
+
+
+async def _fetch_pmc_pdf_by_doi(
+    doi: str,
+    pmid: str | None = None,
+    diagnostics: list[str] | None = None,
+) -> FullTextResult | None:
+    """Resolve PMCID and return PDF only (no XML text fallback)."""
+    if not doi and not pmid:
+        return None
+    bare_doi = _normalize_doi(doi) if doi else ""
+    try:
+        async with aiohttp.ClientSession() as session:
+            pmcid = await _resolve_pmcid(session, bare_doi, pmid, diagnostics=diagnostics)
+        if not pmcid:
+            return None
+        return await _fetch_europepmc_pdf_render(pmcid, diagnostics=diagnostics)
+    except Exception as exc:
+        _append_diag(diagnostics, "PMC PDF", str(exc))
+        return None
+
 
 async def _fetch_pmc(doi: str, pmid: str | None = None, diagnostics: list[str] | None = None) -> FullTextResult | None:
     """Fetch full text from PubMed Central via NCBI E-utilities.
 
     Strategy:
       1. Resolve DOI/PMID -> PMCID via esearch.
-      2. Try PDF first: GET https://pmc.ncbi.nlm.nih.gov/articles/PMC{pmcid}/pdf/
-         Returns FullTextResult with pdf_bytes + parsed text when available.
-      3. Fallback: fetch XML via efetch and strip tags (text-only, no pdf_bytes).
+      2. Try Europe PMC PDF render (reliable OA PDF for most PMC records).
+      3. Try legacy NCBI PMC /pdf/ URL (often returns HTML for bots).
+      4. Fallback: fetch XML via efetch and strip tags (text-only, no pdf_bytes).
     Returns None when: no PMC record, parse error, or network error.
     """
     if not doi and not pmid:
         return None
+    bare_doi = _normalize_doi(doi) if doi else ""
     pmcid: str | None = None
-    _pmc_pdf_headers = {
-        "User-Agent": (
-            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
-            "AppleWebKit/537.36 (KHTML, like Gecko) "
-            "Chrome/120.0.0.0 Safari/537.36"
-        ),
-        "Accept": "application/pdf,*/*",
-    }
     try:
         async with aiohttp.ClientSession() as session:
-            # Resolve DOI -> PMCID
-            search_params = {
-                "db": "pmc",
-                "term": f"{doi}[DOI]" if doi else f"{pmid}[PMID]",
-                "retmode": "json",
-                "retmax": "1",
-            }
-            async with session.get(
-                _PMC_SEARCH_URL,
-                params=search_params,
-                timeout=aiohttp.ClientTimeout(total=_FT_TIMEOUT),
-            ) as resp:
-                if resp.status != 200:
-                    _append_diag(diagnostics, "PMC", f"esearch HTTP {resp.status}")
-                    return None
-                data = await resp.json(content_type=None)
-            ids = data.get("esearchresult", {}).get("idlist", [])
-            if not ids:
-                _append_diag(diagnostics, "PMC", "no PMCID for DOI")
+            pmcid = await _resolve_pmcid(session, bare_doi, pmid, diagnostics=diagnostics)
+            if not pmcid:
                 return None
-            pmcid = ids[0]
 
-            # Try PDF first -- available for most NIH-funded and author-manuscript deposits.
-            pdf_url = f"https://pmc.ncbi.nlm.nih.gov/articles/PMC{pmcid}/pdf/"
+            render_result = await _fetch_europepmc_pdf_render(pmcid, diagnostics=diagnostics)
+            if render_result:
+                return render_result
+
+            # Legacy NCBI PMC PDF URL (kept as secondary attempt).
+            pdf_url = f"https://pmc.ncbi.nlm.nih.gov/articles/{pmcid}/pdf/"
             try:
                 async with session.get(
                     pdf_url,
-                    headers=_pmc_pdf_headers,
+                    headers=_EPMC_PDF_HEADERS,
                     timeout=aiohttp.ClientTimeout(total=_FT_TIMEOUT),
                     allow_redirects=True,
                 ) as presp:
                     if presp.status == 200:
                         pbody = await presp.read()
-                        if pbody[:4] == b"%PDF":
+                        if is_pdf_bytes(pbody):
                             text = await _parse_pdf_body(pbody, max_chars=_LP_MAX_CHARS)
-                            logger.info("PMC: PDF retrieved for PMCID=%s", pmcid)
+                            logger.info("PMC: PDF retrieved for %s", pmcid)
                             return FullTextResult(text=text, pdf_bytes=pbody, source="pmc_pdf")
             except Exception as pdf_exc:
-                logger.debug("PMC PDF attempt failed for PMCID=%s: %s", pmcid, pdf_exc)
+                logger.debug("PMC PDF attempt failed for %s: %s", pmcid, pdf_exc)
 
             # Fallback: fetch full text XML (text-only, no pdf_bytes)
             fetch_params = {
                 "db": "pmc",
-                "id": pmcid,
+                "id": pmcid.removeprefix("PMC"),
                 "rettype": "xml",
                 "retmode": "xml",
             }
@@ -882,7 +977,7 @@ async def _fetch_crossref_links(
                         if resp.status != 200:
                             continue
                         body = await resp.read()
-                if not body or len(body) < 500:
+                if not is_pdf_bytes(body):
                     continue
                 text = await _parse_pdf_body(body, max_chars=_SD_MIN_CHARS * 2)
                 if len(text.strip()) >= _SD_MIN_CHARS:
@@ -1088,7 +1183,6 @@ async def _fetch_url_direct(
     try:
         async with aiohttp.ClientSession(connector=tcp_connector_with_certifi()) as session:
             body = b""
-            pct = ""
             for attempt in range(1, policy.max_attempts + 1):
                 async with session.get(
                     pdf_url,
@@ -1105,14 +1199,10 @@ async def _fetch_url_direct(
                             await asyncio.sleep(_retry_after)
                             continue
                         return None
-                    pct = resp.headers.get("Content-Type", "").lower()
                     body = await resp.read()
                     break
-        if not body or len(body) < 500:
-            _append_diag(diagnostics, "PublisherDirect", "response too short")
-            return None
-        if "application/pdf" not in pct and body[:4] != b"%PDF":
-            _append_diag(diagnostics, "PublisherDirect", f"not a PDF (ct={pct[:40]})")
+        if not is_pdf_bytes(body):
+            _append_diag(diagnostics, "PublisherDirect", "not a PDF")
             return None
         text = await _parse_pdf_body(body, max_chars=_LP_MAX_CHARS)
         logger.info("PublisherDirect: PDF fetched from %s", pdf_url[:80])
@@ -1339,7 +1429,7 @@ async def _resolve_landing_page(
                 final_url = str(resp.url)
 
         # The landing URL itself served a PDF directly (check content-type and magic bytes).
-        if "application/pdf" in content_type or body[:4] == b"%PDF":
+        if is_pdf_bytes(body):
             text = await _parse_pdf_body(body, max_chars=_LP_MAX_CHARS)
             if len(text.strip()) >= _SD_MIN_CHARS:
                 return FullTextResult(text=text, source="landing_page_pdf", pdf_bytes=body)
@@ -1388,37 +1478,20 @@ async def _resolve_landing_page(
                     ) as presp:
                         if presp.status != 200:
                             continue
-                        pct = presp.headers.get("Content-Type", "").lower()
                         pbody = await presp.read()
-                    if not pbody or len(pbody) < 500:
+                    if not is_pdf_bytes(pbody):
                         continue
-                    _is_pdf_response = (
-                        "application/pdf" in pct or pdf_url.lower().endswith(".pdf") or pbody[:4] == b"%PDF"
+                    text = await _parse_pdf_body(pbody, max_chars=_LP_MAX_CHARS)
+                    logger.info(
+                        "LandingPage: PDF resolved at %s for page %s",
+                        pdf_url[:80],
+                        url[:60],
                     )
-                    if _is_pdf_response:
-                        text = await _parse_pdf_body(pbody, max_chars=_LP_MAX_CHARS)
-                        logger.info(
-                            "LandingPage: PDF resolved at %s for page %s",
-                            pdf_url[:80],
-                            url[:60],
-                        )
-                        return FullTextResult(
-                            text=text[:_LP_MAX_CHARS] if text else "",
-                            source="landing_page_pdf",
-                            pdf_bytes=pbody,
-                        )
-                    # Plain-text / article-HTML response.
-                    decoded = pbody.decode("utf-8", errors="replace")
-                    if len(decoded.strip()) >= _SD_MIN_CHARS:
-                        logger.info(
-                            "LandingPage: text resolved at %s for page %s",
-                            pdf_url[:80],
-                            url[:60],
-                        )
-                        return FullTextResult(
-                            text=decoded[:_LP_MAX_CHARS],
-                            source="landing_page_text",
-                        )
+                    return FullTextResult(
+                        text=text[:_LP_MAX_CHARS] if text else "",
+                        source="landing_page_pdf",
+                        pdf_bytes=pbody,
+                    )
                 except Exception:
                     continue
 

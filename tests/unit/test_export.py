@@ -2331,9 +2331,9 @@ async def test_copy_included_study_pdfs_copies_only_included_pdf_files(tmp_path:
     papers_dir = run_dir / "papers"
     papers_dir.mkdir(parents=True, exist_ok=True)
 
-    (papers_dir / "paper-1.pdf").write_bytes(b"pdf-1")
+    (papers_dir / "paper-1.pdf").write_bytes(b"%PDF-1.4 minimal test pdf bytes for copy test\n")
     (papers_dir / "paper-2.txt").write_text("text-2", encoding="utf-8")
-    (papers_dir / "paper-3.pdf").write_bytes(b"pdf-3")
+    (papers_dir / "paper-3.pdf").write_bytes(b"%PDF-1.4 excluded study pdf\n")
 
     manifest = {
         "paper-1": {"file_path": str(papers_dir / "paper-1.pdf"), "file_type": "pdf"},

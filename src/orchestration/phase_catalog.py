@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 PHASE_ORDER: list[str] = [
+    "phase_1_prospero_gate",
     "phase_2_search",
     "phase_3_screening",
     "phase_4_extraction_quality",
@@ -19,6 +20,7 @@ USER_RESUMABLE_PHASE_ORDER: list[str] = [phase for phase in PHASE_ORDER if phase
 
 # UI timeline phase order (matches frontend PHASE_ORDER + phase_7_audit before finalize).
 UI_TIMELINE_PHASE_ORDER: tuple[str, ...] = (
+    "phase_1_prospero_gate",
     "phase_2_search",
     "phase_3_screening",
     "fulltext_pdf_retrieval",

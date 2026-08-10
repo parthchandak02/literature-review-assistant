@@ -34,10 +34,12 @@ from src.web.routers import (
     costs_router,
     database_explorer_router,
     history_router,
+    prospero_gate_router,
     run_lifecycle_router,
     screening_review_router,
     system_router,
     validation_router,
+    workflow_draft_router,
 )
 
 # Re-export helpers that tests import from src.web.app
@@ -50,7 +52,6 @@ from src.web.state import (
     _notes_broadcaster,
     _refresh_allowed_roots,
     _repair_registry_statuses_from_runtime,
-    _run_registry,
     _RunRecord,
 )
 from src.web.state import _active_runs as _active_runs  # noqa: F811  -- re-export
@@ -71,7 +72,6 @@ _SHUTDOWN_TASK_TIMEOUT_SECONDS = 30.0
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI) -> AsyncGenerator[None, None]:
-    _app.state.run_registry = _run_registry
     _app.state.notes_broadcaster = _notes_broadcaster
     await _refresh_allowed_roots()
     try:
@@ -139,6 +139,8 @@ app.include_router(costs_router)
 app.include_router(validation_router)
 app.include_router(artifacts_router)
 app.include_router(screening_review_router)
+app.include_router(prospero_gate_router)
+app.include_router(workflow_draft_router)
 app.include_router(advanced_router)
 
 _default_cors_origins = [

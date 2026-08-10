@@ -129,6 +129,7 @@ export function buildRunRequest(
   reviewYaml: string,
   keys: StoredApiKeys,
   runRoot?: string,
+  workflowId?: string,
 ): RunRequest {
   return {
     review_yaml: reviewYaml,
@@ -150,6 +151,7 @@ export function buildRunRequest(
     wos_api_key: keys.wos || undefined,
     scopus_api_key: keys.scopus || undefined,
     run_root: runRoot,
+    workflow_id: workflowId,
   }
 }
 

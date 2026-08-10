@@ -178,6 +178,7 @@ def _extract_defaults_from_review(review: ReviewConfig) -> _DefaultConfigDict:
             "registered": review.protocol.registered,
             "registry": review.protocol.registry,
             "registration_number": review.protocol.registration_number,
+            "registration_date": review.protocol.registration_date,
             "url": review.protocol.url,
         },
         "funding": {
@@ -231,6 +232,7 @@ def _extract_defaults_from_raw(raw: dict[str, Any]) -> _DefaultConfigDict:
             "registered": bool(protocol_raw.get("registered", False)),
             "registry": _str(protocol_raw.get("registry"), "PROSPERO"),
             "registration_number": _str(protocol_raw.get("registration_number")),
+            "registration_date": _str(protocol_raw.get("registration_date")),
             "url": _str(protocol_raw.get("url")),
         },
         "funding": {
@@ -821,6 +823,7 @@ def _build_yaml(
         lines.append(f"  registered: {str(protocol.get('registered', False)).lower()}")
         lines.append(f"  registry: {_yaml_str(protocol.get('registry', 'PROSPERO'))}")
         lines.append(f"  registration_number: {_yaml_str(protocol.get('registration_number', ''))}")
+        lines.append(f"  registration_date: {_yaml_str(protocol.get('registration_date', ''))}")
         lines.append(f"  url: {_yaml_str(protocol.get('url', ''))}")
         lines.append("")
         lines.append("funding:")

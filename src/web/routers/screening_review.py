@@ -7,8 +7,9 @@ import pathlib
 import aiosqlite
 from fastapi import APIRouter, HTTPException
 
-from src.web.shared import ApproveScreeningRequest
-from src.web.state import _get_db_path
+from src.web.run_resolver import resolve_runtime_db
+from src.web.shared import ApproveScreeningRequest, ResumeRequest
+from src.web.state import _lifecycle_coordinator, _resume_wrapper
 
 router = APIRouter(tags=["screening_review"])
 
@@ -16,7 +17,7 @@ router = APIRouter(tags=["screening_review"])
 @router.get("/api/run/{run_id}/screening-summary")
 async def get_screening_summary(run_id: str) -> dict:
     """Return screened papers and AI decisions for human review."""
-    db_path = _get_db_path(run_id)
+    db_path = await resolve_runtime_db(run_id)
     if not pathlib.Path(db_path).exists():
         raise HTTPException(status_code=404, detail="Run database not found")
 
@@ -61,11 +62,11 @@ async def approve_screening(
     body: ApproveScreeningRequest | None = None,
 ) -> dict[str, str]:
     """Approve AI screening decisions and resume the workflow."""
-    db_path = _get_db_path(run_id)
+    db_path = await resolve_runtime_db(run_id)
     if not pathlib.Path(db_path).exists():
         raise HTTPException(status_code=404, detail="Run database not found")
 
-    from src.db.workflow_registry import find_by_workflow_id_fallback
+    from src.db.workflow_registry import find_by_workflow_id_fallback, run_root_from_db_path
     from src.db.workflow_registry import update_status as _update_status
 
     async with aiosqlite.connect(db_path) as _raw_db:
@@ -76,7 +77,7 @@ async def approve_screening(
         raise HTTPException(status_code=404, detail="No workflow found in run database")
 
     workflow_id = row[0]
-    run_root = str(pathlib.Path(db_path).parent.parent.parent.parent)
+    run_root = run_root_from_db_path(db_path)
 
     overrides = (body.overrides if body else []) or []
     if overrides:
@@ -187,11 +188,26 @@ async def approve_screening(
     if not entry:
         raise HTTPException(status_code=404, detail="Workflow not found in registry")
 
-    await _update_status(run_root, workflow_id, "running")
+    active = _lifecycle_coordinator.find_active_by_workflow(workflow_id)
+    if active is not None:
+        await _update_status(run_root, workflow_id, "running")
+        return {
+            "status": "approved",
+            "workflow_id": workflow_id,
+            "overrides_processed": str(len(overrides)),
+            "message": "Screening approved. Extraction will resume shortly.",
+        }
 
+    topic = entry.topic or "Untitled review"
+    req = ResumeRequest(
+        workflow_id=workflow_id,
+        db_path=db_path,
+        topic=topic,
+    )
+    await _lifecycle_coordinator.start_resume(req, resume_wrapper=_resume_wrapper)
     return {
         "status": "approved",
         "workflow_id": workflow_id,
         "overrides_processed": str(len(overrides)),
-        "message": "Screening approved. Extraction will resume shortly.",
+        "message": "Screening approved. Workflow resume started.",
     }

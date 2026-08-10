@@ -14,6 +14,7 @@ If any statement here conflicts with `.cursor/rules/core/`, trust the rule and t
 
 ## Deep Docs (read on demand)
 
+- `ARCHITECTURE_AUDIT.md` - end-to-end architecture audit (2026-08-10); remediation input for plan phase
 - `API_CONTRACT.md` - API surfaces, endpoint ownership, SSE behavior
 - `PERSISTENCE.md` - `runtime.db`, `workflows_registry.db`, and canonical table usage
 - `UI_ARCHITECTURE.md` - frontend structure, view model, and API client boundaries

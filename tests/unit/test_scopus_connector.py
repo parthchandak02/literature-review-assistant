@@ -11,6 +11,16 @@ import pytest
 from src.search.scopus import ScopusConnector
 
 # ---------------------------------------------------------------------------
+# Fixtures
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture(autouse=True)
+def _clear_scopus_session_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("SCOPUS_SESSION_COOKIE_FILE", raising=False)
+
+
+# ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
 
@@ -82,7 +92,8 @@ async def _mock_session(responses: list[dict], statuses: list[int] | None = None
 
 def test_missing_api_key_raises(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("SCOPUS_API_KEY", raising=False)
-    with pytest.raises(ValueError, match="SCOPUS_API_KEY"):
+    monkeypatch.delenv("SCOPUS_SESSION_COOKIE_FILE", raising=False)
+    with pytest.raises(ValueError, match="SCOPUS_API_KEY and/or SCOPUS_SESSION_COOKIE_FILE"):
         ScopusConnector("wf-test")
 
 

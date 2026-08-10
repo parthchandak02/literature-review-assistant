@@ -100,15 +100,19 @@ async def test_build_prisma_flow_zip_contains_expected_csvs(tmp_path: Path) -> N
         records_csv = archive.read("prisma_records.csv").decode("utf-8")
         assert "Included study" in records_csv
         assert "Excluded study" in records_csv
-        assert "https://example.com/p1" in records_csv
-        assert "wrong_population" in records_csv
+        assert "https://doi.org/10.1/a" in records_csv
+        assert "information_source" in records_csv
+        assert "record_link" in records_csv
+        assert "api." not in records_csv
+        assert "Wrong population" in records_csv
 
         summary_csv = archive.read("prisma_flow_summary.csv").decode("utf-8")
         assert "duplicates_removed" in summary_csv
         assert "2" in summary_csv
 
         search_csv = archive.read("search_identification.csv").decode("utf-8")
-        assert "pubmed" in search_csv
+        assert "PubMed" in search_csv
+        assert "records_identified" in search_csv
 
 
 @pytest.mark.asyncio

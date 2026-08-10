@@ -126,7 +126,7 @@ async def run_finalize_node(state: ReviewState, ctx: GraphRunContext[ReviewState
                         _fulltext_retrieved = sum(
                             1
                             for _pf in _papers_dir.iterdir()
-                            if _pf.suffix in {".pdf", ".txt"} and _pf.stat().st_size > 0
+                            if _pf.stat().st_size > 0 and _pf.suffix in {".pdf", ".txt"}
                         )
 
             _run_data = ProsperoRunData(
@@ -144,13 +144,46 @@ async def run_finalize_node(state: ReviewState, ctx: GraphRunContext[ReviewState
                     }
                 ),
             )
-            _prospero_md = _proto_gen.render_prospero_markdown(_protocol, state.review, _run_data)
-            _prospero_md_path = _proto_gen.write_prospero_markdown(_prospero_md)
-            state.artifacts["prospero_form_md"] = str(_prospero_md_path)
-            _prospero_docx_path = Path(state.output_dir) / "doc_prospero_registration.docx"
-            _generate_docx(_prospero_md_path, _prospero_docx_path)
-            state.artifacts["prospero_form"] = str(_prospero_docx_path)
-            logger.info("FinalizeNode: wrote doc_prospero_registration.md and .docx")
+            _prospero_md_path = Path(state.output_dir) / "doc_prospero_registration.md"
+            _has_prior_registration = (
+                _prospero_md_path.exists()
+                and state.review.protocol.registered
+                and bool(str(state.review.protocol.registration_number or "").strip())
+            )
+            if _has_prior_registration:
+                supplement_lines = [
+                    "",
+                    "## POST-RUN SEARCH COUNTS (SUPPLEMENT)",
+                    "",
+                    f"Total records identified: {sum(state.search_counts.values()) if state.search_counts else 0}.",
+                    f"Records after deduplication and screening: {len(_included_ids)} studies included.",
+                    f"Full texts retrieved: {max(0, _fulltext_retrieved)}.",
+                    "",
+                ]
+                if state.search_counts:
+                    supplement_lines.extend(
+                        [
+                            "### Records retrieved per database",
+                            *[f"- {db}: {state.search_counts.get(db, 0)} records" for db in state.review.target_databases],
+                            "",
+                        ]
+                    )
+                existing = _prospero_md_path.read_text(encoding="utf-8")
+                if "## POST-RUN SEARCH COUNTS (SUPPLEMENT)" not in existing:
+                    _prospero_md_path.write_text(existing.rstrip() + "\n" + "\n".join(supplement_lines), encoding="utf-8")
+                state.artifacts["prospero_form_md"] = str(_prospero_md_path)
+                _prospero_docx_path = Path(state.output_dir) / "doc_prospero_registration.docx"
+                _generate_docx(_prospero_md_path, _prospero_docx_path)
+                state.artifacts["prospero_form"] = str(_prospero_docx_path)
+                logger.info("FinalizeNode: appended post-run PROSPERO supplement")
+            else:
+                _prospero_md = _proto_gen.render_prospero_markdown(_protocol, state.review, _run_data)
+                _prospero_md_path = _proto_gen.write_prospero_markdown(_prospero_md)
+                state.artifacts["prospero_form_md"] = str(_prospero_md_path)
+                _prospero_docx_path = Path(state.output_dir) / "doc_prospero_registration.docx"
+                _generate_docx(_prospero_md_path, _prospero_docx_path)
+                state.artifacts["prospero_form"] = str(_prospero_docx_path)
+                logger.info("FinalizeNode: wrote doc_prospero_registration.md and .docx")
         except Exception as _pros_err:  # noqa: BLE001
             logger.warning("FinalizeNode: PROSPERO DOCX generation failed (non-fatal): %s", _pros_err)
 

@@ -25,6 +25,10 @@ from src.orchestration.state import ReviewState
 from src.orchestration.workflow import _rc_print
 
 
+async def _seed_prospero_gate_checkpoint(repo: WorkflowRepository, workflow_id: str) -> None:
+    await repo.save_checkpoint(workflow_id, "phase_1_prospero_gate", papers_processed=0)
+
+
 @pytest.mark.asyncio
 async def test_load_resume_state_phase3(tmp_path) -> None:
     run_dir = tmp_path / "2026-02-16" / "how-do-ai-tutors-impact-learning" / "run_01-00-00PM"
@@ -53,6 +57,7 @@ async def test_load_resume_state_phase3(tmp_path) -> None:
             )
         )
         await repo.create_workflow("wf-resume", "How do AI tutors impact learning?", "abc123")
+        await _seed_prospero_gate_checkpoint(repo, "wf-resume")
         await repo.save_checkpoint("wf-resume", "phase_2_search", papers_processed=2)
         await repo.save_dual_screening_result(
             "wf-resume", "p1", "title_abstract", True, ScreeningDecisionType.INCLUDE, False
@@ -124,6 +129,7 @@ async def test_load_resume_state_prefers_config_snapshot_over_workspace_review(t
         await db.commit()
         repo = WorkflowRepository(db)
         await repo.create_workflow("wf-snapshot", "Workspace RQ", "abc123")
+        await _seed_prospero_gate_checkpoint(repo, "wf-snapshot")
         await repo.save_checkpoint("wf-snapshot", "phase_2_search", papers_processed=0)
 
     state, _ = await load_resume_state(
@@ -158,6 +164,7 @@ async def test_load_resume_state_from_phase(tmp_path) -> None:
             )
         )
         await repo.create_workflow("wf-from-phase", "Test topic", "abc123")
+        await _seed_prospero_gate_checkpoint(repo, "wf-from-phase")
         await repo.save_checkpoint("wf-from-phase", "phase_2_search", papers_processed=1)
         await repo.save_checkpoint("wf-from-phase", "phase_3_screening", papers_processed=1)
 
@@ -189,6 +196,7 @@ async def test_load_resume_state_from_writing_clears_outline_subphase_checkpoint
         await db.commit()
         repo = WorkflowRepository(db)
         await repo.create_workflow("wf-outline-resume", "Test topic", "abc123")
+        await _seed_prospero_gate_checkpoint(repo, "wf-outline-resume")
         await repo.save_checkpoint("wf-outline-resume", "phase_2_search", papers_processed=1)
         await repo.save_checkpoint("wf-outline-resume", "phase_3_screening", papers_processed=1)
         await repo.save_checkpoint("wf-outline-resume", "phase_4_extraction_quality", papers_processed=1)
@@ -234,6 +242,7 @@ async def test_load_resume_state_from_search_clears_downstream_phase_data(tmp_pa
         await db.commit()
         repo = WorkflowRepository(db)
         await repo.create_workflow("wf-from-search", "Test topic", "abc123")
+        await _seed_prospero_gate_checkpoint(repo, "wf-from-search")
         await repo.save_checkpoint("wf-from-search", "phase_2_search", papers_processed=1)
         await repo.save_checkpoint("wf-from-search", "phase_3_screening", papers_processed=1)
         await repo.save_paper(
@@ -294,6 +303,7 @@ async def test_load_resume_state_from_screening_clears_screening_and_extraction_
         await db.commit()
         repo = WorkflowRepository(db)
         await repo.create_workflow("wf-from-screening", "Test topic", "abc123")
+        await _seed_prospero_gate_checkpoint(repo, "wf-from-screening")
         await repo.save_checkpoint("wf-from-screening", "phase_2_search", papers_processed=2)
         await repo.save_checkpoint("wf-from-screening", "phase_3_screening", papers_processed=1)
         await repo.save_checkpoint("wf-from-screening", "phase_4_extraction_quality", papers_processed=1)
@@ -372,6 +382,7 @@ async def test_load_resume_state_clears_section_drafts_when_rerunning_writing(tm
         await db.commit()
         repo = WorkflowRepository(db)
         await repo.create_workflow("wf-clear-sections", "Test topic", "abc123")
+        await _seed_prospero_gate_checkpoint(repo, "wf-clear-sections")
         await repo.save_checkpoint("wf-clear-sections", "phase_2_search", papers_processed=1)
         await repo.save_checkpoint("wf-clear-sections", "phase_3_screening", papers_processed=1)
         await repo.save_checkpoint("wf-clear-sections", "phase_4_extraction_quality", papers_processed=1)
@@ -427,6 +438,7 @@ async def test_load_resume_state_from_phase4_clears_persisted_writing_state(tmp_
         await db.commit()
         repo = WorkflowRepository(db)
         await repo.create_workflow("wf-phase4-reset", "Test topic", "abc123")
+        await _seed_prospero_gate_checkpoint(repo, "wf-phase4-reset")
         for phase in (
             "phase_2_search",
             "phase_3_screening",
@@ -494,6 +506,7 @@ async def test_load_resume_state_treats_partial_checkpoint_as_incomplete(tmp_pat
         await db.commit()
         repo = WorkflowRepository(db)
         await repo.create_workflow("wf-partial", "Test topic", "abc123")
+        await _seed_prospero_gate_checkpoint(repo, "wf-partial")
         await repo.save_checkpoint("wf-partial", "phase_2_search", papers_processed=10, status="completed")
         await repo.save_checkpoint("wf-partial", "phase_3_screening", papers_processed=5, status="partial")
 
@@ -518,6 +531,7 @@ async def test_load_resume_state_from_phase_before_writing_bumps_generation(tmp_
         await db.commit()
         repo = WorkflowRepository(db)
         await repo.create_workflow("wf-generation", "Test topic", "abc123")
+        await _seed_prospero_gate_checkpoint(repo, "wf-generation")
         await repo.save_checkpoint("wf-generation", "phase_2_search", papers_processed=1)
         await repo.save_checkpoint("wf-generation", "phase_3_screening", papers_processed=1)
         await repo.save_checkpoint("wf-generation", "phase_4_extraction_quality", papers_processed=1)
@@ -582,7 +596,7 @@ async def test_run_workflow_web_context_without_console_uses_non_console_resume_
             pass
 
         async def get_checkpoints(self, _workflow_id: str):
-            return {"phase_2_search": {"status": "completed"}}
+            return {"phase_1_prospero_gate": "completed", "phase_2_search": "completed"}
 
     async def _fake_find_by_topic(_run_root: str, _topic: str, _config_hash: str):
         return [

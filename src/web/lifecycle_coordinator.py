@@ -41,7 +41,7 @@ if TYPE_CHECKING:
 
 _logger = logging.getLogger(__name__)
 
-_RESUMABLE_ATTACH_OVERRIDE_STATUSES = frozenset({"running", "stale", "awaiting_review"})
+_RESUMABLE_ATTACH_OVERRIDE_STATUSES = frozenset({"running", "stale", "awaiting_review", "awaiting_prospero"})
 
 
 @dataclass(frozen=True)
@@ -206,11 +206,6 @@ class RunLifecycleCoordinator:
                         row = await cur.fetchone()
                 if row is not None:
                     registry_status = _normalize_status(str(row["status"]))
-                    if registry_status == "awaiting_review":
-                        raise HTTPException(
-                            status_code=409,
-                            detail="Workflow is already running. Stop the active run before resuming.",
-                        )
                     if registry_status == "running":
                         heartbeat_stale = (
                             self._lifecycle_reconciler.running_heartbeat_stale(row)
@@ -237,7 +232,7 @@ class RunLifecycleCoordinator:
             workflow_id,
             reclaim_stale_running=reclaim_stale_running,
         )
-        if not claimed and blocking_status in {"running", "awaiting_review"}:
+        if not claimed and blocking_status == "running":
             raise HTTPException(
                 status_code=409,
                 detail="Workflow is already running. Stop the active run before resuming.",

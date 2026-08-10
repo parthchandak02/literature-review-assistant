@@ -50,6 +50,7 @@ class RunRequest(BaseModel):
     scopus_api_key: str | None = None
     run_root: str = "runs"
     parent_db_path: str | None = None
+    workflow_id: str | None = None
 
     def resolved_env_overrides(self) -> dict[str, str]:
         from src.config.env_context import resolve_env_overrides
@@ -123,6 +124,13 @@ class ApproveScreeningRequest(pydantic.BaseModel):
     """Request body for approve-screening endpoint."""
 
     overrides: list[ScreeningOverride] = []
+
+
+class SubmitProsperoRequest(pydantic.BaseModel):
+    """Request body for submit-prospero endpoint."""
+
+    registration_number: str
+    registration_date: str
 
 
 # ---------------------------------------------------------------------------
@@ -270,62 +278,33 @@ async def _query_included_papers_rows(
     *,
     for_fetch: bool,
 ) -> list[aiosqlite.Row]:
-    """Return included-paper rows with fulltext->extraction fallback precedence."""
+    """Return canonical synthesis-included papers (matches PRISMA included count)."""
+    from src.db.repositories import WorkflowRepository
+
+    repo = WorkflowRepository(db)
+    included_ids, _ = await repo.resolve_canonical_included_paper_ids(workflow_id)
+    if not included_ids:
+        return []
+
     if for_fetch:
-        primary_select_cols = "p.paper_id, p.title, p.authors, p.year, p.doi, p.url, p.source_database"
-        legacy_select_cols = primary_select_cols
+        select_cols = "p.paper_id, p.title, p.authors, p.year, p.doi, p.url, p.source_database"
         order_by = "p.paper_id"
-        fallback_select_cols = primary_select_cols
     else:
-        primary_select_cols = (
+        select_cols = (
             "p.paper_id, p.title, p.authors, p.year, p.source_database, p.doi, p.url, p.country, "
             "'include' AS final_decision"
-        )
-        legacy_select_cols = (
-            "p.paper_id, p.title, p.authors, p.year, p.source_database, p.doi, p.url, p.country, ft.final_decision"
         )
         order_by = "p.year DESC"
-        fallback_select_cols = (
-            "p.paper_id, p.title, p.authors, p.year, p.source_database, p.doi, p.url, p.country, "
-            "'include' AS final_decision"
-        )
 
-    primary_query = f"""
-        SELECT {primary_select_cols}
+    placeholders = ",".join("?" * len(included_ids))
+    query = f"""
+        SELECT {select_cols}
         FROM papers p
-        JOIN study_cohort_membership scm
-          ON p.paper_id = scm.paper_id
-        WHERE scm.workflow_id = ?
-          AND scm.synthesis_eligibility = 'included_primary'
+        WHERE p.paper_id IN ({placeholders})
         ORDER BY {order_by}
     """
-    async with db.execute(primary_query, (workflow_id,)) as cur:
-        rows = await cur.fetchall()
-    if rows:
-        return rows
-
-    legacy_query = f"""
-        SELECT {legacy_select_cols}
-        FROM papers p
-        JOIN dual_screening_results ft
-          ON p.paper_id = ft.paper_id AND ft.stage = 'fulltext'
-        WHERE ft.workflow_id = ? AND ft.final_decision = 'include'
-        ORDER BY {order_by}
-    """
-    async with db.execute(legacy_query, (workflow_id,)) as cur:
-        rows = await cur.fetchall()
-    if rows:
-        return rows
-
-    fallback_query = f"""
-        SELECT {fallback_select_cols}
-        FROM papers p
-        JOIN extraction_records er
-          ON p.paper_id = er.paper_id AND er.workflow_id = ?
-        ORDER BY {order_by}
-    """
-    async with db.execute(fallback_query, (workflow_id,)) as fallback_cur:
-        return await fallback_cur.fetchall()
+    async with db.execute(query, tuple(sorted(included_ids))) as cur:
+        return await cur.fetchall()
 
 
 _STOP_WORDS = frozenset(

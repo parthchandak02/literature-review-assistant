@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { computePhaseProgress } from "./phaseProgress"
+import { computePhaseProgress, detectAwaitingProspero } from "./phaseProgress"
 import { PHASE_ORDER } from "./constants"
 
 describe("computePhaseProgress", () => {
@@ -26,5 +26,32 @@ describe("computePhaseProgress", () => {
     expect(progress.completedPhases).toBe(4)
     expect(progress.currentPhaseFraction).toBe(0.25)
     expect(progress.value).toBeGreaterThan(4 / PHASE_ORDER.length)
+  })
+})
+
+describe("detectAwaitingProspero", () => {
+  it("detects live gate from phase events", () => {
+    expect(
+      detectAwaitingProspero({
+        status: "streaming",
+        isRunning: true,
+        events: [
+          { type: "phase_start", phase: "phase_1_prospero_gate", description: "PROSPERO gate", total: null, ts: "2026-03-12T00:00:00Z" },
+        ],
+      }),
+    ).toBe(true)
+  })
+
+  it("returns false after prospero phase_done", () => {
+    expect(
+      detectAwaitingProspero({
+        status: "streaming",
+        isRunning: true,
+        events: [
+          { type: "phase_start", phase: "phase_1_prospero_gate", description: "PROSPERO gate", total: null, ts: "2026-03-12T00:00:00Z" },
+          { type: "phase_done", phase: "phase_1_prospero_gate", summary: {}, total: 0, completed: 0, ts: "2026-03-12T00:00:01Z" },
+        ],
+      }),
+    ).toBe(false)
   })
 })

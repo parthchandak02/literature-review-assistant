@@ -106,7 +106,7 @@ async def test_start_run_does_not_write_request_keys_to_process_environ() -> Non
     }
 
     mock_start = AsyncMock(return_value={"workflow_id": "wf-test", "status": "completed"})
-    with patch("src.web.orchestration_facade.start_workflow_run", new=mock_start):
+    with patch("src.orchestration.workflow.run_workflow", new=mock_start):
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
             response = await client.post(
                 "/api/run",

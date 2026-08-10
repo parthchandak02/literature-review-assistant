@@ -4,6 +4,7 @@ from typing import TYPE_CHECKING
 
 from pydantic_graph import BaseNode, End, GraphRunContext
 
+from src.models.workflow import WorkflowRunResult
 from src.orchestration.runners.screening_runner import run_screening_node
 from src.orchestration.state import ReviewState
 
@@ -12,7 +13,7 @@ if TYPE_CHECKING:
 
 
 class ScreeningNode(BaseNode[ReviewState]):
-    async def run(self, ctx: GraphRunContext[ReviewState]) -> HumanReviewCheckpointNode | End[dict]:
+    async def run(self, ctx: GraphRunContext[ReviewState]) -> HumanReviewCheckpointNode | End[WorkflowRunResult]:
         state = ctx.state
         result = await run_screening_node(state, ctx)
         if result is not None:

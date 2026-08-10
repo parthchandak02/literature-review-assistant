@@ -7,6 +7,7 @@ import io
 import logging
 from concurrent.futures import ThreadPoolExecutor
 from functools import partial
+from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
@@ -35,6 +36,30 @@ def _get_parse_executor() -> ThreadPoolExecutor:
         configure_pdf_parse_pool(_parse_pool_size)
     assert _parse_executor is not None
     return _parse_executor
+
+
+def is_pdf_bytes(body: bytes | None) -> bool:
+    """Return True when bytes look like a real PDF file."""
+    return bool(body) and len(body) >= 100 and body[:4] == b"%PDF"
+
+
+def is_html_bytes(body: bytes | None) -> bool:
+    """Return True when bytes look like HTML (common mislabeled PDF response)."""
+    if not body or len(body) < 15:
+        return False
+    head = body[:512].lstrip().lower()
+    return head.startswith(b"<!doctype html") or head.startswith(b"<html") or b"<head" in head[:200]
+
+
+def path_is_valid_pdf(path: str | Path) -> bool:
+    """Return True when an on-disk file has a PDF magic header."""
+    file_path = Path(path)
+    if not file_path.is_file() or file_path.suffix.lower() != ".pdf":
+        return False
+    try:
+        return file_path.read_bytes()[:4] == b"%PDF"
+    except OSError:
+        return False
 
 
 def is_binary_garbage(text: str) -> bool:

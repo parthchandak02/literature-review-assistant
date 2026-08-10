@@ -35,7 +35,7 @@ Skip extraction for: one-off typos, generic Python/React advice, or anything alr
 | Knowledge type | Primary target | When |
 |----------------|----------------|------|
 | Repeatable workflow or domain procedure | `.cursor/skills/<name>/SKILL.md` | Multi-step process with clear triggers |
-| Single operational quirk | `.cursor/rules/core/gotchas-agent.mdc` | One bullet; symptom → fix |
+| Single operational quirk | `.cursor/rules/core/gotchas.mdc` | One bullet; symptom → fix |
 | Architecture / contract change | Relevant `.cursor/docs/*.md` | User asked or change is high-level |
 | Session transfer only | Use `handoff` skill | No durable reuse expected |
 
@@ -49,7 +49,7 @@ Search before creating:
 
 ```bash
 rg --files -g 'SKILL.md' .cursor/skills
-rg -i "keyword|error phrase|module name" .cursor/skills .cursor/rules/core/gotchas-agent.mdc .cursor/docs
+rg -i "keyword|error phrase|module name" .cursor/skills .cursor/rules/core/gotchas.mdc .cursor/docs
 ```
 
 | Found | Action |
@@ -81,7 +81,7 @@ Skip search for repo-internal semantics (resume rollback, `workflows_registry.db
 
 **New skill** — use when triggers and steps will recur across sessions.
 
-**Gotcha bullet** — use when one symptom/fix pair fits `gotchas-agent.mdc` format:
+**Gotcha bullet** — use when one symptom/fix pair fits `gotchas.mdc` format:
 
 ```markdown
 ### Short title
@@ -151,7 +151,7 @@ During work, ask:
 
 - "What would I wish I knew before starting this?"
 - "What symptom pointed here vs the actual root cause?"
-- "Would `gotchas-agent.mdc` or a skill serve future agents better?"
+- "Would `gotchas.mdc` or a skill serve future agents better?"
 
 ## Anti-patterns
 
@@ -166,4 +166,4 @@ During work, ask:
 - Authoring structure: `author`
 - Session transfer without durable extraction: `handoff`
 - Commit/doc hygiene after high-level changes: `commit`
-- Live operational quirks list: `.cursor/rules/core/gotchas-agent.mdc`
+- Live operational quirks list: `.cursor/rules/core/gotchas.mdc`

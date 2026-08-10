@@ -1,6 +1,6 @@
 import type { HistoryEntry } from "@/lib/api"
 import type { RunStatus } from "@/lib/constants"
-import { resolveRunStatus } from "@/lib/constants"
+import { isProsperoPendingStatus, resolveRunStatus } from "@/lib/constants"
 import type { LiveRun } from "@/components/sidebar/types"
 
 export interface InProgressRowModel {
@@ -40,16 +40,23 @@ export function buildInProgressRowModel(
       ((entry.live_run_id && entry.live_run_id === liveRun.runId) ||
         (liveRun.workflowId && entry.workflow_id === liveRun.workflowId)),
   )
+  const isProsperoPending = isProsperoPendingStatus(entry.status)
   const statusKey = isLiveRow && liveRun ? liveRun.status : resolveRunStatus(entry.status)
   const isReconnectingRow =
     !isLiveRow &&
+    !isProsperoPending &&
     !entry.live_run_id &&
     (statusKey === "streaming" || statusKey === "connecting")
-  const rowIsRunning = isLiveRow
-    ? statusKey === "streaming" || statusKey === "connecting"
-    : Boolean(entry.live_run_id) || isReconnectingRow
+  const rowIsRunning = isProsperoPending
+    ? false
+    : isLiveRow
+      ? statusKey === "streaming" || statusKey === "connecting"
+      : Boolean(entry.live_run_id) || isReconnectingRow
   const isCompletedLaneEligible =
-    !rowIsRunning && !entry.is_completed_hidden && options.onHideCompleted !== undefined
+    !isProsperoPending &&
+    !rowIsRunning &&
+    !entry.is_completed_hidden &&
+    options.onHideCompleted !== undefined
   const isResumable =
     options.onResume !== undefined &&
     !entry.live_run_id &&
@@ -63,13 +70,15 @@ export function buildInProgressRowModel(
         : ""
 
   const progressValue =
-    isLiveRow && liveRun
-      ? (liveRun.phaseProgress?.value ?? (rowIsRunning ? -1 : undefined))
-      : statusKey === "done"
-        ? 1
-        : entry.live_run_id || isReconnectingRow
-          ? -1
-          : undefined
+    isProsperoPending
+      ? undefined
+      : isLiveRow && liveRun
+        ? (liveRun.phaseProgress?.value ?? (rowIsRunning ? -1 : undefined))
+        : statusKey === "done"
+          ? 1
+          : entry.live_run_id || isReconnectingRow
+            ? -1
+            : undefined
 
   return {
     entry,

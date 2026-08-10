@@ -2,6 +2,7 @@ import { useEffect, type Dispatch, type SetStateAction } from "react"
 import type { NavigateFunction } from "react-router-dom"
 import { isTerminalHistoricalStatus } from "@/lib/runSelection"
 import { parseRunUrl } from "@/lib/runSessionUrl"
+import { connectLiveRun } from "@/lib/runSession"
 import {
   APIResponseError,
   attachHistory,
@@ -50,6 +51,7 @@ export function useRunSessionSync({
     liveWorkflowId,
     setLiveWorkflowId,
     liveRunNavigatedRef,
+    wasStreamingRef,
     liveOutputs,
     reset,
     clearLiveRunUi,
@@ -69,29 +71,27 @@ export function useRunSessionSync({
       }
       if (entry.live_run_id) {
         if (isAborted?.()) return
-        const now = new Date()
-        reset()
-        liveRunNavigatedRef.current = workflowId
-        setLiveRunId(entry.live_run_id)
-        setLiveTopic(entry.topic)
-        setLiveStartedAt(now)
-        setLiveWorkflowId(workflowId)
-        saveLiveRun({
-          runId: entry.live_run_id,
-          topic: entry.topic,
-          startedAt: now.toISOString(),
-          workflowId,
-        })
-        setSelectedRun({
-          runId: entry.live_run_id,
-          workflowId,
-          topic: entry.topic,
-          dbPath: entry.db_path || null,
-          isDone: false,
-          startedAt: now,
-          createdAt: entry.created_at,
-        })
-        setActiveRunTab(tab)
+        connectLiveRun(
+          {
+            reset,
+            setLiveRunId,
+            setLiveTopic,
+            setLiveStartedAt,
+            setLiveWorkflowId,
+            setSelectedRun,
+            setActiveRunTab,
+            liveRunNavigatedRef,
+            wasStreamingRef,
+          },
+          {
+            runId: entry.live_run_id,
+            topic: entry.topic,
+            workflowId,
+            dbPath: entry.db_path || null,
+            createdAt: entry.created_at,
+            tab,
+          },
+        )
         return
       }
       const res = await attachHistory(entry)
@@ -177,6 +177,7 @@ export function useRunSessionSync({
 
   useEffect(() => {
     if (!liveOutputs || !liveRunId) return
+    if (String(liveOutputs.status ?? "") === "awaiting_prospero") return
     const wfId = liveOutputs.workflow_id as string | undefined
     if (wfId && selectedRun?.runId === liveRunId && !selectedRun.workflowId) {
       setSelectedRun((r) => (r ? { ...r, workflowId: wfId, isDone: true } : r))
@@ -187,6 +188,26 @@ export function useRunSessionSync({
   }, [liveOutputs, liveRunId, selectedRun, setSelectedRun, setLiveWorkflowId])
 
   useEffect(() => {
+    const parkedStatus = String(liveOutputs?.status ?? "")
+    if (parkedStatus !== "awaiting_prospero") return
+    const wfId = String(liveOutputs?.workflow_id ?? liveWorkflowId ?? "")
+    if (!wfId || !liveRunId) return
+
+    setSelectedRun((prev) => {
+      if (!prev || prev.runId !== liveRunId) return prev
+      return {
+        ...prev,
+        workflowId: wfId,
+        dbPath: typeof liveOutputs?.db_path === "string" ? liveOutputs.db_path : prev.dbPath,
+        historicalStatus: "awaiting_prospero",
+        isDone: false,
+      }
+    })
+    clearLiveRunUi()
+    void queryClient.invalidateQueries({ queryKey: historyQueryKey() })
+  }, [liveOutputs, liveRunId, liveWorkflowId, setSelectedRun, clearLiveRunUi])
+
+  useEffect(() => {
     if (!liveWorkflowId || !liveRunId) return
 
     if (selectedRun?.runId === liveRunId && !selectedRun.workflowId) {
@@ -195,6 +216,7 @@ export function useRunSessionSync({
 
     if (liveRunNavigatedRef.current !== liveWorkflowId) {
       liveRunNavigatedRef.current = liveWorkflowId
+      void queryClient.invalidateQueries({ queryKey: historyQueryKey() })
       if (!selectedRun || selectedRun.runId === liveRunId) {
         navigate(`/run/${liveWorkflowId}/${activeRunTab}`, { replace: true })
       }
@@ -250,30 +272,28 @@ export function useRunSessionSync({
       }
       switched = true
       consecutiveMisses = 0
-      const now = new Date()
-      reset()
-      liveRunNavigatedRef.current = null
-      setLiveRunId(res.run_id)
-      setLiveTopic(res.topic)
-      setLiveStartedAt(now)
-      setLiveWorkflowId(workflowId)
-      saveLiveRun({
-        runId: res.run_id,
-        topic: res.topic,
-        startedAt: now.toISOString(),
-        workflowId,
-      })
-      setSelectedRun({
-        runId: res.run_id,
-        workflowId,
-        topic: res.topic,
-        dbPath: null,
-        isDone: false,
-        startedAt: now,
-        createdAt: now.toISOString(),
-      })
-      setActiveRunTab("activity")
-      navigate(`/run/${workflowId}/activity`, { replace: true })
+      connectLiveRun(
+        {
+          reset,
+          setLiveRunId,
+          setLiveTopic,
+          setLiveStartedAt,
+          setLiveWorkflowId,
+          setSelectedRun,
+          setActiveRunTab,
+          navigate,
+          liveRunNavigatedRef,
+          wasStreamingRef,
+        },
+        {
+          runId: res.run_id,
+          topic: res.topic,
+          workflowId,
+          tab: "activity",
+          navigatePath: `/run/${workflowId}/activity`,
+        },
+        { navigatedRef: null },
+      )
     }
 
     void checkAndSwitch()
@@ -301,5 +321,6 @@ export function useRunSessionSync({
     setLiveStartedAt,
     setLiveWorkflowId,
     liveRunNavigatedRef,
+    wasStreamingRef,
   ])
 }

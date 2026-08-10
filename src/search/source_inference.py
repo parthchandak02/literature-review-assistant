@@ -256,13 +256,14 @@ def detect_csv_export_format(fieldnames: list[str], url_samples: list[str]) -> s
     if "PMID" in names and "MeSH Terms" in names:
         return "pubmed"
 
-    # Scopus CSV export: Source title + Author Keywords; often scopus.com inward URIs.
-    if "Author Keywords" in names and "Source title" in names:
-        if _url_share("scopus.com") >= 0.15 or any("eid=2-s2.0-" in u for u in lowered_urls):
+    # Scopus CSV export: Source title plus Author Keywords and/or scopus.com inward URIs.
+    if "Source title" in names:
+        if "Author Keywords" in names:
             return "scopus"
-        return "scopus"
+        if _url_share("scopus.com") >= 0.01 or any("eid=2-s2.0-" in u for u in lowered_urls):
+            return "scopus"
 
-    if _url_share("scopus.com") >= 0.5:
+    if _url_share("scopus.com") >= 0.15 or any("eid=2-s2.0-" in u for u in lowered_urls):
         return "scopus"
     if _url_share("pubmed.ncbi.nlm.nih.gov") >= 0.5 or _url_share("ncbi.nlm.nih.gov") >= 0.5:
         return "pubmed"
@@ -302,7 +303,8 @@ def infer_csv_row_source(
             return canonical, source_category_for_database(canonical)
 
     from_url, cat = infer_source_from_url(url, fallback=OTHER_SOURCE, file_hint=file_hint)
-    if from_url != OTHER_SOURCE:
+    # PRISMA CSV imports: doi.org resolves to crossref for web URLs only, not identification.
+    if from_url not in (OTHER_SOURCE, "crossref"):
         return from_url, cat
 
     from_ids = infer_source_from_row_ids(row, fieldnames)

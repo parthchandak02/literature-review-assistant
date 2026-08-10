@@ -10,9 +10,9 @@ Operational replay verification after `src/` orchestration, resume, or persisten
 
 ## Canonical sources
 
-- Resume vs rerun: `.cursor/rules/core/workflow-rerun-from-snapshot-always.mdc`
+- Resume vs rerun: `.cursor/rules/core/rerun-workflows.mdc`
 - Verification gates: `.cursor/docs/IMPLEMENTATION_STATUS.md`
-- PM2 restart: `.cursor/rules/core/pm2-restart-reminder-always.mdc`
+- PM2 restart: `.cursor/rules/core/pm2-restart.mdc`
 - Operator/WhatsApp flows: `lit-review` skill
 
 ## When to run

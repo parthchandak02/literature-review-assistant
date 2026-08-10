@@ -1468,7 +1468,7 @@ def format_grounding_block(data: WritingGroundingData) -> str:
         lines.append("Meta-analysis: NOT feasible - narrative synthesis only.")
         lines.append(f"CRITICAL: {NARRATIVE_ONLY_META_ANALYSIS_RULE}")
     if data.protocol_registered and data.protocol_registration_number:
-        reg_status = f"YES (ID: {data.protocol_registration_number})"
+        reg_status = f"registered prospectively with PROSPERO ({data.protocol_registration_number})"
     elif data.protocol_registered:
         reg_status = "YES (registration number not on file)"
     else:

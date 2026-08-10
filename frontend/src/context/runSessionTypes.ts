@@ -3,7 +3,7 @@
  */
 import type { Dispatch, SetStateAction } from "react"
 import type { CostStats } from "@/hooks/useCostStats"
-import type { HistoryEntry, RunRequest, ReviewEvent } from "@/lib/api"
+import type { HistoryEntry, RunRequest, ReviewEvent, ProsperoRegistration } from "@/lib/api"
 import type { LiveRun } from "@/components/sidebar/types"
 
 export type RunTab = "activity" | "results" | "database" | "cost" | "config" | "review-screening"
@@ -30,9 +30,14 @@ export interface SelectedRun {
 }
 export {
   beginLiveRun,
+  clearLiveRunUi,
+  connectLiveRun,
   resumeErrorMessage,
   runRequestToStoredKeys,
   type BeginLiveRunArgs,
+  type ClearLiveRunUiArgs,
+  type ConnectLiveRunInput,
+  type LiveRunSetters,
 } from "@/lib/runSession"
 
 export type RunSessionStreamStatus =
@@ -61,9 +66,9 @@ export interface RunSessionViewState {
 }
 
 export interface RunSessionActions {
-  handleStart: (req: RunRequest) => Promise<void>
-  handleStartWithSupplementaryCsv: (csvFile: File, req: RunRequest) => Promise<void>
-  handleStartWithMasterlistCsv: (csvFile: File, req: RunRequest) => Promise<void>
+  handleStart: (req: RunRequest, options?: { tab?: RunTab }) => Promise<void>
+  handleStartWithSupplementaryCsv: (csvFile: File, req: RunRequest, options?: { tab?: RunTab }) => Promise<void>
+  handleStartWithMasterlistCsv: (csvFile: File, req: RunRequest, options?: { tab?: RunTab }) => Promise<void>
   handleCancel: () => Promise<void>
   handleNewReview: () => void
   handleSelectLiveRun: () => void
@@ -78,6 +83,7 @@ export interface RunSessionActions {
   handleSidebarRestoreCompleted: (workflowId: string) => Promise<void>
   handleTabChange: (tab: RunTab) => void
   handleGoToSubmissionReferencePapers: () => void
+  handleSubmitProsperoAndResume: (runId: string, registration: ProsperoRegistration) => Promise<void>
   openDraftRunShell: (topic: string) => void
 }
 

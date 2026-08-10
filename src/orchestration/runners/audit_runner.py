@@ -15,6 +15,7 @@ from src.db.workflow_registry import update_status as update_registry_status
 from src.llm.provider import LLMProvider
 from src.manuscript.contracts import run_manuscript_contracts
 from src.manuscript.reviewer import run_manuscript_audit, serialize_audit_context, serialize_contract_summary
+from src.models.workflow import WorkflowRunResult
 from src.orchestration.helpers.manuscript_gate import (
     collect_manuscript_gate_failure_reasons,
     manuscript_gate_blocks_workflow,
@@ -232,7 +233,7 @@ async def run_manuscript_audit_node(state: ReviewState, ctx: GraphRunContext[Rev
                             "gate_failure_reasons": gate_failure_reasons,
                         },
                     )
-                return End(summary)
+                return End(WorkflowRunResult.from_summary(summary))
 
             await repository.save_checkpoint(
                 state.workflow_id,

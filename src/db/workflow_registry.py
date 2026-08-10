@@ -87,8 +87,9 @@ def _registry_path(run_root: str) -> str:
     return str(Path(run_root).resolve() / "workflows_registry.db")
 
 
-_RESUMABLE_REGISTRY_STATUSES = ("interrupted", "failed", "stale")
-_BLOCKED_RESUME_STATUSES = ("running", "awaiting_review")
+_RESUMABLE_REGISTRY_STATUSES = ("interrupted", "failed", "stale", "awaiting_prospero", "awaiting_review")
+_BLOCKED_RESUME_STATUSES = ("running",)
+DRAFT_REGISTRY_STATUSES = frozenset({"config_generating", "config_ready"})
 
 
 def run_root_from_db_path(db_path: str) -> str:
@@ -160,14 +161,15 @@ async def try_claim_for_resume(
         if current not in _RESUMABLE_REGISTRY_STATUSES:
             return True, current
         before = db.total_changes
+        placeholders = ",".join("?" * len(_RESUMABLE_REGISTRY_STATUSES))
         await db.execute(
-            """
+            f"""
             UPDATE workflows_registry
             SET status = 'running',
                 updated_at = datetime('now'),
                 heartbeat_at = datetime('now')
             WHERE workflow_id = ?
-              AND status IN (?, ?, ?)
+              AND status IN ({placeholders})
             """,
             (workflow_id, *_RESUMABLE_REGISTRY_STATUSES),
         )

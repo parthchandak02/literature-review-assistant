@@ -23,6 +23,7 @@ from src.models import (
     GateStatus,
     WorkflowStepRecord,
 )
+from src.models.workflow import WorkflowRunResult
 from src.orchestration.context import RunContext
 from src.orchestration.gates import GateRunner
 from src.orchestration.helpers.runtime import llm_available as helper_llm_available
@@ -1139,7 +1140,7 @@ async def run_screening_node(state: ReviewState, ctx: GraphRunContext[ReviewStat
                         "phase_3_screening",
                         {"error": err_msg, "included": len(state.included_papers)},
                     )
-                return End(summary)
+                return End(WorkflowRunResult.from_summary(summary))
 
         checkpoint_status = "partial" if (rc and rc.should_proceed_with_partial()) else "completed"
         await repository.save_checkpoint(

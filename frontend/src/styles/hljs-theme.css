@@ -1,0 +1,71 @@
+/* highlight.js: github-dark default; light-mode token overrides below */
+@import "highlight.js/styles/github-dark.css";
+
+/* Blend code blocks with app surfaces in dark mode */
+html:not([data-theme="light"]) .hljs {
+  background: transparent !important;
+}
+
+/* Light mode: github-light syntax on warm panel */
+html[data-theme="light"] .hljs {
+  background: #f5f3f0 !important;
+  color: #24292e !important;
+}
+
+html[data-theme="light"] .hljs-doctag,
+html[data-theme="light"] .hljs-keyword,
+html[data-theme="light"] .hljs-meta .hljs-keyword,
+html[data-theme="light"] .hljs-template-tag,
+html[data-theme="light"] .hljs-template-variable,
+html[data-theme="light"] .hljs-type,
+html[data-theme="light"] .hljs-variable.language_ {
+  color: #d73a49;
+}
+
+html[data-theme="light"] .hljs-title,
+html[data-theme="light"] .hljs-title.class_,
+html[data-theme="light"] .hljs-title.class_.inherited__,
+html[data-theme="light"] .hljs-title.function_ {
+  color: #6f42c1;
+}
+
+html[data-theme="light"] .hljs-attr,
+html[data-theme="light"] .hljs-attribute,
+html[data-theme="light"] .hljs-literal,
+html[data-theme="light"] .hljs-meta,
+html[data-theme="light"] .hljs-number,
+html[data-theme="light"] .hljs-operator,
+html[data-theme="light"] .hljs-variable,
+html[data-theme="light"] .hljs-selector-attr,
+html[data-theme="light"] .hljs-selector-class,
+html[data-theme="light"] .hljs-selector-id {
+  color: #005cc5;
+}
+
+html[data-theme="light"] .hljs-regexp,
+html[data-theme="light"] .hljs-string,
+html[data-theme="light"] .hljs-meta .hljs-string {
+  color: #032f62;
+}
+
+html[data-theme="light"] .hljs-built_in,
+html[data-theme="light"] .hljs-symbol {
+  color: #e36209;
+}
+
+html[data-theme="light"] .hljs-comment,
+html[data-theme="light"] .hljs-code,
+html[data-theme="light"] .hljs-formula {
+  color: #6a737d;
+}
+
+html[data-theme="light"] .hljs-name,
+html[data-theme="light"] .hljs-quote,
+html[data-theme="light"] .hljs-selector-tag,
+html[data-theme="light"] .hljs-selector-pseudo {
+  color: #22863a;
+}
+
+html[data-theme="light"] .hljs-subst {
+  color: #24292e;
+}

@@ -4,6 +4,7 @@
 // ---------------------------------------------------------------------------
 
 export const PHASE_ORDER = [
+  "phase_1_prospero_gate",
   "phase_2_search",
   "phase_3_screening",
   "fulltext_pdf_retrieval",
@@ -21,6 +22,7 @@ export type PhaseKey = (typeof PHASE_ORDER)[number]
 
 export const PHASE_LABELS: Record<string, string> = {
   start: "Start",
+  phase_1_prospero_gate: "PROSPERO Registration",
   phase_2_search: "Search",
   phase_3_screening: "Screening",
   screening_calibration: "Threshold Calibration",
@@ -37,6 +39,11 @@ export const PHASE_LABELS: Record<string, string> = {
 }
 
 export const PHASE_MILESTONES = [
+  {
+    key: "protocol",
+    label: "Protocol",
+    phases: ["phase_1_prospero_gate"],
+  },
   {
     key: "discovery",
     label: "Discovery",
@@ -66,6 +73,7 @@ export const PHASE_MILESTONES = [
 
 /** Phase order for resume-from-phase (matches backend USER_RESUMABLE_PHASE_ORDER). */
 export const RESUME_PHASE_ORDER = [
+  "phase_1_prospero_gate",
   "phase_2_search",
   "phase_3_screening",
   "phase_4_extraction_quality",
@@ -89,6 +97,10 @@ export type RunStatus =
   | "error"
   | "cancelled"
   | "stale"
+  | "awaiting_review"
+  | "awaiting_prospero"
+  | "config_generating"
+  | "config_ready"
 
 export const STATUS_LABEL: Record<RunStatus, string> = {
   idle: "Ready",
@@ -98,6 +110,10 @@ export const STATUS_LABEL: Record<RunStatus, string> = {
   error: "Failed",
   cancelled: "Cancelled",
   stale: "Stale",
+  awaiting_review: "Awaiting Review",
+  awaiting_prospero: "PROSPERO Pending",
+  config_generating: "Generating Config",
+  config_ready: "Config Ready",
 }
 
 import type { BadgeVariant } from "@/components/ui/badge"
@@ -111,6 +127,10 @@ export const STATUS_VARIANT: Record<RunStatus, BadgeVariant> = {
   error: "danger",
   cancelled: "warning",
   stale: "warning",
+  awaiting_review: "warning",
+  awaiting_prospero: "warning",
+  config_generating: "active",
+  config_ready: "warning",
 }
 
 /** Convenience helper — returns the Badge variant for a given status. */
@@ -127,6 +147,10 @@ export const STATUS_DOT: Record<RunStatus, string> = {
   error: "bg-intent-danger",
   cancelled: "bg-intent-warning",
   stale: "bg-intent-warning",
+  awaiting_review: "bg-intent-warning",
+  awaiting_prospero: "bg-intent-warning",
+  config_generating: "bg-intent-active",
+  config_ready: "bg-intent-warning",
 }
 
 /** Semantic text color for status labels. */
@@ -138,6 +162,10 @@ export const STATUS_TEXT: Record<RunStatus, string> = {
   error: "text-intent-danger",
   cancelled: "text-intent-warning",
   stale: "text-intent-warning",
+  awaiting_review: "text-intent-warning",
+  awaiting_prospero: "text-intent-warning",
+  config_generating: "text-intent-active",
+  config_ready: "text-intent-warning",
 }
 
 /** Semantic progress-bar fill class for run cards and headers. */
@@ -149,6 +177,10 @@ export const STATUS_PROGRESS: Record<RunStatus, string> = {
   error: "bg-intent-danger",
   cancelled: "bg-intent-warning",
   stale: "bg-intent-warning",
+  awaiting_review: "bg-intent-warning/60",
+  awaiting_prospero: "bg-intent-warning/60",
+  config_generating: "bg-intent-active",
+  config_ready: "bg-intent-warning/60",
 }
 
 export type ScreeningDecision = "include" | "exclude" | "uncertain"
@@ -204,6 +236,12 @@ export interface RunHeaderStatusInput {
   isCancelled: boolean
   isFailed: boolean
   isAwaitingReview: boolean
+  isAwaitingProspero?: boolean
+}
+
+/** Client-side PROSPERO registration number format (CRD + 9+ digits). */
+export function isProsperoRegistrationNumberValid(value: string): boolean {
+  return /^CRD\d{9,}$/i.test(value.trim())
 }
 
 /** Run info strip label + text class (canonical status presentation). */
@@ -211,7 +249,10 @@ export function resolveRunHeaderStatus(input: RunHeaderStatusInput): {
   label: string
   className: string
 } {
-  const { status, isDone, isRunning, isCancelled, isFailed, isAwaitingReview } = input
+  const { status, isDone, isRunning, isCancelled, isFailed, isAwaitingReview, isAwaitingProspero } = input
+  if (isAwaitingProspero && !isDone) {
+    return { label: "Awaiting PROSPERO", className: "text-intent-warning" }
+  }
   if (isAwaitingReview && !isDone) {
     return { label: "Awaiting Review", className: "text-intent-warning" }
   }
@@ -279,6 +320,7 @@ export function humanizeReason(reasonCode: string | null | undefined): string {
 // ---------------------------------------------------------------------------
 
 export const PHASE_COLOR_VARS: Record<string, string> = {
+  phase_1_prospero_gate: "--color-phase-1-prospero-gate",
   phase_2_search: "--color-phase-2-search",
   phase_3_screening: "--color-phase-3-screening",
   screening_calibration: "--color-screening-calibration",
@@ -314,6 +356,7 @@ export function phaseColor(phase: string): string {
 }
 
 export const PHASE_LABEL_MAP: Record<string, string> = {
+  phase_1_prospero_gate: "PROSPERO",
   phase_2_search: "Search",
   phase_3_screening: "Screening",
   screening_calibration: "Calibration",
@@ -334,6 +377,19 @@ export const PHASE_LABEL_MAP: Record<string, string> = {
 
 // ---------------------------------------------------------------------------
 
+/** True when a history row is parked before PROSPERO registration. */
+export function isProsperoPendingStatus(raw: string | null | undefined): boolean {
+  const normalized = (raw ?? "").toLowerCase()
+  return normalized === "awaiting_prospero"
+    || normalized === "config_generating"
+    || normalized === "config_ready"
+}
+
+export function isConfigDraftStatus(raw: string | null | undefined): boolean {
+  const normalized = (raw ?? "").toLowerCase()
+  return normalized === "config_generating" || normalized === "config_ready"
+}
+
 /** Map raw backend/SSE status strings to the canonical RunStatus. */
 export function resolveRunStatus(raw: string | null | undefined): RunStatus {
   const s = (raw ?? "").toLowerCase()
@@ -343,6 +399,9 @@ export function resolveRunStatus(raw: string | null | undefined): RunStatus {
   if (s === "error" || s === "failed") return "error"
   if (s === "cancelled" || s === "canceled" || s === "interrupted") return "cancelled"
   if (s === "stale") return "stale"
-  if (s === "awaiting_review") return "streaming"
+  if (s === "awaiting_review") return "awaiting_review"
+  if (s === "awaiting_prospero") return "awaiting_prospero"
+  if (s === "config_generating") return "config_generating"
+  if (s === "config_ready") return "config_ready"
   return "idle"
 }

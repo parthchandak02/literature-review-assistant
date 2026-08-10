@@ -2,7 +2,6 @@ import { useState, useMemo } from "react"
 import { Pencil, Eye } from "lucide-react"
 import hljs from "highlight.js/lib/core"
 import yaml from "highlight.js/lib/languages/yaml"
-import "highlight.js/styles/github.css"
 import { Button } from "@/components/ui/button"
 import { Textarea } from "@/components/ui/textarea"
 import { ScrollArea } from "@/components/ui/scroll-area"
@@ -21,7 +20,7 @@ interface YamlEditorProps {
 
 /**
  * YAML editor with syntax highlighting. Toggles between read-only highlighted
- * view and editable textarea. Uses highlight.js (github-dark theme).
+ * view and editable textarea. Syntax colors from styles/hljs-theme.css.
  */
 export function YamlEditor({
   value,

@@ -19,6 +19,7 @@ from src.models import (
 )
 from src.orchestration.nodes.extraction_quality import ExtractionQualityNode
 from src.orchestration.nodes.pre_writing_gate import PreWritingGateNode
+from src.orchestration.nodes.prospero_gate import ProsperoGateNode
 from src.orchestration.nodes.resume_start import ResumeStartNode
 from src.orchestration.nodes.screening import ScreeningNode
 from src.orchestration.nodes.search import SearchNode
@@ -35,7 +36,7 @@ def _graph_ctx(state: ReviewState) -> GraphRunContext[ReviewState]:
 
 
 @pytest.mark.asyncio
-async def test_start_node_routes_to_search_node(
+async def test_start_node_routes_to_prospero_gate_node(
     tmp_path: Path,
     minimal_config_paths: tuple[Path, Path],
 ) -> None:
@@ -49,7 +50,11 @@ async def test_start_node_routes_to_search_node(
 
     next_node = await StartNode().run(_graph_ctx(state))
 
-    assert isinstance(next_node, SearchNode)
+    assert isinstance(next_node, ProsperoGateNode)
+    assert state.workflow_id
+    assert state.db_path
+    assert state.review is not None
+    assert state.settings is not None
     assert state.workflow_id
     assert state.db_path
     assert state.review is not None
@@ -298,7 +303,10 @@ async def test_search_node_csv_strict_gate_failure_returns_end(
 
     review, settings = load_configs(str(review_path), str(settings_path))
     masterlist = run_dir / "masterlist.csv"
-    masterlist.write_text("Title,Authors,Year,DOI,Abstract\n", encoding="utf-8")
+    masterlist.write_text(
+        "Title,Authors,Year,DOI,Abstract\nSample paper,Author A,2020,10.1234/test,Short abstract.\n",
+        encoding="utf-8",
+    )
     review.masterlist_csv_path = str(masterlist)
 
     state = ReviewState(
@@ -322,5 +330,5 @@ async def test_search_node_csv_strict_gate_failure_returns_end(
     next_node = await SearchNode().run(_graph_ctx(state))
 
     assert isinstance(next_node, End)
-    assert next_node.data["status"] == "failed"
-    assert next_node.data["gate"] == "search_volume"
+    assert next_node.data.status.value == "failed"
+    assert next_node.data.gate == "search_volume"

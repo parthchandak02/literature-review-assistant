@@ -13,8 +13,8 @@ from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
 
 from src.db.workflow_registry import _open_registry as _open_registry_db
+from src.web.run_resolver import resolve_runtime_db
 from src.web.shared import _parse_sqlite_ts
-from src.web.state import _get_db_path
 
 router = APIRouter(tags=["costs"])
 
@@ -231,7 +231,7 @@ async def get_db_costs(run_id: str) -> dict[str, Any]:
     """Aggregated cost_records from the run's SQLite database."""
     import json as _json
 
-    db_path = _get_db_path(run_id)
+    db_path = await resolve_runtime_db(run_id)
     try:
         async with aiosqlite.connect(db_path) as db:
             db.row_factory = aiosqlite.Row
@@ -296,7 +296,7 @@ async def get_db_cost_aggregates(
     end_ts: str | None = None,
 ) -> dict[str, Any]:
     """Return day/week/month plus workflow/phase/model cost aggregations."""
-    db_path = _get_db_path(run_id)
+    db_path = await resolve_runtime_db(run_id)
     where_sql, where_params = _build_cost_time_filter(start_ts, end_ts)
     try:
         async with aiosqlite.connect(db_path) as db:
@@ -401,7 +401,7 @@ async def export_db_costs_csv(
     granularity: str = "day",
 ) -> StreamingResponse:
     """Export reconciliation-friendly grouped cost CSV for a run."""
-    db_path = _get_db_path(run_id)
+    db_path = await resolve_runtime_db(run_id)
     where_sql, where_params = _build_cost_time_filter(start_ts, end_ts)
     bucket_by_granularity = {
         "day": "date(created_at)",

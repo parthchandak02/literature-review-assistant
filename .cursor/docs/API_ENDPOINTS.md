@@ -18,7 +18,7 @@ When API routes change in `src/web/app.py`, update this table in the same change
 | GET | /api/download | Download artifact file (query param `path`; restricted to runs/) |
 | GET | /api/config/review | Default review.yaml content (pre-fills Setup form) |
 | POST | /api/config/generate/stream | SSE-streamed config generation (`research_question`, `gemini_api_key`, optional `generation_profile=standard|health_sdg`) |
-| GET | /api/config/env-keys | API keys already set in server .env; used to pre-fill Setup form |
+| GET | /api/config/env-keys | API keys already set in server dotenv; used to pre-fill Setup form |
 | GET | /api/config/env-keys/required | Required LLM provider UI keys for the active settings profile |
 | GET | /api/config/env-keys/status | Masked env-key presence map for Setup diagnostics |
 | GET | /api/health | Health check; polled every 6s by useBackendHealth hook |
@@ -50,6 +50,8 @@ When API routes change in `src/web/app.py`, update this table in the same change
 | GET | /api/workflow/{workflow_id}/validation/checks | Detailed checks for a validation run (latest by default) |
 | GET | /api/workflow/{workflow_id}/manuscript-audit/summary | Latest + history manuscript audit run summaries |
 | GET | /api/workflow/{workflow_id}/manuscript-audit/findings | Manuscript audit findings for latest or explicit audit_run_id |
+| POST | /api/workflow/reserve | Reserve early workflow draft (`topic`, optional `run_root`); returns `{workflow_id, db_path, run_dir}` |
+| PUT | /api/workflow/{workflow_id}/config-draft | Save review YAML config draft (`review_yaml`, optional `run_root`); returns `{workflow_id, status: config_ready}` |
 | PATCH | /api/notes/{workflow_id} | Update run notes |
 | GET | /api/notes/stream | SSE stream for notes updates |
 | GET | /api/run/{run_id}/papers-reference | Included papers list with PDF/TXT file availability flags |
@@ -59,6 +61,8 @@ When API routes change in `src/web/app.py`, update this table in the same change
 | POST | /api/run/{run_id}/approve-screening | Approve screening and unblock HumanReviewCheckpointNode |
 | GET | /api/run/{run_id}/knowledge-graph | Force-directed knowledge graph nodes and edges for EvidenceNetworkViz |
 | GET | /api/run/{run_id}/prisma-checklist | PRISMA 2020 compliance checklist (item-by-item pass/fail/partial) |
+| GET | /api/run/{run_id}/prisma-diagram.png | Download latest PRISMA flow diagram PNG (`Cache-Control: no-store`) |
+| GET | /api/run/{run_id}/prisma-flow.zip | Download PRISMA flow data ZIP (summary, per-paper records, search identification CSVs) |
 | GET | /api/run/{run_id}/grade-sof | GRADE Summary of Findings table for the review |
 | POST | /api/run/{run_id}/living-refresh | Start incremental re-run from last_search_date for living reviews |
 | POST | /api/run/{run_id}/export | Package IEEE LaTeX submission; calls package_submission() |
@@ -67,6 +71,7 @@ When API routes change in `src/web/app.py`, update this table in the same change
 | GET | /api/run/{run_id}/manuscript.docx | Download the Word DOCX manuscript |
 | GET | /api/run/{run_id}/prospero-form.docx | Download generated PROSPERO registration form (DOCX) |
 | GET | /api/run/{run_id}/prospero-form.md | Download generated PROSPERO registration form (Markdown) |
+| POST | /api/run/{run_id}/submit-prospero | Record PROSPERO registration (`registration_number`, `registration_date`) and resume workflow |
 | GET | /api/run/{run_id}/manuscript-audit | Consolidated manuscript-audit payload resolved from run/workflow identifier |
 | GET | /api/run/{run_id}/readiness | Readiness scorecard for export and operational review (finalize, PRISMA, contracts, fallbacks, PDF) |
 | GET | /api/run/{run_id}/diagnostics | Step journal summary, recovery/fallback counts, writing manifests for run diagnostics |

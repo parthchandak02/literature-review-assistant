@@ -105,7 +105,7 @@ class OpenAlexConnector(HttpSearchConnectorBase):
         # (Scopus/WoS equivalent) excludes many specialist journals, capping OpenAlex
         # results for niche topics regardless of query. Broad-first search with
         # dual-LLM screening is the correct approach -- the screeners apply inclusion criteria
-        # and filter low-quality papers. See gotchas-agent.mdc for full explanation.
+        # and filter low-quality papers. See .cursor/rules/core/gotchas.mdc for full explanation.
         filter_parts: list[str] = [
             "type:article",
             "primary_location.source.type:journal",

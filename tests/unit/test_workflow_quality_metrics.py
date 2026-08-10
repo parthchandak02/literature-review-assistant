@@ -1,5 +1,5 @@
 from src.models import CandidatePaper, ExtractionRecord, PrimaryStudyStatus, StudyDesign
-from src.orchestration.workflow import _compute_extraction_quality_metrics
+from src.orchestration.helpers.extraction_metrics import compute_extraction_quality_metrics
 
 
 def _paper(paper_id: str) -> CandidatePaper:
@@ -34,7 +34,7 @@ def test_compute_extraction_quality_metrics_flags_weak_evidence() -> None:
         ),
     ]
 
-    completeness_ratio, weak_evidence_rate, details = _compute_extraction_quality_metrics(
+    completeness_ratio, weak_evidence_rate, details = compute_extraction_quality_metrics(
         records,
         [_paper("p1"), _paper("p2")],
     )
@@ -60,7 +60,7 @@ def test_compute_extraction_quality_metrics_counts_participant_demographics() ->
         )
     ]
 
-    completeness_ratio, weak_evidence_rate, details = _compute_extraction_quality_metrics(
+    completeness_ratio, weak_evidence_rate, details = compute_extraction_quality_metrics(
         records,
         [_paper("p1")],
     )

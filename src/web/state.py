@@ -12,7 +12,6 @@ import json as _json
 import logging
 import pathlib
 import time
-from collections.abc import Iterator
 from typing import Any
 
 import aiosqlite
@@ -23,6 +22,7 @@ from src.config.loader import load_configs as _load_configs
 from src.db.workflow_registry import _open_registry as _open_registry_db
 from src.db.workflow_registry import update_heartbeat as _update_registry_heartbeat
 from src.db.workflow_registry import update_status as _update_registry_status
+from src.models.workflow import WorkflowRunResult
 from src.web.event_replay import load_replay_events
 from src.web.event_store import EventStore
 from src.web.lifecycle_coordinator import bind_active_runs
@@ -36,6 +36,15 @@ from src.web.shared import (
 
 _logger = logging.getLogger(__name__)
 
+
+def _workflow_outputs_as_dict(outputs: WorkflowRunResult | dict[str, Any] | Any) -> dict[str, Any]:
+    if isinstance(outputs, WorkflowRunResult):
+        return outputs.to_output_dict()
+    if isinstance(outputs, dict):
+        return outputs
+    return {}
+
+
 # ---------------------------------------------------------------------------
 # Web-tier config (loaded once at import time)
 # ---------------------------------------------------------------------------
@@ -47,33 +56,8 @@ except Exception:
     _web_cfg = _WebConfig()
 
 # ---------------------------------------------------------------------------
-# RunRegistry & NotesBroadcaster
+# NotesBroadcaster
 # ---------------------------------------------------------------------------
-
-
-class RunRegistry:
-    """Thin wrapper around the in-memory active run map."""
-
-    def __init__(self, backing: dict[str, Any] | None = None) -> None:
-        self._runs: dict[str, Any] = backing if backing is not None else {}
-
-    def get(self, run_id: str) -> Any | None:
-        return self._runs.get(run_id)
-
-    def set(self, run_id: str, record: Any) -> None:
-        self._runs[run_id] = record
-
-    def pop(self, run_id: str, default: Any = None) -> Any:
-        return self._runs.pop(run_id, default)
-
-    def values(self) -> Iterator[Any]:
-        return self._runs.values()
-
-    def items(self) -> Iterator[tuple[str, Any]]:
-        return self._runs.items()
-
-    def as_dict(self) -> dict[str, Any]:
-        return self._runs
 
 
 class NotesBroadcaster:
@@ -121,7 +105,6 @@ class _RunRecord:
 # ---------------------------------------------------------------------------
 
 _active_runs: dict[str, _RunRecord] = {}
-_run_registry = RunRegistry(_active_runs)
 
 _notes_subscribers: set[asyncio.Queue[dict[str, Any] | None]] = set()
 _notes_broadcaster = NotesBroadcaster(_notes_subscribers)
@@ -185,7 +168,9 @@ def _get_db_path(run_id: str) -> str:
 
 async def _resolve_db_path_from_run_or_workflow(identifier: str, run_root: str = "runs") -> str:
     """Resolve a db_path from either an active run_id or a workflow_id."""
-    return await _run_resolver.resolve_db_path(identifier, run_root)
+    from src.web.run_resolver import resolve_runtime_db
+
+    return await resolve_runtime_db(identifier, run_root)
 
 
 # ---------------------------------------------------------------------------
@@ -234,7 +219,7 @@ async def _repair_registry_statuses_from_runtime(run_root: str = "runs") -> None
                 """
                 SELECT workflow_id, status, db_path
                 FROM workflows_registry
-                WHERE status IN ('running', 'stale', 'awaiting_review')
+                WHERE status IN ('running', 'stale', 'awaiting_review', 'awaiting_prospero')
                 """
             ) as cur:
                 rows = await cur.fetchall()
@@ -246,7 +231,12 @@ async def _repair_registry_statuses_from_runtime(run_root: str = "runs") -> None
         status = _normalize_status(str(row["status"]))
         evidence = await _collect_terminal_evidence(db_path)
         terminal = evidence.get("terminal_status")
-        if terminal in {"completed", "failed", "interrupted"} and status in {"running", "stale", "awaiting_review"}:
+        if terminal in {"completed", "failed", "interrupted"} and status in {
+            "running",
+            "stale",
+            "awaiting_review",
+            "awaiting_prospero",
+        }:
             try:
                 await _update_registry_status(run_root, str(row["workflow_id"]), str(terminal))
                 repaired += 1
@@ -340,9 +330,44 @@ async def _event_flusher_loop(record: _RunRecord, interval: int = 5) -> None:
 # ---------------------------------------------------------------------------
 
 
+async def _apply_terminal_registry_status(
+    run_root: str,
+    workflow_id: str,
+    outputs: WorkflowRunResult | dict[str, Any],
+) -> None:
+    """Map workflow terminal outputs to registry status (fresh run + resume)."""
+    output_dict = _workflow_outputs_as_dict(outputs)
+    terminal_status = _normalize_status(str(output_dict.get("status", "")))
+    if terminal_status == "failed":
+        try:
+            await _update_registry_status(run_root, workflow_id, "failed")
+        except Exception as exc:
+            _logger.error("Failed to update registry status to failed: %s", exc)
+    elif terminal_status == "awaiting_prospero":
+        try:
+            await _update_registry_status(run_root, workflow_id, "awaiting_prospero")
+        except Exception as exc:
+            _logger.error("Failed to update registry status to awaiting_prospero: %s", exc)
+    elif terminal_status == "awaiting_review":
+        try:
+            await _update_registry_status(run_root, workflow_id, "awaiting_review")
+        except Exception as exc:
+            _logger.error("Failed to update registry status to awaiting_review: %s", exc)
+    elif terminal_status == "gate_blocked":
+        try:
+            await _update_registry_status(run_root, workflow_id, "failed")
+        except Exception as exc:
+            _logger.error("Failed to update registry status to failed after gate_blocked: %s", exc)
+    else:
+        try:
+            await _update_registry_status(run_root, workflow_id, "completed")
+        except Exception as exc:
+            _logger.error("Failed to update registry status to completed: %s", exc)
+
+
 async def _run_wrapper(record: _RunRecord, review_path: str, req: RunRequest) -> None:
     from src.orchestration.context import WebRunContext
-    from src.web.orchestration_facade import start_workflow_run
+    from src.orchestration.workflow import run_workflow
 
     record.run_root = req.run_root
     heartbeat_task: asyncio.Task[Any] | None = None
@@ -378,14 +403,16 @@ async def _run_wrapper(record: _RunRecord, review_path: str, req: RunRequest) ->
     env_overrides = req.resolved_env_overrides()
     async with async_env_override_context(env_overrides):
         try:
-            outputs = await start_workflow_run(
+            outputs = await run_workflow(
                 review_path=review_path,
                 settings_path="config/settings.yaml",
                 run_root=req.run_root,
                 run_context=ctx,
+                fresh=True,
                 parent_db_path=req.parent_db_path,
+                workflow_id=req.workflow_id,
             )
-            record.outputs = outputs if isinstance(outputs, dict) else {}
+            record.outputs = _workflow_outputs_as_dict(outputs)
             record.done = True
 
             wf_id = str(record.outputs.get("workflow_id", ""))
@@ -400,18 +427,9 @@ async def _run_wrapper(record: _RunRecord, review_path: str, req: RunRequest) ->
                         _logger.error("Failed to copy YAML config snapshot to run directory: %s", exc)
 
             if record.workflow_id and record.run_root:
-                terminal_status = _normalize_status(str(record.outputs.get("status", "")))
-                if terminal_status == "failed":
+                if _normalize_status(str(record.outputs.get("status", ""))) in ("failed", "gate_blocked"):
                     record.error = str(record.outputs.get("error", "Workflow failed"))
-                    try:
-                        await _update_registry_status(record.run_root, record.workflow_id, "failed")
-                    except Exception as exc:
-                        _logger.error("Failed to update registry status to failed: %s", exc)
-                else:
-                    try:
-                        await _update_registry_status(record.run_root, record.workflow_id, "completed")
-                    except Exception as exc:
-                        _logger.error("Failed to update registry status to completed: %s", exc)
+                await _apply_terminal_registry_status(record.run_root, record.workflow_id, record.outputs)
 
             _done_evt: dict[str, Any] = {"type": "done", "outputs": record.outputs}
             _append_event(record, _done_evt)
@@ -468,7 +486,7 @@ async def _resume_wrapper(
     """Async task that resumes an interrupted workflow from its last checkpoint."""
     from src.db.workflow_registry import run_root_from_db_path
     from src.orchestration.context import WebRunContext
-    from src.web.orchestration_facade import resume_workflow_run
+    from src.orchestration.workflow import run_workflow_resume
 
     run_root = run_root_from_db_path(db_path)
     record.run_root = run_root
@@ -511,7 +529,7 @@ async def _resume_wrapper(
         debug=debug,
     )
     try:
-        outputs = await resume_workflow_run(
+        outputs = await run_workflow_resume(
             workflow_id=workflow_id,
             review_path=review_path,
             settings_path="config/settings.yaml",
@@ -519,24 +537,16 @@ async def _resume_wrapper(
             run_context=ctx,
             from_phase=from_phase,
         )
-        record.outputs = outputs if isinstance(outputs, dict) else {}
+        record.outputs = _workflow_outputs_as_dict(outputs)
         record.workflow_id = workflow_id
         record.db_path = db_path
         record.done = True
-        if record.outputs.get("status") == "failed":
+        if record.outputs.get("status") in ("failed", "gate_blocked"):
             err_msg = record.outputs.get("error", "Workflow failed")
             record.error = err_msg
             _gate_err_evt: dict[str, Any] = {"type": "error", "msg": err_msg}
             _append_event(record, _gate_err_evt)
-            try:
-                await _update_registry_status(run_root, workflow_id, "failed")
-            except Exception as exc:
-                _logger.error("Failed to update registry status to failed: %s", exc)
-        else:
-            try:
-                await _update_registry_status(run_root, workflow_id, "completed")
-            except Exception as exc:
-                _logger.error("Failed to update registry status to completed: %s", exc)
+        await _apply_terminal_registry_status(run_root, workflow_id, record.outputs)
         _done_resume_evt: dict[str, Any] = {"type": "done", "outputs": record.outputs}
         _append_event(record, _done_resume_evt)
     except asyncio.CancelledError:

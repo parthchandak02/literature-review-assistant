@@ -5,10 +5,12 @@ from __future__ import annotations
 import pytest
 
 from src.db.workflow_registry import (
+    _RESUMABLE_REGISTRY_STATUSES,
     find_by_topic,
     find_by_workflow_id,
     find_by_workflow_id_fallback,
     register,
+    try_claim_for_resume,
     update_status,
 )
 
@@ -155,3 +157,49 @@ async def test_update_status_returns_true_for_existing_registry_row(tmp_path) ->
 async def test_update_status_returns_false_when_registry_missing(tmp_path) -> None:
     updated = await update_status(str(tmp_path), "wf-missing", "failed")
     assert updated is False
+
+
+@pytest.mark.asyncio
+async def test_try_claim_for_resume_claims_each_resumable_status(tmp_path) -> None:
+    """All _RESUMABLE_REGISTRY_STATUSES must bind to the IN clause (including awaiting_prospero)."""
+    run_root = str(tmp_path)
+    db_path = tmp_path / "run" / "runtime.db"
+    db_path.parent.mkdir(parents=True, exist_ok=True)
+    db_path.write_text("")
+
+    for status in _RESUMABLE_REGISTRY_STATUSES:
+        workflow_id = f"wf-{status}"
+        await register(
+            run_root=run_root,
+            workflow_id=workflow_id,
+            topic="Topic",
+            config_hash="hash",
+            db_path=str(db_path),
+            status=status,
+        )
+        claimed, blocking = await try_claim_for_resume(run_root, workflow_id)
+        assert claimed is True
+        assert blocking is None
+        entry = await find_by_workflow_id(run_root, workflow_id)
+        assert entry is not None
+        assert entry.status == "running"
+        await update_status(run_root, workflow_id, status)
+
+
+@pytest.mark.asyncio
+async def test_try_claim_for_resume_blocks_when_running(tmp_path) -> None:
+    run_root = str(tmp_path)
+    db_path = tmp_path / "run" / "runtime.db"
+    db_path.parent.mkdir(parents=True, exist_ok=True)
+    db_path.write_text("")
+    await register(
+        run_root=run_root,
+        workflow_id="wf-live",
+        topic="Topic",
+        config_hash="hash",
+        db_path=str(db_path),
+        status="running",
+    )
+    claimed, blocking = await try_claim_for_resume(run_root, "wf-live")
+    assert claimed is False
+    assert blocking == "running"

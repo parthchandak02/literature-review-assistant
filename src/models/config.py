@@ -87,6 +87,7 @@ class ProtocolRegistration(BaseModel):
     registered: bool = False
     registry: str = "PROSPERO"
     registration_number: str = ""
+    registration_date: str = ""
     url: str = ""
 
 
