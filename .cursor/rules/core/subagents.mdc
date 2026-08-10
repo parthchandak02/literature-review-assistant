@@ -1,37 +1,52 @@
 ---
-description: Require TodoWrite and parallel subagents for multi-step implementation work
+description: Launch subagents and todos for multi-step work
 alwaysApply: true
 ---
 
-# Subagent + Todo Execution Discipline
+# Subagents
 
-For any task with **3+ distinct steps**, an explicit sprint, or cross-cutting changes (backend + frontend + scripts):
+**Default:** The parent agent is an orchestrator. Launch subagents via the `Task` tool unless a listed exception applies.
 
-## Todos (required)
+At task start (before edits), decide:
+1. Can work split into 2+ disjoint file scopes? → launch parallel subagents in one message.
+2. Is it 3+ steps, a sprint, or cross-cutting (backend + frontend + scripts)? → `TodoWrite` + subagents.
+3. Only one narrow scope? → parent may execute directly.
+
+## Todos (required for multi-step work)
 
 1. Create todos at task start with `TodoWrite` (`merge: false` for new work).
 2. Mark exactly one item `in_progress` while active; mark `completed` when done.
 3. Do not end the session with open `in_progress` items unless blocked; cancel only when user pivots.
-4. Sprint-sized work gets one todo per parallel work package (not one mega-todo).
+4. One todo per parallel work package (not one mega-todo).
 
-## Subagents (required when available)
+## Subagents (required by default)
+
+When the `Task` tool is available, the parent **must** launch subagents for any task that matches the triggers above.
 
 1. **Partition by disjoint file scopes** — no two subagents edit the same file in one parallel batch.
 2. Launch **all non-overlapping agents in one message** (multiple `Task` calls).
 3. Route by job:
    - `backend-reliability` — lifecycle, event store, resume, orchestration
    - `shell` — Makefile, scripts, hooks, PM2 config
-   - `generalPurpose` — mixed implementation
    - `explore` — read-only discovery before risky edits
+   - `generalPurpose` — mixed implementation
+   - Project agents in `.cursor/agents/` when the task matches their description
 4. Parent orchestrator: merge results, run `make local-ci` or `make release-check`, `pm2 restart litreview-api` after `src/` changes.
 5. Each subagent prompt must include: file scope, invariants (AGENTS.md), exit commands (`pytest`, `pnpm typecheck`), and "do not edit plan file" when applicable.
+
+### Anti-patterns (do not do these)
+
+- Serially reading or editing multiple disjoint areas without first checking for parallel subagent launch.
+- Doing backend + frontend (or 3+ file areas) in one parent pass when scopes are independent.
+- Skipping subagents because the task "feels small" but spans multiple modules or layers.
 
 ## Exceptions (parent may execute directly)
 
 - Single-file fix under ~20 lines
 - Merge conflict resolution
-- Running verification commands
+- Running verification commands only
 - User explicitly says "no subagents"
+- Skill or agent contract requires single-pass execution (e.g. `manuscript-auditor`)
 
 ## Verification before claiming done
 

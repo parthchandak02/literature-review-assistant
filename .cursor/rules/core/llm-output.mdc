@@ -1,5 +1,5 @@
 ---
-description: Enforce deterministic structured LLM outputs across pipeline
+description: Structured, validated LLM outputs
 alwaysApply: true
 ---
 

@@ -1,5 +1,5 @@
 ---
-description: Use db-audit skill for database-first run audits using runtime.db SQL queries, CSV exports, and YAML alignment checks when run behavior is questioned.
+description: Database-first run audits
 globs:
   - src/screening/**
   - src/web/**

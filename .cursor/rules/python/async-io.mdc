@@ -1,5 +1,5 @@
 ---
-description:
+description: Async I/O patterns for pipeline modules
 globs: src/search/**/*.py, src/screening/**/*.py, src/extraction/**/*.py, src/orchestration/**/*.py, src/writing/**/*.py, src/synthesis/**/*.py, src/rag/**/*.py
 alwaysApply: false
 ---

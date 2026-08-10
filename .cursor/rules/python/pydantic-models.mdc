@@ -1,5 +1,5 @@
 ---
-description:
+description: Pydantic model conventions
 globs: src/models/**/*.py
 alwaysApply: false
 ---

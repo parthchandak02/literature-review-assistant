@@ -1,5 +1,5 @@
 ---
-description:
+description: SQLite patterns for db and orchestration
 globs: src/db/**/*.py, src/orchestration/**/*.py
 alwaysApply: false
 ---

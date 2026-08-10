@@ -1,0 +1,8 @@
+---
+description: Use typed Pydantic models at phase boundaries
+alwaysApply: false
+---
+
+# Typed Models
+
+Core invariant is also in `overview.mdc`: phase boundaries must use typed `src/models/` contracts, not untyped dicts.

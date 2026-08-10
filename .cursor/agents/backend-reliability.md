@@ -14,7 +14,7 @@ Make the backend stay responsive during active reviews by:
 ## Always read first
 - `.cursor/plans/backend-permanent-reliability-8f801171.plan.md` (or latest reliability plan)
 - `.cursor/docs/ARCHITECTURE.md`
-- `.cursor/rules/core/project-overview-always.mdc`
+- `.cursor/rules/core/overview.mdc`
 
 ## Engineering invariants
 - Fix process code in `src/`, never patch `runs/` artifacts

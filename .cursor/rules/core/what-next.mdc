@@ -1,6 +1,5 @@
 ---
-description:
-globs:
+description: Optional "What next?" section at end of responses
 alwaysApply: false
 ---
 

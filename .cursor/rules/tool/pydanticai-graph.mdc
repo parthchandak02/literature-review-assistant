@@ -1,6 +1,5 @@
 ---
-description: PydanticAI Graph API patterns (v2). Apply when implementing workflow nodes or migrating from LangGraph. Uses the stable BaseNode API, not the beta GraphBuilder API.
-globs:
+description: PydanticAI Graph workflow node patterns
 alwaysApply: false
 ---
 

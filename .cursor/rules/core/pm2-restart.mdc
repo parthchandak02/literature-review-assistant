@@ -1,5 +1,5 @@
 ---
-description: Remind agent to periodically restart PM2 services after frequent changes.
+description: Restart PM2 after backend or frontend changes
 alwaysApply: true
 ---
 
