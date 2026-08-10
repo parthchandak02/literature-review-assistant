@@ -21,8 +21,8 @@ If the user shifts to implementation ("go", "implement", "stop grilling"), confi
 Before challenging design details:
 
 1. Read `AGENTS.md`
-2. Read `.cursor/docs/INDEX.md`
-3. Read only the routed canonical docs needed for the topic (`ARCHITECTURE.md`, `PIPELINE.md`, `IMPLEMENTATION_STATUS.md`, `API_CONTRACT.md`, `PERSISTENCE.md`, `UI_ARCHITECTURE.md`, `LLM_AND_COSTS.md`)
+2. Read `docs/CONTEXT.md`
+3. Read only the routed canonical docs needed for the topic (`docs/ARCHITECTURE.md`, `docs/ARCHITECTURE.md#pipeline`, `docs/TASKS.md`, `docs/API.md`, `docs/ARCHITECTURE.md#persistence`, `docs/UI.md`, `docs/ARCHITECTURE.md#llm-and-costs`)
 4. Cross-check with code in `src/` and `frontend/src/`
 
 If docs and code conflict, trust code and active rules, then call out drift explicitly.
@@ -37,7 +37,7 @@ Offer ADRs sparingly using [references/ADR-FORMAT.md](./references/ADR-FORMAT.md
 - Catch overloaded terms immediately.
 - Propose a canonical term when language is fuzzy.
 - Ask the user to choose one term and stick to it.
-- Prefer terms already used in `.cursor/docs/`, `src/models/`, and phase/checkpoint vocabulary over inventing new ones.
+- Prefer terms already used in `docs/`, `src/models/`, and phase/checkpoint vocabulary over inventing new ones.
 
 ### Probe boundaries with scenarios
 
@@ -60,7 +60,7 @@ Offer ADRs sparingly using [references/ADR-FORMAT.md](./references/ADR-FORMAT.md
 - Keep typed boundaries intact (`src/models/` contracts).
 - Do not create markdown docs unless explicitly requested by the user.
 - Keep grilling outputs concise and actionable.
-- Do not invent a `CONTEXT.md` convention; this repo routes through `.cursor/docs/`.
+- Use `docs/CONTEXT.md` for lifecycle routing; do not invent alternate context doc paths.
 
 ## Doc creation
 

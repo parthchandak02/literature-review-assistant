@@ -38,7 +38,7 @@ disable-model-invocation: true
 ## Notes
 
 - [Caveats, resume/replay implications]
-- See also: [other skill or `.cursor/docs/` path]
+- See also: [other skill or `docs/` path]
 
 ## References
 

@@ -56,7 +56,7 @@ Check:
 - description includes clear trigger language
 - terminology is consistent with repo docs and rules
 - references point to valid paths
-- no contradiction with `AGENTS.md` and `.cursor/docs/INDEX.md`
+- no contradiction with `AGENTS.md` and `docs/CONTEXT.md`
 
 Use lints/diagnostics if available for changed files.
 

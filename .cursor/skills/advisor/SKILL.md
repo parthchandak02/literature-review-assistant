@@ -29,9 +29,9 @@ blocker.
 Before Tier 1 or Tier 2, ground the briefing in this repo's contracts:
 
 1. `AGENTS.md`
-2. `.cursor/docs/INDEX.md`
-3. `.cursor/docs/ARCHITECTURE.md`
-4. `.cursor/docs/IMPLEMENTATION_STATUS.md` when status, gates, or phase readiness matter
+2. `docs/CONTEXT.md`
+3. `docs/ARCHITECTURE.md`
+4. `docs/TASKS.md` when status, gates, or phase readiness matter
 
 If docs and code conflict, trust code and always-on rules, then call out drift.
 

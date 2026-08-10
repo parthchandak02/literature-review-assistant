@@ -14,9 +14,9 @@ solution.
 
 1. Read this repo's architecture and contributor contracts:
    - `AGENTS.md`
-   - `.cursor/docs/INDEX.md`
-   - `.cursor/docs/ARCHITECTURE.md`
-   - `.cursor/docs/IMPLEMENTATION_STATUS.md`
+   - `docs/CONTEXT.md`
+   - `docs/ARCHITECTURE.md`
+   - `docs/TASKS.md`
 2. Identify the primary stack and its natural seams (PydanticAI Graph workflow
    nodes, FastAPI control plane, SQLite repositories, typed `src/models/`
    boundaries, React UI state, export/manuscript contracts).
@@ -26,7 +26,7 @@ If breadth would help, use optional parallel readonly explores. They are a
 means to gather evidence, not a required workflow.
 
 Do not treat a root-level `CONTEXT.md` as required. Canonical project context
-lives under `.cursor/docs/` (routed by `INDEX.md`).
+lives under `docs/` (routed by `docs/CONTEXT.md`).
 
 ## Shared vocabulary
 
@@ -66,7 +66,7 @@ candidates. For each, include:
 2. The observed friction.
 3. A plain-language direction for improvement.
 4. Expected Leverage, Locality, and testability gains.
-5. Relevant dependency category or conflict with `.cursor/docs/` contracts.
+5. Relevant dependency category or conflict with `docs/` contracts.
 
 Ask which candidate to explore. Do not treat candidate discovery as approval for
 a large refactor.
@@ -83,10 +83,10 @@ code. Resolve one decision at a time:
 - Which invariants, errors, ordering rules, and performance expectations do
   callers need to know?
 - What tests survive an internal refactor?
-- Does an existing decision in `.cursor/docs/ARCHITECTURE.md` or
-  `IMPLEMENTATION_STATUS.md` constrain the choice?
+- Does an existing decision in `docs/ARCHITECTURE.md` or
+  `docs/TASKS.md` constrain the choice?
 
-Update project docs under `.cursor/docs/` only when the user asks or a durable
+Update project docs under `docs/` only when the user asks or a durable
 high-level decision has been made (see `AGENTS.md` source-of-truth priority).
 
 ### 4. Compare interfaces when needed

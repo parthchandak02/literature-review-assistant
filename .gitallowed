@@ -24,3 +24,9 @@ Copy example
 \.gitignore:[0-9]+:\.[e]nv\.local
 \.gitignore:[0-9]+:\.v[e]nv/
 \.gitignore:[0-9]+:v[e]nv/
+Gemini API key is required
+GET /api/config/env-keys
+credentials from the backend environment
+PORT=8001
+[e]nv\.example
+Edit `\.[e]nv`:

@@ -11,7 +11,7 @@ Procedural guide for implementing each build phase of the systematic review tool
 
 When the user asks to implement a build phase, follow these steps:
 
-1. **Identify the phase** from `.cursor/docs/PIPELINE.md` and current `src/` modules
+1. **Identify the phase** from `docs/ARCHITECTURE.md#pipeline` and current `src/` modules
 2. **Check prerequisites** -- verify all dependency phases are complete
 3. **Read the contract docs** for that phase's implementation and acceptance details
 4. **Create files** in the current project directory structure
@@ -27,9 +27,9 @@ When the user asks to implement a build phase, follow these steps:
 
 ## Required Inputs
 
-- `.cursor/docs/PIPELINE.md`
-- `.cursor/docs/IMPLEMENTATION_STATUS.md`
-- `.cursor/docs/ARCHITECTURE.md`
+- `docs/ARCHITECTURE.md#pipeline`
+- `docs/TASKS.md`
+- `docs/ARCHITECTURE.md`
 - Relevant domain skill docs in `.cursor/skills/**/SKILL.md`
 
 ## Expected Outputs
@@ -88,5 +88,5 @@ may include additional UI/sub-flow entries and should not be forced to mirror ba
   - contract ceiling: `ieee_export.max_abstract_words` (default 250)
 
 ## References
-@file:.cursor/docs/PIPELINE.md
-@file:.cursor/docs/IMPLEMENTATION_STATUS.md
+@file:docs/ARCHITECTURE.md#pipeline
+@file:docs/TASKS.md
