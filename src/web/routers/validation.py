@@ -11,8 +11,8 @@ from fastapi import APIRouter, HTTPException, Query
 from src.db.domain_repositories import AuditRepository, ValidationRepository
 from src.models import ManuscriptAuditFinding
 from src.models.workflow import ValidationCheckRecord
+from src.web.run_resolver import resolve_runtime_db
 from src.web.shared import _format_manuscript_audit_summary, _is_missing_table_error
-from src.web.state import _resolve_db_path_from_run_or_workflow
 
 router = APIRouter(tags=["validation"])
 
@@ -53,7 +53,7 @@ async def get_workflow_validation_summary(
     include: str | None = Query(default=None),
 ) -> dict[str, Any]:
     """Return latest validation-run summary for a workflow."""
-    db_path = await _resolve_db_path_from_run_or_workflow(workflow_id)
+    db_path = await resolve_runtime_db(workflow_id)
     try:
         from src.db.repositories import WorkflowRepository as _WorkflowRepository
 
@@ -102,7 +102,7 @@ async def get_workflow_validation_summary(
 @router.get("/api/workflow/{workflow_id}/validation/checks")
 async def get_workflow_validation_checks(workflow_id: str, validation_run_id: str | None = None) -> dict[str, Any]:
     """Return ordered checks for a validation run (latest when omitted)."""
-    db_path = await _resolve_db_path_from_run_or_workflow(workflow_id)
+    db_path = await resolve_runtime_db(workflow_id)
     try:
         from src.db.repositories import WorkflowRepository as _WorkflowRepository
 
@@ -130,7 +130,7 @@ async def get_workflow_validation_checks(workflow_id: str, validation_run_id: st
 @router.get("/api/workflow/{workflow_id}/manuscript-audit/summary")
 async def get_workflow_manuscript_audit_summary(workflow_id: str, limit: int = 20) -> dict[str, Any]:
     """Return latest and historical manuscript-audit summaries for a workflow."""
-    db_path = await _resolve_db_path_from_run_or_workflow(workflow_id)
+    db_path = await resolve_runtime_db(workflow_id)
     try:
         from src.db.repositories import WorkflowRepository as _WorkflowRepository
 
@@ -158,7 +158,7 @@ async def get_workflow_manuscript_audit_findings(
     audit_run_id: str | None = None,
 ) -> dict[str, Any]:
     """Return findings for a manuscript audit run (latest when omitted)."""
-    db_path = await _resolve_db_path_from_run_or_workflow(workflow_id)
+    db_path = await resolve_runtime_db(workflow_id)
     try:
         from src.db.repositories import WorkflowRepository as _WorkflowRepository
 
@@ -187,7 +187,7 @@ async def get_workflow_manuscript_audit_findings(
 @router.get("/api/run/{run_id}/manuscript-audit")
 async def get_run_manuscript_audit(run_id: str, history_limit: int = 20) -> dict[str, Any]:
     """Return manuscript audit payload for a run/workflow identifier."""
-    db_path = await _resolve_db_path_from_run_or_workflow(run_id)
+    db_path = await resolve_runtime_db(run_id)
     workflow_id = run_id
     import pathlib
 

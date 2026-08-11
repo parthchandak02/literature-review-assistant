@@ -22,18 +22,15 @@ from src.manuscript.readiness import compute_readiness_scorecard
 from src.search.pdf_parse import is_pdf_bytes, path_is_valid_pdf
 from src.web.control_plane_service import ControlPlaneService
 from src.web.diagnostics_utils import summarize_phase_performance
+from src.web.run_resolver import resolve_runtime_db
 from src.web.shared import (
     _format_manuscript_audit_summary,
     _get_topic_for_db,
     _make_download_slug,
     _query_included_papers_rows,
-    _resolve_db_path,
     _resolve_workflow_id_from_db,
 )
-from src.web.state import (
-    _lifecycle_coordinator,
-    _resolve_db_path_from_run_or_workflow,
-)
+from src.web.state import _lifecycle_coordinator
 
 _logger = logging.getLogger(__name__)
 
@@ -366,7 +363,7 @@ def _extract_topic(review_yaml: str) -> str:
 
 @router.get("/api/run/{run_id}/artifacts")
 async def get_run_artifacts(run_id: str) -> dict[str, Any]:
-    db_path = await _resolve_db_path_from_run_or_workflow(run_id)
+    db_path = await resolve_runtime_db(run_id)
     summary = pathlib.Path(db_path).parent / "run_summary.json"
     if not summary.exists():
         raise HTTPException(status_code=404, detail="run_summary.json not found")
@@ -382,7 +379,7 @@ async def get_results_legacy(run_id: str) -> dict[str, Any]:
 async def get_run_manuscript(run_id: str, fmt: str = "md") -> dict[str, Any]:
     if fmt not in {"md", "tex"}:
         raise HTTPException(status_code=422, detail="fmt must be 'md' or 'tex'")
-    db_path = await _resolve_db_path_from_run_or_workflow(run_id)
+    db_path = await resolve_runtime_db(run_id)
     workflow_id = await _resolve_workflow_id_from_db(db_path)
     if workflow_id:
         try:
@@ -418,7 +415,7 @@ async def get_run_manuscript(run_id: str, fmt: str = "md") -> dict[str, Any]:
 
 @router.get("/api/run/{run_id}/papers-reference")
 async def get_papers_reference(run_id: str) -> dict[str, Any]:
-    db_path = await _resolve_db_path_from_run_or_workflow(run_id)
+    db_path = await resolve_runtime_db(run_id)
     run_dir = pathlib.Path(db_path).parent
     manifest_path = run_dir / "data_papers_manifest.json"
 
@@ -485,7 +482,7 @@ async def get_papers_reference(run_id: str) -> dict[str, Any]:
 
 @router.get("/api/run/{run_id}/papers/{paper_id}/file")
 async def get_paper_file(run_id: str, paper_id: str) -> StreamingResponse:
-    db_path = await _resolve_db_path_from_run_or_workflow(run_id)
+    db_path = await resolve_runtime_db(run_id)
     run_dir = pathlib.Path(db_path).parent
     manifest_path = run_dir / "data_papers_manifest.json"
 
@@ -534,7 +531,7 @@ async def get_paper_file(run_id: str, paper_id: str) -> StreamingResponse:
 
 @router.get("/api/run/{run_id}/studies-files.zip")
 async def download_study_files_zip(run_id: str) -> StreamingResponse:
-    db_path = await _resolve_db_path_from_run_or_workflow(run_id)
+    db_path = await resolve_runtime_db(run_id)
     run_dir = pathlib.Path(db_path).parent
     manifest_path = run_dir / "data_papers_manifest.json"
     if not manifest_path.exists():
@@ -610,7 +607,7 @@ async def fetch_pdfs_for_run(run_id: str) -> StreamingResponse:
     from src.models.papers import CandidatePaper
     from src.search.pdf_retrieval import PDFRetriever
 
-    db_path = await _resolve_db_path_from_run_or_workflow(run_id)
+    db_path = await resolve_runtime_db(run_id)
     run_dir = pathlib.Path(db_path).parent
     papers_dir = run_dir / "papers"
     manifest_path = run_dir / "data_papers_manifest.json"
@@ -831,16 +828,14 @@ async def get_run_events(run_id: str) -> dict[str, Any]:
 async def get_workflow_events(workflow_id: str, run_root: str = "runs") -> dict[str, Any]:
     from src.web.state import _load_event_log_from_db
 
-    db_path = await _resolve_db_path(run_root, workflow_id)
-    if not db_path:
-        raise HTTPException(status_code=404, detail="Workflow not found in registry")
+    db_path = await resolve_runtime_db(workflow_id, run_root)
     events = await _load_event_log_from_db(db_path, workflow_id)
     return {"events": events}
 
 
 @router.post("/api/run/{run_id}/export")
 async def trigger_export(run_id: str, run_root: str = "runs", force: bool = False) -> dict[str, Any]:
-    db_path = await _resolve_db_path_from_run_or_workflow(run_id, run_root)
+    db_path = await resolve_runtime_db(run_id, run_root)
     summary_path = pathlib.Path(db_path).parent / "run_summary.json"
     if not summary_path.exists():
         raise HTTPException(status_code=404, detail="run_summary.json not found")
@@ -875,7 +870,7 @@ async def trigger_export(run_id: str, run_root: str = "runs", force: bool = Fals
 
 @router.get("/api/run/{run_id}/readiness")
 async def get_run_readiness(run_id: str, run_root: str = "runs") -> dict[str, Any]:
-    db_path = await _resolve_db_path_from_run_or_workflow(run_id, run_root)
+    db_path = await resolve_runtime_db(run_id, run_root)
     summary_path = pathlib.Path(db_path).parent / "run_summary.json"
     if not summary_path.exists():
         raise HTTPException(status_code=404, detail="run_summary.json not found")
@@ -938,7 +933,7 @@ async def get_run_diagnostics(run_id: str, run_root: str = "runs") -> dict[str, 
     from src.db.database import get_db as _get_db
     from src.db.repositories import WorkflowRepository as _WorkflowRepository
 
-    db_path = await _resolve_db_path_from_run_or_workflow(run_id, run_root)
+    db_path = await resolve_runtime_db(run_id, run_root)
     summary_path = pathlib.Path(db_path).parent / "run_summary.json"
     workflow_id: str | None = None
     if summary_path.exists():
@@ -978,7 +973,7 @@ async def get_run_diagnostics(run_id: str, run_root: str = "runs") -> dict[str, 
 
 @router.get("/api/run/{run_id}/submission.zip")
 async def download_submission_zip(run_id: str) -> StreamingResponse:
-    db_path = await _resolve_db_path_from_run_or_workflow(run_id)
+    db_path = await resolve_runtime_db(run_id)
     summary_path = pathlib.Path(db_path).parent / "run_summary.json"
     if not summary_path.exists():
         raise HTTPException(status_code=404, detail="run_summary.json not found -- run export first")
@@ -1007,7 +1002,7 @@ async def download_submission_zip(run_id: str) -> StreamingResponse:
 
 @router.get("/api/run/{run_id}/manuscript.docx")
 async def download_manuscript_docx(run_id: str) -> FileResponse:
-    db_path = await _resolve_db_path_from_run_or_workflow(run_id)
+    db_path = await resolve_runtime_db(run_id)
     summary_path = pathlib.Path(db_path).parent / "run_summary.json"
     if not summary_path.exists():
         raise HTTPException(status_code=404, detail="run_summary.json not found -- run export first")
@@ -1030,7 +1025,7 @@ async def download_manuscript_docx(run_id: str) -> FileResponse:
 
 @router.get("/api/run/{run_id}/prospero-form.docx")
 async def download_prospero_form(run_id: str) -> FileResponse:
-    db_path = await _resolve_db_path_from_run_or_workflow(run_id)
+    db_path = await resolve_runtime_db(run_id)
     summary_path = pathlib.Path(db_path).parent / "run_summary.json"
     if not summary_path.exists():
         raise HTTPException(status_code=404, detail="run_summary.json not found")
@@ -1055,7 +1050,7 @@ async def download_prospero_form(run_id: str) -> FileResponse:
 
 @router.get("/api/run/{run_id}/prospero-form.md")
 async def download_prospero_form_markdown(run_id: str) -> FileResponse:
-    db_path = await _resolve_db_path_from_run_or_workflow(run_id)
+    db_path = await resolve_runtime_db(run_id)
     summary_path = pathlib.Path(db_path).parent / "run_summary.json"
     if not summary_path.exists():
         raise HTTPException(status_code=404, detail="run_summary.json not found")

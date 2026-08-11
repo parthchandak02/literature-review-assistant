@@ -27,11 +27,10 @@ from src.web.event_replay import load_replay_events
 from src.web.event_store import EventStore
 from src.web.lifecycle_coordinator import bind_active_runs
 from src.web.lifecycle_reconciler import TERMINAL_EVENT_TO_STATUS, LifecycleReconciler
-from src.web.run_resolver import RunResolver
+from src.web.run_resolver import RunResolver, resolve_runtime_db
 from src.web.shared import (
     RunRequest,
     _normalize_status,
-    _resolve_db_path,
 )
 
 _logger = logging.getLogger(__name__)
@@ -206,13 +205,6 @@ def _get_db_path(run_id: str) -> str:
             headers={"Retry-After": "2"},
         )
     return record.db_path
-
-
-async def _resolve_db_path_from_run_or_workflow(identifier: str, run_root: str = "runs") -> str:
-    """Resolve a db_path from either an active run_id or a workflow_id."""
-    from src.web.run_resolver import resolve_runtime_db
-
-    return await resolve_runtime_db(identifier, run_root)
 
 
 # ---------------------------------------------------------------------------
@@ -461,7 +453,10 @@ async def _run_wrapper(record: _RunRecord, review_path: str, req: RunRequest) ->
             wf_id = str(record.outputs.get("workflow_id", ""))
             if wf_id:
                 record.workflow_id = wf_id
-                record.db_path = await _resolve_db_path(req.run_root, wf_id)
+                try:
+                    record.db_path = await resolve_runtime_db(wf_id, req.run_root)
+                except HTTPException:
+                    record.db_path = None
                 if record.db_path and record.review_yaml:
                     try:
                         yaml_dest = pathlib.Path(record.db_path).parent / "review.yaml"

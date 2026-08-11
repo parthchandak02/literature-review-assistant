@@ -1,13 +1,23 @@
-"""Resume smoke: real run_workflow_resume with mocked LLM only."""
+"""Resume smoke: real run_workflow_resume with the heavy graph tail stubbed.
+
+The full RUN_GRAPH tail (extraction -> embedding -> synthesis -> ... -> finalize)
+exceeds any reasonable test budget even with the LLM stubbed, because embedding,
+RAG, and synthesis do real CPU work. These tests therefore exercise the *resume
+facade* end to end -- registry lookup, ``load_resume_state``, ``ResumeStartNode``
+routing, and the graph runner -- while short-circuiting the first post-resume
+node to ``End``. That proves the resume path advances past its gate (and, for the
+awaiting_review case, re-parks correctly) without ever hanging.
+"""
 
 from __future__ import annotations
 
-import json
 from pathlib import Path
 from typing import Any
+from unittest.mock import MagicMock
 
 import pytest
 import yaml
+from pydantic_graph import End, GraphRunContext
 
 from src.db.database import get_db
 from src.db.repositories import WorkflowRepository
@@ -15,7 +25,9 @@ from src.db.workflow_registry import register as register_workflow
 from src.llm.pydantic_client import PydanticAIClient
 from src.models.enums import SourceCategory
 from src.models.papers import CandidatePaper
-from src.orchestration.workflow import run_workflow_resume
+from src.models.workflow import WorkflowRunResult, WorkflowRunStatus
+from src.orchestration.state import ReviewState
+from src.orchestration.workflow import ExtractionQualityNode, run_workflow_resume
 
 _MINIMAL_REVIEW = {
     "research_question": "What is the effect of the intervention on the primary outcome in the target population?",
@@ -87,12 +99,25 @@ class _StubPydanticAIClient:
         return payload, 1, 1, 0, 0, 0
 
 
-def _write_config_files(tmp_path: Path) -> tuple[Path, Path]:
+def _write_config_files(tmp_path: Path, *, hitl_enabled: bool = False) -> tuple[Path, Path]:
     review_path = tmp_path / "review.yaml"
     settings_path = tmp_path / "settings.yaml"
+    settings = dict(_MINIMAL_SETTINGS)
+    if hitl_enabled:
+        settings = {**settings, "human_in_the_loop": {"enabled": True}}
     review_path.write_text(yaml.safe_dump(_MINIMAL_REVIEW, sort_keys=False), encoding="utf-8")
-    settings_path.write_text(yaml.safe_dump(_MINIMAL_SETTINGS, sort_keys=False), encoding="utf-8")
+    settings_path.write_text(yaml.safe_dump(settings, sort_keys=False), encoding="utf-8")
     return review_path, settings_path
+
+
+# Checkpoints for a run parked immediately after screening: everything up to and
+# including phase_3_screening is complete, so the next incomplete phase is
+# phase_4_extraction_quality.
+_POST_SCREENING_CHECKPOINTS: tuple[str, ...] = (
+    "phase_1_prospero_gate",
+    "phase_2_search",
+    "phase_3_screening",
+)
 
 
 async def _seed_interrupted_runtime(
@@ -100,6 +125,8 @@ async def _seed_interrupted_runtime(
     *,
     workflow_id: str = "wf-resume-smoke",
     with_paper: bool = False,
+    checkpoints: tuple[str, ...] = ("phase_2_search",),
+    status: str = "interrupted",
 ) -> Path:
     run_dir = run_root / "2026-07-16" / "wf-resume-smoke-topic" / "run_01-00-00PM"
     run_dir.mkdir(parents=True, exist_ok=True)
@@ -123,8 +150,9 @@ async def _seed_interrupted_runtime(
                     abstract="Minimal abstract for resume smoke coverage.",
                 )
             )
-        await repo.save_checkpoint(workflow_id, "phase_2_search", papers_processed=1 if with_paper else 0)
-        await repo.update_workflow_status(workflow_id, "interrupted")
+        for phase in checkpoints:
+            await repo.save_checkpoint(workflow_id, phase, papers_processed=1 if with_paper else 0)
+        await repo.update_workflow_status(workflow_id, status)
 
     await register_workflow(
         str(run_root),
@@ -132,7 +160,7 @@ async def _seed_interrupted_runtime(
         topic=_MINIMAL_REVIEW["research_question"],
         config_hash="resume-smoke-hash",
         db_path=str(db_path),
-        status="interrupted",
+        status=status,
     )
     return db_path
 
@@ -181,24 +209,50 @@ def mock_llm_clients(monkeypatch: pytest.MonkeyPatch) -> _StubPydanticAIClient:
     return stub
 
 
-@pytest.mark.skip(
-    reason=(
-        "Full RUN_GRAPH resume exceeds 120s with mocked LLM (pre-existing hang). "
-        "Resume behavior is covered by test_resume_rewind and test_lifecycle_restart."
-    )
-)
 @pytest.mark.asyncio
-@pytest.mark.timeout(120)
-async def test_resume_workflow_run_zero_papers_advances_checkpoints(
+@pytest.mark.timeout(60)
+async def test_resume_from_post_screening_advances_past_gate(
     tmp_path: Path,
     mock_llm_clients: _StubPydanticAIClient,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Real resume path from phase_3 with zero papers; LLM patched, not resume itself."""
+    """Real resume facade routes past screening into extraction and does not re-park.
+
+    Seeds a run parked right after screening (phase_3_screening complete,
+    registry ``running``) and stubs ``ExtractionQualityNode`` -- the first
+    post-resume phase -- to terminate immediately. Proves ``run_workflow_resume``
+    loads state, ``ResumeStartNode`` routes forward to phase_4, and the run
+    completes quickly instead of hanging in the full graph tail.
+    """
     _ = mock_llm_clients
     run_root = tmp_path / "runs"
     review_path, settings_path = _write_config_files(tmp_path)
-    db_path = await _seed_interrupted_runtime(run_root, with_paper=False)
+    await _seed_interrupted_runtime(
+        run_root,
+        with_paper=True,
+        checkpoints=_POST_SCREENING_CHECKPOINTS,
+        status="running",
+    )
     workflow_id = "wf-resume-smoke"
+
+    reached: dict[str, str] = {}
+
+    async def _stub_extraction_run(
+        self: ExtractionQualityNode,
+        ctx: GraphRunContext[ReviewState],
+    ) -> End[WorkflowRunResult]:
+        reached["phase"] = "phase_4_extraction_quality"
+        state = ctx.state
+        return End(
+            WorkflowRunResult(
+                status=WorkflowRunStatus.COMPLETED,
+                workflow_id=state.workflow_id,
+                db_path=state.db_path,
+                details={"stub_extraction_reached": True},
+            )
+        )
+
+    monkeypatch.setattr(ExtractionQualityNode, "run", _stub_extraction_run)
 
     result = await run_workflow_resume(
         workflow_id=workflow_id,
@@ -209,19 +263,71 @@ async def test_resume_workflow_run_zero_papers_advances_checkpoints(
         from_phase=None,
     )
 
-    assert isinstance(result, dict)
-    assert result.get("workflow_id") == workflow_id or "workflow_id" in result
+    # Routed forward into extraction (past screening / human-review gate).
+    assert reached.get("phase") == "phase_4_extraction_quality"
+    assert isinstance(result, WorkflowRunResult)
+    assert result.status is WorkflowRunStatus.COMPLETED
+    assert result.status is not WorkflowRunStatus.AWAITING_REVIEW
+    assert result.workflow_id == workflow_id
+    assert result.details.get("stub_extraction_reached") is True
 
+
+@pytest.mark.asyncio
+@pytest.mark.timeout(60)
+async def test_resume_awaiting_review_reparks_without_approval(
+    tmp_path: Path,
+    mock_llm_clients: _StubPydanticAIClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Resume of an unapproved awaiting_review run re-parks at the gate, bounded.
+
+    Registry status stays ``awaiting_review`` (no approval), HITL is enabled and
+    the run_context is web mode, so ``ResumeStartNode`` routes to
+    ``HumanReviewCheckpointNode`` which parks again immediately (no CLI polling
+    loop). Guards against a resume that would blow past an un-approved gate or
+    hang waiting on it. ``ExtractionQualityNode`` is stubbed so any accidental
+    advance would fail loudly rather than run the real pipeline.
+    """
+    _ = mock_llm_clients
+    run_root = tmp_path / "runs"
+    review_path, settings_path = _write_config_files(tmp_path, hitl_enabled=True)
+    db_path = await _seed_interrupted_runtime(
+        run_root,
+        with_paper=True,
+        checkpoints=_POST_SCREENING_CHECKPOINTS,
+        status="awaiting_review",
+    )
+    workflow_id = "wf-resume-smoke"
+
+    async def _fail_extraction_run(
+        self: ExtractionQualityNode,
+        ctx: GraphRunContext[ReviewState],
+    ) -> End[WorkflowRunResult]:
+        raise AssertionError("resume advanced past an un-approved awaiting_review gate")
+
+    monkeypatch.setattr(ExtractionQualityNode, "run", _fail_extraction_run)
+
+    run_context = MagicMock()
+    run_context.web_mode = True
+
+    result = await run_workflow_resume(
+        workflow_id=workflow_id,
+        review_path=str(review_path),
+        settings_path=str(settings_path),
+        run_root=str(run_root),
+        run_context=run_context,
+        from_phase=None,
+    )
+
+    assert isinstance(result, WorkflowRunResult)
+    assert result.status is WorkflowRunStatus.AWAITING_REVIEW
+    assert result.workflow_id == workflow_id
+
+    # Gate persisted awaiting_review in the registry (did not silently advance).
     async with get_db(str(db_path)) as db:
         repo = WorkflowRepository(db)
         checkpoints = await repo.get_checkpoints(workflow_id)
-
-    assert checkpoints.get("phase_3_screening") == "completed"
-    assert checkpoints.get("phase_2_search") == "completed"
-    run_summary = db_path.parent / "run_summary.json"
-    assert run_summary.is_file()
-    summary = json.loads(run_summary.read_text(encoding="utf-8"))
-    assert summary.get("workflow_id") == workflow_id
+    assert checkpoints.get("phase_4_extraction_quality") is None
 
 
 @pytest.mark.asyncio

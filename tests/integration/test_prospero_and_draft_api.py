@@ -151,6 +151,89 @@ async def test_workflow_draft_reserve_and_config_round_trip(client: httpx.AsyncC
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("gate_kind", "endpoint", "payload", "initial_status"),
+    [
+        (
+            "prospero",
+            "submit-prospero",
+            {
+                "registration_number": "CRD42025678901",
+                "registration_date": "2026-01-15",
+            },
+            "awaiting_prospero",
+        ),
+        (
+            "hitl",
+            "approve-screening",
+            {"approved": True},
+            "awaiting_review",
+        ),
+    ],
+)
+async def test_gate_submit_active_run_sets_registry_running(
+    client: httpx.AsyncClient,
+    tmp_path: Path,
+    gate_kind: str,
+    endpoint: str,
+    payload: dict[str, object],
+    initial_status: str,
+) -> None:
+    if gate_kind == "prospero":
+        run_id, workflow_id, run_root, _run_dir = await _setup_prospero_run(
+            tmp_path,
+            registry_status=initial_status,
+        )
+        lifecycle_patch = "src.web.routers.prospero_gate._lifecycle_coordinator.start_resume"
+    else:
+        run_id = "run-hitl-param"
+        workflow_id = "wf-hitl-param"
+        run_root = tmp_path / "runs"
+        run_dir = run_root / "2026-08-10" / f"{workflow_id}-topic" / "run_01"
+        run_dir.mkdir(parents=True)
+        db_path = run_dir / "runtime.db"
+        topic = "Parametrized HITL topic"
+        review_yaml = yaml.safe_dump({**MINIMAL_REVIEW, "research_question": topic}, sort_keys=False)
+        (run_dir / "review.yaml").write_text(review_yaml, encoding="utf-8")
+        (run_dir / "config_snapshot.yaml").write_text(review_yaml, encoding="utf-8")
+        await init_runtime_workflow_db(db_path, workflow_id, topic=topic, status="running")
+        await _init_registry(
+            run_root / "workflows_registry.db",
+            workflow_id=workflow_id,
+            db_path=db_path,
+            topic=topic,
+            status=initial_status,
+        )
+        record = _RunRecord(run_id=run_id, topic=topic)
+        record.db_path = str(db_path)
+        record.workflow_id = workflow_id
+        record.run_root = str(run_root)
+        record.done = False
+        _active_runs[run_id] = record
+        lifecycle_patch = "src.web.routers.screening_review._lifecycle_coordinator.start_resume"
+
+    registry_path = run_root / "workflows_registry.db"
+
+    with patch(lifecycle_patch, new_callable=AsyncMock) as mock_start_resume:
+        try:
+            response = await client.post(f"/api/run/{run_id}/{endpoint}", json=payload)
+        finally:
+            _active_runs.pop(run_id, None)
+
+    assert response.status_code == 200
+    mock_start_resume.assert_not_awaited()
+
+    async with aiosqlite.connect(str(registry_path)) as reg_db:
+        async with reg_db.execute(
+            "SELECT status FROM workflows_registry WHERE workflow_id = ?",
+            (workflow_id,),
+        ) as cur:
+            row = await cur.fetchone()
+    assert row is not None
+    assert row[0] == "running"
+
+
+@pytest.mark.asyncio
 async def test_submit_prospero_rejects_invalid_crd(client: httpx.AsyncClient, tmp_path: Path) -> None:
     run_id, _workflow_id, _run_root, _run_dir = await _setup_prospero_run(tmp_path)
     try:

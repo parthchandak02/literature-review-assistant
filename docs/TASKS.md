@@ -70,7 +70,7 @@ Recent remediation (2026-08-10, Phases 0-2) completed:
 
 ## Publication readiness (audit 2026-08-10)
 
-**Verdict: Sprint 1 blockers implemented; run manual HITL QA before tagging a release.** `make check-local` is green locally. Confirm screening approve reconnect in the browser (approve after 20s delay, Activity tab should stream without sidebar workaround).
+**Verdict: architecture hardening Sprint 2 complete; manual HITL QA still recommended before release tag.**
 
 ### Sprint 1 blockers
 
@@ -98,13 +98,16 @@ Recent remediation (2026-08-10, Phases 0-2) completed:
 
 ### Sprint 2 (after blockers)
 
-| Priority | Task |
-|----------|------|
+| Priority | Task | Status |
+|----------|------|--------|
 | P1 | `resolve_registry_entry()` helper; collapse resolver aliases | done |
 | P1 | HTTP integration test for `wf-*` resolution without active run | done |
-| P1 | Unskip or replace `test_resume_workflow_smoke.py` |
-| P2 | Screening + Prospero component tests |
-| P2 | `human_review_checkpoint` Activity log label |
+| P1 | Unskip/replace `test_resume_workflow_smoke.py` (bounded, stubbed graph tail) | done |
+| P1 | `rollback_phase_data` contract matrix tests | done |
+| P1 | Parametrized PROSPERO + HITL gate registry tests | done |
+| P1 | `resolve_resume_next_phase` gate routing unit tests | done |
+| P2 | Screening + Prospero component tests | pending |
+| P2 | `human_review_checkpoint` Activity log label | pending |
 
 ### Perf (2026-08-10)
 

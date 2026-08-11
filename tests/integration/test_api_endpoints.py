@@ -1980,7 +1980,7 @@ async def test_export_endpoint_accepts_workflow_identifier_via_resolver(
     async def _resolve(_identifier: str, _run_root: str = "runs") -> str:
         return str(db_path)
 
-    monkeypatch.setattr("src.web.routers.artifacts._resolve_db_path_from_run_or_workflow", _resolve)
+    monkeypatch.setattr("src.web.routers.artifacts.resolve_runtime_db", _resolve)
 
     response = await client.post(f"/api/run/{workflow_id}/export?run_root={tmp_path}")
     assert response.status_code == 200
@@ -2016,7 +2016,7 @@ async def test_export_returns_409_for_incomplete_submission_without_force(
     async def _resolve(_identifier: str, _run_root: str = "runs") -> str:
         return str(db_path)
 
-    monkeypatch.setattr("src.web.routers.artifacts._resolve_db_path_from_run_or_workflow", _resolve)
+    monkeypatch.setattr("src.web.routers.artifacts.resolve_runtime_db", _resolve)
 
     response = await client.post(f"/api/run/{workflow_id}/export?run_root={tmp_path}")
     assert response.status_code == 409
@@ -2053,7 +2053,7 @@ async def test_submission_zip_endpoint_accepts_workflow_identifier_via_resolver(
     async def _topic(_db_path: str) -> str:
         return "Topic"
 
-    monkeypatch.setattr("src.web.routers.artifacts._resolve_db_path_from_run_or_workflow", _resolve)
+    monkeypatch.setattr("src.web.routers.artifacts.resolve_runtime_db", _resolve)
     monkeypatch.setattr("src.web.routers.artifacts._get_topic_for_db", _topic)
 
     response = await client.get(f"/api/run/{workflow_id}/submission.zip")
@@ -2093,7 +2093,7 @@ async def test_manuscript_docx_endpoint_accepts_workflow_identifier_via_resolver
     async def _topic(_db_path: str) -> str:
         return "Topic"
 
-    monkeypatch.setattr("src.web.routers.artifacts._resolve_db_path_from_run_or_workflow", _resolve)
+    monkeypatch.setattr("src.web.routers.artifacts.resolve_runtime_db", _resolve)
     monkeypatch.setattr("src.web.routers.artifacts._get_topic_for_db", _topic)
 
     response = await client.get(f"/api/run/{workflow_id}/manuscript.docx")
@@ -2603,7 +2603,7 @@ async def test_workflow_manuscript_audit_endpoints_return_expected_shapes(
     async def _resolve(_identifier: str, _run_root: str = "runs") -> str:
         return str(db_path)
 
-    monkeypatch.setattr("src.web.routers.validation._resolve_db_path_from_run_or_workflow", _resolve)
+    monkeypatch.setattr("src.web.routers.validation.resolve_runtime_db", _resolve)
 
     summary_resp = await client.get(f"/api/workflow/{workflow_id}/manuscript-audit/summary")
     assert summary_resp.status_code == 200
@@ -2663,7 +2663,7 @@ async def test_workflow_manuscript_audit_findings_returns_empty_for_unknown_or_w
     async def _resolve(_identifier: str, _run_root: str = "runs") -> str:
         return str(db_path)
 
-    monkeypatch.setattr("src.web.routers.validation._resolve_db_path_from_run_or_workflow", _resolve)
+    monkeypatch.setattr("src.web.routers.validation.resolve_runtime_db", _resolve)
 
     latest_resp = await client.get(f"/api/workflow/{workflow_id}/manuscript-audit/findings")
     assert latest_resp.status_code == 200
@@ -3014,7 +3014,7 @@ async def test_workflow_manuscript_audit_endpoints_graceful_when_audit_tables_mi
     async def _resolve(_identifier: str, _run_root: str = "runs") -> str:
         return str(db_path)
 
-    monkeypatch.setattr("src.web.routers.validation._resolve_db_path_from_run_or_workflow", _resolve)
+    monkeypatch.setattr("src.web.routers.validation.resolve_runtime_db", _resolve)
 
     summary_resp = await client.get(f"/api/workflow/{workflow_id}/manuscript-audit/summary")
     assert summary_resp.status_code == 200
@@ -3123,7 +3123,7 @@ async def test_artifacts_resolve_workflow_id_without_active_run(
     async def _resolve(_run_id: str, run_root: str = "runs") -> str:
         return str(db_path)
 
-    monkeypatch.setattr("src.web.routers.artifacts._resolve_db_path_from_run_or_workflow", _resolve)
+    monkeypatch.setattr("src.web.routers.artifacts.resolve_runtime_db", _resolve)
 
     response = await client.get("/api/run/wf-1234/artifacts")
     assert response.status_code == 200
