@@ -1,9 +1,9 @@
 import { useEffect, type Dispatch, type SetStateAction } from "react"
 import type { NavigateFunction } from "react-router-dom"
 import { isTerminalHistoricalStatus } from "@/lib/runSelection"
-import { isParkedGateStatus } from "@/lib/constants"
 import { parseRunUrl } from "@/lib/runSessionUrl"
 import { connectLiveRun } from "@/lib/runSession"
+import { createWorkflowActiveRunWatcher } from "@/hooks/workflowActiveRunWatcher"
 import {
   APIResponseError,
   attachHistory,
@@ -259,62 +259,37 @@ export function useRunSessionSync({
     if (!wfId || isViewingLiveRun || isTerminalHistory) return
     const workflowId = wfId
 
-    // Parked runs (awaiting PROSPERO registration or human screening review) can sit
-    // idle far longer than an active run's transient polling gaps, so give them a much
-    // higher miss budget instead of giving up after ~8 seconds.
-    const isParked = isParkedGateStatus(selectedRun?.historicalStatus)
-    let consecutiveMisses = 0
-    const MAX_MISSES = isParked ? 300 : 10
-    const pollIntervalMs = isParked ? 2_500 : 800
-    let switched = false
+    const watcher = createWorkflowActiveRunWatcher({
+      workflowId,
+      liveRunId,
+      selectedRunId: selectedRun?.runId,
+      onActiveRun: ({ run_id, topic }) => {
+        connectLiveRun(
+          {
+            reset,
+            setLiveRunId,
+            setLiveTopic,
+            setLiveStartedAt,
+            setLiveWorkflowId,
+            setSelectedRun,
+            setActiveRunTab,
+            navigate,
+            liveRunNavigatedRef,
+            wasStreamingRef,
+          },
+          {
+            runId: run_id,
+            topic,
+            workflowId,
+            tab: "activity",
+            navigatePath: `/run/${workflowId}/activity`,
+          },
+          { navigatedRef: null },
+        )
+      },
+    })
 
-    async function checkAndSwitch() {
-      if (switched) return
-      const res = await fetchActiveRun(workflowId)
-      if (!res) {
-        consecutiveMisses++
-        return
-      }
-      if (liveRunId === res.run_id && selectedRun?.runId === res.run_id) {
-        switched = true
-        return
-      }
-      switched = true
-      consecutiveMisses = 0
-      connectLiveRun(
-        {
-          reset,
-          setLiveRunId,
-          setLiveTopic,
-          setLiveStartedAt,
-          setLiveWorkflowId,
-          setSelectedRun,
-          setActiveRunTab,
-          navigate,
-          liveRunNavigatedRef,
-          wasStreamingRef,
-        },
-        {
-          runId: res.run_id,
-          topic: res.topic,
-          workflowId,
-          tab: "activity",
-          navigatePath: `/run/${workflowId}/activity`,
-        },
-        { navigatedRef: null },
-      )
-    }
-
-    void checkAndSwitch()
-    const interval = setInterval(() => {
-      if (switched || consecutiveMisses >= MAX_MISSES) {
-        clearInterval(interval)
-        return
-      }
-      void checkAndSwitch()
-    }, pollIntervalMs)
-
-    return () => clearInterval(interval)
+    return () => watcher.dispose()
   }, [
     selectedRun?.workflowId,
     selectedRun?.historicalStatus,

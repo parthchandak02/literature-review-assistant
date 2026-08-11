@@ -110,6 +110,12 @@ class RunLifecycleCoordinator:
                 detail=detail or "Workflow is already running. Stop the active run before resuming.",
             )
 
+    def notify_workflow_active_run(self, workflow_id: str, run_id: str, topic: str) -> None:
+        """Broadcast that a run is now active for the given workflow."""
+        from src.web.state import _announce_workflow_active_run
+
+        _announce_workflow_active_run(workflow_id, run_id, topic)
+
     @staticmethod
     def infer_run_root(db_path: str) -> str:
         return run_root_from_db_path(db_path)
@@ -264,6 +270,7 @@ class RunLifecycleCoordinator:
             resume_wrapper(record, req.workflow_id, resolved.db_path, req.from_phase, req.verbose, req.debug)
         )
         record.task = task
+        self.notify_workflow_active_run(req.workflow_id, run_id, record.topic)
         return run_id, record
 
     async def attach_history(self, req: AttachRequest) -> tuple[str, Any]:

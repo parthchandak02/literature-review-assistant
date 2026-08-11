@@ -1,21 +1,16 @@
 import { useEffect, useMemo, useReducer, useState } from "react"
 import * as Popover from "@radix-ui/react-popover"
-import {
-  Command,
-  CommandEmpty,
-  CommandGroup,
-  CommandInput,
-  CommandItem,
-  CommandList,
-} from "@/components/ui/command"
-import { FetchError, EmptyState, LoadingPane, Spinner } from "@/components/ui/feedback"
+import { FilterChipBar, type ActiveFilter } from "@/components/database/FilterChipBar"
+import { FilterComboboxPopover } from "@/components/database/FilterComboboxPopover"
+import { FetchError, EmptyState, LoadingPane } from "@/components/ui/feedback"
 import { GlassTableShell } from "@/components/ui/glass-table-shell"
 import { ViewToolbar } from "@/components/ui/view-toolbar"
 import { LiveStreamStatus } from "@/components/run-status"
 import { Badge } from "@/components/ui/badge"
+import { Button } from "@/components/ui/button"
 import { Th, Td, TableSkeleton, Pagination } from "@/components/ui/table"
 import { cn } from "@/lib/utils"
-import { AlertTriangle, Database, ExternalLink, Filter, X } from "lucide-react"
+import { AlertTriangle, Database, ExternalLink, Filter } from "lucide-react"
 import type { PaperAllRow } from "@/lib/api"
 import { confidenceToVariant, screeningDecisionToVariant } from "@/lib/constants"
 import {
@@ -41,8 +36,16 @@ function paperLink(p: PaperAllRow): string | null {
   return p.url ?? null
 }
 const PAGE_SIZE = 50
-const SUGGEST_DEBOUNCE_MS = 200
-const FILTER_DEBOUNCE_MS = 350
+
+type PaperFilterId =
+  | "title"
+  | "author"
+  | "year"
+  | "source"
+  | "country"
+  | "ta"
+  | "ft"
+  | "primaryStatus"
 
 type PapersPaginationState = {
   filterSignature: string
@@ -224,6 +227,61 @@ export function DatabaseView({ runId, isDone, dbAvailable, isLive }: DatabaseVie
     setAuthorSuggestQuery("")
   }
 
+  const activeFilterChips = useMemo<ActiveFilter[]>(() => {
+    const chips: ActiveFilter[] = []
+    if (titleFilter) chips.push({ id: "title", label: "Title", value: titleFilter })
+    if (authorFilter) chips.push({ id: "author", label: "Authors", value: authorFilter })
+    if (yearFilter) chips.push({ id: "year", label: "Year", value: yearFilter })
+    if (sourceFilter) chips.push({ id: "source", label: "Source", value: sourceFilter })
+    if (countryFilter) chips.push({ id: "country", label: "Country", value: countryFilter })
+    if (taFilter) chips.push({ id: "ta", label: "Title/Abstract", value: taFilter })
+    if (ftFilter) chips.push({ id: "ft", label: "Full-Text", value: ftFilter })
+    if (primaryStatusFilter) {
+      chips.push({ id: "primaryStatus", label: "Primary Status", value: primaryStatusFilter })
+    }
+    return chips
+  }, [
+    titleFilter,
+    authorFilter,
+    yearFilter,
+    sourceFilter,
+    countryFilter,
+    taFilter,
+    ftFilter,
+    primaryStatusFilter,
+  ])
+
+  const removeFilter = (id: string) => {
+    switch (id as PaperFilterId) {
+      case "title":
+        setTitleFilter("")
+        setTitleSuggestQuery("")
+        break
+      case "author":
+        setAuthorFilter("")
+        setAuthorSuggestQuery("")
+        break
+      case "year":
+        setYearFilter("")
+        break
+      case "source":
+        setSourceFilter("")
+        break
+      case "country":
+        setCountryFilter("")
+        break
+      case "ta":
+        setTaFilter("")
+        break
+      case "ft":
+        setFtFilter("")
+        break
+      case "primaryStatus":
+        setPrimaryStatusFilter("")
+        break
+    }
+  }
+
   if (!dbAvailable) {
     return <LoadingPane message="Database initializing..." className="h-64" />
   }
@@ -249,17 +307,6 @@ export function DatabaseView({ runId, isDone, dbAvailable, isLive }: DatabaseVie
     )
   }
 
-  const activeFilters = [
-    titleFilter,
-    authorFilter,
-    taFilter,
-    ftFilter,
-    primaryStatusFilter,
-    yearFilter,
-    sourceFilter,
-    countryFilter,
-  ].filter(Boolean).length
-
   // Hide the Confidence column when no paper on the current page has a value.
   const hasConfidenceData = papers.some((p) => p.extraction_confidence != null)
   const flattenedOutcomes = outcomePapers.flatMap((paper) =>
@@ -282,15 +329,45 @@ export function DatabaseView({ runId, isDone, dbAvailable, isLive }: DatabaseVie
     <div className="flex flex-col gap-4">
       <GlassTableShell>
         <ViewToolbar bordered className="flex-wrap !h-auto py-2 gap-3">
-          {activeFilters > 0 && (
-            <button
-              onClick={clearAllFilters}
-              className="text-xs text-intent-primary hover:text-intent-primary transition-colors whitespace-nowrap"
-            >
-              Clear {activeFilters} filter{activeFilters > 1 ? "s" : ""}
-            </button>
-          )}
-          <div className="flex items-center gap-3 ml-auto">
+          <div className="flex flex-wrap items-center gap-2 flex-1 min-w-0">
+            <DatabaseFiltersPopover
+              activeCount={activeFilterChips.length}
+              titleFilter={titleFilter}
+              authorFilter={authorFilter}
+              yearFilter={yearFilter}
+              sourceFilter={sourceFilter}
+              countryFilter={countryFilter}
+              taFilter={taFilter}
+              ftFilter={ftFilter}
+              primaryStatusFilter={primaryStatusFilter}
+              onTitleFilterChange={setTitleFilter}
+              onAuthorFilterChange={setAuthorFilter}
+              onYearFilterChange={setYearFilter}
+              onSourceFilterChange={setSourceFilter}
+              onCountryFilterChange={setCountryFilter}
+              onTaFilterChange={setTaFilter}
+              onFtFilterChange={setFtFilter}
+              onPrimaryStatusFilterChange={setPrimaryStatusFilter}
+              onTitleSuggestQuery={setTitleSuggestQuery}
+              onAuthorSuggestQuery={setAuthorSuggestQuery}
+              titleSuggestions={titleSuggestionsQuery.data?.suggestions ?? []}
+              authorSuggestions={authorSuggestionsQuery.data?.suggestions ?? []}
+              isLoadingTitleSuggestions={titleSuggestionsQuery.isFetching}
+              isLoadingAuthorSuggestions={authorSuggestionsQuery.isFetching}
+              years={years}
+              sources={sources}
+              countries={countries}
+              taDecisions={taDecisions}
+              ftDecisions={ftDecisions}
+              primaryStatuses={primaryStatuses}
+            />
+            <FilterChipBar
+              filters={activeFilterChips}
+              onRemove={removeFilter}
+              onClearAll={clearAllFilters}
+            />
+          </div>
+          <div className="flex items-center gap-3 ml-auto shrink-0">
             {!error && (
               <span className="text-xs text-muted tabular-nums">
                 {total.toLocaleString()} papers
@@ -316,106 +393,14 @@ export function DatabaseView({ runId, isDone, dbAvailable, isLive }: DatabaseVie
             <table className="w-full text-xs">
               <thead>
                 <tr className="glass-table-head border-b border-border/70">
-                  <Th
-                    filter={
-                      <FilterComboboxPopover
-                        value={titleFilter}
-                        onChange={setTitleFilter}
-                        placeholder="Search titles..."
-                        serverSuggestions={titleSuggestionsQuery.data?.suggestions ?? []}
-                        onSuggestionQuery={setTitleSuggestQuery}
-                        isLoadingSuggestions={titleSuggestionsQuery.isFetching}
-                      />
-                    }
-                  >
-                    Title
-                  </Th>
-                  <Th
-                    filter={
-                      <FilterComboboxPopover
-                        value={authorFilter}
-                        onChange={setAuthorFilter}
-                        placeholder="Search authors..."
-                        serverSuggestions={authorSuggestionsQuery.data?.suggestions ?? []}
-                        onSuggestionQuery={setAuthorSuggestQuery}
-                        isLoadingSuggestions={authorSuggestionsQuery.isFetching}
-                      />
-                    }
-                  >
-                    Authors
-                  </Th>
-                  <Th
-                    filter={
-                      <FilterComboboxPopover
-                        value={yearFilter}
-                        onChange={setYearFilter}
-                        placeholder="Filter year..."
-                        staticSuggestions={years.map(String)}
-                      />
-                    }
-                  >
-                    Year
-                  </Th>
-                  <Th
-                    filter={
-                      <FilterComboboxPopover
-                        value={sourceFilter}
-                        onChange={setSourceFilter}
-                        placeholder="Filter source..."
-                        staticSuggestions={sources}
-                      />
-                    }
-                  >
-                    Source
-                  </Th>
-                  <Th
-                    filter={
-                      <FilterComboboxPopover
-                        value={countryFilter}
-                        onChange={setCountryFilter}
-                        placeholder="Filter country..."
-                        staticSuggestions={countries}
-                      />
-                    }
-                  >
-                    Country
-                  </Th>
-                  <Th
-                    filter={
-                      <FilterComboboxPopover
-                        value={taFilter}
-                        onChange={setTaFilter}
-                        placeholder="include / exclude..."
-                        staticSuggestions={taDecisions}
-                      />
-                    }
-                  >
-                    Title/Abstract
-                  </Th>
-                  <Th
-                    filter={
-                      <FilterComboboxPopover
-                        value={ftFilter}
-                        onChange={setFtFilter}
-                        placeholder="include / exclude..."
-                        staticSuggestions={ftDecisions}
-                      />
-                    }
-                  >
-                    Full-Text
-                  </Th>
-                  <Th
-                    filter={
-                      <FilterComboboxPopover
-                        value={primaryStatusFilter}
-                        onChange={setPrimaryStatusFilter}
-                        placeholder="primary / secondary..."
-                        staticSuggestions={primaryStatuses}
-                      />
-                    }
-                  >
-                    Primary Status
-                  </Th>
+                  <Th>Title</Th>
+                  <Th>Authors</Th>
+                  <Th>Year</Th>
+                  <Th>Source</Th>
+                  <Th>Country</Th>
+                  <Th>Title/Abstract</Th>
+                  <Th>Full-Text</Th>
+                  <Th>Primary Status</Th>
                   {hasConfidenceData && <Th>Confidence</Th>}
                   <Th>RoB Source</Th>
                 </tr>
@@ -545,157 +530,168 @@ export function DatabaseView({ runId, isDone, dbAvailable, isLive }: DatabaseVie
 }
 
 // ---------------------------------------------------------------------------
-// FilterComboboxPopover
+// DatabaseFiltersPopover
 // ---------------------------------------------------------------------------
 
-interface FilterComboboxPopoverProps {
-  value: string
-  onChange: (v: string) => void
-  placeholder: string
-  /** Categorical columns: pass all distinct values, filtered client-side by query. */
-  staticSuggestions?: string[]
-  /** Text columns: parent provides server-fetched suggestions. */
-  serverSuggestions?: string[]
-  /** Called with the debounced query so parent can fetch server suggestions. */
-  onSuggestionQuery?: (q: string) => void
-  isLoadingSuggestions?: boolean
+interface DatabaseFiltersPopoverProps {
+  activeCount: number
+  titleFilter: string
+  authorFilter: string
+  yearFilter: string
+  sourceFilter: string
+  countryFilter: string
+  taFilter: string
+  ftFilter: string
+  primaryStatusFilter: string
+  onTitleFilterChange: (v: string) => void
+  onAuthorFilterChange: (v: string) => void
+  onYearFilterChange: (v: string) => void
+  onSourceFilterChange: (v: string) => void
+  onCountryFilterChange: (v: string) => void
+  onTaFilterChange: (v: string) => void
+  onFtFilterChange: (v: string) => void
+  onPrimaryStatusFilterChange: (v: string) => void
+  onTitleSuggestQuery: (q: string) => void
+  onAuthorSuggestQuery: (q: string) => void
+  titleSuggestions: string[]
+  authorSuggestions: string[]
+  isLoadingTitleSuggestions: boolean
+  isLoadingAuthorSuggestions: boolean
+  years: number[]
+  sources: string[]
+  countries: string[]
+  taDecisions: string[]
+  ftDecisions: string[]
+  primaryStatuses: string[]
 }
 
-function FilterComboboxPopover({
-  value,
-  onChange,
-  placeholder,
-  staticSuggestions,
-  serverSuggestions,
-  onSuggestionQuery,
-  isLoadingSuggestions = false,
-}: FilterComboboxPopoverProps) {
+function DatabaseFiltersPopover({
+  activeCount,
+  titleFilter,
+  authorFilter,
+  yearFilter,
+  sourceFilter,
+  countryFilter,
+  taFilter,
+  ftFilter,
+  primaryStatusFilter,
+  onTitleFilterChange,
+  onAuthorFilterChange,
+  onYearFilterChange,
+  onSourceFilterChange,
+  onCountryFilterChange,
+  onTaFilterChange,
+  onFtFilterChange,
+  onPrimaryStatusFilterChange,
+  onTitleSuggestQuery,
+  onAuthorSuggestQuery,
+  titleSuggestions,
+  authorSuggestions,
+  isLoadingTitleSuggestions,
+  isLoadingAuthorSuggestions,
+  years,
+  sources,
+  countries,
+  taDecisions,
+  ftDecisions,
+  primaryStatuses,
+}: DatabaseFiltersPopoverProps) {
   const [open, setOpen] = useState(false)
-  const [local, setLocal] = useState(value)
-  const isActive = value !== ""
-
-  // Sync external reset (e.g. "Clear N filters" button) back to local state.
-  useEffect(() => {
-    setLocal(value)
-  }, [value])
-
-  // 200ms debounce for fetching server suggestions.
-  useEffect(() => {
-    if (!onSuggestionQuery) return
-    const t = setTimeout(() => onSuggestionQuery(local), SUGGEST_DEBOUNCE_MS)
-    return () => clearTimeout(t)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [local])
-
-  // 350ms debounce for applying the table filter.
-  useEffect(() => {
-    const t = setTimeout(() => onChange(local), FILTER_DEBOUNCE_MS)
-    return () => clearTimeout(t)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [local])
-
-  // For static suggestions, filter client-side.
-  const suggestions = staticSuggestions
-    ? staticSuggestions.filter((s) => s.toLowerCase().includes(local.toLowerCase()))
-    : (serverSuggestions ?? [])
-
-  const applyValue = (v: string) => {
-    setLocal(v)
-    onChange(v)
-    setOpen(false)
-  }
-
-  const clearValue = () => {
-    setLocal("")
-    onChange("")
-    if (onSuggestionQuery) onSuggestionQuery("")
-    setOpen(false)
-  }
 
   return (
     <Popover.Root open={open} onOpenChange={setOpen}>
       <Popover.Trigger asChild>
-        <button
-          className={cn(
-            "flex items-center justify-center h-4 w-4 rounded transition-colors",
-            isActive ? "text-intent-primary hover:text-intent-primary" : "text-muted hover:text-foreground",
-          )}
-          aria-label="Filter column"
+        <Button
+          type="button"
+          variant="secondary"
+          size="sm"
+          className="h-8 gap-1.5 shrink-0 text-xs"
         >
-          <Filter className="h-3 w-3" />
-        </button>
+          <Filter className="h-3.5 w-3.5" />
+          Filters
+          {activeCount > 0 && (
+            <Badge variant="primary" size="sm" className="tabular-nums px-1.5 min-w-5">
+              {activeCount}
+            </Badge>
+          )}
+        </Button>
       </Popover.Trigger>
       <Popover.Portal>
         <Popover.Content
           side="bottom"
           align="start"
           sideOffset={6}
-          onInteractOutside={() => setOpen(false)}
           className={cn(
-            "z-50 w-56 glass-panel-strong border border-border/80 rounded-xl shadow-2xl shadow-black/60",
-            "overflow-hidden",
+            "z-50 w-[min(100vw-2rem,20rem)] glass-panel-strong border border-border/80 rounded-xl",
+            "shadow-2xl shadow-black/60 overflow-hidden",
           )}
         >
-          <Command shouldFilter={false}>
-            <div className="relative flex items-center border-b border-border/80 px-2 glass-toolbar">
-              <CommandInput
-                value={local}
-                onValueChange={(v) => setLocal(v)}
-                placeholder={placeholder}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") {
-                    // Immediately flush the filter without waiting for debounce.
-                    onChange(local)
-                    setOpen(false)
-                  }
-                  if (e.key === "Escape") {
-                    setOpen(false)
-                  }
-                }}
-                className="border-0 focus:ring-0 h-8 text-xs bg-transparent text-foreground placeholder:text-muted py-0"
-              />
-              {local && (
-                <button
-                  onMouseDown={(e) => {
-                    e.preventDefault()
-                    clearValue()
-                  }}
-                  className="shrink-0 text-muted hover:text-foreground transition-colors ml-1"
-                  aria-label="Clear filter"
-                >
-                  <X className="h-3 w-3" />
-                </button>
-              )}
-            </div>
-            <CommandList>
-              {isLoadingSuggestions && (
-                <div className="py-2 px-3 text-xs text-muted flex items-center gap-2">
-                  <Spinner size="sm" />
-                  Loading...
-                </div>
-              )}
-              {!isLoadingSuggestions && suggestions.length === 0 && local && (
-                <CommandEmpty className="py-3 text-xs text-muted">No matches.</CommandEmpty>
-              )}
-              {suggestions.length > 0 && (
-                <CommandGroup>
-                  {suggestions.map((s) => (
-                    <CommandItem
-                      key={s}
-                      value={s}
-                      onSelect={() => applyValue(s)}
-                      className={cn(
-                        "text-xs text-foreground cursor-pointer rounded-md px-2 py-1.5",
-                        "data-[selected=true]:bg-intent-primary-subtle data-[selected=true]:text-intent-primary",
-                      )}
-                    >
-                      <span className="truncate">{s}</span>
-                    </CommandItem>
-                  ))}
-                </CommandGroup>
-              )}
-            </CommandList>
-          </Command>
+          <div className="px-3 py-2 border-b border-border/70 glass-toolbar">
+            <div className="text-xs font-medium text-foreground">Filter papers</div>
+            <div className="text-[10px] text-muted">All filters apply together.</div>
+          </div>
+          <div className="p-3 grid gap-2.5 max-h-[min(70vh,28rem)] overflow-y-auto">
+            <FilterComboboxPopover
+              label="Title"
+              value={titleFilter}
+              onChange={onTitleFilterChange}
+              placeholder="Search titles..."
+              serverSuggestions={titleSuggestions}
+              onSuggestionQuery={onTitleSuggestQuery}
+              isLoadingSuggestions={isLoadingTitleSuggestions}
+            />
+            <FilterComboboxPopover
+              label="Authors"
+              value={authorFilter}
+              onChange={onAuthorFilterChange}
+              placeholder="Search authors..."
+              serverSuggestions={authorSuggestions}
+              onSuggestionQuery={onAuthorSuggestQuery}
+              isLoadingSuggestions={isLoadingAuthorSuggestions}
+            />
+            <FilterComboboxPopover
+              label="Year"
+              value={yearFilter}
+              onChange={onYearFilterChange}
+              placeholder="Filter year..."
+              staticSuggestions={years.map(String)}
+            />
+            <FilterComboboxPopover
+              label="Source"
+              value={sourceFilter}
+              onChange={onSourceFilterChange}
+              placeholder="Filter source..."
+              staticSuggestions={sources}
+            />
+            <FilterComboboxPopover
+              label="Country"
+              value={countryFilter}
+              onChange={onCountryFilterChange}
+              placeholder="Filter country..."
+              staticSuggestions={countries}
+            />
+            <FilterComboboxPopover
+              label="Title/Abstract"
+              value={taFilter}
+              onChange={onTaFilterChange}
+              placeholder="include / exclude..."
+              staticSuggestions={taDecisions}
+            />
+            <FilterComboboxPopover
+              label="Full-Text"
+              value={ftFilter}
+              onChange={onFtFilterChange}
+              placeholder="include / exclude..."
+              staticSuggestions={ftDecisions}
+            />
+            <FilterComboboxPopover
+              label="Primary Status"
+              value={primaryStatusFilter}
+              onChange={onPrimaryStatusFilterChange}
+              placeholder="primary / secondary..."
+              staticSuggestions={primaryStatuses}
+            />
+          </div>
           <Popover.Arrow className="fill-surface-2" />
         </Popover.Content>
       </Popover.Portal>

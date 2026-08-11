@@ -55,7 +55,7 @@ describe("computeRunChrome", () => {
 
     expect(vm.liveStatus).toBe("awaiting_prospero")
     expect(vm.isAwaitingProspero).toBe(true)
-    expect(vm.statusLabel).toBe("Awaiting PROSPERO")
+    expect(vm.statusLabel).toBe("PROSPERO Pending")
   })
 
   it("merges historical DB cost with live SSE cost", () => {

@@ -7,7 +7,7 @@ import { Sidebar } from "@/components/Sidebar"
 import { SettingsDialog } from "@/components/SettingsDialog"
 import { RunSessionProvider } from "@/context/RunSessionProvider"
 import { queryClient } from "@/lib/queryClient"
-import { useRunSession } from "@/hooks/useRunSession"
+import { useRunSessionActions, useRunSessionState } from "@/hooks/useRunSession"
 import { useBackendHealth } from "@/hooks/useBackendHealth"
 import {
   buildRunRequest,
@@ -113,7 +113,6 @@ function AppShell() {
   const navigate = useNavigate()
   const {
     selectedRun,
-    setSelectedRun,
     activeRunTab,
     historyOutputs,
     submissionFocusTarget,
@@ -125,6 +124,10 @@ function AppShell() {
     dbUnlocked,
     status,
     costStats,
+  } = useRunSessionState()
+  const {
+    setSelectedRun,
+    setActiveRunTab,
     handleStart,
     handleStartWithSupplementaryCsv,
     handleStartWithMasterlistCsv,
@@ -132,9 +135,8 @@ function AppShell() {
     handleTabChange,
     handleSubmitProsperoAndResume,
     handleApproveScreeningAndResume,
-    setActiveRunTab,
     openDraftRunShell,
-  } = useRunSession()
+  } = useRunSessionActions()
 
   const [isMobile, setIsMobile] = useState(() => window.matchMedia("(max-width: 639px)").matches)
   const [sidebarCollapsed, setSidebarCollapsed] = useState(

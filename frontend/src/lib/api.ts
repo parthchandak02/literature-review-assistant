@@ -37,6 +37,7 @@ export {
   startRunWithSupplementaryCsv,
   cancelRun,
   submitProsperoRegistration,
+  subscribeWorkflowActiveRun,
   fetchArtifactText,
   fetchArtifacts,
   triggerExport,

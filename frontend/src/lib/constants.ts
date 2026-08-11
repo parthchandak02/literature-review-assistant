@@ -252,7 +252,7 @@ export function resolveRunHeaderStatus(input: RunHeaderStatusInput): {
 } {
   const { status, isDone, isRunning, isCancelled, isFailed, isAwaitingReview, isAwaitingProspero } = input
   if (isAwaitingProspero && !isDone) {
-    return { label: "Awaiting PROSPERO", className: "text-intent-warning" }
+    return { label: STATUS_LABEL.awaiting_prospero, className: STATUS_TEXT.awaiting_prospero }
   }
   if (isAwaitingReview && !isDone) {
     return { label: "Awaiting Review", className: "text-intent-warning" }

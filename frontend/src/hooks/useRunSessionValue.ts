@@ -3,10 +3,9 @@ import { useNavigate, useLocation } from "react-router-dom"
 import { useLiveRunStream } from "@/hooks/useLiveRunStream"
 import { useRunSessionSync } from "@/hooks/useRunSessionSync"
 import { useRunSessionActions } from "@/hooks/useRunSessionActions"
-import type { RunSessionContextValue } from "@/context/runSessionTypes"
 import type { RunTab, SelectedRun } from "@/views/RunView"
 
-export function useRunSessionState(): RunSessionContextValue {
+export function useRunSessionValue() {
   const navigate = useNavigate()
   const location = useLocation()
   const live = useLiveRunStream()

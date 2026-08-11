@@ -76,6 +76,36 @@ class NotesBroadcaster:
         return self._subscribers
 
 
+class WorkflowActiveRunBroadcaster:
+    """In-memory pub/sub for workflow-scoped active-run announcements."""
+
+    def __init__(self) -> None:
+        self._subscribers: dict[str, set[asyncio.Queue[dict[str, Any] | None]]] = {}
+
+    def subscribe(self, workflow_id: str, queue: asyncio.Queue[dict[str, Any] | None]) -> None:
+        self._subscribers.setdefault(workflow_id, set()).add(queue)
+
+    def unsubscribe(self, workflow_id: str, queue: asyncio.Queue[dict[str, Any] | None]) -> None:
+        subs = self._subscribers.get(workflow_id)
+        if subs is None:
+            return
+        subs.discard(queue)
+        if not subs:
+            self._subscribers.pop(workflow_id, None)
+
+    def announce(self, workflow_id: str, payload: dict[str, Any]) -> None:
+        dead: set[asyncio.Queue[dict[str, Any] | None]] = set()
+        for queue in list(self._subscribers.get(workflow_id, set())):
+            try:
+                queue.put_nowait(payload)
+            except asyncio.QueueFull:
+                dead.add(queue)
+        if dead:
+            subs = self._subscribers.get(workflow_id)
+            if subs is not None:
+                subs.difference_update(dead)
+
+
 # ---------------------------------------------------------------------------
 # _RunRecord – in-process record of a single workflow execution
 # ---------------------------------------------------------------------------
@@ -108,6 +138,18 @@ _active_runs: dict[str, _RunRecord] = {}
 
 _notes_subscribers: set[asyncio.Queue[dict[str, Any] | None]] = set()
 _notes_broadcaster = NotesBroadcaster(_notes_subscribers)
+_workflow_active_run_broadcaster = WorkflowActiveRunBroadcaster()
+
+
+def _announce_workflow_active_run(workflow_id: str, run_id: str, topic: str) -> None:
+    _workflow_active_run_broadcaster.announce(
+        workflow_id,
+        {
+            "workflow_id": workflow_id,
+            "run_id": run_id,
+            "topic": topic,
+        },
+    )
 
 _RUN_TTL_SECONDS = _web_cfg.run_ttl_seconds
 _STALE_THRESHOLD_SECONDS = 2 * 60
@@ -386,6 +428,7 @@ async def _run_wrapper(record: _RunRecord, review_path: str, req: RunRequest) ->
         record.run_root = run_root
         event: dict[str, Any] = {"type": "workflow_id_ready", "workflow_id": workflow_id}
         _append_event(record, event)
+        _lifecycle_coordinator.notify_workflow_active_run(workflow_id, record.run_id, record.topic)
         nonlocal heartbeat_task
         if heartbeat_task is None or heartbeat_task.done():
             heartbeat_task = asyncio.create_task(

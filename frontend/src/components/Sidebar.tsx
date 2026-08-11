@@ -19,7 +19,7 @@ import { SidebarTooltip } from "@/components/sidebar/SidebarTooltip"
 import { SidebarHeader } from "@/components/sidebar/SidebarHeader"
 import { SidebarInProgressSection } from "@/components/sidebar/SidebarInProgressSection"
 import { SidebarCompletedArchivedSection } from "@/components/sidebar/SidebarCompletedArchivedSection"
-import { useRunSession } from "@/hooks/useRunSession"
+import { useRunSessionActions, useRunSessionState } from "@/hooks/useRunSession"
 export type { LiveRun, PhaseProgress } from "@/components/sidebar/types"
 
 interface SidebarProps {
@@ -47,6 +47,8 @@ export function Sidebar({
     selectedRun,
     isViewingLiveRun: isLiveRunSelected,
     isRunning,
+  } = useRunSessionState()
+  const {
     handleSelectLiveRun: onSelectLiveRun,
     handleSelectHistory: onSelectHistory,
     handleNewReview: onNewReview,
@@ -58,7 +60,7 @@ export function Sidebar({
     handleSidebarDelete: onDelete,
     handleCancel: onCancel,
     handleGoHome: onGoHome,
-  } = useRunSession()
+  } = useRunSessionActions()
 
   const queryClient = useQueryClient()
   const selectedWorkflowId = selectedRun?.workflowId ?? null
