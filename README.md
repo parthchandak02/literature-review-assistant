@@ -350,11 +350,12 @@ npm install -g pm2
 Then start both the FastAPI backend (port 8001) and Vite frontend (port 5173, HMR) with:
 
 ```bash
+cp ecosystem.config.example.js ecosystem.config.js   # first time only
 pm2 start ecosystem.config.js
 ```
 
 Open `http://localhost:5173` (Vite dev UI, HMR) or `http://localhost:8001` (API direct). The `litreview-ui` PM2 process runs Vite on port 5173 and proxies `/api` to the backend on port 8001 automatically.
-If you clone the repo to a different path or machine, update `PROJECT_DIR` in `ecosystem.config.js` before starting PM2 because it is currently absolute.
+`PROJECT_DIR` resolves from the repo root automatically (`path.resolve(__dirname)`). Copy `ecosystem.config.example.js` to `ecosystem.config.js` on first setup, or run `./scripts/ops_pm2.sh sync` to align kill-timeout settings.
 
 Useful PM2 commands (`scripts/ops_pm2.sh`):
 

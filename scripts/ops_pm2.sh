@@ -339,10 +339,18 @@ fi
 
 case "${SUBCOMMAND}" in
   restart)
-    cmd_restart "${ARGS[@]}"
+    if (( ${#ARGS[@]} > 0 )); then
+      cmd_restart "${ARGS[@]}"
+    else
+      cmd_restart
+    fi
     ;;
   sync)
-    cmd_sync "${ARGS[@]}"
+    if (( ${#ARGS[@]} > 0 )); then
+      cmd_sync "${ARGS[@]}"
+    else
+      cmd_sync
+    fi
     ;;
   help|-h|--help)
     show_help

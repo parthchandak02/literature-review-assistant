@@ -7,6 +7,7 @@ Canonical agent workflows live in `.cursor/skills/<name>/SKILL.md` only. No `.cu
 | Workflow Area | Canonical Skill | Secondary Skill(s) | Notes |
 |---|---|---|---|
 | Session bootstrap | `bootstrap` | `build-phase`, `research` | Lifecycle routing from `docs/CONTEXT.md`. |
+| PM2 restart (local ops) | `restart` | `bootstrap` | Backend/frontend/tunnel/prod-ui via `scripts/ops_pm2.sh`. |
 | Commit/push + hook repair | `commit` | `general-rules` | `commit` owns landing workflow; `general-rules` owns cross-cutting defaults. |
 | Cross-cutting defaults | `general-rules` | none | uv, ruff, diagnose/TDD, scripting, doc discipline. |
 | Replay/resume drill | `resume` | `lit-review` | Engineering replay after `src/` changes; `lit-review` for operator/WhatsApp flows. |
@@ -25,6 +26,7 @@ Canonical agent workflows live in `.cursor/skills/<name>/SKILL.md` only. No `.cu
 ## Default Skills (Use First)
 
 - `bootstrap` - session startup and routing
+- `restart` - PM2 backend/frontend/tunnel restart (`/restart`)
 - `build-phase` - phase router and implementation contract
 - `general-rules` - cross-cutting engineering defaults
 - `research` - MCP-backed research (Ref/Exa/Perplexity)
@@ -41,7 +43,7 @@ Canonical agent workflows live in `.cursor/skills/<name>/SKILL.md` only. No `.cu
 
 ## Collaboration / Meta
 
-- `grill`, `handoff`, `author`, `inception`, `advisor`, `ponytail`, `architecture`, `caveman`, `commit`, `resume`
+- `grill`, `handoff`, `author`, `inception`, `advisor`, `ponytail`, `architecture`, `caveman`, `commit`, `restart`, `resume`
 
 ## Overlap Boundaries
 
