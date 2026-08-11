@@ -265,6 +265,7 @@ export function useRunSessionSync({
     const isParked = isParkedGateStatus(selectedRun?.historicalStatus)
     let consecutiveMisses = 0
     const MAX_MISSES = isParked ? 300 : 10
+    const pollIntervalMs = isParked ? 2_500 : 800
     let switched = false
 
     async function checkAndSwitch() {
@@ -311,7 +312,7 @@ export function useRunSessionSync({
         return
       }
       void checkAndSwitch()
-    }, 800)
+    }, pollIntervalMs)
 
     return () => clearInterval(interval)
   }, [
