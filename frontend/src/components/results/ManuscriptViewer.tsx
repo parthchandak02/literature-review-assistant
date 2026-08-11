@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react"
+import { useMemo, useRef, useState } from "react"
 import ReactMarkdown from "react-markdown"
 import remarkGfm from "remark-gfm"
 import rehypeSlug from "rehype-slug"
@@ -11,7 +11,7 @@ import { FetchError, Spinner } from "@/components/ui/feedback"
 import { ViewToolbar } from "@/components/ui/view-toolbar"
 import { ManuscriptImage } from "@/components/ManuscriptImage"
 import { ManuscriptActions } from "@/components/results/ManuscriptActions"
-import { fetchArtifactText } from "@/lib/api"
+import { useFileTextPreview } from "@/hooks/useFilePreview"
 import { extractHeadings, makeUrlTransform } from "./manuscriptUtils"
 
 interface ManuscriptViewerProps {
@@ -29,32 +29,10 @@ export function ManuscriptViewer({
   exportRunId,
   allOutputs,
 }: ManuscriptViewerProps) {
-  const [content, setContent] = useState<string | null>(null)
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
+  const { content, loading, error, retry } = useFileTextPreview(filePath)
   const [zoom, setZoom] = useState(100)
   const [showOutline, setShowOutline] = useState(false)
   const viewerRef = useRef<HTMLDivElement>(null)
-
-  const load = useCallback(async (signal?: AbortSignal) => {
-    setLoading(true)
-    setError(null)
-    try {
-      const text = await fetchArtifactText(filePath, signal)
-      if (!signal?.aborted) setContent(text)
-    } catch (e) {
-      if (e instanceof DOMException && e.name === "AbortError") return
-      setError(e instanceof Error ? e.message : String(e))
-    } finally {
-      if (!signal?.aborted) setLoading(false)
-    }
-  }, [filePath])
-
-  useEffect(() => {
-    const controller = new AbortController()
-    void load(controller.signal)
-    return () => controller.abort()
-  }, [load])
 
   const headings = useMemo(() => content ? extractHeadings(content) : [], [content])
 
@@ -86,7 +64,7 @@ export function ManuscriptViewer({
   }
 
   if (error) {
-    return <FetchError message={`Could not load manuscript: ${error}`} onRetry={() => void load()} />
+    return <FetchError message={`Could not load manuscript: ${error}`} onRetry={retry} />
   }
 
   if (!content) return null

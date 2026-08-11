@@ -9,17 +9,15 @@ import { RunSessionProvider } from "@/context/RunSessionProvider"
 import { queryClient } from "@/lib/queryClient"
 import { useRunSessionActions, useRunSessionState } from "@/hooks/useRunSession"
 import { useBackendHealth } from "@/hooks/useBackendHealth"
-import {
-  buildRunRequest,
-  generateConfigStream,
-  reserveWorkflowDraft,
-  resolveStoredApiKeys,
-  saveWorkflowConfigDraft,
-} from "@/lib/api"
 import { useDefaultReviewConfig } from "@/hooks/useRunConfig"
+import {
+  deriveDraftStatus,
+  deriveIsDraftRun,
+  deriveResolvedHistoricalStatus,
+  useDraftConfigFlow,
+} from "@/hooks/useDraftConfigFlow"
 import { Spinner } from "@/components/ui/feedback"
 import { ViewToolbar } from "@/components/ui/view-toolbar"
-import { isConfigDraftStatus, resolveRunStatus } from "@/lib/constants"
 import { useRunChrome } from "@/hooks/useRunChrome"
 import type { SelectedRun } from "@/context/runSessionTypes"
 import {
@@ -29,7 +27,6 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip"
 import { RunView } from "@/views/RunView"
-import type { ConfigGenerateRequest } from "@/views/SetupView"
 import type { ScreeningOverride } from "@/lib/api"
 
 const SetupView = lazy(() => import("@/views/SetupView").then((m) => ({ default: m.SetupView })))
@@ -71,17 +68,6 @@ export class AppErrorBoundary extends Component<{ children: ReactNode }, ErrorBo
     }
     return this.props.children
   }
-}
-
-interface DraftConfigState {
-  request: ConfigGenerateRequest | null
-  yaml: string
-  isGenerating: boolean
-  activeStep: string
-  stepMetadata: Record<string, unknown>
-  usedWebFallback: boolean
-  fallbackReason: string | null
-  generationError: string | null
 }
 
 function ViewLoader() {
@@ -147,30 +133,38 @@ function AppShell() {
     return stored ? Math.max(200, Math.min(420, Number(stored))) : 240
   })
   const { data: defaultYaml = "" } = useDefaultReviewConfig()
-  const [draftConfig, setDraftConfig] = useState<DraftConfigState | null>(null)
-  const [prosperoPrepareInProgress, setProsperoPrepareInProgress] = useState(false)
-  const [prosperoSubmitting, setProsperoSubmitting] = useState(false)
+  const {
+    draftConfig,
+    prosperoPrepareInProgress,
+    prosperoSubmitting,
+    setProsperoPrepareInProgress,
+    setProsperoSubmitting,
+    handleStartDraftConfig,
+    handleOpenDraftYaml,
+    handleRetryDraftGeneration,
+    handlePrepareProsperoConfig,
+    handleLaunchDraftConfig,
+  } = useDraftConfigFlow({
+    selectedRun,
+    navigate,
+    setSelectedRun,
+    setActiveRunTab,
+    openDraftRunShell,
+    handleStart,
+    handleStartWithSupplementaryCsv,
+    handleStartWithMasterlistCsv,
+  })
   const [settingsOpen, setSettingsOpen] = useState(false)
   const { isOnline } = useBackendHealth(6000, { suppressOffline: status === "streaming" })
   const prevOnlineRef = useRef(isOnline)
 
-  const isDraftRun =
-    selectedRun !== null &&
-    (selectedRun.workflowId === "draft" ||
-      draftConfig !== null ||
-      isConfigDraftStatus(selectedRun.historicalStatus))
-  const draftStatus =
-    draftConfig?.isGenerating || selectedRun?.historicalStatus === "config_generating"
-      ? "config_generating"
-      : selectedRun?.historicalStatus === "config_ready"
-        ? "config_ready"
-        : "idle"
-  const resolvedHistoricalStatus =
-    selectedRun === null
-      ? "idle"
-      : isDraftRun
-        ? draftStatus
-        : resolveRunStatus(selectedRun.historicalStatus ?? "completed")
+  const isDraftRun = deriveIsDraftRun(selectedRun, draftConfig)
+  const draftStatus = deriveDraftStatus(draftConfig, selectedRun?.historicalStatus)
+  const resolvedHistoricalStatus = deriveResolvedHistoricalStatus(
+    selectedRun,
+    isDraftRun,
+    draftStatus,
+  )
 
   const { liveStatus } = useRunChrome({
     run: selectedRun ?? EMPTY_SELECTED_RUN,
@@ -184,13 +178,6 @@ function AppShell() {
     prosperoPrepareInProgress,
     resolvedHistoricalStatus,
   })
-
-  useEffect(() => {
-    if (selectedRun === null) {
-      setDraftConfig(null)
-      setProsperoPrepareInProgress(false)
-    }
-  }, [selectedRun])
 
   useEffect(() => {
     if (!prevOnlineRef.current && isOnline) {
@@ -220,128 +207,6 @@ function AppShell() {
     return () => window.removeEventListener("keydown", handleKey)
   }, [])
 
-  async function handleStartDraftConfig(req: ConfigGenerateRequest) {
-    setDraftConfig({
-      request: req,
-      yaml: "",
-      isGenerating: true,
-      activeStep: "start",
-      stepMetadata: {},
-      usedWebFallback: false,
-      fallbackReason: null,
-      generationError: null,
-    })
-    let workflowId: string | null = null
-    try {
-      const reserved = await reserveWorkflowDraft(req.question)
-      workflowId = reserved.workflow_id
-      const now = new Date()
-      setSelectedRun({
-        runId: reserved.workflow_id,
-        workflowId: reserved.workflow_id,
-        topic: req.question,
-        dbPath: reserved.db_path,
-        isDone: false,
-        historicalStatus: "config_generating",
-        startedAt: now,
-        createdAt: now.toISOString(),
-      })
-      setActiveRunTab("config")
-      navigate(`/run/${reserved.workflow_id}/config`, { replace: true })
-      void queryClient.invalidateQueries({ queryKey: ["history"] })
-
-      const yaml = await generateConfigStream(
-        req.question,
-        req.deepseekKey,
-        req.generationProfile,
-        (step, metadata) => {
-          const normalizedStep = step === "structuring_retry" ? "structuring" : step
-          setDraftConfig((prev) => {
-            if (!prev) return prev
-            const reason = step === "web_research_fallback" && typeof metadata?.reason === "string"
-              ? metadata.reason
-              : prev.fallbackReason
-            return {
-              ...prev,
-              activeStep: normalizedStep,
-              stepMetadata: metadata ?? {},
-              usedWebFallback: prev.usedWebFallback || step === "web_research_fallback",
-              fallbackReason: reason,
-            }
-          })
-        },
-      )
-      await saveWorkflowConfigDraft(reserved.workflow_id, yaml)
-      setDraftConfig((prev) => (prev ? { ...prev, yaml, isGenerating: false, generationError: null } : prev))
-      setSelectedRun((prev) => (
-        prev?.workflowId === reserved.workflow_id
-          ? { ...prev, historicalStatus: "config_ready" }
-          : prev
-      ))
-      void queryClient.invalidateQueries({ queryKey: ["history"] })
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error)
-      setDraftConfig((prev) => (prev ? { ...prev, isGenerating: false, generationError: message } : prev))
-      if (workflowId) {
-        setSelectedRun((prev) => (
-          prev?.workflowId === workflowId
-            ? { ...prev, historicalStatus: "config_generating" }
-            : prev
-        ))
-      }
-    }
-  }
-
-  function handleOpenDraftYaml(yaml: string) {
-    openDraftRunShell("Draft config")
-    setDraftConfig({
-      request: null,
-      yaml,
-      isGenerating: false,
-      activeStep: "finalizing",
-      stepMetadata: {},
-      usedWebFallback: false,
-      fallbackReason: null,
-      generationError: null,
-    })
-  }
-
-  async function handleRetryDraftConfigGeneration() {
-    if (!draftConfig?.request) return
-    await handleStartDraftConfig(draftConfig.request)
-  }
-
-  async function handlePrepareProsperoConfig(yaml: string) {
-    if (!draftConfig?.request) return
-    const reservedWorkflowId =
-      selectedRun?.workflowId && selectedRun.workflowId !== "draft"
-        ? selectedRun.workflowId
-        : undefined
-    const req = buildRunRequest(
-      yaml,
-      resolveStoredApiKeys({ deepseek: draftConfig.request.deepseekKey }),
-      undefined,
-      reservedWorkflowId,
-    )
-    const prepareRequest = draftConfig.request
-    setProsperoPrepareInProgress(true)
-    try {
-      if (prepareRequest.csvFile && prepareRequest.csvMode === "masterlist") {
-        await handleStartWithMasterlistCsv(prepareRequest.csvFile, req, { tab: "config" })
-      } else if (prepareRequest.csvFile) {
-        await handleStartWithSupplementaryCsv(prepareRequest.csvFile, req, { tab: "config" })
-      } else {
-        await handleStart(req, { tab: "config" })
-      }
-      setDraftConfig((prev) => (prev ? { ...prev, yaml, isGenerating: false } : prev))
-      setActiveRunTab("config")
-    } catch (error) {
-      setProsperoPrepareInProgress(false)
-      const message = error instanceof Error ? error.message : String(error)
-      toast.error(message || "Failed to generate PROSPERO draft")
-    }
-  }
-
   async function handleStartResearchAfterProspero(
     registration: { registration_number: string; registration_date: string },
   ) {
@@ -363,24 +228,6 @@ function AppShell() {
     const runId = selectedRun?.runId
     if (!runId || runId === "draft") return
     await handleApproveScreeningAndResume(runId, overrides.length > 0 ? overrides : undefined)
-  }
-
-  async function handleLaunchDraftConfig(yaml: string) {
-    if (!draftConfig?.request) return
-    const req = buildRunRequest(
-      yaml,
-      resolveStoredApiKeys({ deepseek: draftConfig.request.deepseekKey }),
-    )
-    setDraftConfig(null)
-    if (draftConfig.request.csvFile && draftConfig.request.csvMode === "masterlist") {
-      await handleStartWithMasterlistCsv(draftConfig.request.csvFile, req)
-      return
-    }
-    if (draftConfig.request.csvFile) {
-      await handleStartWithSupplementaryCsv(draftConfig.request.csvFile, req)
-      return
-    }
-    await handleStart(req)
   }
 
   function handleSidebarWidthChange(w: number) {
@@ -434,7 +281,7 @@ function AppShell() {
         submissionFocusTarget={submissionFocusTarget}
         submissionFocusToken={submissionFocusToken}
         draftConfig={isDraftRun ? draftConfig : null}
-        onRetryDraftGeneration={() => { void handleRetryDraftConfigGeneration() }}
+        onRetryDraftGeneration={() => { void handleRetryDraftGeneration() }}
         onLaunchDraft={(yaml) => { void handleLaunchDraftConfig(yaml) }}
         prosperoPrepareInProgress={prosperoPrepareInProgress}
         prosperoSubmitting={prosperoSubmitting}

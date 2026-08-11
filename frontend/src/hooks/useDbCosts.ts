@@ -8,6 +8,7 @@ import {
   fetchWorkflowValidationSummaryWithChecks,
 } from "@/lib/api"
 import type { DbCostExportGranularity } from "@/lib/api"
+import { toApiEnd, toApiStart } from "@/components/cost-ops/costOpsFormatters"
 
 export const LIVE_COST_REFRESH_MS = 5_000
 
@@ -86,8 +87,8 @@ export function useDbCostAggregates(
     queryKey: dbCostAggregatesQueryKey(runId ?? "", startDate, endDate, granularity),
     queryFn: () =>
       fetchDbCostAggregates(runId!, {
-        start_ts: startDate || undefined,
-        end_ts: endDate || undefined,
+        start_ts: toApiStart(startDate),
+        end_ts: toApiEnd(endDate),
         granularity,
       }),
     enabled,

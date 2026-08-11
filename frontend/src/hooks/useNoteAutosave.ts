@@ -10,12 +10,22 @@ interface UseNoteAutosaveArgs {
 }
 
 export function useNoteAutosave({ workflowId, value, onChange }: UseNoteAutosaveArgs) {
+  const [prevValue, setPrevValue] = useState(value)
   const [localValue, setLocalValue] = useState(value)
   const [expanded, setExpanded] = useState(() => value.trim().length > 0)
+  const [isFocused, setIsFocused] = useState(false)
   const [saveState, setSaveState] = useState<SaveState>("idle")
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const savedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  if (value !== prevValue) {
+    setPrevValue(value)
+    if (!isFocused) {
+      setLocalValue(value)
+      setExpanded(value.trim().length > 0)
+    }
+  }
 
   function recalcHeight() {
     const el = textareaRef.current
@@ -23,15 +33,6 @@ export function useNoteAutosave({ workflowId, value, onChange }: UseNoteAutosave
     el.style.height = "auto"
     el.style.height = `${Math.min(el.scrollHeight, 144)}px`
   }
-
-  useEffect(() => {
-    if (document.activeElement !== textareaRef.current) {
-      // eslint-disable-next-line react-hooks/set-state-in-effect
-      setLocalValue(value)
-      // eslint-disable-next-line react-hooks/set-state-in-effect
-      setExpanded(value.trim().length > 0)
-    }
-  }, [value])
 
   useEffect(() => {
     const el = textareaRef.current
@@ -71,6 +72,7 @@ export function useNoteAutosave({ workflowId, value, onChange }: UseNoteAutosave
   }
 
   function handleBlur() {
+    setIsFocused(false)
     if (debounceRef.current) {
       clearTimeout(debounceRef.current)
       debounceRef.current = null
@@ -101,6 +103,7 @@ export function useNoteAutosave({ workflowId, value, onChange }: UseNoteAutosave
   }
 
   function handleFocus() {
+    setIsFocused(true)
     setExpanded(true)
   }
 

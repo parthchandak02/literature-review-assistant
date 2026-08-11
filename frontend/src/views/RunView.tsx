@@ -1,18 +1,14 @@
-import { Suspense, lazy, useState } from "react"
+import { Suspense, lazy } from "react"
 import {
   Activity,
   BarChart3,
-  ClipboardCheck,
   Database,
   FileCode2,
   FileText,
 } from "lucide-react"
-import { cn } from "@/lib/utils"
-import { formatRunDate, formatWorkflowId } from "@/lib/format"
 import { Spinner } from "@/components/ui/feedback"
-import { LiveStreamStatus } from "@/components/run-status"
-import { GlassTabs } from "@/components/ui/glass-tabs"
 import { ViewBoundary } from "@/components/ViewBoundary"
+import { RunChrome } from "@/components/run/RunChrome"
 import { ActivityView } from "@/views/ActivityView"
 import type { ReviewEvent } from "@/lib/api"
 import { useHistoricalEvents } from "@/hooks/useHistoricalEvents"
@@ -53,19 +49,6 @@ function ViewLoader() {
       <Spinner size="md" />
     </div>
   )
-}
-
-// ---------------------------------------------------------------------------
-// Run info strip helpers
-// ---------------------------------------------------------------------------
-
-interface InfoPillProps {
-  children: React.ReactNode
-  dim?: boolean
-}
-
-function InfoPill({ children, dim }: InfoPillProps) {
-  return <span className={cn("shrink-0", dim && "text-muted")}>{children}</span>
 }
 
 // ---------------------------------------------------------------------------
@@ -133,7 +116,6 @@ export function RunView({
   onStartResearchAfterProspero,
   onApproveScreeningAndResume,
 }: RunViewProps) {
-  const [wfIdCopied, setWfIdCopied] = useState(false)
   const isHistorical = !isViewingLiveRun
   const historicalQuery = useHistoricalEvents(run.workflowId, run.runId, {
     enabled: isHistorical,
@@ -145,18 +127,7 @@ export function RunView({
   // Use live SSE events when available; fall back to replayed historical events.
   const effectiveEvents = isHistorical ? historicalEvents : events
 
-  const {
-    statusLabel,
-    statusClassName: statusClass,
-    displayFunnelStages,
-    fallbackFound,
-    fallbackIncluded,
-    displayCost,
-    isRunning,
-    isDone,
-    isAwaitingProspero,
-    isAwaitingReview,
-  } = useRunChrome({
+  const chrome = useRunChrome({
     run,
     events,
     effectiveEvents,
@@ -166,6 +137,11 @@ export function RunView({
     liveOutputs,
     prosperoPrepareInProgress,
   })
+
+  const {
+    isDone,
+    isAwaitingProspero,
+  } = chrome
 
   return (
     <div className="flex flex-col gap-0 h-full">
@@ -177,121 +153,15 @@ export function RunView({
           Connecting to run session… Event replay uses workflow SQLite until attach completes.
         </div>
       )}
-      {/* Run info strip */}
-      <div
-        className="glass-toolbar flex items-center justify-between gap-3 px-6 py-2 border-b border-border/60 shrink-0 text-meta"
-        style={{ touchAction: "pan-x" }}
-      >
-        <div className="flex items-center gap-2 min-w-0 overflow-x-auto scrollbar-none">
-          <span className={cn("font-semibold shrink-0", statusClass)}>
-            {statusLabel}
-          </span>
-          {(run.workflowId ?? run.runId) && (
-            <>
-              <InfoPill dim>|</InfoPill>
-              <InfoPill dim>
-                <button
-                  type="button"
-                  onClick={async () => {
-                    const id = run.workflowId ?? run.runId
-                    if (id) {
-                      await navigator.clipboard.writeText(id)
-                      setWfIdCopied(true)
-                      setTimeout(() => setWfIdCopied(false), 1500)
-                    }
-                  }}
-                  className="hover:text-foreground transition-colors cursor-pointer"
-                  title="Copy workflow ID"
-                >
-                  {wfIdCopied ? "Copied!" : formatWorkflowId(run.workflowId ?? run.runId)}
-                </button>
-              </InfoPill>
-            </>
-          )}
-          {run.createdAt && (
-            <>
-              <InfoPill dim>|</InfoPill>
-              <InfoPill>{formatRunDate(run.createdAt)}</InfoPill>
-            </>
-          )}
-          {/* Paper funnel: shows each filtering stage as count -> count -> ... */}
-          {displayFunnelStages.length > 0 ? (
-            <>
-              <InfoPill dim>|</InfoPill>
-              <InfoPill>
-                <span className="flex items-baseline gap-1 flex-wrap">
-                  {displayFunnelStages.map((stage, i) => (
-                    <span key={stage.key} className="flex items-baseline gap-1 shrink-0">
-                      {i > 0 && (
-                        <span className="text-muted select-none mx-0.5">&gt;</span>
-                      )}
-                      <span className={cn("font-semibold", stage.colorClass)}>
-                        {stage.count.toLocaleString()}
-                      </span>
-                      <span className="text-muted">{stage.label}</span>
-                    </span>
-                  ))}
-                </span>
-              </InfoPill>
-            </>
-          ) : (
-            <>
-              {fallbackFound != null && fallbackFound > 0 && (
-                <>
-                  <InfoPill dim>|</InfoPill>
-                  <InfoPill>
-                    <span className="text-intent-info">{fallbackFound.toLocaleString()}</span>
-                    <span> found</span>
-                  </InfoPill>
-                </>
-              )}
-              {fallbackIncluded != null && fallbackIncluded > 0 && (
-                <>
-                  <InfoPill dim>|</InfoPill>
-                  <InfoPill>
-                    <span className="text-intent-success">{fallbackIncluded.toLocaleString()}</span>
-                    <span> included</span>
-                  </InfoPill>
-                </>
-              )}
-            </>
-          )}
-          {displayCost != null && displayCost > 0 && (
-            <>
-              <InfoPill dim>|</InfoPill>
-              <InfoPill>
-                <button
-                  onClick={() => onTabChange("cost")}
-                  className="text-intent-warning hover:text-intent-warning transition-colors"
-                >
-                  ${displayCost.toFixed(3)}
-                </button>
-              </InfoPill>
-            </>
-          )}
-        </div>
-
-        {isViewingLiveRun && isRunning && (
-          <div className="flex items-center gap-2 shrink-0">
-            <LiveStreamStatus mode={status === "connecting" ? "connecting" : "streaming"} />
-          </div>
-        )}
-      </div>
-
-      {/* Glass tabs module */}
-      <div className="glass-toolbar px-3 py-2 border-b border-border/70 shrink-0" style={{ touchAction: "pan-x" }}>
-        <GlassTabs
-          items={[
-            ...TAB_ITEMS.map((tab) => ({ id: tab.id, label: tab.label, icon: tab.icon })),
-            ...(isAwaitingReview
-              ? [{ id: "review-screening" as RunTab, label: "Review Screening", icon: ClipboardCheck, accent: "amber" as const }]
-              : []),
-          ]}
-          activeTab={activeTab}
-          onTabChange={onTabChange}
-          equalWidth
-        />
-      </div>
+      <RunChrome
+        run={run}
+        chrome={chrome}
+        tabItems={TAB_ITEMS}
+        activeTab={activeTab}
+        onTabChange={onTabChange}
+        isViewingLiveRun={isViewingLiveRun}
+        status={status}
+      />
 
       {/* Tab content -- pb accounts for iOS/Chrome bottom safe area (home bar, bottom nav) */}
       <div className="flex-1 overflow-y-auto overscroll-none p-6" style={{ paddingBottom: 'max(1.5rem, env(safe-area-inset-bottom))' }}>

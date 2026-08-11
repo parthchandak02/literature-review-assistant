@@ -8,15 +8,14 @@ import {
   ResponsiveContainer,
   Cell,
 } from "recharts"
-import { DollarSign, Zap, ArrowUpDown, Activity, BarChart3, Table2 } from "lucide-react"
+import { DollarSign, Zap, ArrowUpDown, Activity, BarChart3 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { CHART_THEME } from "@/lib/constants"
 import { getDbCostExportUrl } from "@/lib/api"
 import type {
-  CostDashboardResponse,
   DbCostExportGranularity,
 } from "@/lib/api"
-import type { CostStats } from "@/hooks/useCostStats"
+import { buildCostStatsFromDashboard, type CostStats } from "@/hooks/useCostStats"
 import {
   costsFetchErrorMessage,
   useDbCostAggregates,
@@ -26,8 +25,25 @@ import {
 import { FetchError, EmptyState } from "@/components/ui/feedback"
 import { SkeletonCard } from "@/components/ui/skeleton"
 import { PageSection } from "@/components/ui/section"
-import { GlassTabs } from "@/components/ui/glass-tabs"
-import { PHASE_LABEL_MAP, phaseColor } from "@/lib/constants"
+import { ChartTableToggle, type ChartTableMode } from "@/components/cost-ops/ChartTableToggle"
+import { CostChartTooltip } from "@/components/cost-ops/CostChartTooltip"
+import { CostOpsFiltersBar } from "@/components/cost-ops/CostOpsFiltersBar"
+import {
+  CostOpsBucketSection,
+  CostOpsGroupSection,
+  CostOpsPhaseSection,
+  CostsLoadingSkeleton,
+} from "@/components/cost-ops/CostOpsChartSection"
+import {
+  buildPresetRange,
+  formatInteger,
+  formatPhaseName,
+  formatUsd,
+  statCardClass,
+  toApiEnd,
+  toApiStart,
+} from "@/components/cost-ops/costOpsFormatters"
+import { phaseColor } from "@/lib/constants"
 
 interface MetricTileProps {
   icon: React.ElementType
@@ -50,54 +66,6 @@ function MetricTile({ icon: Icon, label, value, sub, iconClass }: MetricTileProp
   )
 }
 
-function CostChartTooltip({ active, payload, label }: { active?: boolean; payload?: Array<{ value: number }>; label?: string }) {
-  if (!active || !payload?.length) return null
-  return (
-    <div className="rounded-lg border border-border bg-popover px-3 py-2 text-xs text-popover-foreground shadow-xl">
-      <div className="text-muted mb-1">{label}</div>
-      <div className="text-foreground font-mono font-semibold">${payload[0].value.toFixed(4)}</div>
-    </div>
-  )
-}
-
-function formatPhaseName(phase: string): string {
-  if (phase in PHASE_LABEL_MAP) return PHASE_LABEL_MAP[phase]
-  // Generic fallback: strip phase_N_ or quality_ prefix, title-case words
-  return phase
-    .replace(/^phase_\d+_/, "")
-    .replace(/^quality_/, "")
-    .split("_")
-    .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
-    .join(" ")
-}
-
-function formatUsd(value: number): string {
-  return `$${value.toFixed(4)}`
-}
-
-function buildCostStatsFromDashboard(dashboard: CostDashboardResponse): CostStats {
-  return {
-    total_cost: dashboard.total_cost ?? dashboard.totals.cost_usd,
-    total_tokens_in: dashboard.totals.tokens_in,
-    total_tokens_out: dashboard.totals.tokens_out,
-    total_calls: dashboard.totals.calls,
-    by_model: dashboard.by_model.map((m) => ({
-      model: m.model,
-      calls: m.calls,
-      tokens_in: m.tokens_in,
-      tokens_out: m.tokens_out,
-      cost_usd: m.cost_usd,
-    })),
-    by_phase: dashboard.by_phase.map((p) => ({
-      phase: p.phase,
-      cost_usd: p.cost_usd,
-      calls: p.calls,
-    })),
-  }
-}
-
-type PhaseViewMode = "chart" | "table"
-
 interface CostViewProps {
   costStats: CostStats
   dbRunId?: string | null
@@ -106,10 +74,21 @@ interface CostViewProps {
 }
 
 export function CostView({ costStats, dbRunId, workflowId, isLive }: CostViewProps) {
-  const [opsStartDate, setOpsStartDate] = useState("")
-  const [opsEndDate, setOpsEndDate] = useState("")
+  const defaultOpsRange = useMemo(() => buildPresetRange(30), [])
+  const [opsStartDate, setOpsStartDate] = useState(defaultOpsRange.startDate)
+  const [opsEndDate, setOpsEndDate] = useState(defaultOpsRange.endDate)
   const [opsGranularity, setOpsGranularity] = useState<DbCostExportGranularity>("day")
-  const [phaseViewMode, setPhaseViewMode] = useState<PhaseViewMode>("chart")
+  const [opsPreset, setOpsPreset] = useState<"5d" | "30d" | "90d" | "custom">("30d")
+  const [opsViewMode, setOpsViewMode] = useState<ChartTableMode>("table")
+  const [phaseViewMode, setPhaseViewMode] = useState<ChartTableMode>("chart")
+
+  function applyOpsPreset(nextPreset: "5d" | "30d" | "90d") {
+    const days = nextPreset === "5d" ? 5 : nextPreset === "30d" ? 30 : 90
+    const range = buildPresetRange(days)
+    setOpsPreset(nextPreset)
+    setOpsStartDate(range.startDate)
+    setOpsEndDate(range.endDate)
+  }
 
   const opsEnabled = useMemo(() => {
     if (typeof window === "undefined") return false
@@ -170,8 +149,8 @@ export function CostView({ costStats, dbRunId, workflowId, isLive }: CostViewPro
   const hasCosts = total_calls > 0 || total_cost > 0
   const opsExportUrl = dbRunId
     ? getDbCostExportUrl(dbRunId, {
-      start_ts: opsStartDate || undefined,
-      end_ts: opsEndDate || undefined,
+      start_ts: toApiStart(opsStartDate),
+      end_ts: toApiEnd(opsEndDate),
       granularity: opsGranularity,
     })
     : ""
@@ -247,14 +226,7 @@ export function CostView({ costStats, dbRunId, workflowId, isLive }: CostViewPro
           icon={BarChart3}
           title="Cost by Phase"
           action={
-            <GlassTabs
-              items={[
-                { id: "chart", label: "Chart", icon: BarChart3 },
-                { id: "table", label: "Table", icon: Table2 },
-              ]}
-              activeTab={phaseViewMode}
-              onTabChange={setPhaseViewMode}
-            />
+            <ChartTableToggle mode={phaseViewMode} onChange={setPhaseViewMode} />
           }
           contentClassName={phaseViewMode === "table" ? "p-0" : undefined}
         >
@@ -388,97 +360,80 @@ export function CostView({ costStats, dbRunId, workflowId, isLive }: CostViewPro
           title="Ops Cost Diagnostics"
           action={<span className="label-muted">Hidden mode (`ops=1`)</span>}
         >
-          <div className="space-y-4">
-            <div className="grid grid-cols-1 md:grid-cols-5 gap-3">
-              <label className="flex flex-col gap-1 text-xs text-muted">
-                Start
-                <input
-                  type="date"
-                  value={opsStartDate}
-                  onChange={(e) => setOpsStartDate(e.target.value)}
-                  className="h-9 rounded-md border border-border bg-surface-2 px-2 text-foreground"
-                />
-              </label>
-              <label className="flex flex-col gap-1 text-xs text-muted">
-                End
-                <input
-                  type="date"
-                  value={opsEndDate}
-                  onChange={(e) => setOpsEndDate(e.target.value)}
-                  className="h-9 rounded-md border border-border bg-surface-2 px-2 text-foreground"
-                />
-              </label>
-              <label className="flex flex-col gap-1 text-xs text-muted">
-                CSV Bucket
-                <select
-                  value={opsGranularity}
-                  onChange={(e) => setOpsGranularity(e.target.value as DbCostExportGranularity)}
-                  className="h-9 rounded-md border border-border bg-surface-2 px-2 text-foreground"
-                >
-                  <option value="day">day</option>
-                  <option value="week">week</option>
-                  <option value="month">month</option>
-                </select>
-              </label>
-              <div className="flex items-end gap-2 md:col-span-2">
-                <button
-                  type="button"
-                  onClick={() => { void opsAggregatesQuery.refetch() }}
-                  className="h-9 px-3 rounded-md border border-border bg-surface-2 text-foreground text-xs hover:bg-surface-3"
-                >
-                  Refresh
-                </button>
-                <a
-                  href={opsExportUrl}
-                  className="h-9 px-3 rounded-md border border-border bg-surface-2 text-foreground text-xs hover:bg-surface-3 inline-flex items-center"
-                >
-                  Export CSV
-                </a>
-              </div>
-            </div>
+          <div className="space-y-5">
+            <CostOpsFiltersBar
+              showPresets={false}
+              preset={opsPreset}
+              startDate={opsStartDate}
+              endDate={opsEndDate}
+              exportGranularity={opsGranularity}
+              exportUrl={opsExportUrl}
+              loading={opsLoading}
+              onPresetChange={applyOpsPreset}
+              onStartDateChange={(value) => {
+                setOpsPreset("custom")
+                setOpsStartDate(value)
+              }}
+              onEndDateChange={(value) => {
+                setOpsPreset("custom")
+                setOpsEndDate(value)
+              }}
+              onExportGranularityChange={setOpsGranularity}
+              onRefresh={() => { void opsAggregatesQuery.refetch() }}
+            />
 
-            {opsLoading && <div className="text-xs text-muted">Loading ops aggregates...</div>}
-            {opsError && <div className="text-xs text-intent-danger">{opsError}</div>}
-
-            {opsAggregates?.totals && (
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-xs">
-                <div className="text-muted">Total cost: <span className="text-foreground font-mono">{formatUsd(Number(opsAggregates.totals.total_cost_usd || 0))}</span></div>
-                <div className="text-muted">Calls: <span className="text-foreground font-mono">{Number(opsAggregates.totals.total_calls || 0)}</span></div>
-                <div className="text-muted">Tokens in: <span className="text-foreground font-mono">{Number(opsAggregates.totals.total_tokens_in || 0).toLocaleString()}</span></div>
-                <div className="text-muted">Tokens out: <span className="text-foreground font-mono">{Number(opsAggregates.totals.total_tokens_out || 0).toLocaleString()}</span></div>
+            {opsError && (
+              <div className="rounded-lg border border-intent-danger-border bg-intent-danger-subtle px-4 py-3 text-sm text-intent-danger">
+                {opsError}
               </div>
             )}
 
+            {opsLoading && !opsAggregates && <CostsLoadingSkeleton />}
+
             {opsAggregates && (
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-xs">
-                <div className="rounded-md border border-border p-3">
-                  <div className="text-muted mb-2">Top phases</div>
-                  {opsAggregates.by_phase.slice(0, 5).map((row) => (
-                    <div key={row.group_key} className="flex items-center justify-between py-1 text-foreground">
-                      <span>{formatPhaseName(row.group_key)}</span>
-                      <span className="font-mono">{formatUsd(Number(row.cost_usd))}</span>
-                    </div>
-                  ))}
+              <>
+                <div className="flex items-center justify-end">
+                  <ChartTableToggle mode={opsViewMode} onChange={setOpsViewMode} />
                 </div>
-                <div className="rounded-md border border-border p-3">
-                  <div className="text-muted mb-2">Top models</div>
-                  {opsAggregates.by_model.slice(0, 5).map((row) => (
-                    <div key={row.group_key} className="flex items-center justify-between py-1 text-foreground">
-                      <span>{row.group_key}</span>
-                      <span className="font-mono">{formatUsd(Number(row.cost_usd))}</span>
+
+                <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+                  <div className={cn(statCardClass, "min-w-0")}>
+                    <div className="text-xs uppercase tracking-wide text-muted">Total cost</div>
+                    <div className="mt-2 text-lg sm:text-2xl font-semibold text-foreground tabular-nums truncate">
+                      {formatUsd(Number(opsAggregates.totals?.total_cost_usd || 0))}
                     </div>
-                  ))}
-                </div>
-                <div className="rounded-md border border-border p-3">
-                  <div className="text-muted mb-2">Recent buckets</div>
-                  {opsAggregates.by_day.slice(-5).map((row) => (
-                    <div key={row.bucket} className="flex items-center justify-between py-1 text-foreground">
-                      <span>{row.bucket}</span>
-                      <span className="font-mono">{formatUsd(Number(row.cost_usd))}</span>
+                  </div>
+                  <div className={cn(statCardClass, "min-w-0")}>
+                    <div className="text-xs uppercase tracking-wide text-muted">Total calls</div>
+                    <div className="mt-2 text-lg sm:text-2xl font-semibold text-foreground tabular-nums truncate">
+                      {formatInteger(Number(opsAggregates.totals?.total_calls || 0))}
                     </div>
-                  ))}
+                  </div>
+                  <div className={cn(statCardClass, "min-w-0")}>
+                    <div className="text-xs uppercase tracking-wide text-muted">Input tokens</div>
+                    <div className="mt-2 text-lg sm:text-2xl font-semibold text-foreground tabular-nums truncate">
+                      {formatInteger(Number(opsAggregates.totals?.total_tokens_in || 0))}
+                    </div>
+                  </div>
+                  <div className={cn(statCardClass, "min-w-0")}>
+                    <div className="text-xs uppercase tracking-wide text-muted">Output tokens</div>
+                    <div className="mt-2 text-lg sm:text-2xl font-semibold text-foreground tabular-nums truncate">
+                      {formatInteger(Number(opsAggregates.totals?.total_tokens_out || 0))}
+                    </div>
+                  </div>
                 </div>
-              </div>
+
+                <div className="grid gap-4 md:grid-cols-2 2xl:grid-cols-3">
+                  <CostOpsBucketSection title="Daily spend" rows={opsAggregates.by_day} viewMode={opsViewMode} />
+                  <CostOpsBucketSection title="Weekly spend" rows={opsAggregates.by_week} viewMode={opsViewMode} />
+                  <CostOpsBucketSection title="Monthly spend" rows={opsAggregates.by_month} viewMode={opsViewMode} />
+                </div>
+
+                <div className="grid gap-4 md:grid-cols-2 2xl:grid-cols-3">
+                  <CostOpsPhaseSection title="Top phases" rows={opsAggregates.by_phase} viewMode={opsViewMode} />
+                  <CostOpsGroupSection title="Top models" rows={opsAggregates.by_model} viewMode={opsViewMode} />
+                </div>
+              </>
             )}
           </div>
         </PageSection>

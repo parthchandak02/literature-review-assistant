@@ -200,7 +200,7 @@ export function ResultsView({
         )}
 
         {activeCategory === "figures" && (
-          <div className="p-4 space-y-1">
+          <div className="p-4 space-y-4">
             {prismaDiagramPath ? (
               <PrismaDiagramCard filePath={prismaDiagramPath} runId={exportRunId} />
             ) : null}

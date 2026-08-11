@@ -22,6 +22,7 @@ export interface CostOpsFiltersBarProps {
   exportGranularity: DbCostExportGranularity
   exportUrl: string
   loading: boolean
+  showPresets?: boolean
   onPresetChange: (preset: Exclude<PresetKey, "custom">) => void
   onStartDateChange: (value: string) => void
   onEndDateChange: (value: string) => void
@@ -36,6 +37,7 @@ export function CostOpsFiltersBar({
   exportGranularity,
   exportUrl,
   loading,
+  showPresets = true,
   onPresetChange,
   onStartDateChange,
   onEndDateChange,
@@ -44,8 +46,8 @@ export function CostOpsFiltersBar({
 }: CostOpsFiltersBarProps) {
   return (
     <div className="flex flex-col gap-4">
-      {/* Presets: full-width row so wrapped pills never overlap content below */}
-      <div className="flex flex-wrap items-center gap-1.5 rounded-2xl border border-border/80 bg-card/50 p-1.5 w-full">
+      {showPresets && (
+        <div className="flex flex-wrap items-center gap-1.5 rounded-2xl border border-border/80 bg-card/50 p-1.5 w-full">
         <Button
           type="button"
           variant={preset === "5d" ? "default" : "ghost"}
@@ -74,8 +76,7 @@ export function CostOpsFiltersBar({
           Last 90 days
         </Button>
       </div>
-
-      {/* Date + export fields: fluid grid, no fixed pixel columns */}
+      )}
       <div className="grid grid-cols-1 gap-3 min-[480px]:grid-cols-2 lg:grid-cols-3">
         <label className={cn(fieldLabelClass, "min-w-0")}>
           <span className="text-muted">Start date</span>

@@ -1,3 +1,5 @@
+import { PHASE_LABEL_MAP } from "@/lib/constants"
+
 export function toDateInputValue(date: Date): string {
   const year = date.getFullYear()
   const month = String(date.getMonth() + 1).padStart(2, "0")
@@ -38,6 +40,16 @@ export function formatAxisCost(value: number): string {
 
 export function formatInteger(value: number): string {
   return new Intl.NumberFormat("en-US").format(value)
+}
+
+export function formatPhaseName(phase: string): string {
+  if (phase in PHASE_LABEL_MAP) return PHASE_LABEL_MAP[phase]
+  return phase
+    .replace(/^phase_\d+_/, "")
+    .replace(/^quality_/, "")
+    .split("_")
+    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+    .join(" ")
 }
 
 export const fieldLabelClass = "space-y-1.5 text-sm"

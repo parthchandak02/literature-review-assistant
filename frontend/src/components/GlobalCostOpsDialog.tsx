@@ -26,11 +26,13 @@ import {
   toApiEnd,
   toApiStart,
 } from "@/components/cost-ops/costOpsFormatters"
+import { ChartTableToggle, type ChartTableMode } from "@/components/cost-ops/ChartTableToggle"
 import { cn } from "@/lib/utils"
 import { CostOpsFiltersBar } from "@/components/cost-ops/CostOpsFiltersBar"
 import {
   CostOpsBucketSection,
   CostOpsGroupSection,
+  CostOpsPhaseSection,
   CostsLoadingSkeleton,
 } from "@/components/cost-ops/CostOpsChartSection"
 
@@ -51,6 +53,7 @@ export function CostsPanel() {
   const [startDate, setStartDate] = useState(defaultRange.startDate)
   const [endDate, setEndDate] = useState(defaultRange.endDate)
   const [exportGranularity, setExportGranularity] = useState<DbCostExportGranularity>("day")
+  const [chartTableMode, setChartTableMode] = useState<ChartTableMode>("chart")
   const [loading, setLoading] = useState(false)
   const [loadingStageIndex, setLoadingStageIndex] = useState(0)
   const [error, setError] = useState<string | null>(null)
@@ -172,6 +175,10 @@ export function CostsPanel() {
         <CostsLoadingSkeleton />
       ) : (
         <>
+          <div className="flex items-center justify-end">
+            <ChartTableToggle mode={chartTableMode} onChange={setChartTableMode} />
+          </div>
+
           <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
             <div className={cn(statCardClass, "min-w-0")}>
               <div className="text-xs uppercase tracking-wide text-muted">Total cost</div>
@@ -200,15 +207,15 @@ export function CostsPanel() {
           </div>
 
           <div className="grid gap-4 md:grid-cols-2 2xl:grid-cols-3">
-            <CostOpsBucketSection title="Daily spend" rows={data?.by_day ?? []} />
-            <CostOpsBucketSection title="Weekly spend" rows={data?.by_week ?? []} />
-            <CostOpsBucketSection title="Monthly spend" rows={data?.by_month ?? []} />
+            <CostOpsBucketSection title="Daily spend" rows={data?.by_day ?? []} viewMode={chartTableMode} />
+            <CostOpsBucketSection title="Weekly spend" rows={data?.by_week ?? []} viewMode={chartTableMode} />
+            <CostOpsBucketSection title="Monthly spend" rows={data?.by_month ?? []} viewMode={chartTableMode} />
           </div>
 
           <div className="grid gap-4 md:grid-cols-2 2xl:grid-cols-3">
-            <CostOpsGroupSection title="Top workflows" rows={data?.by_workflow ?? []} />
-            <CostOpsGroupSection title="Top phases" rows={data?.by_phase ?? []} />
-            <CostOpsGroupSection title="Top models" rows={data?.by_model ?? []} />
+            <CostOpsGroupSection title="Top workflows" rows={data?.by_workflow ?? []} viewMode={chartTableMode} />
+            <CostOpsPhaseSection title="Top phases" rows={data?.by_phase ?? []} viewMode={chartTableMode} />
+            <CostOpsGroupSection title="Top models" rows={data?.by_model ?? []} viewMode={chartTableMode} />
           </div>
         </>
       )}

@@ -109,6 +109,19 @@ Recent remediation (2026-08-10, Phases 0-2) completed:
 | P2 | Screening + Prospero component tests | pending |
 | P2 | `human_review_checkpoint` Activity log label | pending |
 
+### Sprint 3 - Product surface (complete 2026-08-11)
+
+**Goal:** Land Cost/Database/Results/Sidebar decomposition refactor. Ship lane: green tests + UI regression checklist.
+
+| Chunk | Scope | Status |
+|-------|-------|--------|
+| A | Database: `DatabaseView`, `database/*`, `useDbFilters` | done |
+| B | Cost: `CostView`, `cost-ops/*`, `GlobalCostOpsDialog`, `useCostStats` | done |
+| C | Results: `ArtifactFileList`, `FilePreview`, `ManuscriptViewer` | done |
+| D | Run chrome: `RunView`, `RunChrome`, `Sidebar`, `useSidebarRuns` | done |
+
+**Exit:** `make check-local` green (2026-08-11); manual QA per `docs/UI.md#regression-checklist` (Cost/Data/Results/Sidebar items) still recommended before release tag.
+
 ### Perf (2026-08-10)
 
 - Parked-run active-run poll backoff: 2.5s interval (was 800ms) while `awaiting_review` / `awaiting_prospero`

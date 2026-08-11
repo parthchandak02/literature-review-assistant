@@ -1,5 +1,5 @@
 import { useMemo } from "react"
-import type { ReviewEvent } from "@/lib/api"
+import type { CostDashboardResponse, ReviewEvent } from "@/lib/api"
 
 export interface ModelStat {
   model: string
@@ -24,46 +24,78 @@ export interface CostStats {
   by_phase: PhaseStat[]
 }
 
-export function useCostStats(events: ReviewEvent[]): CostStats {
-  return useMemo(() => {
-    const modelMap: Record<string, ModelStat> = {}
-    const phaseMap: Record<string, PhaseStat> = {}
-    let total_cost = 0
-    let total_tokens_in = 0
-    let total_tokens_out = 0
-    let total_calls = 0
+export function aggregateCostStatsFromEvents(events: ReviewEvent[]): CostStats {
+  const modelMap: Record<string, ModelStat> = {}
+  const phaseMap: Record<string, PhaseStat> = {}
+  let total_cost = 0
+  let total_tokens_in = 0
+  let total_tokens_out = 0
+  let total_calls = 0
 
-    for (const ev of events) {
-      if (ev.type !== "api_call" || ev.status !== "success") continue
-      const cost = ev.cost_usd ?? 0
-      const tin = ev.tokens_in ?? 0
-      const tout = ev.tokens_out ?? 0
-      const model = ev.model ?? "unknown"
-      const phase = ev.phase ?? "unknown"
+  for (const ev of events) {
+    if (ev.type !== "api_call" || ev.status !== "success") continue
+    const cost = ev.cost_usd ?? 0
+    const tin = ev.tokens_in ?? 0
+    const tout = ev.tokens_out ?? 0
+    const model = ev.model ?? "unknown"
+    const phase = ev.phase ?? "unknown"
 
-      total_cost += cost
-      total_tokens_in += tin
-      total_tokens_out += tout
-      total_calls += 1
+    total_cost += cost
+    total_tokens_in += tin
+    total_tokens_out += tout
+    total_calls += 1
 
-      if (!modelMap[model]) {
-        modelMap[model] = { model, calls: 0, tokens_in: 0, tokens_out: 0, cost_usd: 0 }
-      }
-      modelMap[model].calls += 1
-      modelMap[model].tokens_in += tin
-      modelMap[model].tokens_out += tout
-      modelMap[model].cost_usd += cost
-
-      if (!phaseMap[phase]) {
-        phaseMap[phase] = { phase, cost_usd: 0, calls: 0 }
-      }
-      phaseMap[phase].cost_usd += cost
-      phaseMap[phase].calls += 1
+    if (!modelMap[model]) {
+      modelMap[model] = { model, calls: 0, tokens_in: 0, tokens_out: 0, cost_usd: 0 }
     }
+    modelMap[model].calls += 1
+    modelMap[model].tokens_in += tin
+    modelMap[model].tokens_out += tout
+    modelMap[model].cost_usd += cost
 
-    const by_model = Object.values(modelMap).sort((a, b) => b.cost_usd - a.cost_usd)
-    const by_phase = Object.values(phaseMap).sort((a, b) => b.cost_usd - a.cost_usd)
+    if (!phaseMap[phase]) {
+      phaseMap[phase] = { phase, cost_usd: 0, calls: 0 }
+    }
+    phaseMap[phase].cost_usd += cost
+    phaseMap[phase].calls += 1
+  }
 
-    return { total_cost, total_tokens_in, total_tokens_out, total_calls, by_model, by_phase }
-  }, [events])
+  const by_model = Object.values(modelMap).sort((a, b) => b.cost_usd - a.cost_usd)
+  const by_phase = Object.values(phaseMap).sort((a, b) => b.cost_usd - a.cost_usd)
+
+  return { total_cost, total_tokens_in, total_tokens_out, total_calls, by_model, by_phase }
+}
+
+export function useCostStats(events: ReviewEvent[]): CostStats {
+  return useMemo(() => aggregateCostStatsFromEvents(events), [events])
+}
+
+/** Map cost-dashboard API payload to the same CostStats shape as SSE aggregation. */
+export function buildCostStatsFromDashboard(dashboard: CostDashboardResponse): CostStats {
+  const by_model = dashboard.by_model
+    .map((m) => ({
+      model: m.model,
+      calls: m.calls,
+      tokens_in: m.tokens_in,
+      tokens_out: m.tokens_out,
+      cost_usd: m.cost_usd,
+    }))
+    .sort((a, b) => b.cost_usd - a.cost_usd)
+
+  const by_phase = dashboard.by_phase
+    .map((p) => ({
+      phase: p.phase,
+      cost_usd: p.cost_usd,
+      calls: p.calls,
+    }))
+    .sort((a, b) => b.cost_usd - a.cost_usd)
+
+  return {
+    total_cost: dashboard.total_cost ?? dashboard.totals.cost_usd,
+    total_tokens_in: dashboard.totals.tokens_in,
+    total_tokens_out: dashboard.totals.tokens_out,
+    total_calls: dashboard.totals.calls,
+    by_model,
+    by_phase,
+  }
 }

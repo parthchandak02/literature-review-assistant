@@ -1,36 +1,17 @@
-import { useState } from "react"
-import { Table2 } from "lucide-react"
 import { Spinner } from "@/components/ui/feedback"
 import { CHART_THEME } from "@/lib/constants"
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer } from "recharts"
-import { Button } from "@/components/ui/button"
 import type { DbCostAggregateBucketRow, DbCostAggregateGroupRow } from "@/lib/api"
+import { CostChartTooltip } from "./CostChartTooltip"
+import type { ChartTableMode } from "./ChartTableToggle"
 import {
   formatAxisCost,
   formatInteger,
+  formatPhaseName,
   formatUsd,
   sectionHeaderClass,
   statCardClass,
 } from "./costOpsFormatters"
-
-export function CostTooltip({
-  active,
-  payload,
-  label,
-}: {
-  active?: boolean
-  payload?: Array<{ value?: number }>
-  label?: string
-}) {
-  if (!active || !payload?.length) return null
-  const value = Number(payload[0].value ?? 0)
-  return (
-    <div className="rounded-md border border-border bg-surface-2/95 px-3 py-2 text-xs shadow-lg">
-      <div className="mb-1 text-muted">{label}</div>
-      <div className="font-medium text-foreground">{formatUsd(value)}</div>
-    </div>
-  )
-}
 
 export function CostOpsRawTable({
   rows,
@@ -67,12 +48,13 @@ export function CostOpsChartSection({
   title,
   labelHeader,
   rows,
+  viewMode,
 }: {
   title: string
   labelHeader: string
   rows: Array<{ label: string; calls: number; cost_usd: number }>
+  viewMode: ChartTableMode
 }) {
-  const [showRaw, setShowRaw] = useState(false)
   const chartData = rows.slice(0, 12).map((row) => ({
     label: row.label,
     calls: row.calls,
@@ -86,25 +68,10 @@ export function CostOpsChartSection({
       </div>
       {rows.length === 0 ? (
         <div className="px-4 py-6 text-sm text-muted">No cost records in this window.</div>
-      ) : showRaw ? (
-        <>
-          <CostOpsRawTable rows={rows} labelHeader={labelHeader} />
-          <div className="border-t border-border/60 px-3 py-2">
-            <div className="flex justify-end">
-              <Button
-                type="button"
-                size="sm"
-                variant="secondary"
-                className="h-8 rounded-lg border border-border bg-surface-2/70 px-3 text-foreground hover:bg-surface-3"
-                onClick={() => setShowRaw(false)}
-              >
-                Show chart
-              </Button>
-            </div>
-          </div>
-        </>
+      ) : viewMode === "table" ? (
+        <CostOpsRawTable rows={rows} labelHeader={labelHeader} />
       ) : (
-        <div className="h-48 px-2 pb-1 pt-1">
+        <div className="h-48 px-2 pb-3 pt-1">
           <ResponsiveContainer width="100%" height="100%">
             <BarChart data={chartData} margin={{ top: 12, right: 8, left: 0, bottom: 4 }}>
               <XAxis
@@ -119,27 +86,10 @@ export function CostOpsChartSection({
                 tickFormatter={formatAxisCost}
                 width={70}
               />
-              <Tooltip content={<CostTooltip />} />
+              <Tooltip content={<CostChartTooltip />} cursor={{ fill: CHART_THEME.cursorFill }} />
               <Bar dataKey="cost_usd" fill={CHART_THEME.seriesPrimary} radius={[6, 6, 0, 0]} />
             </BarChart>
           </ResponsiveContainer>
-        </div>
-      )}
-      {!showRaw && rows.length > 0 && (
-        <div className="border-t border-border/60 px-3 py-2">
-          <div className="flex justify-end">
-            <Button
-              type="button"
-              size="sm"
-              variant="secondary"
-              className="h-8 rounded-lg border border-border bg-surface-2/85 px-2.5 text-foreground hover:bg-surface-3"
-              onClick={() => setShowRaw(true)}
-              title="Show raw table"
-            >
-              <Table2 className="h-3.5 w-3.5" />
-              Raw table
-            </Button>
-          </div>
         </div>
       )}
     </div>
@@ -149,14 +99,17 @@ export function CostOpsChartSection({
 export function CostOpsBucketSection({
   title,
   rows,
+  viewMode,
 }: {
   title: string
   rows: DbCostAggregateBucketRow[]
+  viewMode: ChartTableMode
 }) {
   return (
     <CostOpsChartSection
       title={title}
       labelHeader="Bucket"
+      viewMode={viewMode}
       rows={rows.map((row) => ({
         label: row.bucket,
         calls: row.calls,
@@ -169,19 +122,44 @@ export function CostOpsBucketSection({
 export function CostOpsGroupSection({
   title,
   rows,
+  viewMode,
+  formatLabels,
 }: {
   title: string
   rows: DbCostAggregateGroupRow[]
+  viewMode: ChartTableMode
+  formatLabels?: (key: string) => string
 }) {
+  const labelFormatter = formatLabels ?? ((key: string) => key)
   return (
     <CostOpsChartSection
       title={title}
       labelHeader="Group"
+      viewMode={viewMode}
       rows={rows.slice(0, 12).map((row) => ({
-        label: row.group_key,
+        label: labelFormatter(row.group_key),
         calls: row.calls,
         cost_usd: row.cost_usd,
       }))}
+    />
+  )
+}
+
+export function CostOpsPhaseSection({
+  title,
+  rows,
+  viewMode,
+}: {
+  title: string
+  rows: DbCostAggregateGroupRow[]
+  viewMode: ChartTableMode
+}) {
+  return (
+    <CostOpsGroupSection
+      title={title}
+      rows={rows}
+      viewMode={viewMode}
+      formatLabels={formatPhaseName}
     />
   )
 }
