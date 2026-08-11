@@ -24,7 +24,6 @@ from src.web.shared import (
     RunResponse,
     _get_topic_for_db,
     _make_download_slug,
-    _resolve_db_path,
     _resolve_workflow_id_from_db,
 )
 from src.web.state import (
@@ -431,16 +430,12 @@ async def stream_logs(
         if record and record.db_path:
             log_path = pathlib.Path(record.db_path).parent / "app.jsonl"
         elif workflow_id:
-            db_path = await _resolve_db_path(run_root, workflow_id)
-            if not db_path:
-                raise HTTPException(status_code=404, detail="Workflow not found in registry")
+            db_path = await resolve_runtime_db(workflow_id, run_root)
             log_path = pathlib.Path(db_path).parent / "app.jsonl"
         else:
             raise HTTPException(status_code=404, detail="Run not found or log not yet available")
     elif workflow_id:
-        db_path = await _resolve_db_path(run_root, workflow_id)
-        if not db_path:
-            raise HTTPException(status_code=404, detail="Workflow not found in registry")
+        db_path = await resolve_runtime_db(workflow_id, run_root)
         log_path = pathlib.Path(db_path).parent / "app.jsonl"
     else:
         if log_type not in ("out", "err"):

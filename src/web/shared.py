@@ -19,7 +19,6 @@ import pydantic
 from fastapi import HTTPException
 from pydantic import BaseModel
 
-from src.db.workflow_registry import _open_registry as _open_registry_db
 from src.models import ManuscriptAuditResult
 
 _logger = logging.getLogger(__name__)
@@ -207,23 +206,6 @@ def _age_seconds(value: Any) -> float | None:
     if ts is None:
         return None
     return (datetime.datetime.now(datetime.UTC) - ts).total_seconds()
-
-
-async def _resolve_db_path(run_root: str, workflow_id: str) -> str | None:
-    """Look up db_path in the central workflows_registry.db."""
-    registry = pathlib.Path(run_root) / "workflows_registry.db"
-    if not registry.exists():
-        return None
-    try:
-        async with _open_registry_db(str(registry)) as db:
-            async with db.execute(
-                "SELECT db_path FROM workflows_registry WHERE workflow_id = ?",
-                (workflow_id,),
-            ) as cursor:
-                row = await cursor.fetchone()
-                return str(row[0]) if row else None
-    except Exception:
-        return None
 
 
 async def _ensure_runtime_db_migrated(db_path: str) -> None:

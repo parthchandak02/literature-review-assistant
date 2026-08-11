@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 from types import SimpleNamespace
+from unittest.mock import AsyncMock, patch
 
 import pytest
 
@@ -21,12 +22,49 @@ from src.models import (
 from src.models.enums import ScreeningDecisionType, SourceCategory
 from src.orchestration import workflow as workflow_module
 from src.orchestration.resume import PHASE_ORDER, ResumeNotAllowedError, load_resume_state, validate_resume_allowed
+from src.orchestration.runners.start_runner import resolve_resume_next_phase
 from src.orchestration.state import ReviewState
 from src.orchestration.workflow import _rc_print
 
 
 async def _seed_prospero_gate_checkpoint(repo: WorkflowRepository, workflow_id: str) -> None:
     await repo.save_checkpoint(workflow_id, "phase_1_prospero_gate", papers_processed=0)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("registry_status", "next_phase", "expected"),
+    [
+        ("awaiting_review", "phase_4_extraction_quality", "human_review_checkpoint"),
+        ("running", "phase_4_extraction_quality", "phase_4_extraction_quality"),
+        ("awaiting_prospero", "phase_2_search", "phase_1_prospero_gate"),
+        ("running", "phase_2_search", "phase_2_search"),
+    ],
+)
+async def test_resolve_resume_next_phase_registry_gate_routing(
+    tmp_path,
+    registry_status: str,
+    next_phase: str,
+    expected: str,
+) -> None:
+    state = ReviewState(
+        review_path="config/review.yaml",
+        settings_path="config/settings.yaml",
+        run_root=str(tmp_path),
+        workflow_id="wf-gate-routing",
+        next_phase=next_phase,
+        log_dir=str(tmp_path),
+    )
+    registry_entry = SimpleNamespace(status=registry_status)
+
+    with patch(
+        "src.orchestration.runners.start_runner.find_by_workflow_id",
+        new_callable=AsyncMock,
+        return_value=registry_entry,
+    ):
+        resolved = await resolve_resume_next_phase(state)
+
+    assert resolved == expected
 
 
 @pytest.mark.asyncio
