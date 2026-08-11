@@ -501,10 +501,10 @@ function AppShell() {
         <ViewToolbar
           sticky
           bordered
-          className="!h-auto shrink-0 py-3"
+          className="shrink-0"
           style={{ paddingTop: "env(safe-area-inset-top)" }}
         >
-          <div className="flex items-start gap-3 w-full min-w-0">
+          <div className="h-11 flex items-center gap-3 w-full min-w-0">
             {isMobile && (
               <button
                 onClick={() => setSidebarCollapsed(false)}
@@ -514,9 +514,10 @@ function AppShell() {
                 <Menu className="h-5 w-5" />
               </button>
             )}
-            <TooltipProvider delayDuration={0}>
-              {breadcrumbTopic ? (
-                <div className="flex items-center gap-3 flex-1 min-w-0">
+            <div className="flex flex-1 min-w-0 items-center">
+              <TooltipProvider delayDuration={0}>
+                {breadcrumbTopic ? (
+                  <div className="flex items-center gap-3 w-full min-w-0">
                   <span className="text-xs font-semibold uppercase tracking-wide text-muted shrink-0">
                     Question
                   </span>
@@ -538,10 +539,11 @@ function AppShell() {
                     </TooltipContent>
                   </Tooltip>
                 </div>
-              ) : !selectedRun ? (
-                <span className="text-foreground font-medium">New Review</span>
-              ) : null}
-            </TooltipProvider>
+                ) : !selectedRun ? (
+                  <span className="text-foreground font-medium">New Review</span>
+                ) : null}
+              </TooltipProvider>
+            </div>
           </div>
         </ViewToolbar>
 
