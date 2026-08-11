@@ -70,6 +70,7 @@ Subcommand names should describe the action (`api`, `replay-workflow`) not inter
 5. Update README utility table if entrypoints change.
 6. Wire into `scripts/check.sh` / Makefile / `.github/workflows/ci.yml` if it is a release gate.
 7. Update `.pre-commit-config.yaml` if it should run on every commit.
+8. GitHub Actions (`.github/workflows/ci.yml`) runs `make check-local` after `pnpm install`; keep in sync with `scripts/check.sh local`.
 
 ## Related docs
 

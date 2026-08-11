@@ -70,16 +70,16 @@ Recent remediation (2026-08-10, Phases 0-2) completed:
 
 ## Publication readiness (audit 2026-08-10)
 
-**Verdict: not ready to tag a release until Sprint 1 blockers below are done.** Backend publication pass is largely solid; frontend HITL unpark (reconnect after approve) and fresh-clone CI parity were gaps found in the 2026-08-10 deep audit.
+**Verdict: Sprint 1 blockers implemented; run manual HITL QA before tagging a release.** `make check-local` is green locally. Confirm screening approve reconnect in the browser (approve after 20s delay, Activity tab should stream without sidebar workaround).
 
-### Sprint 1 blockers (in progress)
+### Sprint 1 blockers
 
 | ID | Task | Owner | Status |
 |----|------|-------|--------|
-| S1-1 | Screening approve reconnect (`handleApproveScreeningAndResume` mirrors PROSPERO) | frontend | in progress |
-| S1-2 | Replay fixture DBs committable (`!tests/fixtures/replay/*.db`) | oss | in progress |
-| S1-3 | GitHub tests match `scripts/check.sh local` | oss | in progress |
-| S1-4 | Migration 23 `json_valid` guard + extraction enum fallback | backend | in progress |
+| S1-1 | Screening approve reconnect (`handleApproveScreeningAndResume` mirrors PROSPERO) | frontend | done |
+| S1-2 | Replay fixture DBs committable (`!tests/fixtures/replay/*.db`) | oss | done |
+| S1-3 | GitHub CI matches `scripts/check.sh local` | oss | done |
+| S1-4 | Migration 23 `json_valid` guard + extraction enum fallback | backend | done |
 
 **Sprint 1 exit:** `make check-local` green on a fresh clone; manual QA: approve screening after 20s delay shows live Activity events without sidebar workaround.
 
