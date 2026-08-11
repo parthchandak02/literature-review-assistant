@@ -1,4 +1,8 @@
 import { createContext } from "react"
-import type { RunSessionContextValue } from "@/context/runSessionTypes"
+import type {
+  RunSessionActionsContextValue,
+  RunSessionStateContextValue,
+} from "@/context/runSessionTypes"
 
-export const RunSessionContext = createContext<RunSessionContextValue | null>(null)
+export const RunSessionStateContext = createContext<RunSessionStateContextValue | null>(null)
+export const RunSessionActionsContext = createContext<RunSessionActionsContextValue | null>(null)

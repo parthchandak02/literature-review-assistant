@@ -45,6 +45,11 @@ export {
   type ProsperoRegistration,
 } from "./runs"
 export {
+  subscribeWorkflowActiveRun,
+  type WorkflowActiveRunEvent,
+  type SubscribeWorkflowActiveRunCallbacks,
+} from "./runLifecycle"
+export {
   fetchArtifactText,
   fetchArtifacts,
   triggerExport,

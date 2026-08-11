@@ -22,7 +22,7 @@
 - `/api/config/generate/stream` is POST, not GET.
 - `/api/run` is JSON; CSV uploads use multipart endpoints.
 - `/api/history/active-run` requires `workflow_id` query param.
-- SSE run events: `/api/stream/{run_id}`.
+- SSE run events: `/api/stream/{run_id}` or `/api/stream/workflow/{workflow_id}` after gate resume.
 
 ## Endpoint parity
 
@@ -38,6 +38,7 @@ Enforced by `scripts/check.py api` against Section 10.1 below. Update this table
 | POST | /api/run-with-masterlist | Start review from master-list CSV upload (multipart form) |
 | POST | /api/run-with-supplementary-csv | Start review with connector search plus supplementary CSV upload (multipart form) |
 | GET | /api/stream/{run_id} | SSE stream of ReviewEvent JSON; heartbeat every 15s; ends with done/error/cancelled |
+| GET | /api/stream/workflow/{workflow_id} | SSE stream keyed by workflow_id (reconnect after gate resume without run_id) |
 | POST | /api/cancel/{run_id} | Cancel active run; sets cancellation event |
 | GET | /api/download | Download artifact file (query param `path`; restricted to runs/) |
 | GET | /api/config/review | Default review.yaml content (pre-fills Setup form) |

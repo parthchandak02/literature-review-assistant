@@ -266,3 +266,51 @@ async def test_approve_screening_parked_run_updates_registry(client: httpx.Async
             row = await cur.fetchone()
     assert row is not None
     assert row[0] == "running"
+
+
+# ---------------------------------------------------------------------------
+# screening-summary resolves wf-* ids via registry (resolve_registry_entry path)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_screening_summary_resolves_wf_id_via_registry_without_active_run(
+    client: httpx.AsyncClient,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A wf-* id with no _active_runs entry must resolve through the registry.
+
+    Exercises resolve_runtime_db -> RunResolver.resolve_registry_db_path ->
+    candidate_run_roots -> find_by_workflow_id, i.e. the same registry lookup
+    that resolve_registry_entry now shares with the gate endpoints.
+    """
+    workflow_id = "wf-registry-only-test"
+    run_root = tmp_path / "runs"
+    run_dir = run_root / "2026-08-10" / f"{workflow_id}-topic" / "run_01"
+    run_dir.mkdir(parents=True)
+    db_path = run_dir / "runtime.db"
+    topic = "Registry-only resolution topic"
+
+    await init_runtime_workflow_db(db_path, workflow_id, topic=topic, status="running")
+    await _init_registry(
+        run_root / "workflows_registry.db",
+        workflow_id=workflow_id,
+        db_path=db_path,
+        topic=topic,
+        status="running",
+    )
+
+    assert workflow_id not in _active_runs
+
+    # resolve_runtime_db defaults to run_root="runs" (cwd-relative); chdir so the
+    # default candidate root resolves to this test's isolated tmp_path registry.
+    monkeypatch.chdir(tmp_path)
+
+    response = await client.get(f"/api/run/{workflow_id}/screening-summary")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["run_id"] == workflow_id
+    assert body["total"] == 0
+    assert body["papers"] == []

@@ -8,8 +8,15 @@ from typing import Any
 import aiosqlite
 from fastapi import HTTPException
 
+from src.db.workflow_registry import (
+    RegistryEntry,
+    candidate_run_roots,
+    find_by_workflow_id,
+    find_by_workflow_id_fallback,
+    resolve_workflow_db_path,
+    run_root_from_db_path,
+)
 from src.db.workflow_registry import _open_registry as _open_registry_db
-from src.db.workflow_registry import candidate_run_roots, resolve_workflow_db_path
 from src.web.lifecycle_reconciler import LifecycleReconciler
 
 _REGISTRY_ROW_COLUMNS = """
@@ -126,3 +133,24 @@ async def resolve_runtime_db(
     if active_resolver is None:
         from src.web.state import _run_resolver as active_resolver
     return await active_resolver.resolve_db_path(identifier, run_root)
+
+
+async def resolve_registry_entry(
+    workflow_id: str,
+    run_root: str,
+    *,
+    db_path: str | None = None,
+) -> RegistryEntry:
+    """Resolve a workflow's registry entry via primary lookup then filesystem fallback.
+
+    When db_path is provided, the run_root is re-derived from it via
+    run_root_from_db_path so callers don't need to compute it twice.
+    Raises HTTPException(404) when the workflow is not found by either path.
+    """
+    effective_root = run_root_from_db_path(db_path) if db_path else run_root
+    entry = await find_by_workflow_id(effective_root, workflow_id)
+    if entry is None:
+        entry = await find_by_workflow_id_fallback(effective_root, workflow_id)
+    if entry is None:
+        raise HTTPException(status_code=404, detail="Workflow not found in registry")
+    return entry

@@ -33,6 +33,7 @@ from src.web.state import (
     _lifecycle_coordinator,
     _run_wrapper,
     _RunRecord,
+    _workflow_active_run_broadcaster,
 )
 
 router = APIRouter(tags=["run_lifecycle"])
@@ -401,6 +402,43 @@ async def stream_run(run_id: str, request: Request) -> EventSourceResponse:
                     await asyncio.wait_for(record._event_cond.wait(), timeout=15.0)
             except TimeoutError:
                 yield {"event": "heartbeat", "data": "{}"}
+
+    return EventSourceResponse(_generator())
+
+
+@router.get("/api/stream/workflow/{workflow_id}", include_in_schema=True)
+async def stream_workflow_active_run(workflow_id: str, request: Request) -> EventSourceResponse:
+    """SSE stream that announces when a run becomes active for the given workflow."""
+    queue: asyncio.Queue[dict[str, Any] | None] = asyncio.Queue(maxsize=16)
+    _workflow_active_run_broadcaster.subscribe(workflow_id, queue)
+
+    async def _generator() -> AsyncGenerator[dict[str, Any], None]:
+        record = _lifecycle_coordinator.find_active_by_workflow(workflow_id)
+        if record is not None:
+            yield {
+                "data": _json_safe(
+                    {
+                        "workflow_id": workflow_id,
+                        "run_id": record.run_id,
+                        "topic": record.topic or "",
+                    }
+                )
+            }
+
+        try:
+            while True:
+                if await request.is_disconnected():
+                    return
+                try:
+                    event = await asyncio.wait_for(queue.get(), timeout=15.0)
+                except TimeoutError:
+                    yield {"event": "heartbeat", "data": "{}"}
+                    continue
+                if event is None:
+                    return
+                yield {"data": _json_safe(event)}
+        finally:
+            _workflow_active_run_broadcaster.unsubscribe(workflow_id, queue)
 
     return EventSourceResponse(_generator())
 

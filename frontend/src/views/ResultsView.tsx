@@ -8,14 +8,12 @@ import {
   FolderOpen,
 } from "lucide-react"
 import { EmptyState } from "@/components/ui/feedback"
-import { ViewToolbar } from "@/components/ui/view-toolbar"
 import { CustomDiagramsCard } from "@/components/CustomDiagramsCard"
 import { ArtifactFileList } from "@/components/results/ArtifactFileList"
 import { ReferencesView } from "@/views/ReferencesView"
 import { collectCustomDiagramItems, customDiagramPipelineTouched } from "@/lib/customDiagrams"
 import { submissionZipUrl } from "@/lib/api"
 import { ManuscriptViewer } from "@/components/results/ManuscriptViewer"
-import { ManuscriptActions } from "@/components/results/ManuscriptActions"
 import { GradeSofCard } from "@/components/results/GradeSummarySection"
 import { ProsperoDownloadsCard } from "@/components/results/ProsperoSection"
 import { PrismaDiagramCard } from "@/components/results/PrismaSection"
@@ -192,23 +190,13 @@ export function ResultsView({
         aria-labelledby={`tab-${activeCategory}`}
       >
         {activeCategory === "manuscript" && manuscriptPath && (
-          <>
-            <ViewToolbar
-              className="!h-auto py-3"
-              title={
-                <span className="text-sm font-medium text-foreground">Manuscript</span>
-              }
-              actions={
-                <ManuscriptActions
-                  docxPath={docxPath}
-                  canExport={canExport}
-                  exportRunId={exportRunId}
-                  allOutputs={effectiveOutputs}
-                />
-              }
-            />
-            <ManuscriptViewer filePath={manuscriptPath} />
-          </>
+          <ManuscriptViewer
+            filePath={manuscriptPath}
+            docxPath={docxPath}
+            canExport={canExport}
+            exportRunId={exportRunId}
+            allOutputs={effectiveOutputs}
+          />
         )}
 
         {activeCategory === "figures" && (

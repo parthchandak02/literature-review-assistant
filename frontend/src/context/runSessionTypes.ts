@@ -94,7 +94,14 @@ export interface RunSessionActions {
   openDraftRunShell: (topic: string) => void
 }
 
-export interface RunSessionContextValue extends RunSessionViewState, RunSessionActions {
+export type RunSessionStateContextValue = RunSessionViewState
+
+export interface RunSessionActionsContextValue extends RunSessionActions {
   setSelectedRun: Dispatch<SetStateAction<SelectedRun | null>>
   setActiveRunTab: Dispatch<SetStateAction<RunTab>>
 }
+
+/** @deprecated Use RunSessionStateContextValue + RunSessionActionsContextValue instead. */
+export interface RunSessionContextValue
+  extends RunSessionStateContextValue,
+    RunSessionActionsContextValue {}

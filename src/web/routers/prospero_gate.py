@@ -8,11 +8,11 @@ import aiosqlite
 import yaml
 from fastapi import APIRouter, HTTPException
 
-from src.db.workflow_registry import find_by_workflow_id, find_by_workflow_id_fallback, run_root_from_db_path
+from src.db.workflow_registry import run_root_from_db_path
 from src.db.workflow_registry import update_status as _update_status
 from src.models.config import ReviewConfig
 from src.orchestration.helpers.prospero_validation import validate_prospero_id
-from src.web.run_resolver import resolve_runtime_db
+from src.web.run_resolver import resolve_registry_entry, resolve_runtime_db
 from src.web.shared import ResumeRequest, SubmitProsperoRequest
 from src.web.state import _lifecycle_coordinator, _resume_wrapper
 
@@ -70,11 +70,7 @@ async def submit_prospero(run_id: str, body: SubmitProsperoRequest) -> dict[str,
         registration_date=registration_date,
     )
 
-    entry = await find_by_workflow_id(run_root, workflow_id)
-    if entry is None:
-        entry = await find_by_workflow_id_fallback(run_root, workflow_id)
-    if not entry:
-        raise HTTPException(status_code=404, detail="Workflow not found in registry")
+    entry = await resolve_registry_entry(workflow_id, run_root)
 
     active = _lifecycle_coordinator.find_active_by_workflow(workflow_id)
     if active is not None:

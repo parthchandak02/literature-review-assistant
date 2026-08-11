@@ -100,13 +100,18 @@ Recent remediation (2026-08-10, Phases 0-2) completed:
 
 | Priority | Task |
 |----------|------|
-| P1 | `resolve_registry_entry()` helper; collapse resolver aliases |
-| P1 | HTTP integration test for `wf-*` resolution without active run |
+| P1 | `resolve_registry_entry()` helper; collapse resolver aliases | done |
+| P1 | HTTP integration test for `wf-*` resolution without active run | done |
 | P1 | Unskip or replace `test_resume_workflow_smoke.py` |
 | P2 | Screening + Prospero component tests |
 | P2 | `human_review_checkpoint` Activity log label |
 
-### Remaining polish (non-blocking)
+### Perf (2026-08-10)
+
+- Parked-run active-run poll backoff: 2.5s interval (was 800ms) while `awaiting_review` / `awaiting_prospero`
+- Sidebar history already uses rail + `stats=false` on poll (see `useHistory.ts`)
+- Local baseline: `/api/health` ~130ms, `/api/history?view=rail&stats=false` ~85ms (tunnel/host dependent)
+
 
 - God-module splits when touched
 - Export citation `complete_validated`

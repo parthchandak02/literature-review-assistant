@@ -8,7 +8,7 @@ import {
   ResponsiveContainer,
   Cell,
 } from "recharts"
-import { DollarSign, Zap, ArrowUpDown, Activity } from "lucide-react"
+import { DollarSign, Zap, ArrowUpDown, Activity, BarChart3, Table2 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { CHART_THEME } from "@/lib/constants"
 import { getDbCostExportUrl } from "@/lib/api"
@@ -25,7 +25,8 @@ import {
 } from "@/hooks/useDbCosts"
 import { FetchError, EmptyState } from "@/components/ui/feedback"
 import { SkeletonCard } from "@/components/ui/skeleton"
-import { ViewToolbar } from "@/components/ui/view-toolbar"
+import { PageSection } from "@/components/ui/section"
+import { GlassTabs } from "@/components/ui/glass-tabs"
 import { PHASE_LABEL_MAP, phaseColor } from "@/lib/constants"
 
 interface MetricTileProps {
@@ -95,6 +96,8 @@ function buildCostStatsFromDashboard(dashboard: CostDashboardResponse): CostStat
   }
 }
 
+type PhaseViewMode = "chart" | "table"
+
 interface CostViewProps {
   costStats: CostStats
   dbRunId?: string | null
@@ -106,6 +109,7 @@ export function CostView({ costStats, dbRunId, workflowId, isLive }: CostViewPro
   const [opsStartDate, setOpsStartDate] = useState("")
   const [opsEndDate, setOpsEndDate] = useState("")
   const [opsGranularity, setOpsGranularity] = useState<DbCostExportGranularity>("day")
+  const [phaseViewMode, setPhaseViewMode] = useState<PhaseViewMode>("chart")
 
   const opsEnabled = useMemo(() => {
     if (typeof window === "undefined") return false
@@ -237,58 +241,107 @@ export function CostView({ costStats, dbRunId, workflowId, isLive }: CostViewPro
         />
       </div>
 
-      {/* Cost by phase chart -- horizontal bars so labels have room.
-          Only shown when 2+ phases have non-zero cost; a single bar is misleading. */}
-      {nonZeroPhasesCount >= 2 ? (
-        <div className="card-surface p-5">
-          <h3 className="text-sm font-semibold text-foreground mb-4">Cost by Phase</h3>
-          <ResponsiveContainer width="100%" height={Math.max(180, chartData.length * 36)}>
-            <BarChart
-              data={chartData}
-              layout="vertical"
-              margin={{ left: 4, right: 56, top: 4, bottom: 4 }}
-            >
-              <XAxis
-                type="number"
-                tickFormatter={(v: number) => `$${v.toFixed(3)}`}
-                tick={{ fill: CHART_THEME.tickFill, fontSize: 10 }}
-                axisLine={false}
-                tickLine={false}
-              />
-              <YAxis
-                type="category"
-                dataKey="name"
-                width={110}
-                tick={{ fill: CHART_THEME.tickFill, fontSize: 11 }}
-                axisLine={false}
-                tickLine={false}
-              />
-              <Tooltip content={<CostChartTooltip />} cursor={{ fill: CHART_THEME.cursorFill }} />
-              <Bar dataKey="cost" radius={[0, 4, 4, 0]} label={{ position: "right", formatter: (v: unknown) => `$${(v as number).toFixed(4)}`, fill: "var(--color-muted-foreground)", fontSize: 10 }}>
-                {chartData.map((entry) => (
-                  <Cell
-                    key={entry.fullPhase}
-                    fill={phaseColor(entry.fullPhase)}
-                    fillOpacity={0.85}
+      {/* Cost by phase — chart or table, never both */}
+      {by_phase.length > 0 && (
+        <PageSection
+          icon={BarChart3}
+          title="Cost by Phase"
+          action={
+            <GlassTabs
+              items={[
+                { id: "chart", label: "Chart", icon: BarChart3 },
+                { id: "table", label: "Table", icon: Table2 },
+              ]}
+              activeTab={phaseViewMode}
+              onTabChange={setPhaseViewMode}
+            />
+          }
+          contentClassName={phaseViewMode === "table" ? "p-0" : undefined}
+        >
+          {phaseViewMode === "chart" ? (
+            nonZeroPhasesCount >= 2 ? (
+              <ResponsiveContainer width="100%" height={Math.max(180, chartData.length * 36)}>
+                <BarChart
+                  data={chartData}
+                  layout="vertical"
+                  margin={{ left: 4, right: 56, top: 4, bottom: 4 }}
+                >
+                  <XAxis
+                    type="number"
+                    tickFormatter={(v: number) => `$${v.toFixed(3)}`}
+                    tick={{ fill: CHART_THEME.tickFill, fontSize: 10 }}
+                    axisLine={false}
+                    tickLine={false}
                   />
-                ))}
-              </Bar>
-            </BarChart>
-          </ResponsiveContainer>
-        </div>
-      ) : chartData.length > 0 ? (
-        <div className="card-surface p-5 flex items-center justify-center h-24">
-          <p className="label-muted">Cost breakdown will appear as phases complete.</p>
-        </div>
-      ) : null}
+                  <YAxis
+                    type="category"
+                    dataKey="name"
+                    width={110}
+                    tick={{ fill: CHART_THEME.tickFill, fontSize: 11 }}
+                    axisLine={false}
+                    tickLine={false}
+                  />
+                  <Tooltip content={<CostChartTooltip />} cursor={{ fill: CHART_THEME.cursorFill }} />
+                  <Bar dataKey="cost" radius={[0, 4, 4, 0]} label={{ position: "right", formatter: (v: unknown) => `$${(v as number).toFixed(4)}`, fill: "var(--color-muted-foreground)", fontSize: 10 }}>
+                    {chartData.map((entry) => (
+                      <Cell
+                        key={entry.fullPhase}
+                        fill={phaseColor(entry.fullPhase)}
+                        fillOpacity={0.85}
+                      />
+                    ))}
+                  </Bar>
+                </BarChart>
+              </ResponsiveContainer>
+            ) : (
+              <p className="label-muted text-center py-4">
+                Cost breakdown will appear as phases complete.
+              </p>
+            )
+          ) : (
+            <div className="data-surface overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="glass-table-head border-b border-border/70">
+                    <th className="text-left px-5 py-2.5 label-caps">Phase</th>
+                    <th className="text-right px-4 py-2.5 label-caps">Calls</th>
+                    <th className="text-right px-5 py-2.5 label-caps">Cost</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {by_phase.map((p, i) => (
+                    <tr
+                      key={p.phase}
+                      className={cn(
+                        "border-b border-border/50 hover:bg-surface-2/40 transition-colors",
+                        i === by_phase.length - 1 && "border-0",
+                      )}
+                    >
+                      <td className="px-5 py-3 text-foreground text-xs">
+                        <div className="flex items-center gap-2">
+                          <span
+                            className="inline-block h-2 w-2 rounded-sm shrink-0"
+                            style={{ backgroundColor: phaseColor(p.phase), opacity: 0.85 }}
+                          />
+                          {formatPhaseName(p.phase)}
+                        </div>
+                      </td>
+                      <td className="px-4 py-3 text-right tabular-nums text-muted text-xs">{p.calls}</td>
+                      <td className="px-5 py-3 text-right tabular-nums font-mono font-medium text-intent-success text-xs">
+                        ${p.cost_usd.toFixed(4)}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </PageSection>
+      )}
 
       {/* Cost by model table */}
       {by_model.length > 0 && (
-        <div className="card-surface overflow-hidden">
-          <ViewToolbar
-            dense
-            title={<h3 className="text-sm font-semibold text-foreground">Cost by Model</h3>}
-          />
+        <PageSection title="Cost by Model" contentClassName="p-0">
           <div className="data-surface overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
@@ -327,63 +380,15 @@ export function CostView({ costStats, dbRunId, workflowId, isLive }: CostViewPro
               </tbody>
             </table>
           </div>
-        </div>
-      )}
-
-      {/* Cost by phase table */}
-      {by_phase.length > 0 && (
-        <div className="card-surface overflow-hidden">
-          <ViewToolbar
-            dense
-            title={<h3 className="text-sm font-semibold text-foreground">Cost by Phase</h3>}
-          />
-          <div className="data-surface overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="glass-table-head border-b border-border/70">
-                  <th className="text-left px-5 py-2.5 label-caps">Phase</th>
-                  <th className="text-right px-4 py-2.5 label-caps">Calls</th>
-                  <th className="text-right px-5 py-2.5 label-caps">Cost</th>
-                </tr>
-              </thead>
-              <tbody>
-                {by_phase.map((p, i) => (
-                  <tr
-                    key={p.phase}
-                    className={cn(
-                      "border-b border-border/50 hover:bg-surface-2/40 transition-colors",
-                      i === by_phase.length - 1 && "border-0",
-                    )}
-                  >
-                    <td className="px-5 py-3 text-foreground text-xs">
-                      <div className="flex items-center gap-2">
-                        <span
-                          className="inline-block h-2 w-2 rounded-sm shrink-0"
-                          style={{ backgroundColor: phaseColor(p.phase), opacity: 0.85 }}
-                        />
-                        {formatPhaseName(p.phase)}
-                      </div>
-                    </td>
-                    <td className="px-4 py-3 text-right tabular-nums text-muted text-xs">{p.calls}</td>
-                    <td className="px-5 py-3 text-right tabular-nums font-mono font-medium text-intent-success text-xs">
-                      ${p.cost_usd.toFixed(4)}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
+        </PageSection>
       )}
 
       {opsEnabled && dbRunId && (
-        <div className="card-surface overflow-hidden">
-          <ViewToolbar
-            dense
-            title={<h3 className="text-sm font-semibold text-foreground">Ops Cost Diagnostics</h3>}
-            actions={<div className="label-muted">Hidden mode (`ops=1`)</div>}
-          />
-          <div className="p-5 space-y-4">
+        <PageSection
+          title="Ops Cost Diagnostics"
+          action={<span className="label-muted">Hidden mode (`ops=1`)</span>}
+        >
+          <div className="space-y-4">
             <div className="grid grid-cols-1 md:grid-cols-5 gap-3">
               <label className="flex flex-col gap-1 text-xs text-muted">
                 Start
@@ -476,20 +481,12 @@ export function CostView({ costStats, dbRunId, workflowId, isLive }: CostViewPro
               </div>
             )}
           </div>
-        </div>
+        </PageSection>
       )}
 
       {(screeningDiagnostics || validationSummary) && (
-        <div className="card-surface overflow-hidden">
-          <ViewToolbar
-            dense
-            title={
-              <h3 className="text-sm font-semibold text-foreground">
-                Validation and Screening Diagnostics
-              </h3>
-            }
-          />
-          <div className="p-5 space-y-3 text-xs text-foreground">
+        <PageSection title="Validation and Screening Diagnostics">
+          <div className="space-y-3 text-xs text-foreground">
             {validationSummary && (
               <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
                 <div>Validation status: <span className="font-semibold">{validationSummary.status}</span></div>
@@ -534,7 +531,7 @@ export function CostView({ costStats, dbRunId, workflowId, isLive }: CostViewPro
               </div>
             )}
           </div>
-        </div>
+        </PageSection>
       )}
     </div>
   )
