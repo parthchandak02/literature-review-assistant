@@ -93,10 +93,57 @@ export interface ScreeningDiagnostics {
   cross_reviewed: number
 }
 
+export interface CostDashboardTotals {
+  calls: number
+  tokens_in: number
+  tokens_out: number
+  cost_usd: number
+}
+
+export interface CostDashboardPhaseRow {
+  phase: string
+  calls: number
+  tokens_in: number
+  tokens_out: number
+  cost_usd: number
+}
+
+export interface CostDashboardModelRow {
+  model: string
+  calls: number
+  tokens_in: number
+  tokens_out: number
+  cost_usd: number
+}
+
+export interface CostDashboardResponse {
+  run_id: string
+  workflow_id: string | null
+  total_cost: number
+  totals: CostDashboardTotals
+  by_phase: CostDashboardPhaseRow[]
+  by_model: CostDashboardModelRow[]
+  records: DbCostRow[]
+  screening_diagnostics: ScreeningDiagnostics
+}
+
+/** @deprecated Use CostDashboardResponse */
+export type DbCostDashboardTotals = CostDashboardTotals
+/** @deprecated Use CostDashboardPhaseRow */
+export type DbCostDashboardPhaseRow = CostDashboardPhaseRow
+/** @deprecated Use CostDashboardModelRow */
+export type DbCostDashboardModelRow = CostDashboardModelRow
+/** @deprecated Use CostDashboardResponse */
+export type DbCostDashboardResponse = CostDashboardResponse
+
 export async function fetchDbCosts(
   runId: string,
 ): Promise<{ total_cost: number; records: DbCostRow[]; screening_diagnostics?: ScreeningDiagnostics }> {
   return apiFetch(`/db/${runId}/costs`)
+}
+
+export async function fetchDbCostDashboard(runId: string): Promise<CostDashboardResponse> {
+  return apiFetch(`/db/${runId}/cost-dashboard`)
 }
 
 export async function fetchDbCostAggregates(

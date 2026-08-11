@@ -17,6 +17,27 @@ export interface PaperAllRow {
   assessment_source: string | null
 }
 
+export interface PapersFacets {
+  years: number[]
+  sources: string[]
+  countries: string[]
+  ta_decisions: string[]
+  ft_decisions: string[]
+  primary_statuses: string[]
+}
+
+export interface PapersAllResponse {
+  total: number
+  offset: number
+  limit: number
+  papers: PaperAllRow[]
+  facets?: PapersFacets
+}
+
+export interface PapersAllResponseWithFacets extends PapersAllResponse {
+  facets: PapersFacets
+}
+
 export interface GradeSofRow {
   outcome: string
   studies: number | null
@@ -82,9 +103,11 @@ export async function fetchPapersAll(
   limit = 50,
   title = "",
   author = "",
-): Promise<{ total: number; offset: number; limit: number; papers: PaperAllRow[] }> {
+  options?: { includeFacets?: boolean } | boolean,
+): Promise<PapersAllResponse> {
   const safeOffset = sanitizePageNumber(offset, 0)
   const safeLimit = sanitizePageNumber(limit, 50, 1)
+  const includeFacets = typeof options === "boolean" ? options : Boolean(options?.includeFacets)
   const params = new URLSearchParams({
     search,
     title,
@@ -98,19 +121,13 @@ export async function fetchPapersAll(
     offset: String(safeOffset),
     limit: String(safeLimit),
   })
+  if (includeFacets) {
+    params.set("include", "facets")
+  }
   return apiFetch(`/db/${runId}/papers-all?${params}`)
 }
 
-export async function fetchPapersFacets(
-  runId: string,
-): Promise<{
-  years: number[]
-  sources: string[]
-  countries: string[]
-  ta_decisions: string[]
-  ft_decisions: string[]
-  primary_statuses: string[]
-}> {
+export async function fetchPapersFacets(runId: string): Promise<PapersFacets> {
   return apiFetch(`/db/${runId}/papers-facets`)
 }
 

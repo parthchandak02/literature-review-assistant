@@ -11,6 +11,7 @@ import {
 } from "@/lib/runSelection"
 import { isProsperoPendingStatus } from "@/lib/constants"
 import {
+  approveScreening,
   archiveRun,
   attachHistory,
   cancelRun,
@@ -26,7 +27,13 @@ import {
   startRunWithSupplementaryCsv,
   submitProsperoRegistration,
 } from "@/lib/api"
-import type { HistoryEntry, ProsperoRegistration, RunRequest, RunResponse } from "@/lib/api"
+import type {
+  HistoryEntry,
+  ProsperoRegistration,
+  RunRequest,
+  RunResponse,
+  ScreeningOverride,
+} from "@/lib/api"
 import type { useLiveRunStream } from "@/hooks/useLiveRunStream"
 import type { RunSessionActions, RunTab, SelectedRun } from "@/context/runSessionTypes"
 
@@ -586,6 +593,54 @@ export function useRunSessionActions({
     [handleResumeRun, queryClient, selectedRun, selectedRunToHistoryEntry],
   )
 
+  const handleApproveScreeningAndResume = useCallback(
+    async (runId: string, overrides?: ScreeningOverride[]) => {
+      await approveScreening(runId, overrides)
+
+      let entry = selectedRunToHistoryEntry()
+      if (!entry && selectedRun?.workflowId) {
+        const history = await fetchHistory()
+        const match = history.find((item) => item.workflow_id === selectedRun.workflowId)
+        if (match) {
+          entry = {
+            ...match,
+            db_path: match.db_path || selectedRun.dbPath || "",
+          }
+        }
+      }
+
+      if (entry?.db_path) {
+        try {
+          const res = await resumeRun(entry)
+          handleResumeRun(res, entry.workflow_id)
+          void queryClient.invalidateQueries({ queryKey: ["history"] })
+          toast.success("Screening approved, resuming research")
+          return
+        } catch (error) {
+          const msg = error instanceof Error ? error.message : String(error)
+          if (!msg.includes("409")) {
+            toast.error(msg || "Failed to resume workflow after screening approval")
+            throw error
+          }
+        }
+      }
+
+      if (entry?.workflow_id) {
+        const active = await fetchActiveRun(entry.workflow_id).catch(() => null)
+        if (active) {
+          handleResumeRun(active, entry.workflow_id)
+          void queryClient.invalidateQueries({ queryKey: ["history"] })
+          toast.success("Screening approved, resuming research")
+          return
+        }
+      }
+
+      void queryClient.invalidateQueries({ queryKey: ["history"] })
+      toast.success("Screening approved")
+    },
+    [handleResumeRun, queryClient, selectedRun, selectedRunToHistoryEntry],
+  )
+
   const openDraftRunShell = useCallback(
     (topic: string) => {
       const now = new Date()
@@ -623,6 +678,7 @@ export function useRunSessionActions({
     handleTabChange,
     handleGoToSubmissionReferencePapers,
     handleSubmitProsperoAndResume,
+    handleApproveScreeningAndResume,
     openDraftRunShell,
   }
 }

@@ -69,9 +69,12 @@ export function QuestionStage({
   const visibleSubmitError = hasCredentials ? null : submitError
 
   const [showHistory, setShowHistory] = useState(false)
+  const [healthSdgEnabled, setHealthSdgEnabled] = useState(false)
   const [csvFile, setCsvFile] = useState<File | null>(initialCsvFile)
   const [csvMode, setCsvMode] = useState<CsvMode>(initialCsvMode)
   const dropdownRef = useRef<HTMLDivElement>(null)
+
+  const activeProfile: GenerationProfile = healthSdgEnabled ? "health_sdg" : "standard"
 
   useEffect(() => {
     function handler(e: MouseEvent) {
@@ -83,7 +86,7 @@ export function QuestionStage({
     return () => document.removeEventListener("mousedown", handler)
   }, [showHistory])
 
-  async function handleGenerate(generationProfile: GenerationProfile = "standard") {
+  async function handleGenerate() {
     if (!question.trim()) return
     if (!hasRequiredCredentials()) {
       setSubmitError("Add at least one LLM API key in Settings before generating a config.")
@@ -96,7 +99,7 @@ export function QuestionStage({
       deepseekKey: envStatus?.server_ready ? "" : (initialDeepseekKey || savedKey).trim(),
       csvFile: csvFile ?? undefined,
       csvMode,
-      generationProfile,
+      generationProfile: activeProfile,
     })
   }
 
@@ -124,7 +127,7 @@ export function QuestionStage({
           placeholder="What is the effect of [intervention] on [outcome] in [population]?"
           className="resize-none text-sm bg-card border-border text-foreground placeholder:text-muted focus-visible:ring-intent-primary-border leading-relaxed"
           onKeyDown={(e) => {
-            if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) void handleGenerate("standard")
+            if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) void handleGenerate()
           }}
         />
         <p className="text-xs text-muted mt-1.5">Press Cmd/Ctrl+Enter to generate config.</p>
@@ -140,31 +143,43 @@ export function QuestionStage({
       )}
 
       {/* CTA */}
-      <div className="space-y-2.5">
-        <div className="grid grid-cols-2 gap-2.5">
+      <div className="space-y-3">
         <Button
           type="button"
           onClick={() => void handleGenerate()}
           disabled={!canGenerate}
-          className="h-11 disabled:opacity-40 font-semibold gap-2 transition-colors"
+          className="w-full h-11 disabled:opacity-40 font-semibold gap-2 transition-colors"
         >
           <Sparkles className="h-4 w-4" />
           Generate Config
         </Button>
-        <Button
+        <button
           type="button"
-          onClick={() => void handleGenerate("health_sdg")}
-          disabled={!canGenerate}
-          variant="success"
-          className="h-11 disabled:opacity-40 font-semibold gap-2 transition-colors"
+          role="checkbox"
+          aria-checked={healthSdgEnabled}
+          onClick={() => setHealthSdgEnabled((v) => !v)}
+          className="flex w-full items-start gap-2.5 rounded-lg border border-border bg-surface-2/50 px-3 py-2.5 text-left transition-colors hover:bg-surface-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-intent-primary-border"
         >
-          <HeartPulse className="h-4.5 w-4.5" />
-          Health + SDG Config
-        </Button>
-        </div>
-        <p className="text-[11px] text-muted text-center leading-relaxed">
-          Health mode adds health-impact pathways and UN SDG alignment.
-        </p>
+          <span
+            className={`mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded border transition-colors ${
+              healthSdgEnabled
+                ? "border-intent-primary-border bg-intent-primary-subtle text-foreground"
+                : "border-border bg-card text-transparent"
+            }`}
+            aria-hidden
+          >
+            <span className="text-[10px] font-bold leading-none">✓</span>
+          </span>
+          <span className="min-w-0 flex-1">
+            <span className="flex items-center gap-1.5 text-xs font-medium text-foreground">
+              <HeartPulse className="h-3.5 w-3.5 text-intent-success shrink-0" />
+              Health + SDG alignment
+            </span>
+            <span className="mt-0.5 block text-[11px] text-muted leading-relaxed">
+              Adds health-impact pathways and UN SDG alignment to the generated config.
+            </span>
+          </span>
+        </button>
       </div>
 
       {/* Secondary actions */}

@@ -15,6 +15,7 @@ Canonical session startup for literature-review-assistant. Load this skill at th
 3. Review recent git context (`git log`, `git status`) before edits.
 4. Build a quick zoom-out map: lifecycle stage, entrypoints, typed boundaries, blast radius.
 5. Run task-appropriate checks before claiming completion.
+6. For script/ops commands: read `docs/SCRIPTS.md` or run `./scripts/help.sh`.
 
 When docs conflict with code, trust code and active rules, then note drift for follow-up.
 

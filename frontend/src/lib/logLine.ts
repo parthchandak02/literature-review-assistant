@@ -370,17 +370,25 @@ export function eventToLogEntry(ev: ReviewEvent): LogRenderEntry {
         isResumeNoOp: false,
       })
 
-    case "done":
+    case "done": {
+      const outputStatus = String(ev.outputs?.status ?? "").toLowerCase()
+      const doneText =
+        outputStatus === "awaiting_prospero"
+          ? "Paused at PROSPERO gate. Enter registration on the Config tab to continue."
+          : outputStatus === "awaiting_review"
+            ? "Paused for human screening review."
+            : "Review complete."
       return finalize({
-        text: `[${fmtTs(eventTs(ev))}] DONE   Review complete.`,
+        text: `[${fmtTs(eventTs(ev))}] DONE   ${doneText}`,
         level: "info",
         severity: "info",
         kind: "done",
         compactable: false,
-        groupKey: "done:review",
+        groupKey: `done:${outputStatus || "review"}`,
         isResumeRelated: false,
         isResumeNoOp: false,
       })
+    }
 
     case "error":
       return finalize({

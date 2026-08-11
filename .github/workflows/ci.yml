@@ -1,0 +1,63 @@
+name: Tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v5
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - run: uv sync
+
+      - name: Ruff check
+        run: uv run ruff check .
+
+      - name: Unit tests
+        run: uv run pytest tests/unit -q
+
+      - name: Integration smoke (API endpoint parity gate)
+        run: uv run pytest tests/integration/test_api_endpoint_parity_gate.py -q
+
+      - name: Integration (PROSPERO and draft API)
+        run: uv run pytest tests/integration/test_prospero_and_draft_api.py -q
+
+      - name: API docs match routes
+        run: uv run python scripts/check.py api
+
+      - name: Frontend lint, typecheck, and test
+        working-directory: frontend
+        run: |
+          pnpm install --frozen-lockfile
+          pnpm lint
+          pnpm typecheck
+          pnpm test
+
+      - name: Replay fixture schema
+        run: uv run python scripts/check.py replay-fixture
+
+      - name: Validate workflow replay (local profile)
+        run: |
+          FIXTURE_DIR="${GITHUB_WORKSPACE}/tests/fixtures/replay"
+          REPLAY_WORKFLOW_ID="$(uv run python -c 'import json, pathlib; m=json.loads(pathlib.Path("tests/fixtures/replay/manifest.json").read_text()); print(m["workflow_id"])')"
+          REPLAY_DB_PATH="${FIXTURE_DIR}/runtime.db"
+          export WORKFLOW_REPLAY_ID="${REPLAY_WORKFLOW_ID}"
+          export WORKFLOW_REPLAY_DB_PATH="${REPLAY_DB_PATH}"
+          uv run python scripts/check.py replay-workflow \
+            --workflow-id "${REPLAY_WORKFLOW_ID}" \
+            --db-path "${REPLAY_DB_PATH}" \
+            --profile local \
+            --fail-on-error

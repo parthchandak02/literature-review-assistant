@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react"
 import { AlertCircle, CheckCircle2, FileText, HelpCircle, Upload, X } from "lucide-react"
 import { Spinner } from "@/components/ui/feedback"
+import { CollapsibleSection } from "@/components/ui/section"
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
 import type { CsvMode } from "./types"
 import { analyzeCsvFile, CSV_EXPECTED_COLS, CSV_REQUIRED_COLS } from "./csvUtils"
@@ -43,35 +44,38 @@ export function CsvDropZone({ file, onFile, mode, onModeChange }: CsvDropZonePro
   const mergeTooltip = "Run connector search first, then merge your CSV rows. Duplicates are removed."
   const masterTooltip = "Skip connector search and use only the studies in your CSV."
 
+  const helpTooltip = (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <button
+          type="button"
+          className="text-muted hover:text-intent-info transition-colors rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-intent-primary-border"
+          aria-label="About optional CSV import"
+        >
+          <HelpCircle className="h-3.5 w-3.5" />
+        </button>
+      </TooltipTrigger>
+      <TooltipContent
+        side="top"
+        align="end"
+        sideOffset={6}
+        className="max-w-[260px] text-xs leading-relaxed px-3 py-2.5 bg-card border border-border text-foreground shadow-xl"
+      >
+        <p className="font-semibold text-foreground mb-1">Optional CSV</p>
+        <p>Add a Scopus-style spreadsheet to either enrich automated search or replace it with your fixed list.</p>
+      </TooltipContent>
+    </Tooltip>
+  )
+
   return (
     <TooltipProvider delayDuration={250}>
-      <div>
-        <div className="flex items-center gap-1.5 mb-2">
-          <label className="text-xs font-semibold text-muted uppercase tracking-wide cursor-default">
-            CSV Import <span className="text-muted">(optional)</span>
-          </label>
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <button
-                type="button"
-                className="text-muted hover:text-intent-info transition-colors rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-intent-primary-border"
-                aria-label="About optional CSV import"
-              >
-                <HelpCircle className="h-3.5 w-3.5" />
-              </button>
-            </TooltipTrigger>
-            <TooltipContent
-              side="top"
-              align="start"
-              sideOffset={6}
-              className="max-w-[260px] text-xs leading-relaxed px-3 py-2.5 bg-card border border-border text-foreground shadow-xl"
-            >
-              <p className="font-semibold text-foreground mb-1">Optional CSV</p>
-              <p>Add a Scopus-style spreadsheet to either enrich automated search or replace it with your fixed list.</p>
-            </TooltipContent>
-          </Tooltip>
-        </div>
-
+      <CollapsibleSection
+        icon={FileText}
+        title="CSV import (optional)"
+        defaultOpen={false}
+        actions={helpTooltip}
+      >
+        <div className="p-4 space-y-2">
         <div
           className="inline-flex rounded-lg border border-border bg-surface-2/70 p-0.5 gap-0.5 mb-2"
           role="radiogroup"
@@ -267,7 +271,8 @@ export function CsvDropZone({ file, onFile, mode, onModeChange }: CsvDropZonePro
         className="hidden"
         onChange={(e) => handleAccept(e.target.files?.[0])}
       />
-      </div>
+        </div>
+      </CollapsibleSection>
     </TooltipProvider>
   )
 }

@@ -1,0 +1,31 @@
+---
+description: Script entrypoints, naming, and routing for scripts/
+alwaysApply: true
+---
+
+# Scripts
+
+Canonical index: `docs/SCRIPTS.md`. Terminal quick list: `./scripts/help.sh` or `make scripts-help`.
+
+## User-facing entrypoints only
+
+| Script | Use for |
+|--------|---------|
+| `scripts/ops_pm2.sh` | PM2 restart / deploy |
+| `scripts/check.sh` | Full test suites (`local`, `release`) |
+| `scripts/check.py` | Single checks (`api`, `replay-fixture`, `replay-workflow`) |
+| `scripts/review.py` | `start`, `watch`, `info` |
+| `scripts/repair.py` | Fix old runs (`finalize`, `re-extract`, `inject-citations`, `regen-replay-fixture`) |
+| `scripts/hermes.sh` | Hermes operator setup |
+
+Do not invoke `scripts/lib/*` directly. Do not add new flat `scripts/*.py` operator tools without routing through an entrypoint.
+
+## Naming
+
+- **check** not `ci` (tests and quality gates)
+- **repair** not `maint` (fix existing runs)
+- Subcommands: plain action names (`api`, `replay-workflow`) not jargon (`parity`, `replay-validate`)
+
+## When changing scripts
+
+Update `docs/SCRIPTS.md`, `scripts/help.sh`, and Makefile/README if entrypoints or gates change.

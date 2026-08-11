@@ -20,7 +20,8 @@ import { useDefaultReviewConfig } from "@/hooks/useRunConfig"
 import { Spinner } from "@/components/ui/feedback"
 import { ViewToolbar } from "@/components/ui/view-toolbar"
 import { isConfigDraftStatus, resolveRunStatus } from "@/lib/constants"
-import { detectAwaitingProspero } from "@/lib/phaseProgress"
+import { useRunChrome } from "@/hooks/useRunChrome"
+import type { SelectedRun } from "@/context/runSessionTypes"
 import {
   Tooltip,
   TooltipContent,
@@ -29,6 +30,7 @@ import {
 } from "@/components/ui/tooltip"
 import { RunView } from "@/views/RunView"
 import type { ConfigGenerateRequest } from "@/views/SetupView"
+import type { ScreeningOverride } from "@/lib/api"
 
 const SetupView = lazy(() => import("@/views/SetupView").then((m) => ({ default: m.SetupView })))
 
@@ -90,6 +92,15 @@ function ViewLoader() {
   )
 }
 
+const EMPTY_SELECTED_RUN: SelectedRun = {
+  runId: "",
+  workflowId: null,
+  topic: "",
+  dbPath: null,
+  isDone: false,
+  startedAt: null,
+}
+
 export default function App() {
   return (
     <RunSessionProvider>
@@ -120,6 +131,7 @@ function AppShell() {
     handleTimelineResumePhase,
     handleTabChange,
     handleSubmitProsperoAndResume,
+    handleApproveScreeningAndResume,
     setActiveRunTab,
     openDraftRunShell,
   } = useRunSession()
@@ -139,6 +151,37 @@ function AppShell() {
   const [settingsOpen, setSettingsOpen] = useState(false)
   const { isOnline } = useBackendHealth(6000, { suppressOffline: status === "streaming" })
   const prevOnlineRef = useRef(isOnline)
+
+  const isDraftRun =
+    selectedRun !== null &&
+    (selectedRun.workflowId === "draft" ||
+      draftConfig !== null ||
+      isConfigDraftStatus(selectedRun.historicalStatus))
+  const draftStatus =
+    draftConfig?.isGenerating || selectedRun?.historicalStatus === "config_generating"
+      ? "config_generating"
+      : selectedRun?.historicalStatus === "config_ready"
+        ? "config_ready"
+        : "idle"
+  const resolvedHistoricalStatus =
+    selectedRun === null
+      ? "idle"
+      : isDraftRun
+        ? draftStatus
+        : resolveRunStatus(selectedRun.historicalStatus ?? "completed")
+
+  const { liveStatus } = useRunChrome({
+    run: selectedRun ?? EMPTY_SELECTED_RUN,
+    events: viewEvents,
+    effectiveEvents: viewEvents,
+    isViewingLiveRun: selectedRun !== null && isViewingLiveRun,
+    status: selectedRun !== null && isViewingLiveRun ? status : resolvedHistoricalStatus,
+    streamStatus: status,
+    costStats,
+    liveOutputs,
+    prosperoPrepareInProgress,
+    resolvedHistoricalStatus,
+  })
 
   useEffect(() => {
     if (selectedRun === null) {
@@ -314,6 +357,12 @@ function AppShell() {
     }
   }
 
+  async function handleApproveScreeningAndResumeWrapper(overrides: ScreeningOverride[]) {
+    const runId = selectedRun?.runId
+    if (!runId || runId === "draft") return
+    await handleApproveScreeningAndResume(runId, overrides.length > 0 ? overrides : undefined)
+  }
+
   async function handleLaunchDraftConfig(yaml: string) {
     if (!draftConfig?.request) return
     const req = buildRunRequest(
@@ -355,33 +404,6 @@ function AppShell() {
       )
     }
 
-    const isDraftRun =
-      selectedRun.workflowId === "draft" ||
-      draftConfig !== null ||
-      isConfigDraftStatus(selectedRun.historicalStatus)
-    const draftStatus = draftConfig?.isGenerating || selectedRun.historicalStatus === "config_generating"
-      ? "config_generating"
-      : selectedRun.historicalStatus === "config_ready"
-        ? "config_ready"
-        : "idle"
-
-    // Map the registry's raw status string to the canonical RunStatus.
-    const resolvedHistoricalStatus = isDraftRun
-      ? draftStatus
-      : resolveRunStatus(selectedRun.historicalStatus ?? "completed")
-    const liveAwaitingProspero =
-      isViewingLiveRun &&
-      detectAwaitingProspero({
-        status,
-        events: viewEvents,
-        isRunning: true,
-        prosperoPrepareInProgress,
-      })
-    const liveStatus = isViewingLiveRun
-      ? liveAwaitingProspero
-        ? "awaiting_prospero"
-        : status
-      : resolvedHistoricalStatus
     const completedHistoricalRun =
       !isDraftRun &&
       !isViewingLiveRun &&
@@ -418,6 +440,7 @@ function AppShell() {
         onStartResearchAfterProspero={(registration) => {
           void handleStartResearchAfterProspero(registration)
         }}
+        onApproveScreeningAndResume={handleApproveScreeningAndResumeWrapper}
       />
     )
   }
@@ -474,14 +497,14 @@ function AppShell() {
           </div>
         )}
 
-        {/* Top bar -- topic breadcrumb for runs; "New Review" on setup */}
+        {/* Top bar -- research question for runs; "New Review" on setup */}
         <ViewToolbar
           sticky
           bordered
-          className="!h-auto shrink-0"
+          className="!h-auto shrink-0 py-3"
           style={{ paddingTop: "env(safe-area-inset-top)" }}
         >
-          <div className="h-14 flex items-center gap-3 w-full">
+          <div className="flex items-start gap-3 w-full min-w-0">
             {isMobile && (
               <button
                 onClick={() => setSidebarCollapsed(false)}
@@ -492,13 +515,17 @@ function AppShell() {
               </button>
             )}
             <TooltipProvider delayDuration={0}>
-              <div className="flex items-center gap-1.5 text-sm flex-1 min-w-0">
-                {breadcrumbTopic ? (
+              {breadcrumbTopic ? (
+                <div className="flex items-center gap-3 flex-1 min-w-0">
+                  <span className="text-xs font-semibold uppercase tracking-wide text-muted shrink-0">
+                    Question
+                  </span>
                   <Tooltip>
                     <TooltipTrigger asChild>
                       <button
+                        type="button"
                         onClick={() => void handleCopyTopic()}
-                        className="text-muted font-medium truncate flex-1 min-w-0 text-left hover:text-foreground transition-colors cursor-pointer"
+                        className="flex-1 min-w-0 text-sm text-foreground font-medium text-left truncate hover:text-foreground/90 transition-colors cursor-pointer"
                       >
                         {breadcrumbTopic}
                       </button>
@@ -510,10 +537,10 @@ function AppShell() {
                       {breadcrumbTopic}
                     </TooltipContent>
                   </Tooltip>
-                ) : !selectedRun ? (
-                  <span className="text-foreground font-medium">New Review</span>
-                ) : null}
-              </div>
+                </div>
+              ) : !selectedRun ? (
+                <span className="text-foreground font-medium">New Review</span>
+              ) : null}
             </TooltipProvider>
           </div>
         </ViewToolbar>

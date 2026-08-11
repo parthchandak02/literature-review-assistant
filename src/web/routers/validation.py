@@ -6,18 +6,52 @@ import json as _json
 from typing import Any
 
 import aiosqlite
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Query
 
 from src.db.domain_repositories import AuditRepository, ValidationRepository
 from src.models import ManuscriptAuditFinding
+from src.models.workflow import ValidationCheckRecord
 from src.web.shared import _format_manuscript_audit_summary, _is_missing_table_error
 from src.web.state import _resolve_db_path_from_run_or_workflow
 
 router = APIRouter(tags=["validation"])
 
 
+def _parse_include_param(include: str | None) -> set[str]:
+    """Parse comma-separated include query values (e.g. ``include=checks``)."""
+    if not include:
+        return set()
+    return {part.strip() for part in include.split(",") if part.strip()}
+
+
+def _serialize_validation_checks(rows: list[ValidationCheckRecord]) -> list[dict[str, Any]]:
+    checks: list[dict[str, Any]] = []
+    for row in rows:
+        try:
+            details = _json.loads(str(row.details_json or "{}"))
+        except Exception:
+            details = {}
+        checks.append(
+            {
+                "phase": str(row.phase),
+                "check_name": str(row.check_name),
+                "status": str(row.status),
+                "severity": str(row.severity),
+                "metric_value": float(row.metric_value) if row.metric_value is not None else None,
+                "details": details if isinstance(details, dict) else {},
+                "source_module": str(row.source_module) if row.source_module else None,
+                "paper_id": str(row.paper_id) if row.paper_id else None,
+                "created_at": str(row.created_at or ""),
+            }
+        )
+    return checks
+
+
 @router.get("/api/workflow/{workflow_id}/validation/summary")
-async def get_workflow_validation_summary(workflow_id: str) -> dict[str, Any]:
+async def get_workflow_validation_summary(
+    workflow_id: str,
+    include: str | None = Query(default=None),
+) -> dict[str, Any]:
     """Return latest validation-run summary for a workflow."""
     db_path = await _resolve_db_path_from_run_or_workflow(workflow_id)
     try:
@@ -26,9 +60,14 @@ async def get_workflow_validation_summary(workflow_id: str) -> dict[str, Any]:
         async with aiosqlite.connect(db_path) as db:
             db.row_factory = aiosqlite.Row
             validation_repo = ValidationRepository(_WorkflowRepository(db))
+            include_parts = _parse_include_param(include)
+            include_checks = "checks" in include_parts
             latest_run = await validation_repo.get_latest_run(workflow_id)
             if latest_run is None:
-                return {"workflow_id": workflow_id, "latest_run": None}
+                response: dict[str, Any] = {"workflow_id": workflow_id, "latest_run": None}
+                if include_checks:
+                    response["checks"] = []
+                return response
             checks = await validation_repo.get_checks(str(latest_run.validation_run_id))
             error_count = len([c for c in checks if c.status == "fail" and c.severity == "error"])
             warn_count = len([c for c in checks if c.severity == "warn" and c.status in {"warn", "fail"}])
@@ -36,7 +75,7 @@ async def get_workflow_validation_summary(workflow_id: str) -> dict[str, Any]:
                 summary_payload = _json.loads(str(latest_run.summary_json or "{}"))
             except Exception:
                 summary_payload = {}
-            return {
+            response = {
                 "workflow_id": workflow_id,
                 "latest_run": {
                     "validation_run_id": str(latest_run.validation_run_id),
@@ -51,6 +90,9 @@ async def get_workflow_validation_summary(workflow_id: str) -> dict[str, Any]:
                     "total_checks": len(checks),
                 },
             }
+            if include_checks:
+                response["checks"] = _serialize_validation_checks(checks)
+            return response
     except HTTPException:
         raise
     except Exception as exc:
@@ -74,26 +116,11 @@ async def get_workflow_validation_checks(workflow_id: str, validation_run_id: st
                     return {"workflow_id": workflow_id, "validation_run_id": None, "checks": []}
                 run_id = str(latest_run.validation_run_id)
             rows = await validation_repo.get_checks(str(run_id))
-            checks: list[dict[str, Any]] = []
-            for row in rows:
-                try:
-                    details = _json.loads(str(row.details_json or "{}"))
-                except Exception:
-                    details = {}
-                checks.append(
-                    {
-                        "phase": str(row.phase),
-                        "check_name": str(row.check_name),
-                        "status": str(row.status),
-                        "severity": str(row.severity),
-                        "metric_value": float(row.metric_value) if row.metric_value is not None else None,
-                        "details": details if isinstance(details, dict) else {},
-                        "source_module": str(row.source_module) if row.source_module else None,
-                        "paper_id": str(row.paper_id) if row.paper_id else None,
-                        "created_at": str(row.created_at or ""),
-                    }
-                )
-            return {"workflow_id": workflow_id, "validation_run_id": run_id, "checks": checks}
+            return {
+                "workflow_id": workflow_id,
+                "validation_run_id": run_id,
+                "checks": _serialize_validation_checks(rows),
+            }
     except HTTPException:
         raise
     except Exception as exc:

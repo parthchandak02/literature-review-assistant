@@ -12,7 +12,7 @@ If `hermes update` shows Node **v20.9.0** EBADENGINE warnings, Vite `crypto.hash
 
 ```bash
 source ~/.nvm/nvm.sh && nvm alias default 20.19.2
-~/projects/literature-review-assistant/scripts/hermes-maintain.sh --update
+~/projects/literature-review-assistant/scripts/hermes.sh maintain --update
 ```
 
 After any `hermes update`, restart the gateway:
@@ -20,7 +20,7 @@ After any `hermes update`, restart the gateway:
 ```bash
 hermes gateway restart
 # or
-~/projects/literature-review-assistant/scripts/hermes-maintain.sh
+~/projects/literature-review-assistant/scripts/hermes.sh maintain
 ```
 
 ---
@@ -42,8 +42,8 @@ JOB_ID=""                                # cron job id — set after create, for
 
 cd "$REPO"
 
-# watch_review.py: prints ONLY when phase/status changes; empty stdout = silent tick
-OUTPUT="$(uv run python scripts/watch_review.py --workflow-id "$WF_ID" 2>/dev/null || true)"
+# review.py watch: prints ONLY when phase/status changes; empty stdout = silent tick
+OUTPUT="$(uv run python scripts/review.py watch --workflow-id "$WF_ID" 2>/dev/null || true)"
 
 if [ -z "$OUTPUT" ]; then
   exit 0
@@ -142,5 +142,5 @@ Prefer **no-agent wrapper** above; it is zero tokens.
 - **`deliver=origin`** pins to the chat where the cron was created — wrong group if created from CLI/SSH. Always `deliver=whatsapp:<jid>`.
 - **Detached tmux** does not inherit `HERMES_SESSION_CHAT_ID` — embed `CHAT_ID` in the wrapper when writing it.
 - **Cron script location** — must live under `~/.hermes/scripts/`; inline `python … --workflow-id` in `--script` is invalid.
-- **Empty stdout is intentional** — `watch_review.py` deduplicates; do not spam sqlite queries from the agent while cron runs.
+- **Empty stdout is intentional** — `review.py watch` deduplicates; do not spam sqlite queries from the agent while cron runs.
 - **WoS 512 / protocol pause** — see main `SKILL.md` pitfalls; do not kill the pipeline during protocol generation.

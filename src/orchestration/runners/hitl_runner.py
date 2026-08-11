@@ -57,12 +57,32 @@ async def run_human_review_checkpoint(state: ReviewState) -> bool:
     poll_interval = max(1, int(getattr(hitl, "poll_interval_seconds", 5)))
     max_wait = max(poll_interval, int(getattr(hitl, "max_wait_seconds", 7200)))
     waited = 0
+    approved = False
     while waited < max_wait:
         await _asyncio.sleep(poll_interval)
         waited += poll_interval
         entry = await find_by_workflow_id(state.run_root, state.workflow_id)
         if entry and str(getattr(entry, "status", "awaiting_review")) == "running":
+            approved = True
             break
+
+    if not approved:
+        logger.warning(
+            "HumanReviewCheckpointNode: CLI wait timed out after %ds without registry status 'running'; "
+            "remaining parked in awaiting_review. Approve via API to continue.",
+            max_wait,
+        )
+        if rc:
+            rc.emit_phase_done(
+                "human_review_checkpoint",
+                {
+                    "paused": True,
+                    "awaiting_review": True,
+                    "timeout": True,
+                    "workflow_id": state.workflow_id,
+                },
+            )
+        return True
 
     await update_status(state.run_root, state.workflow_id, "running")
 

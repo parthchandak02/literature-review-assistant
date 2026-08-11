@@ -31,7 +31,7 @@ When the `Task` tool is available, the parent **must** launch subagents for any 
    - `explore` — read-only discovery before risky edits
    - `generalPurpose` — mixed implementation
    - Project agents in `.cursor/agents/` when the task matches their description
-4. Parent orchestrator: merge results, run `make local-ci` or `make release-check`, `pm2 restart litreview-api` after `src/` changes.
+4. Parent orchestrator: merge results, run `make check-local` or `make check-release`, `pm2 restart litreview-api` after `src/` changes.
 5. Each subagent prompt must include: file scope, invariants (AGENTS.md), exit commands (`pytest`, `pnpm typecheck`), and "do not edit plan file" when applicable.
 
 ### Anti-patterns (do not do these)
@@ -51,5 +51,5 @@ When the `Task` tool is available, the parent **must** launch subagents for any 
 ## Verification before claiming done
 
 - Backend `src/` changes: `pm2 restart litreview-api`
-- Release-bound work: `make release-check` when it exists, else `make local-ci`
+- Release-bound work: `make check-release` when it exists, else `make check-local`
 - Frontend production: `cd frontend && pnpm build` before production URL checks

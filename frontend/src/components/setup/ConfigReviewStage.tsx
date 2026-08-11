@@ -181,7 +181,7 @@ export function ConfigReviewStage({
         </div>
       )}
 
-      <div className={`grid gap-4 items-start ${showGenerationSummary ? "grid-cols-1 xl:grid-cols-[360px_minmax(0,1fr)]" : "grid-cols-1"}`}>
+      <div className="flex flex-col gap-4">
         {showGenerationSummary && (
           <GenerationProgressCard
             activeStepKey={activeGenStep}

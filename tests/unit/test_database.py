@@ -864,6 +864,141 @@ async def test_generation_aware_writing_reads_use_active_generation(tmp_path) ->
 
 
 @pytest.mark.asyncio
+async def test_primary_study_status_migration_backfills_from_json(tmp_path) -> None:
+    """Migration 23 copies primary_study_status from legacy JSON when column is unknown."""
+    from src.db.database import SCHEMA_PATH, _init_connection, run_migrations
+
+    db_path = tmp_path / "primary_status_backfill.db"
+    async with aiosqlite.connect(str(db_path)) as db:
+        await _init_connection(db)
+        await db.executescript(SCHEMA_PATH.read_text(encoding="utf-8"))
+        await db.execute("INSERT INTO schema_version (version) VALUES (22)")
+        await db.execute(
+            "INSERT INTO workflows (workflow_id, topic, config_hash, status) VALUES ('wf1', 't', 'h', 'running')"
+        )
+        await db.execute(
+            "INSERT INTO papers (paper_id, title, authors, source_database) VALUES ('p1', 'Paper', '[]', 'openalex')"
+        )
+        await db.execute(
+            """
+            INSERT INTO extraction_records (workflow_id, paper_id, study_design, primary_study_status, data)
+            VALUES (
+                'wf1', 'p1', 'rct', 'unknown',
+                '{"paper_id":"p1","study_design":"rct","primary_study_status":"secondary_review","intervention_description":"x"}'
+            )
+            """
+        )
+        await db.commit()
+        await run_migrations(db)
+        row = await (
+            await db.execute(
+                "SELECT primary_study_status FROM extraction_records WHERE workflow_id = 'wf1' AND paper_id = 'p1'"
+            )
+        ).fetchone()
+    assert row is not None
+    assert row[0] == "secondary_review"
+
+
+@pytest.mark.asyncio
+async def test_primary_study_status_migration_survives_invalid_json(tmp_path) -> None:
+    """Migration 23 must not abort when a row has corrupt (non-JSON) data."""
+    from src.db.database import SCHEMA_PATH, _init_connection, run_migrations
+
+    db_path = tmp_path / "primary_status_invalid.db"
+    async with aiosqlite.connect(str(db_path)) as db:
+        await _init_connection(db)
+        await db.executescript(SCHEMA_PATH.read_text(encoding="utf-8"))
+        await db.execute("INSERT INTO schema_version (version) VALUES (22)")
+        await db.execute(
+            "INSERT INTO workflows (workflow_id, topic, config_hash, status) VALUES ('wf1', 't', 'h', 'running')"
+        )
+        await db.execute(
+            "INSERT INTO papers (paper_id, title, authors, source_database) VALUES ('p1', 'Paper', '[]', 'openalex')"
+        )
+        await db.execute(
+            "INSERT INTO papers (paper_id, title, authors, source_database) VALUES ('p2', 'Paper2', '[]', 'openalex')"
+        )
+        # Corrupt row: data is not valid JSON.
+        await db.execute(
+            "INSERT INTO extraction_records (workflow_id, paper_id, study_design, primary_study_status, data) "
+            "VALUES ('wf1', 'p1', 'rct', 'unknown', 'not-json{')"
+        )
+        # Valid row that should still be backfilled.
+        await db.execute(
+            """
+            INSERT INTO extraction_records (workflow_id, paper_id, study_design, primary_study_status, data)
+            VALUES (
+                'wf1', 'p2', 'rct', 'unknown',
+                '{"paper_id":"p2","study_design":"rct","primary_study_status":"secondary_review","intervention_description":"x"}'
+            )
+            """
+        )
+        await db.commit()
+
+        # Should not raise despite the corrupt row.
+        await run_migrations(db)
+
+        rows = await (
+            await db.execute(
+                "SELECT paper_id, primary_study_status FROM extraction_records WHERE workflow_id = 'wf1' ORDER BY paper_id"
+            )
+        ).fetchall()
+    status_by_paper = {str(r[0]): r[1] for r in rows}
+    assert status_by_paper["p1"] == "unknown"
+    assert status_by_paper["p2"] == "secondary_review"
+
+
+@pytest.mark.asyncio
+async def test_load_extraction_records_prefers_column_over_unknown_json(tmp_path) -> None:
+    db_path = tmp_path / "primary_status_load.db"
+    async with get_db(str(db_path)) as db:
+        repo = WorkflowRepository(db)
+        await repo.create_workflow("wf-load", "topic", "hash")
+        await db.execute(
+            "INSERT INTO papers (paper_id, title, authors, source_database) VALUES ('p1', 'Paper', '[]', 'openalex')"
+        )
+        await db.execute(
+            """
+            INSERT INTO extraction_records (workflow_id, paper_id, study_design, primary_study_status, data)
+            VALUES (
+                'wf-load', 'p1', 'rct', 'primary',
+                '{"paper_id":"p1","study_design":"rct","primary_study_status":"unknown","intervention_description":"x"}'
+            )
+            """
+        )
+        await db.commit()
+        loaded = await repo.load_extraction_records("wf-load")
+    assert len(loaded) == 1
+    assert loaded[0].primary_study_status.value == "primary"
+
+
+@pytest.mark.asyncio
+async def test_load_extraction_records_falls_back_to_json_on_bad_column_status(tmp_path) -> None:
+    """An out-of-enum column value must not drop the record; fall back to JSON status."""
+    db_path = tmp_path / "primary_status_badcol.db"
+    async with get_db(str(db_path)) as db:
+        repo = WorkflowRepository(db)
+        await repo.create_workflow("wf-badcol", "topic", "hash")
+        await db.execute(
+            "INSERT INTO papers (paper_id, title, authors, source_database) VALUES ('p1', 'Paper', '[]', 'openalex')"
+        )
+        # Column holds a value that is not a valid PrimaryStudyStatus enum member.
+        await db.execute(
+            """
+            INSERT INTO extraction_records (workflow_id, paper_id, study_design, primary_study_status, data)
+            VALUES (
+                'wf-badcol', 'p1', 'rct', 'bogus_status',
+                '{"paper_id":"p1","study_design":"rct","primary_study_status":"secondary_review","intervention_description":"x"}'
+            )
+            """
+        )
+        await db.commit()
+        loaded = await repo.load_extraction_records("wf-badcol")
+    assert len(loaded) == 1
+    assert loaded[0].primary_study_status.value == "secondary_review"
+
+
+@pytest.mark.asyncio
 async def test_open_runtime_db_sets_busy_timeout_pragma(tmp_path: Path) -> None:
     from src.db.database import RUNTIME_BUSY_TIMEOUT_MS, open_runtime_db
 

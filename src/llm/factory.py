@@ -2,10 +2,16 @@
 
 from __future__ import annotations
 
+import asyncio
+import logging
+import random
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlparse
 
 from pydantic_ai import (
+    AgentRunResultEvent,
     BinaryImage,
     ImageGenerationTool,
     NativeOutput,
@@ -14,13 +20,23 @@ from pydantic_ai import (
     WebSearchTool,
 )
 from pydantic_ai.embeddings import Embedder
-from pydantic_ai.messages import BinaryContent
+from pydantic_ai.messages import BaseToolCallPart, BinaryContent, BuiltinToolCallEvent
 from pydantic_ai.settings import ModelSettings
 
 from src.llm.provider import AgentRuntimeConfig
-from src.llm.pydantic_client import PydanticAIClient, _run_with_retry
+from src.llm.pydantic_client import (
+    _BASE_DELAY,
+    _MAX_DELAY,
+    _MAX_RETRIES,
+    PydanticAIClient,
+    _is_retryable,
+    _parse_retry_after,
+    _run_with_retry,
+)
 from src.llm.registry import build_agent, normalize_agent_model_prefix, rate_tier_for_model
 from src.models import SettingsConfig
+
+logger = logging.getLogger(__name__)
 
 _DEFAULT_TIMEOUT_SECONDS = 120.0
 _chat_clients: dict[float, PydanticAIClient] = {}
@@ -122,12 +138,60 @@ def get_image_client(timeout_seconds: float | None = None) -> PydanticAIImageCli
     return client
 
 
+def web_tool_progress_message(part: BaseToolCallPart) -> str | None:
+    """Map a built-in web tool call to a short user-facing progress line."""
+    tool = (part.tool_name or "").lower()
+    args = part.args_as_dict()
+    if "web_search" in tool:
+        for key in ("query", "search_query", "q", "search_queries"):
+            val = args.get(key)
+            if isinstance(val, str) and val.strip():
+                query = val.strip()
+                suffix = "…" if len(query) > 100 else ""
+                return f"Searching: {query[:100]}{suffix}"
+            if isinstance(val, list) and val:
+                first = str(val[0]).strip()
+                if first:
+                    suffix = "…" if len(first) > 100 else ""
+                    return f"Searching: {first[:100]}{suffix}"
+        return "Running Google web search..."
+    if "web_fetch" in tool or tool.endswith("_fetch"):
+        url = args.get("url") or args.get("uri")
+        if isinstance(url, str) and url.strip():
+            host = urlparse(url.strip()).netloc
+            return f"Reading {host or url.strip()[:60]}"
+        return "Fetching source pages..."
+    return None
+
+
+async def _run_text_with_web_tools_stream(
+    agent: Any,
+    prompt: str,
+    *,
+    model_settings: ModelSettings,
+    on_progress: Callable[[str], None],
+) -> str:
+    on_progress("Planning search queries from your question...")
+    final_output: str | None = None
+    async for event in agent.run_stream_events(prompt, model_settings=model_settings):
+        if isinstance(event, BuiltinToolCallEvent):
+            message = web_tool_progress_message(event.part)
+            if message:
+                on_progress(message)
+        elif isinstance(event, AgentRunResultEvent):
+            final_output = str(event.result.output)
+    if final_output is None:
+        raise RuntimeError("Web research completed without output")
+    return final_output
+
+
 async def run_text_with_web_tools(
     *,
     model: str,
     prompt: str,
     temperature: float = 0.3,
     timeout_seconds: float = _DEFAULT_TIMEOUT_SECONDS,
+    on_progress: Callable[[str], None] | None = None,
 ) -> str:
     """Run a text completion with WebSearch/WebFetch built-ins."""
     agent = build_agent(
@@ -135,12 +199,35 @@ async def run_text_with_web_tools(
         output_type=str,
         builtin_tools=[WebSearchTool(), WebFetchTool()],
     )
-    result = await _run_with_retry(
-        agent,
-        prompt,
-        model_settings=ModelSettings(temperature=temperature, timeout=timeout_seconds),
-    )
-    return result.output
+    model_settings = ModelSettings(temperature=temperature, timeout=timeout_seconds)
+    if on_progress is None:
+        result = await _run_with_retry(agent, prompt, model_settings=model_settings)
+        return result.output
+
+    for attempt in range(_MAX_RETRIES):
+        try:
+            return await _run_text_with_web_tools_stream(
+                agent,
+                prompt,
+                model_settings=model_settings,
+                on_progress=on_progress,
+            )
+        except Exception as exc:
+            if not _is_retryable(exc) or attempt == _MAX_RETRIES - 1:
+                raise
+            retry_after = _parse_retry_after(exc)
+            exponential_delay = min(_BASE_DELAY * (2**attempt) + random.uniform(0, 1), _MAX_DELAY)
+            delay = max(exponential_delay, retry_after)
+            logger.warning(
+                "Web research transient error (attempt %d/%d), retrying in %.1fs: %s",
+                attempt + 1,
+                _MAX_RETRIES,
+                delay,
+                exc,
+            )
+            on_progress("Web search interrupted, retrying...")
+            await asyncio.sleep(delay)
+    raise RuntimeError("unreachable")  # pragma: no cover
 
 
 async def run_native_structured_json(

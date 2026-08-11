@@ -1,9 +1,11 @@
 import { useQuery } from "@tanstack/react-query"
 import {
   fetchDbCostAggregates,
+  fetchDbCostDashboard,
   fetchDbCosts,
   fetchWorkflowValidationChecks,
   fetchWorkflowValidationSummary,
+  fetchWorkflowValidationSummaryWithChecks,
 } from "@/lib/api"
 import type { DbCostExportGranularity } from "@/lib/api"
 
@@ -11,6 +13,10 @@ export const LIVE_COST_REFRESH_MS = 5_000
 
 export function dbCostsQueryKey(runId: string) {
   return ["dbCosts", runId] as const
+}
+
+export function dbCostDashboardQueryKey(runId: string) {
+  return ["dbCostDashboard", runId] as const
 }
 
 export function dbCostAggregatesQueryKey(
@@ -24,6 +30,10 @@ export function dbCostAggregatesQueryKey(
 
 export function workflowValidationSummaryQueryKey(workflowId: string) {
   return ["workflowValidationSummary", workflowId] as const
+}
+
+export function workflowValidationSummaryWithChecksQueryKey(workflowId: string) {
+  return ["workflowValidationSummaryWithChecks", workflowId] as const
 }
 
 export function workflowValidationChecksQueryKey(
@@ -41,6 +51,19 @@ export function useDbCosts(
   return useQuery({
     queryKey: dbCostsQueryKey(runId ?? ""),
     queryFn: () => fetchDbCosts(runId!),
+    enabled,
+    refetchInterval: options?.isLive ? LIVE_COST_REFRESH_MS : false,
+  })
+}
+
+export function useDbCostDashboard(
+  runId: string | null | undefined,
+  options?: { enabled?: boolean; isLive?: boolean },
+) {
+  const enabled = (options?.enabled ?? true) && Boolean(runId)
+  return useQuery({
+    queryKey: dbCostDashboardQueryKey(runId ?? ""),
+    queryFn: () => fetchDbCostDashboard(runId!),
     enabled,
     refetchInterval: options?.isLive ? LIVE_COST_REFRESH_MS : false,
   })
@@ -75,6 +98,15 @@ export function useWorkflowValidationSummary(workflowId: string | null | undefin
   return useQuery({
     queryKey: workflowValidationSummaryQueryKey(workflowId ?? ""),
     queryFn: () => fetchWorkflowValidationSummary(workflowId!),
+    enabled: Boolean(workflowId),
+    retry: false,
+  })
+}
+
+export function useWorkflowValidationSummaryWithChecks(workflowId: string | null | undefined) {
+  return useQuery({
+    queryKey: workflowValidationSummaryWithChecksQueryKey(workflowId ?? ""),
+    queryFn: () => fetchWorkflowValidationSummaryWithChecks(workflowId!),
     enabled: Boolean(workflowId),
     retry: false,
   })

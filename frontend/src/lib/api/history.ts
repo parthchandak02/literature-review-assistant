@@ -1,5 +1,52 @@
 import { API_BASE } from "./internal"
-import type { HistoryEntry, RunResponse } from "./types"
+import type { HistoryEntry, HistoryRailEntry, RunResponse } from "./types"
+
+export function railEntryToHistoryEntry(rail: HistoryRailEntry): HistoryEntry {
+  return {
+    workflow_id: rail.workflow_id,
+    topic: rail.topic,
+    status: rail.status,
+    db_path: rail.db_path,
+    created_at: rail.created_at,
+    updated_at: null,
+    papers_found: rail.papers_found ?? null,
+    papers_included: rail.papers_included ?? null,
+    total_cost: rail.total_cost ?? null,
+    artifacts_count: null,
+    stats_ok: rail.stats_ok ?? null,
+    stats_error: null,
+    live_run_id: rail.live_run_id ?? null,
+    notes: rail.notes ?? null,
+    is_archived: rail.is_archived ?? false,
+    archived_at: null,
+    is_completed_hidden: rail.is_completed_hidden ?? false,
+    completed_hidden_at: null,
+  }
+}
+
+export async function fetchHistoryRail(
+  runRootOrOptions: string | { runRoot?: string; stats?: boolean } = "runs",
+  options?: { stats?: boolean },
+): Promise<HistoryRailEntry[]> {
+  const runRoot =
+    typeof runRootOrOptions === "string" ? runRootOrOptions : (runRootOrOptions.runRoot ?? "runs")
+  const stats =
+    typeof runRootOrOptions === "string"
+      ? (options?.stats ?? true)
+      : (runRootOrOptions.stats ?? true)
+  const params = new URLSearchParams({
+    run_root: runRoot,
+    view: "rail",
+    stats: String(stats),
+  })
+  const res = await fetch(`${API_BASE}/history?${params}`, { cache: "no-store" })
+  if (!res.ok) {
+    const text = await res.text()
+    const detail = text.trim() || "no response body"
+    throw new Error(`Failed to fetch history rail (${res.status}): ${detail}`)
+  }
+  return res.json() as Promise<HistoryRailEntry[]>
+}
 
 export async function fetchHistory(runRoot = "runs"): Promise<HistoryEntry[]> {
   const params = new URLSearchParams({ run_root: runRoot })

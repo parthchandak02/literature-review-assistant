@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { computePhaseProgress, detectAwaitingProspero } from "./phaseProgress"
+import { computePhaseProgress, detectAwaitingProspero, detectAwaitingReview } from "./phaseProgress"
 import { PHASE_ORDER } from "./constants"
 
 describe("computePhaseProgress", () => {
@@ -29,6 +29,31 @@ describe("computePhaseProgress", () => {
   })
 })
 
+describe("detectAwaitingReview", () => {
+  it("detects parked status from live outputs", () => {
+    expect(
+      detectAwaitingReview({
+        status: "awaiting_review",
+        historicalStatus: "awaiting_review",
+        isRunning: false,
+        events: [],
+      }),
+    ).toBe(true)
+  })
+
+  it("detects live gate from phase events before park", () => {
+    expect(
+      detectAwaitingReview({
+        status: "streaming",
+        isRunning: true,
+        events: [
+          { type: "phase_start", phase: "human_review_checkpoint", description: "HITL", total: null, ts: "2026-03-12T00:00:00Z" },
+        ],
+      }),
+    ).toBe(true)
+  })
+})
+
 describe("detectAwaitingProspero", () => {
   it("detects live gate from phase events", () => {
     expect(
@@ -42,7 +67,7 @@ describe("detectAwaitingProspero", () => {
     ).toBe(true)
   })
 
-  it("returns false after prospero phase_done", () => {
+  it("returns false after prospero phase_done without park summary", () => {
     expect(
       detectAwaitingProspero({
         status: "streaming",
@@ -53,5 +78,21 @@ describe("detectAwaitingProspero", () => {
         ],
       }),
     ).toBe(false)
+  })
+
+  it("detects parked prospero from replayed done event when registry is wrong", () => {
+    expect(
+      detectAwaitingProspero({
+        historicalStatus: "completed",
+        status: "done",
+        isRunning: false,
+        events: [
+          {
+            type: "done",
+            outputs: { status: "awaiting_prospero", workflow_id: "wf-0108" },
+          },
+        ],
+      }),
+    ).toBe(true)
   })
 })

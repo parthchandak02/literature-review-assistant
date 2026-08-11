@@ -66,7 +66,7 @@ async def approve_screening(
     if not pathlib.Path(db_path).exists():
         raise HTTPException(status_code=404, detail="Run database not found")
 
-    from src.db.workflow_registry import find_by_workflow_id_fallback, run_root_from_db_path
+    from src.db.workflow_registry import find_by_workflow_id, find_by_workflow_id_fallback, run_root_from_db_path
     from src.db.workflow_registry import update_status as _update_status
 
     async with aiosqlite.connect(db_path) as _raw_db:
@@ -184,7 +184,9 @@ async def approve_screening(
 
             _al_log.getLogger(__name__).warning("Active learning processing failed (non-fatal): %s", _al_exc)
 
-    entry = await find_by_workflow_id_fallback(run_root, workflow_id)
+    entry = await find_by_workflow_id(run_root, workflow_id)
+    if entry is None:
+        entry = await find_by_workflow_id_fallback(run_root, workflow_id)
     if not entry:
         raise HTTPException(status_code=404, detail="Workflow not found in registry")
 

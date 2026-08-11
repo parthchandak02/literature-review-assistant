@@ -1348,7 +1348,7 @@ async def generate_config_yaml(
     # ------------------------------------------------------------------
     # Stage 1: web-grounded research brief
     # ------------------------------------------------------------------
-    emit("web_research")
+    emit("web_research", detail="Starting live web research for domain terms and evidence...")
     _model = _resolve_model()
     research_prompt = _RESEARCH_PROMPT.format(research_question=rq)
     if generation_profile == "health_sdg":
@@ -1360,6 +1360,7 @@ async def generate_config_yaml(
                 model=_model,
                 prompt=research_prompt,
                 temperature=_TEMPERATURE,
+                on_progress=lambda detail: emit("web_research", detail=detail),
             )
         else:
             client = get_chat_client()
@@ -1374,14 +1375,17 @@ async def generate_config_yaml(
         # Graceful degradation: skip the research brief, rely on model knowledge.
         research_brief = _FALLBACK_RESEARCH_BRIEF
         fallback_reason = " ".join(str(exc).split())[:240]
-        emit("web_research_fallback", reason=fallback_reason)
+        emit("web_research_fallback", reason=fallback_reason, detail="Falling back to model knowledge...")
 
-    emit("web_research_done")
+    emit(
+        "web_research_done",
+        detail=f"Research brief ready ({len(research_brief):,} chars). Structuring PICO and search terms...",
+    )
 
     # ------------------------------------------------------------------
     # Stage 2: structured output from research brief
     # ------------------------------------------------------------------
-    emit("structuring")
+    emit("structuring", detail="Generating PICO, keywords, inclusion criteria, and database queries...")
     structure_prompt = _STRUCTURE_PROMPT.format(
         research_question=rq,
         research_brief=research_brief,
@@ -1424,13 +1428,13 @@ async def generate_config_yaml(
         logger.error("Config gen Stage 2 (structure) failed: %s", exc)
         raise RuntimeError(f"LLM structuring failed: {exc}") from exc
 
-    emit("finalizing")
+    emit("finalizing", detail="Validating schema, routing connectors, and serializing YAML...")
 
     try:
         parsed = target_model.model_validate_json(result_json)
     except Exception as exc:
         logger.warning("Config gen response failed validation; retrying once with repair instruction: %s", exc)
-        emit("structuring_retry")
+        emit("structuring_retry", detail="Repairing keyword list and retrying structure pass...")
         try:
             result_json = await _run_structure(structure_prompt + repair_instruction)
             parsed = target_model.model_validate_json(result_json)
@@ -1449,7 +1453,7 @@ async def generate_config_yaml(
     enriched_keywords = _extract_root_terms(list(parsed.keywords))
     sanitized_keywords = _sanitize_keywords(enriched_keywords)
     if _keywords_need_repair(sanitized_keywords):
-        emit("structuring_retry")
+        emit("structuring_retry", detail="Repairing keyword list and retrying structure pass...")
         try:
             result_json = await _run_structure(structure_prompt + repair_instruction)
             parsed_retry = target_model.model_validate_json(result_json)
@@ -1470,6 +1474,10 @@ async def generate_config_yaml(
         policy=route.policy,
         matched_biomedical_terms=route.matched_biomedical_terms,
         matched_generic_terms=route.matched_generic_terms,
+        detail=(
+            f"Routing to {route.policy} policy "
+            f"(domain={route.domain}, confidence={route.confidence:.2f})"
+        ),
     )
     return _build_yaml(
         parsed,

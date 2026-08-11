@@ -21,6 +21,27 @@ TERMINAL_EVENT_TO_STATUS = {
     "cancelled": "interrupted",
 }
 
+_PARKED_DONE_OUTPUT_STATUSES = frozenset({"awaiting_prospero", "awaiting_review"})
+
+
+def _terminal_status_from_done_payload(payload_raw: str | None) -> str | None:
+    """Map a persisted ``done`` event payload to a registry status when parked."""
+    if not payload_raw:
+        return None
+    try:
+        payload = json.loads(payload_raw)
+    except json.JSONDecodeError:
+        return None
+    if not isinstance(payload, dict):
+        return None
+    outputs = payload.get("outputs")
+    if not isinstance(outputs, dict):
+        return None
+    output_status = _normalize_status(str(outputs.get("status", "")))
+    if output_status in _PARKED_DONE_OUTPUT_STATUSES:
+        return output_status
+    return None
+
 
 class LifecycleReconciler:
     def __init__(
@@ -69,16 +90,33 @@ class LifecycleReconciler:
                 db.row_factory = aiosqlite.Row
                 try:
                     async with db.execute(
-                        "SELECT event_type FROM event_log WHERE event_type IN ('done','error','cancelled') ORDER BY id DESC LIMIT 1"
+                        """
+                        SELECT event_type, payload
+                        FROM event_log
+                        WHERE event_type IN ('done','error','cancelled')
+                        ORDER BY id DESC
+                        LIMIT 1
+                        """
                     ) as cur:
                         ev_row = await cur.fetchone()
                     if ev_row and ev_row["event_type"]:
                         ev_type = str(ev_row["event_type"])
                         out["event_type"] = ev_type
-                        ev_status = TERMINAL_EVENT_TO_STATUS.get(ev_type)
-                        if ev_status:
-                            out["terminal_status"] = ev_status
-                            out["source"] = "event_log"
+                        if ev_type == "done":
+                            parked_status = _terminal_status_from_done_payload(
+                                str(ev_row["payload"]) if ev_row["payload"] is not None else None
+                            )
+                            if parked_status:
+                                out["terminal_status"] = parked_status
+                                out["source"] = "event_log_parked"
+                            else:
+                                out["terminal_status"] = TERMINAL_EVENT_TO_STATUS["done"]
+                                out["source"] = "event_log"
+                        else:
+                            ev_status = TERMINAL_EVENT_TO_STATUS.get(ev_type)
+                            if ev_status:
+                                out["terminal_status"] = ev_status
+                                out["source"] = "event_log"
                 except Exception:
                     pass
                 if out["terminal_status"] is None:
@@ -147,6 +185,22 @@ class LifecycleReconciler:
         evidence = await self.collect_terminal_evidence(str(row["db_path"]))
         diagnostics["evidence"] = evidence
         terminal = evidence.get("terminal_status")
+        if terminal in {"awaiting_prospero", "awaiting_review"}:
+            if registry_status != terminal:
+                try:
+                    await update_registry_status(run_root, str(row["workflow_id"]), terminal)
+                except Exception:
+                    pass
+                else:
+                    _logger.info(
+                        "Lifecycle repair: workflow %s status %s -> %s (parked run)",
+                        row["workflow_id"],
+                        registry_status,
+                        terminal,
+                    )
+            diagnostics["source"] = str(evidence.get("source") or "event_log_parked")
+            diagnostics["override"] = f"{registry_status}->{terminal}"
+            return terminal, diagnostics
         if terminal in {"completed", "failed", "interrupted"} and registry_status in {
             "running",
             "stale",

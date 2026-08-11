@@ -42,7 +42,7 @@ Small localized fixes may skip the full checklist; use judgment.
 ## Phase 2: Quality gate
 
 1. Prefer `make release-check` when release-bound.
-2. Otherwise `make local-ci` when present.
+2. Otherwise `make check-local` when present.
 3. Else: `ruff check` / `uv run pytest` on touched areas; `pnpm typecheck` (and lint/build) for frontend.
 
 ### Hook repair (only when hooks fail or are missing)

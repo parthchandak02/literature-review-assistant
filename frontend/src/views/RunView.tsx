@@ -1,4 +1,4 @@
-import { Suspense, lazy, useMemo, useState } from "react"
+import { Suspense, lazy, useState } from "react"
 import {
   Activity,
   BarChart3,
@@ -11,17 +11,15 @@ import { cn } from "@/lib/utils"
 import { formatRunDate, formatWorkflowId } from "@/lib/format"
 import { Spinner } from "@/components/ui/feedback"
 import { LiveStreamStatus } from "@/components/run-status"
-import { resolveRunHeaderStatus } from "@/lib/constants"
-import { detectAwaitingProspero } from "@/lib/phaseProgress"
 import { GlassTabs } from "@/components/ui/glass-tabs"
 import { ViewBoundary } from "@/components/ViewBoundary"
 import { ActivityView } from "@/views/ActivityView"
 import type { ReviewEvent } from "@/lib/api"
 import { useHistoricalEvents } from "@/hooks/useHistoricalEvents"
 import type { CostStats } from "@/hooks/useCostStats"
-import { computeFunnelStages } from "@/lib/funnelStages"
+import { useRunChrome } from "@/hooks/useRunChrome"
 import type { DraftConfigContext } from "@/views/ConfigView"
-import type { ProsperoRegistration } from "@/lib/api"
+import type { ProsperoRegistration, ScreeningOverride } from "@/lib/api"
 import type { RunTab, SelectedRun } from "@/context/runSessionTypes"
 
 export type { RunTab, SelectedRun } from "@/context/runSessionTypes"
@@ -107,6 +105,7 @@ interface RunViewProps {
   prosperoSubmitting?: boolean
   onPrepareProspero?: (yaml: string) => void
   onStartResearchAfterProspero?: (registration: ProsperoRegistration) => void | Promise<void>
+  onApproveScreeningAndResume?: (overrides: ScreeningOverride[]) => Promise<void>
 }
 
 export function RunView({
@@ -132,6 +131,7 @@ export function RunView({
   prosperoSubmitting = false,
   onPrepareProspero,
   onStartResearchAfterProspero,
+  onApproveScreeningAndResume,
 }: RunViewProps) {
   const [wfIdCopied, setWfIdCopied] = useState(false)
   const isHistorical = !isViewingLiveRun
@@ -145,90 +145,26 @@ export function RunView({
   // Use live SSE events when available; fall back to replayed historical events.
   const effectiveEvents = isHistorical ? historicalEvents : events
 
-  const isDone = run.isDone || status === "done"
-  const isRunning = status === "streaming" || status === "connecting"
-  // A live run is awaiting human review when a phase_start("human_review_checkpoint")
-  // event exists but no matching phase_done has been emitted yet.
-  const isAwaitingReview =
-    run.historicalStatus === "awaiting_review" ||
-    status === "awaiting_review" ||
-    (isRunning &&
-      events.some((e) => e.type === "phase_start" && e.phase === "human_review_checkpoint") &&
-      !events.some((e) => e.type === "phase_done" && e.phase === "human_review_checkpoint"))
-
-  const isAwaitingProspero = detectAwaitingProspero({
-    historicalStatus: run.historicalStatus,
-    status,
-    events,
+  const {
+    statusLabel,
+    statusClassName: statusClass,
+    displayFunnelStages,
+    fallbackFound,
+    fallbackIncluded,
+    displayCost,
     isRunning,
-    prosperoPrepareInProgress,
-  })
-
-  // historicalStatus is the authoritative backend status for completed/cancelled/failed runs.
-  // Check it before isDone, because isDone is true for ALL terminal states (including
-  // cancelled and failed) -- using isDone alone conflates cancellation with success.
-  const isCancelled =
-    ["cancelled", "interrupted"].includes((run.historicalStatus ?? "").toLowerCase()) ||
-    status === "cancelled"
-  const isFailed =
-    ["failed", "error"].includes((run.historicalStatus ?? "").toLowerCase()) ||
-    status === "error"
-
-  // Derive stats for the info strip.
-  // For live runs: use SSE-derived costStats + event counts.
-  // For historical runs: fall back to data baked into SelectedRun from HistoryEntry.
-
-  // Compute the full pipeline funnel stages from events (both live and replayed historical).
-  const funnelStages = useMemo(() => computeFunnelStages(effectiveEvents), [effectiveEvents])
-  const canonicalIncluded =
-    (isHistorical || isDone) && run.papersIncluded != null && run.papersIncluded > 0
-      ? run.papersIncluded
-      : null
-  const displayFunnelStages = useMemo(() => {
-    if (funnelStages.length === 0) return funnelStages
-    if (canonicalIncluded == null) return funnelStages
-    const next = [...funnelStages]
-    const includedIdx = next.findIndex((s) => s.key === "included")
-    if (includedIdx >= 0) {
-      next[includedIdx] = {
-        ...next[includedIdx],
-        count: canonicalIncluded,
-      }
-      return next
-    }
-    next.push({
-      key: "included",
-      label: "included",
-      count: canonicalIncluded,
-      colorClass: "text-intent-success",
-    })
-    return next
-  }, [funnelStages, canonicalIncluded])
-
-  // Fallback simple counts used when there are no events at all (e.g. history entry
-  // viewed before the event stream has loaded or for very old runs without events).
-  const fallbackFound = run.papersFound ?? null
-  const fallbackIncluded = run.papersIncluded ?? null
-
-  // Accumulate DB-sourced historical cost (all phases, all prior sessions) with the
-  // current live-session SSE cost (writing phase only). This ensures the header never
-  // drops below what is already recorded in cost_records, even during a resume:
-  //   fresh run:     historicalCost=null  + SSE cost  = running live total
-  //   completed run: historicalCost=$0.34 + SSE=0     = full DB total
-  //   live resume:   historicalCost=$0.30 + SSE=$0.016 = accumulated approx total
-  const displayCost = (() => {
-    const total = (run.historicalCost ?? 0) + costStats.total_cost
-    return total > 0 ? total : null
-  })()
-
-  const { label: statusLabel, className: statusClass } = resolveRunHeaderStatus({
-    status,
     isDone,
-    isRunning,
-    isCancelled,
-    isFailed,
-    isAwaitingReview,
     isAwaitingProspero,
+    isAwaitingReview,
+  } = useRunChrome({
+    run,
+    events,
+    effectiveEvents,
+    isViewingLiveRun,
+    status,
+    costStats,
+    liveOutputs,
+    prosperoPrepareInProgress,
   })
 
   return (
@@ -411,8 +347,6 @@ export function RunView({
           {activeTab === "config" && (
             <ConfigView
               workflowId={run.workflowId}
-              topic={run.topic}
-              createdAt={run.createdAt}
               draftConfig={draftConfig}
               onRetryDraftGeneration={onRetryDraftGeneration}
               onLaunchDraft={onLaunchDraft}
@@ -426,7 +360,10 @@ export function RunView({
           )}
 
           {activeTab === "review-screening" && (
-            <ScreeningReviewView runId={run.runId} />
+            <ScreeningReviewView
+              runId={run.runId}
+              onApproveAndResume={onApproveScreeningAndResume}
+            />
           )}
           </Suspense>
         </ViewBoundary>

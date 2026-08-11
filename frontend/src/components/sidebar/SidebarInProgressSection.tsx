@@ -1,9 +1,8 @@
 import { Clock, FileText, RefreshCw } from "lucide-react"
 import type { HistoryEntry } from "@/lib/api"
 import { Spinner } from "@/components/ui/feedback"
-import { LiveRunCard } from "@/components/sidebar/LiveRunCard"
-import { InProgressHistoryRow } from "@/components/sidebar/InProgressHistoryRow"
-import { buildInProgressRowModel } from "@/components/sidebar/historyRowModel"
+import { RunNavCard } from "@/components/sidebar/RunNavCard"
+import { buildRunCardModel } from "@/components/sidebar/historyRowModel"
 import type { LiveRun } from "@/components/sidebar/types"
 
 export interface SidebarInProgressSectionProps {
@@ -75,27 +74,28 @@ export function SidebarInProgressSection({
   sessionHideCompleted,
 }: SidebarInProgressSectionProps) {
   const renderHistoryRow = (entry: HistoryEntry) => (
-    <InProgressHistoryRow
+    <RunNavCard
       key={entry.workflow_id}
-      model={buildInProgressRowModel(
+      model={buildRunCardModel({
+        source: "in-progress",
         entry,
         liveRun,
         selectedWorkflowId,
         openingId,
         resumingId,
-        {
+        options: {
           onResume: sessionResume,
           onArchive: sessionArchive,
           onHideCompleted: sessionHideCompleted,
         },
-      )}
+      })}
       collapsed={collapsed}
       wfIdCopied={wfIdCopied}
       noteValue={notes[entry.workflow_id] ?? ""}
       noteFlashKey={noteFlashCounters[entry.workflow_id] ?? 0}
       archivingId={archivingId}
       completingId={completingId}
-      onSelect={onSelect}
+      onSelectEntry={onSelect}
       onCopyWorkflowId={onCopyWorkflowId}
       onNoteChange={(val) => onNoteChange(entry.workflow_id, val)}
       onArchive={onArchive}
@@ -166,18 +166,22 @@ export function SidebarInProgressSection({
 
       <div className="space-y-2">
         {shouldShowStandaloneLiveCard && liveRun && (
-          <LiveRunCard
-            liveRun={liveRun}
+          <RunNavCard
+            key={`live-${liveRun.runId}`}
+            model={buildRunCardModel({
+              source: "live",
+              liveRun,
+              isSelected: isLiveRunSelected,
+              isRunning,
+            })}
             collapsed={collapsed}
-            isLiveRunSelected={isLiveRunSelected}
-            isRunning={isRunning}
+            wfIdCopied={wfIdCopied}
             isMobile={isMobile}
             onToggle={onToggle}
-            onSelectLiveRun={onSelectLiveRun}
+            onSelect={onSelectLiveRun}
             onCancel={onCancel}
-            onArchive={async (workflowId) => { await onArchive(workflowId) }}
+            onArchive={onArchive}
             archivingId={archivingId}
-            wfIdCopied={wfIdCopied}
             onCopyWorkflowId={onCopyWorkflowId}
           />
         )}

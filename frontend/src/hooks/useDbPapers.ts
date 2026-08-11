@@ -1,9 +1,10 @@
-import { useQuery } from "@tanstack/react-query"
+import { useQuery, useQueryClient } from "@tanstack/react-query"
 import {
   fetchDbTables,
   fetchPapersAll,
   fetchPapersFacets,
   fetchPapersSuggest,
+  type PapersFacets,
 } from "@/lib/api"
 
 export const LIVE_DB_REFRESH_MS = 10_000
@@ -49,13 +50,18 @@ export function useDbPapers(
   filters: DbPapersFilters,
   page: number,
   pageSize: number,
-  options?: { enabled?: boolean; isLive?: boolean },
+  options?: { enabled?: boolean; isLive?: boolean; includeFacets?: boolean },
 ) {
+  const queryClient = useQueryClient()
   const enabled = (options?.enabled ?? true) && Boolean(runId)
   return useQuery({
     queryKey: dbPapersQueryKey(runId, filters, page, pageSize),
-    queryFn: () =>
-      fetchPapersAll(
+    queryFn: async () => {
+      const facetsCached = Boolean(
+        queryClient.getQueryData<PapersFacets>(dbPapersFacetsQueryKey(runId)),
+      )
+      const includeFacets = Boolean(options?.includeFacets) && !facetsCached
+      const result = await fetchPapersAll(
         runId,
         "",
         filters.taFilter,
@@ -68,18 +74,50 @@ export function useDbPapers(
         pageSize,
         filters.titleFilter,
         filters.authorFilter,
-      ),
+        { includeFacets },
+      )
+      if (result.facets) {
+        queryClient.setQueryData(dbPapersFacetsQueryKey(runId), result.facets)
+      }
+      return result
+    },
     enabled,
     refetchInterval: options?.isLive ? LIVE_DB_REFRESH_MS : false,
   })
 }
 
-export function useDbPapersFacets(runId: string, enabled = true) {
+export interface DbPapersFacetsOptions {
+  /** True when the paired papers query requested include=facets. */
+  papersQueryIncludesFacets?: boolean
+  /** True once the paired papers query has settled. */
+  papersQueryFetched?: boolean
+  /** True when the paired papers response included facets. */
+  papersHadFacets?: boolean
+}
+
+export function useDbPapersFacets(
+  runId: string,
+  enabled = true,
+  options?: DbPapersFacetsOptions,
+) {
+  const queryClient = useQueryClient()
+  const cachedFacets = queryClient.getQueryData<PapersFacets>(dbPapersFacetsQueryKey(runId))
+  const waitingForPapersFacets =
+    Boolean(options?.papersQueryIncludesFacets) && !options?.papersQueryFetched
+  const shouldFallbackFetch =
+    enabled &&
+    Boolean(runId) &&
+    !cachedFacets &&
+    !waitingForPapersFacets &&
+    (!options?.papersQueryIncludesFacets ||
+      (options.papersQueryFetched && !options.papersHadFacets))
+
   return useQuery({
     queryKey: dbPapersFacetsQueryKey(runId),
     queryFn: () => fetchPapersFacets(runId),
-    enabled: enabled && Boolean(runId),
+    enabled: shouldFallbackFetch,
     staleTime: 60_000,
+    initialData: cachedFacets,
   })
 }
 

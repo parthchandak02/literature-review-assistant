@@ -14,6 +14,7 @@ export interface ValidationSummary {
     warn_count: number
     total_checks: number
   } | null
+  checks?: ValidationCheck[]
 }
 
 export interface ValidationCheck {
@@ -30,6 +31,16 @@ export interface ValidationCheck {
 
 export async function fetchWorkflowValidationSummary(workflowId: string): Promise<ValidationSummary> {
   return apiFetch(`/workflow/${workflowId}/validation/summary`)
+}
+
+export interface ValidationSummaryWithChecks extends ValidationSummary {
+  checks: ValidationCheck[]
+}
+
+export async function fetchWorkflowValidationSummaryWithChecks(
+  workflowId: string,
+): Promise<ValidationSummaryWithChecks> {
+  return apiFetch(`/workflow/${workflowId}/validation/summary?include=checks`)
 }
 
 export async function fetchWorkflowValidationChecks(

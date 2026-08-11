@@ -8,10 +8,11 @@ import json as _json
 import logging
 import pathlib
 import shutil
-from typing import Any
+from typing import Any, Literal
 
 import aiosqlite
-from fastapi import APIRouter, HTTPException, Request, Response
+from fastapi import APIRouter, HTTPException, Query, Request, Response
+from pydantic import BaseModel
 from sse_starlette.sse import EventSourceResponse
 
 from src.db.database import open_runtime_db
@@ -21,6 +22,7 @@ from src.db.workflow_registry import archive_workflow as _archive_registry_workf
 from src.db.workflow_registry import hide_completed_workflow as _hide_completed_registry_workflow
 from src.db.workflow_registry import restore_completed_workflow as _restore_completed_registry_workflow
 from src.db.workflow_registry import restore_workflow as _restore_registry_workflow
+from src.db.workflow_registry import run_root_from_db_path
 from src.db.workflow_registry import update_notes as _update_registry_notes
 from src.orchestration.resume import USER_RESUMABLE_PHASE_ORDER
 from src.web.shared import (
@@ -32,7 +34,6 @@ from src.web.shared import (
     _NoteBody,
 )
 from src.web.state import (
-    _active_runs,
     _lifecycle_coordinator,
     _lifecycle_metrics,
     _notes_subscribers,
@@ -65,6 +66,10 @@ async def _ensure_registry_columns(db: aiosqlite.Connection, registry_key: str) 
         ("notes", "TEXT"),
         ("is_completed_hidden", "INTEGER NOT NULL DEFAULT 0"),
         ("completed_hidden_at", "TEXT"),
+        ("papers_found", "INTEGER"),
+        ("papers_included", "INTEGER"),
+        ("total_cost", "REAL"),
+        ("stats_updated_at", "TEXT"),
     ]
     for col_name, col_type in _columns:
         try:
@@ -80,12 +85,69 @@ def invalidate_stats_cache(workflow_id: str) -> None:
     _stats_cache.pop(workflow_id, None)
 
 
+def should_use_registry_stats(
+    *,
+    reg_status: str,
+    stats_updated_at: str | None,
+    live_run_id: str | None,
+) -> bool:
+    """Return True when persisted registry stats are fresh enough to skip runtime.db."""
+    if live_run_id is not None:
+        return False
+    if not stats_updated_at:
+        return False
+    return _normalize_status(reg_status) in _TERMINAL_STATUSES
+
+
+def stats_payload_from_registry_row(row: aiosqlite.Row) -> dict[str, Any]:
+    """Build a list_history stats payload from registry-persisted columns."""
+    return {
+        "ok": True,
+        "papers_found": row["papers_found"],
+        "papers_included": row["papers_included"],
+        "total_cost": row["total_cost"],
+        "artifacts_count": None,
+    }
+
+
+async def _persist_registry_stats(
+    registry_path: str,
+    workflow_id: str,
+    stats: dict[str, Any],
+) -> None:
+    """Write aggregate stats back to workflows_registry for future list_history calls."""
+    if not stats.get("ok"):
+        return
+    try:
+        async with _open_registry_db(registry_path) as db:
+            await _ensure_registry_columns(db, registry_path)
+            await db.execute(
+                """
+                UPDATE workflows_registry
+                SET papers_found = ?,
+                    papers_included = ?,
+                    total_cost = ?,
+                    stats_updated_at = datetime('now')
+                WHERE workflow_id = ?
+                """,
+                (
+                    stats.get("papers_found"),
+                    stats.get("papers_included"),
+                    stats.get("total_cost"),
+                    workflow_id,
+                ),
+            )
+            await db.commit()
+    except Exception:
+        _logger.debug("Failed to persist registry stats for %s", workflow_id, exc_info=True)
+
+
 # ---------------------------------------------------------------------------
 # Helpers local to this router
 # ---------------------------------------------------------------------------
 
 
-async def _fetch_run_stats(db_path: str) -> dict[str, Any]:
+async def _fetch_run_stats(db_path: str, *, workflow_id: str | None = None) -> dict[str, Any]:
     """Open a run's runtime.db and return lightweight aggregate stats."""
     from src.db.stats import RunStatsResolver
 
@@ -103,11 +165,16 @@ async def _fetch_run_stats(db_path: str) -> dict[str, Any]:
             except Exception:
                 pass
 
-        return {
+        payload = {
             "ok": True,
             **stats,
             "artifacts_count": artifacts_count,
         }
+        if workflow_id is not None:
+            run_root = run_root_from_db_path(db_path)
+            registry_path = str(pathlib.Path(run_root) / "workflows_registry.db")
+            await _persist_registry_stats(registry_path, workflow_id, payload)
+        return payload
     except Exception as exc:
         return {
             "ok": False,
@@ -121,14 +188,38 @@ async def _fetch_run_stats(db_path: str) -> dict[str, Any]:
         }
 
 
+def parse_history_view(view: str) -> Literal["full", "rail"]:
+    """Normalize and validate the history list view query param."""
+    normalized = view.strip().lower()
+    if normalized not in ("full", "rail"):
+        raise HTTPException(status_code=422, detail=f"view must be 'full' or 'rail', got {view!r}")
+    return normalized  # type: ignore[return-value]
+
+
+def should_reconcile_history_status(*, view: Literal["full", "rail"], include_stats: bool) -> bool:
+    """Full view always reconciles; rail view reconciles only when stats are requested."""
+    if view == "full":
+        return True
+    # Rail + stats=false: registry status only (avoids runtime.db reads for reconcile).
+    return include_stats
+
+
 # ---------------------------------------------------------------------------
 # Endpoints
 # ---------------------------------------------------------------------------
 
 
 @router.get("/api/history")
-async def list_history(response: Response, run_root: str = "runs") -> list[HistoryEntry]:
+async def list_history(
+    response: Response,
+    run_root: str = "runs",
+    view: str = Query(default="full", description="full history row or sidebar rail"),
+    stats: bool = Query(default=True, description="Include per-run stats from runtime.db"),
+):
     """Return all past runs from the central workflows_registry.db."""
+    history_view = parse_history_view(view)
+    include_stats = stats
+    reconcile_status = should_reconcile_history_status(view=history_view, include_stats=include_stats)
     registry = pathlib.Path(run_root) / "workflows_registry.db"
     response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
     response.headers["Pragma"] = "no-cache"
@@ -148,7 +239,11 @@ async def list_history(response: Response, run_root: str = "runs") -> list[Histo
                           COALESCE(is_archived, 0) AS is_archived,
                           archived_at,
                           COALESCE(is_completed_hidden, 0) AS is_completed_hidden,
-                          completed_hidden_at
+                          completed_hidden_at,
+                          papers_found,
+                          papers_included,
+                          total_cost,
+                          stats_updated_at
                    FROM workflows_registry
                    ORDER BY created_at DESC"""
             ) as cur:
@@ -170,23 +265,38 @@ async def list_history(response: Response, run_root: str = "runs") -> list[Histo
         db_path = str(row["db_path"])
         live_run_id = active_run_id_by_workflow.get(wf_id)
         reg_status = _normalize_status(str(row["status"]))
-        is_terminal = reg_status in _TERMINAL_STATUSES and not live_run_id
+        # Completed rows may be misclassified parked PROSPERO runs; always reconcile them.
+        is_terminal = reg_status in _TERMINAL_STATUSES and reg_status != "completed" and not live_run_id
 
-        # Stats: use cache for terminal workflows
-        if is_terminal and wf_id in _stats_cache:
-            stats = _stats_cache[wf_id]
+        if not reconcile_status:
+            # stats=false rail: registry status only; no runtime.db access.
+            return {}, reg_status, {"registry_status": reg_status, "source": "registry_only"}
+
+        # Stats: prefer registry persistence, then in-memory cache, then runtime.db.
+        if include_stats:
+            stats_updated_at = row["stats_updated_at"] if row["stats_updated_at"] is not None else None
+            if should_use_registry_stats(
+                reg_status=reg_status,
+                stats_updated_at=stats_updated_at,
+                live_run_id=live_run_id,
+            ):
+                stats_payload = stats_payload_from_registry_row(row)
+            elif is_terminal and wf_id in _stats_cache:
+                stats_payload = _stats_cache[wf_id]
+            else:
+                try:
+                    stats_payload = await _fetch_run_stats(db_path, workflow_id=wf_id)
+                except Exception as exc:
+                    stats_payload = {"ok": False, "error": str(exc)}
+                if is_terminal and stats_payload.get("ok"):
+                    _stats_cache[wf_id] = stats_payload
         else:
-            try:
-                stats = await _fetch_run_stats(db_path)
-            except Exception as exc:
-                stats = {"ok": False, "error": str(exc)}
-            if is_terminal and stats.get("ok"):
-                _stats_cache[wf_id] = stats
+            stats_payload = {}
 
         # Status: skip expensive evidence collection for known-terminal workflows
         if is_terminal:
             diag: dict[str, Any] = {"registry_status": reg_status, "source": "registry_cached"}
-            return stats, reg_status, diag
+            return stats_payload, reg_status, diag
         else:
             effective_status, diag = await _run_resolver.reconcile_effective_status(
                 wf_id,
@@ -194,12 +304,31 @@ async def list_history(response: Response, run_root: str = "runs") -> list[Histo
                 row=row,
                 live_run_id=live_run_id,
             )
-            return stats, effective_status, diag
+            return stats_payload, effective_status, diag
 
     results = await asyncio.gather(
         *[_get_stats_and_status(r) for r in rows],
         return_exceptions=True,
     )
+
+    if history_view == "rail":
+        rail_entries: list[HistoryRailEntry] = []
+        for row, result in zip(rows, results):
+            if isinstance(result, BaseException):
+                s: dict[str, Any] = {}
+                effective_status = _normalize_status(str(row["status"]))
+            else:
+                s, effective_status, _diag = result
+            rail_entries.append(
+                build_history_rail_entry(
+                    row,
+                    effective_status=effective_status,
+                    live_run_id=active_run_id_by_workflow.get(row["workflow_id"]),
+                    stats=s,
+                    include_stats=include_stats,
+                )
+            )
+        return rail_entries
 
     enriched: list[HistoryEntry] = []
     for row, result in zip(rows, results):
@@ -225,12 +354,12 @@ async def list_history(response: Response, run_root: str = "runs") -> list[Histo
                 db_path=row["db_path"],
                 created_at=row["created_at"] or "",
                 updated_at=row["updated_at"],
-                papers_found=s.get("papers_found"),
-                papers_included=s.get("papers_included"),
-                total_cost=s.get("total_cost"),
-                artifacts_count=s.get("artifacts_count"),
-                stats_ok=s.get("ok"),
-                stats_error=s.get("error"),
+                papers_found=s.get("papers_found") if include_stats else None,
+                papers_included=s.get("papers_included") if include_stats else None,
+                total_cost=s.get("total_cost") if include_stats else None,
+                artifacts_count=s.get("artifacts_count") if include_stats else None,
+                stats_ok=s.get("ok") if include_stats else False,
+                stats_error=s.get("error") if include_stats else None,
                 live_run_id=active_run_id_by_workflow.get(row["workflow_id"]),
                 notes=row["notes"] if row["notes"] is not None else None,
                 is_archived=bool(row["is_archived"]),
@@ -246,7 +375,7 @@ async def list_history(response: Response, run_root: str = "runs") -> list[Histo
 async def list_runs_legacy() -> list[dict[str, Any]]:
     """Legacy compatibility endpoint for older clients and integration tests."""
     rows: list[dict[str, Any]] = []
-    for run_id, record in _active_runs.items():
+    for run_id, record in _lifecycle_coordinator.items():
         rows.append(
             {
                 "run_id": run_id,
@@ -445,3 +574,50 @@ async def attach_history(req: AttachRequest) -> RunResponse:
     run_id, record = await _lifecycle_coordinator.attach_history(req)
     await _refresh_allowed_roots()
     return RunResponse(run_id=run_id, topic=record.topic)
+
+
+class HistoryRailEntry(BaseModel):
+    """Slim history row for sidebar rail UI."""
+
+    workflow_id: str
+    topic: str
+    status: str
+    db_path: str
+    created_at: str
+    live_run_id: str | None = None
+    is_archived: bool = False
+    is_completed_hidden: bool = False
+    notes: str | None = None
+    papers_found: int | None = None
+    papers_included: int | None = None
+    total_cost: float | None = None
+    stats_ok: bool | None = None
+
+
+def build_history_rail_entry(
+    row: aiosqlite.Row,
+    *,
+    effective_status: str,
+    live_run_id: str | None,
+    stats: dict[str, Any] | None,
+    include_stats: bool,
+) -> HistoryRailEntry:
+    """Build a sidebar-rail history row from registry + optional stats."""
+    entry = HistoryRailEntry(
+        workflow_id=row["workflow_id"],
+        topic=row["topic"],
+        status=effective_status,
+        db_path=str(row["db_path"] or ""),
+        created_at=row["created_at"] or "",
+        live_run_id=live_run_id,
+        notes=row["notes"] if row["notes"] is not None else None,
+        is_archived=bool(row["is_archived"]),
+        is_completed_hidden=bool(row["is_completed_hidden"]),
+    )
+    if include_stats and stats is not None:
+        entry.papers_found = stats.get("papers_found")
+        entry.papers_included = stats.get("papers_included")
+        entry.total_cost = stats.get("total_cost")
+        if stats.get("ok") is not None:
+            entry.stats_ok = stats.get("ok")
+    return entry

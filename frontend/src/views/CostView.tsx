@@ -13,16 +13,15 @@ import { cn } from "@/lib/utils"
 import { CHART_THEME } from "@/lib/constants"
 import { getDbCostExportUrl } from "@/lib/api"
 import type {
+  CostDashboardResponse,
   DbCostExportGranularity,
-  DbCostRow,
 } from "@/lib/api"
-import type { CostStats, ModelStat, PhaseStat } from "@/hooks/useCostStats"
+import type { CostStats } from "@/hooks/useCostStats"
 import {
   costsFetchErrorMessage,
   useDbCostAggregates,
-  useDbCosts,
-  useWorkflowValidationChecks,
-  useWorkflowValidationSummary,
+  useDbCostDashboard,
+  useWorkflowValidationSummaryWithChecks,
 } from "@/hooks/useDbCosts"
 import { FetchError, EmptyState } from "@/components/ui/feedback"
 import { SkeletonCard } from "@/components/ui/skeleton"
@@ -75,36 +74,24 @@ function formatUsd(value: number): string {
   return `$${value.toFixed(4)}`
 }
 
-function buildCostStatsFromDbRows(dbRows: DbCostRow[], dbTotalCost: number): CostStats {
-  const modelMap: Record<string, ModelStat> = {}
-  const phaseMap: Record<string, PhaseStat> = {}
-  let total_tokens_in = 0
-  let total_tokens_out = 0
-  let total_calls = 0
-  for (const r of dbRows) {
-    total_tokens_in += Number(r.tokens_in)
-    total_tokens_out += Number(r.tokens_out)
-    total_calls += Number(r.calls)
-    if (!modelMap[r.model]) {
-      modelMap[r.model] = { model: r.model, calls: 0, tokens_in: 0, tokens_out: 0, cost_usd: 0 }
-    }
-    modelMap[r.model].calls += Number(r.calls)
-    modelMap[r.model].tokens_in += Number(r.tokens_in)
-    modelMap[r.model].tokens_out += Number(r.tokens_out)
-    modelMap[r.model].cost_usd += Number(r.cost_usd)
-    if (!phaseMap[r.phase]) {
-      phaseMap[r.phase] = { phase: r.phase, cost_usd: 0, calls: 0 }
-    }
-    phaseMap[r.phase].cost_usd += Number(r.cost_usd)
-    phaseMap[r.phase].calls += Number(r.calls)
-  }
+function buildCostStatsFromDashboard(dashboard: CostDashboardResponse): CostStats {
   return {
-    total_cost: dbTotalCost,
-    total_tokens_in,
-    total_tokens_out,
-    total_calls,
-    by_model: Object.values(modelMap).sort((a, b) => b.cost_usd - a.cost_usd),
-    by_phase: Object.values(phaseMap).sort((a, b) => b.cost_usd - a.cost_usd),
+    total_cost: dashboard.total_cost ?? dashboard.totals.cost_usd,
+    total_tokens_in: dashboard.totals.tokens_in,
+    total_tokens_out: dashboard.totals.tokens_out,
+    total_calls: dashboard.totals.calls,
+    by_model: dashboard.by_model.map((m) => ({
+      model: m.model,
+      calls: m.calls,
+      tokens_in: m.tokens_in,
+      tokens_out: m.tokens_out,
+      cost_usd: m.cost_usd,
+    })),
+    by_phase: dashboard.by_phase.map((p) => ({
+      phase: p.phase,
+      cost_usd: p.cost_usd,
+      calls: p.calls,
+    })),
   }
 }
 
@@ -126,13 +113,9 @@ export function CostView({ costStats, dbRunId, workflowId, isLive }: CostViewPro
     return q.get("ops") === "1"
   }, [])
 
-  const dbCostsQuery = useDbCosts(dbRunId, { enabled: Boolean(dbRunId), isLive })
-  const validationSummaryQuery = useWorkflowValidationSummary(workflowId)
-  const validationSummary = validationSummaryQuery.data?.latest_run ?? null
-  const validationChecksQuery = useWorkflowValidationChecks(
-    workflowId,
-    validationSummary?.validation_run_id,
-  )
+  const dashboardQuery = useDbCostDashboard(dbRunId, { enabled: Boolean(dbRunId), isLive })
+  const validationQuery = useWorkflowValidationSummaryWithChecks(workflowId)
+  const validationSummary = validationQuery.data?.latest_run ?? null
 
   const opsAggregatesQuery = useDbCostAggregates(dbRunId, {
     enabled: opsEnabled && Boolean(dbRunId),
@@ -142,16 +125,17 @@ export function CostView({ costStats, dbRunId, workflowId, isLive }: CostViewPro
   })
 
   const dbCostStats = useMemo(() => {
-    const rows = dbCostsQuery.data?.records ?? []
-    const total = dbCostsQuery.data?.total_cost ?? 0
-    if (!rows.length) return null
-    return buildCostStatsFromDbRows(rows, total)
-  }, [dbCostsQuery.data])
+    const dashboard = dashboardQuery.data
+    if (!dashboard) return null
+    const hasData = dashboard.totals.calls > 0 || dashboard.totals.cost_usd > 0
+    if (!hasData) return null
+    return buildCostStatsFromDashboard(dashboard)
+  }, [dashboardQuery.data])
 
-  const screeningDiagnostics = dbCostsQuery.data?.screening_diagnostics ?? null
-  const validationChecks = validationChecksQuery.data?.checks ?? []
-  const loadingDb = dbCostsQuery.isLoading
-  const dbError = dbCostsQuery.isError ? costsFetchErrorMessage(dbCostsQuery.error) : null
+  const screeningDiagnostics = dashboardQuery.data?.screening_diagnostics ?? null
+  const validationChecks = validationQuery.data?.checks ?? []
+  const loadingDb = dashboardQuery.isLoading
+  const dbError = dashboardQuery.isError ? costsFetchErrorMessage(dashboardQuery.error) : null
   const opsAggregates = opsAggregatesQuery.data ?? null
   const opsLoading = opsAggregatesQuery.isFetching
   const opsError = opsAggregatesQuery.isError
@@ -164,7 +148,7 @@ export function CostView({ costStats, dbRunId, workflowId, isLive }: CostViewPro
   // all phases regardless of whether the SSE event was buffered in event_log.
   // SSE-derived stats are only used as a last resort when the DB hasn't been
   // queried yet (e.g., before the first poll completes).
-  const activeCostStats = dbCostStats ?? (costStats.total_calls > 0 ? costStats : costStats)
+  const activeCostStats = dbCostStats ?? costStats
 
   const { total_cost, total_tokens_in, total_tokens_out, total_calls, by_model, by_phase } = activeCostStats
 
@@ -203,7 +187,7 @@ export function CostView({ costStats, dbRunId, workflowId, isLive }: CostViewPro
     return (
       <FetchError
         message={dbError}
-        onRetry={() => { void dbCostsQuery.refetch() }}
+        onRetry={() => { void dashboardQuery.refetch() }}
         className="max-w-md"
       />
     )

@@ -5,6 +5,7 @@ import { PHASE_ORDER } from "@/lib/constants"
 import type { ReviewEvent } from "@/lib/api"
 
 export const PROSPERO_GATE_PHASE = "phase_1_prospero_gate"
+export const HUMAN_REVIEW_PHASE = "human_review_checkpoint"
 
 /** True when the run is parked at or actively in the PROSPERO registration gate. */
 export function detectAwaitingProspero(input: {
@@ -28,10 +29,41 @@ export function detectAwaitingProspero(input: {
   ) {
     return true
   }
+
+  const parkedFromEvents = events.some((e) => {
+    if (e.type === "done") {
+      return String(e.outputs?.status ?? "").toLowerCase() === "awaiting_prospero"
+    }
+    if (e.type === "phase_done" && e.phase === PROSPERO_GATE_PHASE) {
+      const summary = e.summary as Record<string, unknown> | undefined
+      return Boolean(summary?.awaiting_prospero || summary?.paused)
+    }
+    return false
+  })
+  if (parkedFromEvents) return true
+
   if (!isRunning) return false
   return (
     events.some((e) => e.type === "phase_start" && e.phase === PROSPERO_GATE_PHASE) &&
     !events.some((e) => e.type === "phase_done" && e.phase === PROSPERO_GATE_PHASE)
+  )
+}
+
+/** True when the run is parked at or actively in the human screening review gate. */
+export function detectAwaitingReview(input: {
+  historicalStatus?: string | null
+  status?: string
+  events?: ReviewEvent[]
+  isRunning?: boolean
+}): boolean {
+  const { historicalStatus, status = "", events = [], isRunning = false } = input
+  if (historicalStatus === "awaiting_review" || status === "awaiting_review") {
+    return true
+  }
+  if (!isRunning) return false
+  return (
+    events.some((e) => e.type === "phase_start" && e.phase === HUMAN_REVIEW_PHASE) &&
+    !events.some((e) => e.type === "phase_done" && e.phase === HUMAN_REVIEW_PHASE)
   )
 }
 

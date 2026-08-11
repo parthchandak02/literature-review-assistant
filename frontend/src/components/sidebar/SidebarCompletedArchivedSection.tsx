@@ -1,7 +1,8 @@
 import { Archive, Check, ChevronRight } from "lucide-react"
 import { cn } from "@/lib/utils"
 import type { HistoryEntry } from "@/lib/api"
-import { LaneHistoryRow } from "@/components/sidebar/LaneHistoryRow"
+import { RunNavCard } from "@/components/sidebar/RunNavCard"
+import { buildRunCardModel } from "@/components/sidebar/historyRowModel"
 
 export interface SidebarCompletedArchivedSectionProps {
   completedHistory: HistoryEntry[]
@@ -82,19 +83,22 @@ export function SidebarCompletedArchivedSection({
             </p>
           ) : (
             completedHistory.map((entry) => (
-              <LaneHistoryRow
+              <RunNavCard
                 key={`completed-${entry.workflow_id}`}
-                entry={entry}
-                variant="completed"
+                model={buildRunCardModel({
+                  source: "lane",
+                  entry,
+                  variant: "completed",
+                  isSelected: selectedWorkflowId === entry.workflow_id,
+                })}
                 collapsed={collapsed}
-                isSelected={selectedWorkflowId === entry.workflow_id}
                 wfIdCopied={wfIdCopied}
                 archivingId={archivingId}
                 restoringCompletedId={restoringCompletedId}
-                onSelect={(row) => onSelect(row)}
+                onSelectEntry={onSelect}
                 onCopyWorkflowId={onCopyWorkflowId}
-                onArchive={(id) => onArchive(id)}
-                onRestoreCompleted={(id) => onRestoreCompleted(id)}
+                onArchive={onArchive}
+                onRestoreCompleted={onRestoreCompleted}
               />
             ))
           )}
@@ -126,21 +130,24 @@ export function SidebarCompletedArchivedSection({
             </p>
           ) : (
             archivedHistory.map((entry) => (
-              <LaneHistoryRow
+              <RunNavCard
                 key={`archived-${entry.workflow_id}`}
-                entry={entry}
-                variant="archived"
+                model={buildRunCardModel({
+                  source: "lane",
+                  entry,
+                  variant: "archived",
+                  isSelected: selectedWorkflowId === entry.workflow_id,
+                })}
                 collapsed={collapsed}
-                isSelected={selectedWorkflowId === entry.workflow_id}
                 wfIdCopied={wfIdCopied}
                 completingId={completingId}
                 restoringId={restoringId}
-                openArchivedMenuId={openArchivedMenuId}
-                onSelect={(row) => onSelect(row)}
+                openOverflowMenuId={openArchivedMenuId}
+                onSelectEntry={onSelect}
                 onCopyWorkflowId={onCopyWorkflowId}
-                onComplete={(id) => onComplete(id)}
-                onRestore={(id) => onRestore(id)}
-                onToggleArchivedMenu={onToggleArchivedMenu}
+                onComplete={onComplete}
+                onRestore={onRestore}
+                onToggleOverflowMenu={onToggleArchivedMenu}
                 onDelete={onDelete}
               />
             ))

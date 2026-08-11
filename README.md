@@ -47,7 +47,7 @@ The web UI is the easiest way to get started. No local config editing is require
 **1. Clone the repo**
 
 ```bash
-git clone https://github.com/parthchandak/literature-review-assistant
+git clone https://github.com/parthchandak02/literature-review-assistant
 cd literature-review-assistant
 ```
 
@@ -87,9 +87,9 @@ The setup page uses one question-first flow:
 
 A secondary "Paste YAML directly" link is also available for pasting a raw config from a previous run or external source.
 
-Your Gemini API key is required and is pre-filled from localStorage on return visits. The setup form also backfills any blank key fields from `GET /api/config/env-keys`, so keys already present in the local backend `.env` do not need to be retyped.
+`DEEPSEEK_API_KEY` is required (default LLM in `config/settings.yaml`). `GEMINI_API_KEY` is optional and only needed if you switch models back to `google:` in settings. The setup form also backfills any blank key fields from `GET /api/config/env-keys`, so keys already present in the local backend `.env` do not need to be retyped.
 
-The sidebar shows all your runs (live and historical) with status colors (emerald = completed, violet = running, red = error, amber = cancelled) and a stats strip (papers found, papers included, artifacts, cost). Selecting a run opens its dashboard with 7 base tabs in workflow order: Config (research question + review.yaml), Activity (phase timeline + event log), Data, Cost, Results, References (included papers list with PDF/TXT download), and Quality (final audit summary, export readiness, diagnostics, compliance checks). Results and Quality now both surface one clear final-audit summary path before the lower-level details. A conditional Review Screening tab appears only when the run pauses for human-in-the-loop screening approval (`awaiting_review`). The floating Costs button (bottom-right) opens global LLM spend history and CSV export across registry-linked runs (`GET /api/history/costs/aggregates` and `GET /api/history/costs/export`), separate from the per-run Cost tab. To resume from a specific phase, use the Activity phase timeline (tap once to arm, tap again to confirm) or use the sidebar Resume button for default auto-resume. Non-running runs can be moved manually between `IN PROGRESS`, `COMPLETED`, and `ARCHIVED`; restore returns them to `IN PROGRESS`, and permanent delete remains an archived-item overflow action.
+The sidebar shows all your runs (live and historical) with status colors (emerald = completed, violet = running, red = error, amber = cancelled) and a stats strip (papers found, papers included, artifacts, cost). Selecting a run opens its dashboard with five base tabs in workflow order: Config (research question + review.yaml), Activity (phase timeline + event log), Data, Cost, and Results. Results uses category navigation (Manuscript, Figures, Quality, Files, References) as defined in `docs/UI.md`. A conditional Review Screening tab appears only when the run pauses for human-in-the-loop screening approval (`awaiting_review`). The floating Costs button (bottom-right) opens global LLM spend history and CSV export across registry-linked runs (`GET /api/history/costs/aggregates` and `GET /api/history/costs/export`), separate from the per-run Cost tab. To resume from a specific phase, use the Activity phase timeline (tap once to arm, tap again to confirm) or use the sidebar Resume button for default auto-resume. Non-running runs can be moved manually between `IN PROGRESS`, `COMPLETED`, and `ARCHIVED`; restore returns them to `IN PROGRESS`, and permanent delete remains an archived-item overflow action.
 
 **Tip -- reuse a past config:** Click "+" to open the form, then use the "Load from past run" dropdown to pre-populate the form from any previous run's config. Useful for iterating on the same research question with different parameters.
 
@@ -102,7 +102,7 @@ Prefer the terminal? Use this path.
 **1. Clone and install**
 
 ```bash
-git clone https://github.com/parthchandak/literature-review-assistant
+git clone https://github.com/parthchandak02/literature-review-assistant
 cd literature-review-assistant
 uv sync
 ```
@@ -118,9 +118,10 @@ cp .env.example .env
 Edit `.env`:
 
 ```bash
-GEMINI_API_KEY=your-key-here              # Required -- get free at ai.google.dev
+DEEPSEEK_API_KEY=your-key-here              # Required -- default LLM (get at platform.deepseek.com)
 OPENALEX_API_KEY=your-key-here            # Required if openalex is enabled (default review template includes openalex)
 PUBMED_EMAIL=your-email@example.com       # Strongly recommended for PubMed
+GEMINI_API_KEY=your-key-here              # Optional -- only if you switch models to google: in config/settings.yaml
 PUBMED_API_KEY=your-key-here              # Optional -- faster PubMed rate limits
 IEEE_API_KEY=your-key-here                # Optional -- IEEE Xplore access
 PERPLEXITY_SEARCH_API_KEY=your-key-here   # Optional -- auxiliary discovery
@@ -178,9 +179,10 @@ Your `submission/` folder is ready.
 
 | Key | Where to Get | Required? |
 |-----|-------------|-----------|
-| `GEMINI_API_KEY` | [ai.google.dev](https://ai.google.dev) | Yes |
+| `DEEPSEEK_API_KEY` | [platform.deepseek.com](https://platform.deepseek.com/) | Yes (default LLM) |
 | `OPENALEX_API_KEY` | [openalex.org](https://openalex.org/sign-up) | Conditionally required (required for the default template unless `openalex` is removed from `target_databases`) |
 | `PUBMED_EMAIL` | Any email address | Recommended (PubMed identification/rate policy) |
+| `GEMINI_API_KEY` | [ai.google.dev](https://ai.google.dev) | No (only if you use `google:` models in `config/settings.yaml`) |
 | `PUBMED_API_KEY` | [ncbi.nlm.nih.gov/account](https://www.ncbi.nlm.nih.gov/account/settings/) | No (higher rate limits) |
 | `IEEE_API_KEY` | [developer.ieee.org](https://developer.ieee.org) | No |
 | `PERPLEXITY_SEARCH_API_KEY` | [docs.perplexity.ai](https://docs.perplexity.ai) | No |
@@ -191,7 +193,7 @@ Your `submission/` folder is ready.
 | `WOS_API_KEY` | [Clarivate developer portal](https://developer.clarivate.com) | No (Web of Science Starter API, 300 req/day free) |
 | `EMBASE_API_KEY` | Elsevier institutional (apisupport@elsevier.com) | No (Embase connector) |
 
-The free Gemini tier (Flash-Lite / Flash / Pro) is sufficient for most reviews. A full run typically costs under $5.
+The default DeepSeek V4 models in `config/settings.yaml` are sufficient for most reviews. A full run typically costs under $5.
 
 Web UI note: the browser setup form supports the most common connector keys. Some optional connectors (for example Embase and CORE retrieval) currently read credentials from the backend environment (`.env`) rather than per-run browser payload fields.
 
@@ -354,9 +356,16 @@ pm2 start ecosystem.config.js
 Open `http://localhost:5173` (Vite dev UI, HMR) or `http://localhost:8001` (API direct). The `litreview-ui` PM2 process runs Vite on port 5173 and proxies `/api` to the backend on port 8001 automatically.
 If you clone the repo to a different path or machine, update `PROJECT_DIR` in `ecosystem.config.js` before starting PM2 because it is currently absolute.
 
-Useful PM2 commands:
+Useful PM2 commands (`scripts/ops_pm2.sh`):
 
 ```bash
+./scripts/ops_pm2.sh restart              # restart litreview-api (default, after src/ changes)
+./scripts/ops_pm2.sh restart --all        # restart api, ui, and tunnel
+./scripts/ops_pm2.sh restart --prod-ui    # pnpm build + restart api (production URL)
+./scripts/ops_pm2.sh restart --status     # pm2 list
+make pm2-restart                          # Makefile alias for ops_pm2.sh restart
+make deploy-prod                          # full production deploy (build + restart + health check)
+
 pm2 logs                      # tail logs from all processes
 pm2 logs litreview-api        # tail backend logs only
 pm2 logs litreview-tunnel     # tail cloudflared tunnel logs
@@ -372,8 +381,9 @@ pm2 status                    # show process status table
 **Production deploys -- rebuild the frontend:** When running in production (FastAPI serves `frontend/dist/` as static files on port 8001), a `pnpm build` is required after every frontend code change. The Vite dev server (port 5173) picks up changes automatically, but the production URL always serves the last built `dist/`. After rebuilding, restart the API process so it serves the new assets:
 
 ```bash
-cd frontend && pnpm build && cd ..
-pm2 restart litreview-api
+make pm2-restart -- --prod-ui
+# or: ./scripts/ops_pm2.sh restart --prod-ui
+# or: make deploy-prod
 ```
 
 **Alternative -- plain terminals:**
@@ -392,7 +402,7 @@ cd frontend && pnpm dev
 uv run pytest tests/unit -q
 uv run pytest tests/integration -q
 # real-workflow replay validation (recommended before/after pipeline edits)
-uv run python scripts/validate_workflow_replay.py --workflow-id wf-XXXX --profile quick
+uv run python scripts/check.py replay-workflow --workflow-id wf-XXXX --profile quick
 ```
 
 Real-workflow-first policy:
@@ -436,17 +446,18 @@ cd frontend && pnpm fix && pnpm typecheck
 | `src/utils/` | SSL context, structured logging, shared path helpers |
 | `frontend/` | React + TypeScript web UI |
 
-**Utility scripts:**
+**Utility scripts:** See `docs/SCRIPTS.md` or run `./scripts/help.sh` / `make scripts-help`.
 
-| Script | Purpose |
-|--------|---------|
-| `scripts/validate_workflow_replay.py` | Runs quick/standard/deep replay validation directly on an existing workflow `runtime.db` and persists phase-level check results to `validation_runs` and `validation_checks`. |
-| `scripts/finalize_manuscript.py` | Thin regeneration utility for `doc_manuscript.md`: re-assembles all sections (Declarations, GRADE tables, Study Characteristics Table, Search appendix, Figures, References) from an existing run's runtime.db. Strips unresolved citekeys and injects IMRaD headings for historical runs. Usage: `uv run python scripts/finalize_manuscript.py --run-dir runs/YYYY-MM-DD/wf-NNNN-<topic-slug>/run_<time>` |
-| `scripts/re_extract.py` | Targeted re-extraction for studies with low-quality data (placeholder outcomes, missing authors). Usage: `uv run python scripts/re_extract.py --run-dir runs/YYYY-MM-DD/wf-NNNN-<topic-slug>/run_<time>` |
-| `scripts/show_run_info.py` | Print run metadata (status, included papers, cost) for a workflow ID without opening the browser. Usage: `uv run python scripts/show_run_info.py --workflow-id wf-xxx` |
-| `scripts/inject_missing_citations.py` | Post-hoc CLI: reads a completed run's section drafts, identifies uncited citekeys, patches the Results section with a design-grouped coverage paragraph, and regenerates the manuscript. Accepts `--workflow-id`. Uses LLM batch resolver as fallback for unmatched keys. Usage: `uv run python scripts/inject_missing_citations.py --workflow-id wf-xxx` |
+| Entrypoint | Purpose |
+|------------|---------|
+| `scripts/ops_pm2.sh` | PM2 restart, production deploy (`restart --prod-ui`), ecosystem sync |
+| `scripts/check.sh` | Run all checks (`local`) or full release gate (`release`) |
+| `scripts/check.py` | `api`, `replay-fixture`, `replay-workflow` |
+| `scripts/review.py` | `start`, `watch`, `info` (optional `--costs`) |
+| `scripts/repair.py` | `finalize`, `re-extract`, `inject-citations`, `regen-replay-fixture` |
+| `scripts/hermes.sh` | `maintain`, `link-skill` (see staleness warning in skill docs) |
 
-Additional maintenance and diagnostics helpers also live under `scripts/`; use `ls scripts` when you need a one-off workflow probe or parity check.
+Implementation modules live under `scripts/lib/`; use the entrypoints above.
 
 ---
 

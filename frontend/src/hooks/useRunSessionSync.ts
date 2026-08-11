@@ -1,6 +1,7 @@
 import { useEffect, type Dispatch, type SetStateAction } from "react"
 import type { NavigateFunction } from "react-router-dom"
 import { isTerminalHistoricalStatus } from "@/lib/runSelection"
+import { isParkedGateStatus } from "@/lib/constants"
 import { parseRunUrl } from "@/lib/runSessionUrl"
 import { connectLiveRun } from "@/lib/runSession"
 import {
@@ -19,6 +20,8 @@ import type { useLiveRunStream } from "@/hooks/useLiveRunStream"
 import type { RunTab, SelectedRun } from "@/views/RunView"
 
 type LiveStream = ReturnType<typeof useLiveRunStream>
+
+const PARKED_OUTPUT_STATUSES = new Set(["awaiting_prospero", "awaiting_review"])
 
 export interface RunSessionSyncArgs {
   navigate: NavigateFunction
@@ -177,7 +180,8 @@ export function useRunSessionSync({
 
   useEffect(() => {
     if (!liveOutputs || !liveRunId) return
-    if (String(liveOutputs.status ?? "") === "awaiting_prospero") return
+    const outputStatus = String(liveOutputs.status ?? "")
+    if (PARKED_OUTPUT_STATUSES.has(outputStatus)) return
     const wfId = liveOutputs.workflow_id as string | undefined
     if (wfId && selectedRun?.runId === liveRunId && !selectedRun.workflowId) {
       setSelectedRun((r) => (r ? { ...r, workflowId: wfId, isDone: true } : r))
@@ -189,7 +193,7 @@ export function useRunSessionSync({
 
   useEffect(() => {
     const parkedStatus = String(liveOutputs?.status ?? "")
-    if (parkedStatus !== "awaiting_prospero") return
+    if (!PARKED_OUTPUT_STATUSES.has(parkedStatus)) return
     const wfId = String(liveOutputs?.workflow_id ?? liveWorkflowId ?? "")
     if (!wfId || !liveRunId) return
 
@@ -199,7 +203,7 @@ export function useRunSessionSync({
         ...prev,
         workflowId: wfId,
         dbPath: typeof liveOutputs?.db_path === "string" ? liveOutputs.db_path : prev.dbPath,
-        historicalStatus: "awaiting_prospero",
+        historicalStatus: parkedStatus,
         isDone: false,
       }
     })
@@ -255,8 +259,12 @@ export function useRunSessionSync({
     if (!wfId || isViewingLiveRun || isTerminalHistory) return
     const workflowId = wfId
 
+    // Parked runs (awaiting PROSPERO registration or human screening review) can sit
+    // idle far longer than an active run's transient polling gaps, so give them a much
+    // higher miss budget instead of giving up after ~8 seconds.
+    const isParked = isParkedGateStatus(selectedRun?.historicalStatus)
     let consecutiveMisses = 0
-    const MAX_MISSES = 10
+    const MAX_MISSES = isParked ? 300 : 10
     let switched = false
 
     async function checkAndSwitch() {
