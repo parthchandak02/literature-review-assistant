@@ -72,6 +72,35 @@ describe("computeRunChrome", () => {
     expect(vm.displayCost).toBeCloseTo(0.316, 3)
   })
 
+  it("does not treat completed historical runs as prospero-pending after final done", () => {
+    const vm = computeRunChrome({
+      run: baseRun({
+        isDone: true,
+        papersIncluded: 7,
+        historicalStatus: "completed",
+      }),
+      events: [],
+      effectiveEvents: [
+        {
+          type: "done",
+          outputs: { status: "awaiting_prospero", workflow_id: "wf-0108" },
+        } as never,
+        {
+          type: "done",
+          outputs: { status: "done", workflow_id: "wf-0108" },
+        } as never,
+      ],
+      isViewingLiveRun: false,
+      status: "done",
+      costStats: EMPTY_COST,
+      resolvedHistoricalStatus: "completed",
+    })
+
+    expect(vm.isAwaitingProspero).toBe(false)
+    expect(vm.isDone).toBe(true)
+    expect(vm.statusLabel).not.toBe("PROSPERO Pending")
+  })
+
   it("overrides funnel included count from run.papersIncluded on done historical runs", () => {
     const vm = computeRunChrome({
       run: baseRun({

@@ -1,16 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from "react"
-import { useQueryClient } from "@tanstack/react-query"
 import {
   ChevronLeft,
   ChevronRight,
   Plus,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
-import { type NotesStreamEvent } from "@/lib/api"
-import type { HistoryEntry } from "@/lib/api"
-import { historyFetchErrorMessage, historyQueryKey, useHistory } from "@/hooks/useHistory"
-import { isProsperoPendingStatus } from "@/lib/constants"
-import { useNotesStream } from "@/hooks/useNotesStream"
+import { historyFetchErrorMessage, useHistory } from "@/hooks/useHistory"
+import { useSidebarRuns } from "@/hooks/useSidebarRuns"
 import {
   TooltipProvider,
 } from "@/components/ui/tooltip"
@@ -62,7 +58,6 @@ export function Sidebar({
     handleGoHome: onGoHome,
   } = useRunSessionActions()
 
-  const queryClient = useQueryClient()
   const selectedWorkflowId = selectedRun?.workflowId ?? null
   const {
     data: history = [],
@@ -71,15 +66,7 @@ export function Sidebar({
     refetch: refetchHistory,
   } = useHistory()
   const historyError = historyQueryError ? historyFetchErrorMessage(historyQueryError) : null
-  const [openingId, setOpeningId] = useState<string | null>(null)
-  const [resumingId, setResumingId] = useState<string | null>(null)
-  const [archivingId, setArchivingId] = useState<string | null>(null)
-  const [restoringId, setRestoringId] = useState<string | null>(null)
-  const [completingId, setCompletingId] = useState<string | null>(null)
-  const [restoringCompletedId, setRestoringCompletedId] = useState<string | null>(null)
-  const [, setDeletingId] = useState<string | null>(null)
-  const [deleteConfirmWorkflowId, setDeleteConfirmWorkflowId] =
-    useState<string | null>(null)
+
   const [completedExpanded, setCompletedExpanded] = useState(false)
   const [archivedExpanded, setArchivedExpanded] = useState(false)
   const [openArchivedMenuId, setOpenArchivedMenuId] = useState<string | null>(null)
@@ -88,56 +75,50 @@ export function Sidebar({
   const dragStartX = useRef(0)
   const dragStartWidth = useRef(0)
 
-  // Notes: keyed by workflow_id. Seeded from history, updated via SSE.
-  const [notes, setNotes] = useState<Record<string, string>>({})
-  // Flash counter per workflow_id: incrementing forces NoteField to re-key and retrigger
-  // the animation even when the same card receives rapid successive remote updates.
-  const [noteFlashCounters, setNoteFlashCounters] = useState<Record<string, number>>({})
-
-  const optimisticHistoryUpdate = useCallback(
-    (updater: (prev: HistoryEntry[]) => HistoryEntry[]) => {
-      queryClient.setQueryData<HistoryEntry[]>(historyQueryKey(), (prev) =>
-        updater(prev ?? []),
-      )
-    },
-    [queryClient],
-  )
-
-  const handleNotesStreamMessage = useCallback((data: NotesStreamEvent) => {
-    setNotes((prev) => ({ ...prev, [data.workflow_id]: data.note }))
-    setNoteFlashCounters((prev) => ({
-      ...prev,
-      [data.workflow_id]: (prev[data.workflow_id] ?? 0) + 1,
-    }))
+  const closeArchivedMenu = useCallback(() => {
+    setOpenArchivedMenuId(null)
   }, [])
 
-  useNotesStream(handleNotesStreamMessage)
-
-  // Seed notes map from history response (server is source of truth on load).
-  useEffect(() => {
-    if (!history.length) return
-    setNotes((prev) => {
-      const next = { ...prev }
-      for (const entry of history) {
-        if (entry.notes != null) next[entry.workflow_id] = entry.notes
-      }
-      return next
-    })
-  }, [history])
-
-  // When a live run reaches terminal state, refresh history after a short
-  // delay to pick up the final persisted status from the registry.
-  useEffect(() => {
-    if (
-      liveRun?.status === "done" ||
-      liveRun?.status === "error" ||
-      liveRun?.status === "cancelled"
-    ) {
-      void refetchHistory()
-      const timer = setTimeout(() => void refetchHistory(), 3000)
-      return () => clearTimeout(timer)
-    }
-  }, [liveRun?.status, refetchHistory])
+  const {
+    prosperoPendingHistory,
+    inProgressHistory,
+    completedHistory,
+    archivedHistory,
+    shouldShowStandaloneLiveCard,
+    openingId,
+    resumingId,
+    archivingId,
+    restoringId,
+    completingId,
+    restoringCompletedId,
+    deleteConfirmWorkflowId,
+    setDeleteConfirmWorkflowId,
+    notes,
+    setNotes,
+    noteFlashCounters,
+    handleOpen,
+    handleResume,
+    handleArchive,
+    handleRestore,
+    handleHideCompleted,
+    handleRestoreCompleted,
+    handleDeleteRequest,
+    handleDeleteConfirm,
+  } = useSidebarRuns({
+    history,
+    refetchHistory,
+    liveRun,
+    onSelectHistory,
+    onResume,
+    onArchive,
+    onRestore,
+    onHideCompleted,
+    onRestoreCompleted,
+    onDelete,
+    isMobile,
+    onToggle,
+    onArchivedMenuClose: closeArchivedMenu,
+  })
 
   // Drag-to-resize the sidebar
   useEffect(() => {
@@ -158,122 +139,6 @@ export function Sidebar({
     }
   }, [isDragging, onWidthChange])
 
-  const liveRunHasHistoryRow = Boolean(
-    liveRun && history.some((entry) => {
-      if (liveRun.workflowId && entry.workflow_id === liveRun.workflowId) return true
-      return Boolean(entry.live_run_id && entry.live_run_id === liveRun.runId)
-    }),
-  )
-  // Render a standalone live card only during the brief bootstrap window where
-  // the active run is not yet present in /api/history. Once present, decorate
-  // that stable history row in-place to avoid sidebar reshuffles.
-  const shouldShowStandaloneLiveCard = Boolean(liveRun && !liveRunHasHistoryRow)
-
-  async function handleSelectHistory(entry: HistoryEntry) {
-    setOpeningId(entry.workflow_id)
-    // Close the mobile drawer when a run is selected
-    if (isMobile) onToggle()
-    try {
-      await onSelectHistory(entry)
-    } finally {
-      setOpeningId(null)
-    }
-  }
-
-  async function handleResumeLauncher(entry: HistoryEntry) {
-    setResumingId(entry.workflow_id)
-    try {
-      await onResume(entry)
-    } finally {
-      setResumingId(null)
-    }
-  }
-
-  async function handleArchiveConfirm(workflowId: string) {
-    setArchivingId(workflowId)
-    // Optimistic: move to archived immediately
-    optimisticHistoryUpdate((prev) =>
-      prev.map((e) =>
-        e.workflow_id === workflowId
-          ? { ...e, is_archived: true, archived_at: new Date().toISOString() }
-          : e,
-      ),
-    )
-    try {
-      await onArchive(workflowId)
-    } finally {
-      setArchivingId(null)
-      void refetchHistory()
-    }
-  }
-
-  async function handleRestoreConfirm(workflowId: string) {
-    setRestoringId(workflowId)
-    // Optimistic: move out of archived immediately
-    optimisticHistoryUpdate((prev) =>
-      prev.map((e) =>
-        e.workflow_id === workflowId
-          ? { ...e, is_archived: false, archived_at: null }
-          : e,
-      ),
-    )
-    setOpenArchivedMenuId((prev) => (prev === workflowId ? null : prev))
-    try {
-      await onRestore(workflowId)
-    } finally {
-      setRestoringId(null)
-      void refetchHistory()
-    }
-  }
-
-  async function handleCompleteConfirm(workflowId: string) {
-    setCompletingId(workflowId)
-    // Optimistic: move to completed section immediately
-    optimisticHistoryUpdate((prev) =>
-      prev.map((e) =>
-        e.workflow_id === workflowId
-          ? { ...e, is_completed_hidden: true, completed_hidden_at: new Date().toISOString() }
-          : e,
-      ),
-    )
-    try {
-      await onHideCompleted(workflowId)
-    } finally {
-      setCompletingId(null)
-      void refetchHistory()
-    }
-  }
-
-  async function handleRestoreCompletedConfirm(workflowId: string) {
-    setRestoringCompletedId(workflowId)
-    // Optimistic: move out of completed section immediately
-    optimisticHistoryUpdate((prev) =>
-      prev.map((e) =>
-        e.workflow_id === workflowId
-          ? { ...e, is_completed_hidden: false, completed_hidden_at: null }
-          : e,
-      ),
-    )
-    try {
-      await onRestoreCompleted(workflowId)
-    } finally {
-      setRestoringCompletedId(null)
-      void refetchHistory()
-    }
-  }
-
-  async function handleDeleteConfirm(workflowId: string) {
-    setDeletingId(workflowId)
-    // Optimistic: remove from list immediately
-    optimisticHistoryUpdate((prev) => prev.filter((e) => e.workflow_id !== workflowId))
-    try {
-      await onDelete(workflowId)
-    } finally {
-      setDeletingId(null)
-      void refetchHistory()
-    }
-  }
-
   function handleDragHandleMouseDown(e: React.MouseEvent) {
     e.preventDefault()
     dragStartX.current = e.clientX
@@ -286,13 +151,6 @@ export function Sidebar({
     setWfIdCopied(id)
     setTimeout(() => setWfIdCopied(null), 1500)
   }, [])
-
-  const activeHistory = history.filter((entry) => !entry.is_archived)
-  const completedHistory = activeHistory.filter((entry) => Boolean(entry.is_completed_hidden))
-  const visibleHistory = activeHistory.filter((entry) => !entry.is_completed_hidden)
-  const prosperoPendingHistory = visibleHistory.filter((entry) => isProsperoPendingStatus(entry.status))
-  const inProgressHistory = visibleHistory.filter((entry) => !isProsperoPendingStatus(entry.status))
-  const archivedHistory = history.filter((entry) => Boolean(entry.is_archived))
 
   return (
     <TooltipProvider delayDuration={0}>
@@ -379,10 +237,10 @@ export function Sidebar({
             onToggle={onToggle}
             onSelectLiveRun={onSelectLiveRun}
             onCancel={onCancel}
-            onSelect={(row) => void handleSelectHistory(row)}
-            onResume={(row) => void handleResumeLauncher(row)}
-            onArchive={handleArchiveConfirm}
-            onComplete={(id) => void handleCompleteConfirm(id)}
+            onSelect={(row) => void handleOpen(row)}
+            onResume={(row) => void handleResume(row)}
+            onArchive={handleArchive}
+            onComplete={(id) => void handleHideCompleted(id)}
             onCopyWorkflowId={handleCopyWorkflowId}
             onNoteChange={(workflowId, val) =>
               setNotes((prev) => ({ ...prev, [workflowId]: val }))
@@ -408,19 +266,16 @@ export function Sidebar({
           openArchivedMenuId={openArchivedMenuId}
           onToggleCompleted={() => setCompletedExpanded((prev) => !prev)}
           onToggleArchived={() => setArchivedExpanded((prev) => !prev)}
-          onSelect={(row) => void handleSelectHistory(row)}
+          onSelect={(row) => void handleOpen(row)}
           onCopyWorkflowId={handleCopyWorkflowId}
-          onArchive={(id) => void handleArchiveConfirm(id)}
-          onRestoreCompleted={(id) => void handleRestoreCompletedConfirm(id)}
-          onComplete={(id) => void handleCompleteConfirm(id)}
-          onRestore={(id) => void handleRestoreConfirm(id)}
+          onArchive={(id) => void handleArchive(id)}
+          onRestoreCompleted={(id) => void handleRestoreCompleted(id)}
+          onComplete={(id) => void handleHideCompleted(id)}
+          onRestore={(id) => void handleRestore(id)}
           onToggleArchivedMenu={(id) =>
             setOpenArchivedMenuId((prev) => (prev === id ? null : id))
           }
-          onDelete={(id) => {
-            setOpenArchivedMenuId(null)
-            setDeleteConfirmWorkflowId(id)
-          }}
+          onDelete={handleDeleteRequest}
         />
 
         {/* Collapse toggle */}

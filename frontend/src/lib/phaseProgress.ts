@@ -7,6 +7,16 @@ import type { ReviewEvent } from "@/lib/api"
 export const PROSPERO_GATE_PHASE = "phase_1_prospero_gate"
 export const HUMAN_REVIEW_PHASE = "human_review_checkpoint"
 
+function latestDoneOutputStatus(events: ReviewEvent[]): string {
+  let status = ""
+  for (const event of events) {
+    if (event.type === "done") {
+      status = String(event.outputs?.status ?? "").toLowerCase()
+    }
+  }
+  return status
+}
+
 /** True when the run is parked at or actively in the PROSPERO registration gate. */
 export function detectAwaitingProspero(input: {
   historicalStatus?: string | null
@@ -30,17 +40,16 @@ export function detectAwaitingProspero(input: {
     return true
   }
 
-  const parkedFromEvents = events.some((e) => {
-    if (e.type === "done") {
-      return String(e.outputs?.status ?? "").toLowerCase() === "awaiting_prospero"
-    }
-    if (e.type === "phase_done" && e.phase === PROSPERO_GATE_PHASE) {
-      const summary = e.summary as Record<string, unknown> | undefined
-      return Boolean(summary?.awaiting_prospero || summary?.paused)
-    }
-    return false
+  const latestDoneStatus = latestDoneOutputStatus(events)
+  if (latestDoneStatus === "awaiting_prospero") return true
+  if (latestDoneStatus && !isRunning) return prosperoPrepareInProgress
+
+  const parkedFromProsperoPhase = events.some((e) => {
+    if (e.type !== "phase_done" || e.phase !== PROSPERO_GATE_PHASE) return false
+    const summary = e.summary as Record<string, unknown> | undefined
+    return Boolean(summary?.awaiting_prospero || summary?.paused)
   })
-  if (parkedFromEvents) return true
+  if (parkedFromProsperoPhase) return true
 
   if (!isRunning) return false
   return (

@@ -173,3 +173,7 @@ export const FLAT_DOC_GROUPS: { key: DocGroup; label: string }[] = [
 export function isFigurePath(path: string): boolean {
   return /\.(png|jpg|jpeg|svg|webp|pdf)$/i.test(path)
 }
+
+export function isPreviewableFile(file: OutputFile): boolean {
+  return file.isMarkdown || file.isJson || file.isLatex || file.isCsv
+}

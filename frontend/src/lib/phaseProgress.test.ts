@@ -80,7 +80,7 @@ describe("detectAwaitingProspero", () => {
     ).toBe(false)
   })
 
-  it("detects parked prospero from replayed done event when registry is wrong", () => {
+  it("detects parked prospero from the latest done event when still parked", () => {
     expect(
       detectAwaitingProspero({
         historicalStatus: "completed",
@@ -94,5 +94,25 @@ describe("detectAwaitingProspero", () => {
         ],
       }),
     ).toBe(true)
+  })
+
+  it("clears prospero park when a later done event completes the run", () => {
+    expect(
+      detectAwaitingProspero({
+        historicalStatus: "completed",
+        status: "done",
+        isRunning: false,
+        events: [
+          {
+            type: "done",
+            outputs: { status: "awaiting_prospero", workflow_id: "wf-0108" },
+          },
+          {
+            type: "done",
+            outputs: { status: "done", workflow_id: "wf-0108" },
+          },
+        ],
+      }),
+    ).toBe(false)
   })
 })

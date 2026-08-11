@@ -1,24 +1,10 @@
-import { useRef, useCallback, useEffect, useState } from "react"
-import ReactMarkdown from "react-markdown"
-import remarkGfm from "remark-gfm"
-import rehypeSlug from "rehype-slug"
-import rehypeAutolinkHeadings from "rehype-autolink-headings"
-import rehypeHighlight from "rehype-highlight"
-import hljs from "highlight.js/lib/core"
-import latex from "highlight.js/lib/languages/latex"
-import { ManuscriptImage } from "@/components/ManuscriptImage"
+import { useEffect, useState } from "react"
 import { Button } from "@/components/ui/button"
-import { Th } from "@/components/ui/table"
 import { EmptyState } from "@/components/ui/feedback"
-import {
-  Download,
-  FileText,
-  ChevronDown,
-  ChevronUp,
-  BookOpen,
-} from "lucide-react"
+import { Download, FileText } from "lucide-react"
 import { studyFilesZipUrl } from "@/lib/api"
-import { extractHeadings, makeUrlTransform } from "./manuscriptUtils"
+import { cn } from "@/lib/utils"
+import { FilePreview } from "./FilePreview"
 import {
   type OutputFile,
   type DocGroup,
@@ -28,12 +14,10 @@ import {
   fileGroupKey,
   fileIcon,
   isFigurePath,
-  parseCsv,
+  isPreviewableFile,
   resolveFileUrl,
 } from "./artifactFileUtils"
 import { RESULTS_DOWNLOAD_BTN_CLS } from "./resultsShared"
-
-hljs.registerLanguage("latex", latex)
 
 export interface ArtifactFileListProps {
   outputs: Record<string, unknown>
@@ -68,201 +52,91 @@ function FileRow({ file }: { file: OutputFile }) {
   )
 }
 
-function TocBar({
-  headings,
-  viewerRef,
+function SelectableDocRow({
+  file,
+  selected,
+  onSelect,
 }: {
-  headings: { level: number; text: string; slug: string }[]
-  viewerRef: React.RefObject<HTMLDivElement | null>
+  file: OutputFile
+  selected: boolean
+  onSelect: (file: OutputFile) => void
 }) {
-  if (headings.length === 0) return null
-
-  function jumpTo(slug: string) {
-    const container = viewerRef.current
-    if (!container) return
-    const target = container.querySelector(`#${CSS.escape(slug)}`) as HTMLElement | null
-    if (target) {
-      target.scrollIntoView({ behavior: "smooth", block: "start" })
-    }
-  }
-
-  return (
-    <div className="flex items-center gap-1 px-3 py-2 border-b border-border bg-card overflow-x-auto">
-      <BookOpen className="h-3.5 w-3.5 text-muted shrink-0 mr-1" />
-      {headings.map((h) => (
-        <button
-          key={h.slug}
-          onClick={() => jumpTo(h.slug)}
-          className={[
-            "shrink-0 px-2 py-0.5 rounded text-xs transition-colors whitespace-nowrap",
-            h.level === 1
-              ? "text-foreground font-semibold hover:bg-surface-2"
-              : h.level === 2
-                ? "text-muted hover:bg-surface-2 hover:text-foreground"
-                : "text-muted hover:bg-surface-2 hover:text-muted",
-          ].join(" ")}
-        >
-          {h.text}
-        </button>
-      ))}
-    </div>
-  )
-}
-
-function CsvViewer({ content }: { content: string }) {
-  const rows = parseCsv(content)
-  if (rows.length === 0) return <p className="text-xs text-muted p-4">Empty file.</p>
-  const [header, ...body] = rows
-  return (
-    <div className="overflow-auto max-h-[50vh]">
-      <table className="text-xs text-foreground border-collapse w-full">
-        <thead className="sticky top-0 bg-card">
-          <tr>
-            {header.map((cell, i) => (
-              <Th key={i} className="border border-border whitespace-nowrap">
-                {cell}
-              </Th>
-            ))}
-          </tr>
-        </thead>
-        <tbody>
-          {body.map((row, ri) => (
-            <tr key={ri} className={ri % 2 === 0 ? "bg-background" : "bg-card/50"}>
-              {row.map((cell, ci) => (
-                <td key={ci} className="px-3 py-1.5 border border-border max-w-[20rem] truncate">
-                  {cell}
-                </td>
-              ))}
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
-  )
-}
-
-function LatexViewer({ content, isLatex }: { content: string; isLatex: boolean }) {
-  let highlighted = content
-  try {
-    if (isLatex) {
-      highlighted = hljs.highlight(content, { language: "latex" }).value
-    }
-  } catch {
-    // fallback to plain text if language not recognized
-  }
-  return (
-    <div className="overflow-auto max-h-[70vh]">
-      <pre className="hljs text-xs p-4 font-mono leading-relaxed whitespace-pre-wrap">
-        <code dangerouslySetInnerHTML={{ __html: highlighted }} />
-      </pre>
-    </div>
-  )
-}
-
-function InlineDocRow({ file }: { file: OutputFile }) {
-  const [open, setOpen] = useState(false)
-  const [content, setContent] = useState<string | null>(null)
-  const [loading, setLoading] = useState(false)
-  const [fetchError, setFetchError] = useState(false)
-  const viewerRef = useRef<HTMLDivElement>(null)
-
-  const handleToggle = useCallback(async () => {
-    if (open) { setOpen(false); return }
-    if (content !== null) { setOpen(true); return }
-    setLoading(true)
-    setFetchError(false)
-    try {
-      const res = await fetch(resolveFileUrl(file.path))
-      if (!res.ok) throw new Error("fetch failed")
-      setContent(await res.text())
-      setOpen(true)
-    } catch {
-      setFetchError(true)
-    } finally {
-      setLoading(false)
-    }
-  }, [open, content, file.path])
-
-  const headings = file.isMarkdown && content ? extractHeadings(content) : []
-
-  const markdownComponents = {
-    img: ManuscriptImage,
-  }
-
-  function renderContent() {
-    if (content === null) return null
-    if (file.isMarkdown) {
-      return (
-        <div className="manuscript-prose manuscript-viewer max-w-none">
-          <ReactMarkdown
-            remarkPlugins={[remarkGfm]}
-            rehypePlugins={[rehypeSlug, [rehypeAutolinkHeadings, { behavior: "wrap" }], rehypeHighlight]}
-            urlTransform={makeUrlTransform(file.path)}
-            components={markdownComponents}
-          >
-            {content}
-          </ReactMarkdown>
-        </div>
-      )
-    }
-    if (file.isCsv) {
-      return <CsvViewer content={content} />
-    }
-    if (file.isLatex) {
-      return <LatexViewer content={content} isLatex={/\.tex$/i.test(file.path)} />
-    }
-    return (
-      <pre className="text-xs text-muted whitespace-pre-wrap font-mono p-4">
-        {file.isJson
-          ? (() => { try { return JSON.stringify(JSON.parse(content), null, 2) } catch { return content } })()
-          : content}
-      </pre>
-    )
-  }
-
   const { icon: Icon, className: iconClass } = fileIcon(file)
-
   return (
-    <div className="flex flex-col gap-2">
-      <div className="flex items-center justify-between gap-2">
-        <span className="flex items-center gap-2 min-w-0">
+    <div
+      role="button"
+      tabIndex={0}
+      onClick={() => onSelect(file)}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault()
+          onSelect(file)
+        }
+      }}
+      className={cn(
+        "flex items-center justify-between gap-2 rounded-md px-2 py-1.5 -mx-2 cursor-pointer transition-colors",
+        selected
+          ? "bg-intent-primary-subtle ring-1 ring-intent-primary-border"
+          : "hover:bg-surface-2/60",
+      )}
+    >
+      <span className="flex items-center gap-2 min-w-0">
+        <Icon className={`h-4 w-4 shrink-0 ${iconClass}`} />
+        <span className="text-sm truncate text-foreground">{file.label}</span>
+      </span>
+      <Button
+        size="sm"
+        variant="outline"
+        asChild
+        className={`shrink-0 ${RESULTS_DOWNLOAD_BTN_CLS}`}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <a href={resolveFileUrl(file.path)} download={file.label} className="gap-1.5">
+          <Download className="h-3.5 w-3.5" />
+          Download
+        </a>
+      </Button>
+    </div>
+  )
+}
+
+function FigureGridCard({ file }: { file: OutputFile }) {
+  const [imgError, setImgError] = useState(false)
+  const { icon: Icon, className: iconClass } = fileIcon(file)
+  return (
+    <figure className="rounded-xl border border-border bg-card overflow-hidden">
+      <div className="px-3 py-2 border-b border-border bg-surface-1/60 flex items-center justify-between gap-2">
+        <figcaption className="flex items-center gap-2 min-w-0 text-sm font-medium text-foreground">
           <Icon className={`h-4 w-4 shrink-0 ${iconClass}`} />
-          <span className="text-sm truncate text-foreground">{file.label}</span>
-        </span>
-        <div className="flex items-center gap-1.5 shrink-0">
-          <Button
-            size="sm"
-            variant="ghost"
-            onClick={handleToggle}
-            disabled={loading}
-            className={`border border-border gap-1 ${RESULTS_DOWNLOAD_BTN_CLS}`}
-          >
-            {loading ? "Loading..." : open ? (
-              <><ChevronUp className="h-3.5 w-3.5" />Hide</>
-            ) : (
-              <><ChevronDown className="h-3.5 w-3.5" />View</>
-            )}
-          </Button>
-          <Button size="sm" variant="outline" asChild className={RESULTS_DOWNLOAD_BTN_CLS}>
+          <span className="truncate" title={file.label}>
+            {file.label}
+          </span>
+        </figcaption>
+        {!imgError ? (
+          <Button size="sm" variant="outline" asChild className={`shrink-0 ${RESULTS_DOWNLOAD_BTN_CLS}`}>
             <a href={resolveFileUrl(file.path)} download={file.label} className="gap-1.5">
               <Download className="h-3.5 w-3.5" />
               Download
             </a>
           </Button>
-        </div>
+        ) : (
+          <span className="shrink-0 text-xs text-muted border border-border rounded px-2 py-1">
+            Not generated
+          </span>
+        )}
       </div>
-      {fetchError && (
-        <p className="text-xs text-intent-danger px-1">Could not load file content.</p>
-      )}
-      {open && content !== null && (
-        <div className="rounded-lg border border-border bg-background overflow-hidden flex flex-col">
-          {file.isMarkdown && <TocBar headings={headings} viewerRef={viewerRef} />}
-          <div ref={viewerRef} className={file.isMarkdown ? "overflow-auto max-h-[80vh] p-6" : ""}>
-            {renderContent()}
-          </div>
+      {file.isRasterImage && !imgError ? (
+        <div className="p-2 aspect-square flex items-center justify-center bg-surface-1/20">
+          <img
+            src={resolveFileUrl(file.path)}
+            alt={file.label}
+            className="max-h-full max-w-full rounded-lg object-contain"
+            loading="lazy"
+            onError={() => setImgError(true)}
+          />
         </div>
-      )}
-    </div>
+      ) : null}
+    </figure>
   )
 }
 
@@ -333,6 +207,61 @@ function buildGroupedDocs(
   return groupedDocs
 }
 
+function DocGroupsList({
+  groupedDocs,
+  selectedKey,
+  onSelect,
+  figsCount,
+}: {
+  groupedDocs: Record<DocGroup, OutputFile[]>
+  selectedKey: string | null
+  onSelect: (file: OutputFile) => void
+  figsCount: number
+}) {
+  const hasAnyDocs = FLAT_DOC_GROUPS.some((g) => groupedDocs[g.key].length > 0)
+  if (!hasAnyDocs) return null
+
+  return (
+    <>
+      {FLAT_DOC_GROUPS.map(({ key, label }, idx) => {
+        let groupFiles = [...groupedDocs[key]]
+        if (key === "submission") {
+          groupFiles = groupFiles.filter((f) => !/(^|\/)submission\.zip$/i.test(f.path))
+        }
+        if (key === "submission") {
+          groupFiles.sort((a, b) => {
+            if (a.key === REFERENCE_PAPERS_ZIP_KEY) return -1
+            if (b.key === REFERENCE_PAPERS_ZIP_KEY) return 1
+            return a.label.localeCompare(b.label)
+          })
+        }
+        if (groupFiles.length === 0) return null
+        const isLast = idx === FLAT_DOC_GROUPS.filter((g) => groupedDocs[g.key].length > 0).length - 1
+        return (
+          <div key={key} className={isLast && figsCount === 0 ? "" : "pb-4 mb-4 border-b border-border/60"}>
+            <p className="label-caps pb-2">{label}</p>
+            <div className="flex flex-col gap-1">
+              {groupFiles.map((f) => (
+                <div key={f.key} data-download-key={f.key}>
+                  {isPreviewableFile(f) ? (
+                    <SelectableDocRow
+                      file={f}
+                      selected={selectedKey === f.key}
+                      onSelect={onSelect}
+                    />
+                  ) : (
+                    <FileRow file={f} />
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+        )
+      })}
+    </>
+  )
+}
+
 export function ArtifactFileList({
   outputs,
   excludePaths,
@@ -342,12 +271,16 @@ export function ArtifactFileList({
   figuresOnly = false,
   hideFigures = false,
 }: ArtifactFileListProps) {
+  const [selectedFile, setSelectedFile] = useState<OutputFile | null>(null)
+
   const allFiles = collectFiles(outputs)
   const files = excludePaths
     ? allFiles.filter((f) => !excludePaths.has(f.path))
     : allFiles
   const docs = files.filter((f) => !f.isRasterImage && !isFigurePath(f.path))
   const figs = files.filter((f) => isFigurePath(f.path))
+  const previewableDocs = docs.filter(isPreviewableFile)
+  const hasPreviewPane = previewableDocs.length > 0
 
   useEffect(() => {
     if (submissionFocusTarget !== "reference-papers") return
@@ -372,6 +305,10 @@ export function ArtifactFileList({
     }
   }, [submissionFocusTarget, submissionFocusToken])
 
+  const handleSelect = (file: OutputFile) => {
+    setSelectedFile((prev) => (prev?.key === file.key ? null : file))
+  }
+
   if (files.length === 0) {
     return <EmptyState icon={FileText} heading="No output files to display." className="py-16" />
   }
@@ -381,50 +318,24 @@ export function ArtifactFileList({
       return <EmptyState icon={FileText} heading="No figures in this run." className="py-10" />
     }
     return (
-      <div className="flex flex-col gap-3">
+      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
         {figs.map((f) => (
-          <FigureRow key={f.key} file={f} />
+          <FigureGridCard key={f.key} file={f} />
         ))}
       </div>
     )
   }
 
   const groupedDocs = buildGroupedDocs(docs, runId)
-  const hasAnyDocs = FLAT_DOC_GROUPS.some((g) => groupedDocs[g.key].length > 0)
 
-  return (
+  const listContent = (
     <div className="flex flex-col gap-0">
-      {hasAnyDocs && FLAT_DOC_GROUPS.map(({ key, label }, idx) => {
-        let groupFiles = [...groupedDocs[key]]
-        if (key === "submission") {
-          groupFiles = groupFiles.filter((f) => !/(^|\/)submission\.zip$/i.test(f.path))
-        }
-        if (key === "submission") {
-          groupFiles.sort((a, b) => {
-            if (a.key === REFERENCE_PAPERS_ZIP_KEY) return -1
-            if (b.key === REFERENCE_PAPERS_ZIP_KEY) return 1
-            return a.label.localeCompare(b.label)
-          })
-        }
-        if (groupFiles.length === 0) return null
-        const isLast = idx === FLAT_DOC_GROUPS.filter((g) => groupedDocs[g.key].length > 0).length - 1
-        return (
-          <div key={key} className={isLast && figs.length === 0 ? "" : "pb-4 mb-4 border-b border-border/60"}>
-            <p className="label-caps pb-2">{label}</p>
-            <div className="flex flex-col gap-2">
-              {groupFiles.map((f) => (
-                <div key={f.key} data-download-key={f.key}>
-                  {f.isMarkdown || f.isJson || f.isLatex || f.isCsv ? (
-                    <InlineDocRow file={f} />
-                  ) : (
-                    <FileRow file={f} />
-                  )}
-                </div>
-              ))}
-            </div>
-          </div>
-        )
-      })}
+      <DocGroupsList
+        groupedDocs={groupedDocs}
+        selectedKey={selectedFile?.key ?? null}
+        onSelect={handleSelect}
+        figsCount={hideFigures ? 0 : figs.length}
+      />
 
       {!hideFigures && figs.length > 0 && (
         <div>
@@ -436,6 +347,21 @@ export function ArtifactFileList({
           </div>
         </div>
       )}
+    </div>
+  )
+
+  if (!hasPreviewPane) {
+    return listContent
+  }
+
+  return (
+    <div className="flex flex-col lg:flex-row gap-4 min-h-[400px]">
+      <div className="flex flex-col min-w-0 lg:w-72 xl:w-80 lg:shrink-0 lg:max-h-[70vh] lg:overflow-y-auto">
+        {listContent}
+      </div>
+      <div className="flex-1 min-w-0 lg:border-l lg:border-border lg:pl-4">
+        <FilePreview file={selectedFile} />
+      </div>
     </div>
   )
 }
