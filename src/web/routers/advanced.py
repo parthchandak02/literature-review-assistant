@@ -18,6 +18,7 @@ from sse_starlette.sse import EventSourceResponse
 
 from src.export.prisma_flow_export import build_prisma_flow_zip_bytes
 from src.web.run_concurrency import acquire_run_slot_or_raise
+from src.web.run_resolver import resolve_runtime_db
 from src.web.shared import (
     RunRequest,
     RunResponse,
@@ -27,7 +28,6 @@ from src.web.shared import (
     _resolve_workflow_id_from_db,
 )
 from src.web.state import (
-    _get_db_path,
     _lifecycle_coordinator,
     _run_wrapper,
     _RunRecord,
@@ -99,9 +99,7 @@ async def _log_stream_generator(log_path: pathlib.Path, request: Request) -> Asy
 @router.get("/api/run/{run_id}/knowledge-graph")
 async def get_knowledge_graph(run_id: str) -> dict:
     """Return the evidence knowledge graph for a completed run."""
-    db_path = _get_db_path(run_id)
-    if not pathlib.Path(db_path).exists():
-        raise HTTPException(status_code=404, detail="Run database not found")
+    db_path = await resolve_runtime_db(run_id)
 
     async with aiosqlite.connect(db_path) as _kg_db:
         _kg_db.row_factory = aiosqlite.Row
@@ -204,15 +202,7 @@ async def get_prisma_checklist(run_id: str) -> dict:
     """Run the PRISMA 2020 checklist validator against the manuscript draft."""
     from src.export.prisma_checklist import validate_prisma
 
-    resolved_db: str | None = None
-    try:
-        resolved_db = _get_db_path(run_id)
-    except HTTPException:
-        resolved_db = await _resolve_db_path("runs", run_id)
-        if resolved_db is None:
-            raise HTTPException(status_code=404, detail="Run not found")
-
-    db_path = resolved_db
+    db_path = await resolve_runtime_db(run_id)
     run_path = pathlib.Path(db_path).parent
 
     md_content: str | None = None
@@ -262,14 +252,7 @@ async def get_prisma_checklist(run_id: str) -> dict:
 @router.get("/api/run/{run_id}/prisma-diagram.png")
 async def download_prisma_diagram_png(run_id: str) -> FileResponse:
     """Serve the latest PRISMA flow diagram PNG for a run (bypasses browser cache on artifact path)."""
-    resolved_db: str | None = None
-    try:
-        resolved_db = _get_db_path(run_id)
-    except HTTPException:
-        resolved_db = await _resolve_db_path("runs", run_id)
-        if resolved_db is None:
-            raise HTTPException(status_code=404, detail="Run not found")
-
+    resolved_db = await resolve_runtime_db(run_id)
     run_dir = pathlib.Path(resolved_db).parent
     candidates = [
         run_dir / "fig_prisma_flow.png",
@@ -293,15 +276,7 @@ async def download_prisma_diagram_png(run_id: str) -> FileResponse:
 @router.get("/api/run/{run_id}/prisma-flow.zip")
 async def download_prisma_flow_zip(run_id: str) -> StreamingResponse:
     """Download PRISMA flow data as a ZIP of CSV files (summary, per-paper records, search identification)."""
-    resolved_db: str | None = None
-    try:
-        resolved_db = _get_db_path(run_id)
-    except HTTPException:
-        resolved_db = await _resolve_db_path("runs", run_id)
-        if resolved_db is None:
-            raise HTTPException(status_code=404, detail="Run not found")
-
-    db_path = resolved_db
+    db_path = await resolve_runtime_db(run_id)
     workflow_id = await _resolve_workflow_id_from_db(db_path) or run_id
     try:
         zip_bytes = await build_prisma_flow_zip_bytes(db_path, workflow_id)
@@ -323,13 +298,7 @@ async def get_grade_sof(run_id: str, fmt: str = "json") -> dict:
     from src.db.repositories import WorkflowRepository
     from src.quality.grade import build_sof_table
 
-    resolved_db: str | None = None
-    try:
-        resolved_db = _get_db_path(run_id)
-    except HTTPException:
-        resolved_db = await _resolve_db_path("runs", run_id)
-        if resolved_db is None:
-            raise HTTPException(status_code=404, detail="Run not found")
+    resolved_db = await resolve_runtime_db(run_id)
 
     async with aiosqlite.connect(resolved_db) as db:
         db.row_factory = aiosqlite.Row
@@ -381,9 +350,7 @@ async def living_refresh(run_id: str) -> RunResponse:
 
     record = _lifecycle_coordinator.get(run_id)
     if record is None:
-        resolved_parent_db = await _resolve_db_path("runs", run_id)
-        if resolved_parent_db is None:
-            raise HTTPException(status_code=404, detail="Run not found")
+        resolved_parent_db = await resolve_runtime_db(run_id)
         parent_yaml_path = pathlib.Path(resolved_parent_db).parent / "review.yaml"
         if not parent_yaml_path.exists():
             raise HTTPException(

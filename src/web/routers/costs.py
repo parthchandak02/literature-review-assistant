@@ -51,6 +51,66 @@ def _bucket_created_at(value: Any, granularity: str) -> str:
     raise ValueError(f"unsupported granularity: {granularity}")
 
 
+def _format_cost_totals(total_row: dict[str, Any] | None) -> dict[str, Any]:
+    if not total_row:
+        return {"calls": 0, "tokens_in": 0, "tokens_out": 0, "cost_usd": 0.0}
+    return {
+        "calls": int(total_row.get("total_calls") or total_row.get("calls") or 0),
+        "tokens_in": int(total_row.get("total_tokens_in") or total_row.get("tokens_in") or 0),
+        "tokens_out": int(total_row.get("total_tokens_out") or total_row.get("tokens_out") or 0),
+        "cost_usd": float(total_row.get("total_cost_usd") or total_row.get("cost_usd") or 0.0),
+    }
+
+
+def _format_cost_group_rows(rows: list[dict[str, Any]], label_key: str) -> list[dict[str, Any]]:
+    formatted: list[dict[str, Any]] = []
+    for row in rows:
+        formatted.append(
+            {
+                label_key: str(row.get("group_key") or row.get(label_key) or "unknown"),
+                "calls": int(row.get("calls") or 0),
+                "cost_usd": float(row.get("cost_usd") or 0.0),
+                "tokens_in": int(row.get("tokens_in") or 0),
+                "tokens_out": int(row.get("tokens_out") or 0),
+            }
+        )
+    return formatted
+
+
+def _build_screening_diagnostics_from_metrics(metric_rows: list[Any]) -> dict[str, int]:
+    import json as _json
+
+    screening_metrics: dict[str, float] = {}
+    for row in metric_rows:
+        try:
+            payload = _json.loads(str(row["rationale"] or "{}"))
+        except Exception:
+            continue
+        metric_name = payload.get("metric")
+        metric_value = payload.get("value")
+        if not isinstance(metric_name, str):
+            continue
+        if isinstance(metric_value, (int, float)):
+            screening_metrics[metric_name] = float(metric_value)
+    return {
+        "batch_parse_degraded": int(screening_metrics.get("batch_parse_degraded", 0.0)),
+        "batch_id_mismatch": int(screening_metrics.get("batch_id_mismatch", 0.0)),
+        "batch_missing_fallback": int(screening_metrics.get("batch_missing_fallback", 0.0)),
+        "contract_violation_count": int(screening_metrics.get("contract_violation_count", 0.0)),
+        "fast_path_include": int(screening_metrics.get("title_abstract_fast_path_include", 0.0)),
+        "fast_path_exclude": int(screening_metrics.get("title_abstract_fast_path_exclude", 0.0)),
+        "cross_reviewed": int(screening_metrics.get("title_abstract_cross_reviewed", 0.0)),
+    }
+
+
+async def _resolve_workflow_id_from_db(db: aiosqlite.Connection) -> str | None:
+    async with db.execute("SELECT workflow_id FROM workflows LIMIT 1") as cur:
+        row = await cur.fetchone()
+    if not row or row[0] is None:
+        return None
+    return str(row[0])
+
+
 def _merge_cost_group_row(
     groups: dict[str, dict[str, Any]],
     key: str,
@@ -283,6 +343,95 @@ async def get_db_costs(run_id: str) -> dict[str, Any]:
                 "cross_reviewed": int(screening_metrics.get("title_abstract_cross_reviewed", 0.0)),
             }
             return {"total_cost": total_cost, "records": records, "screening_diagnostics": screening_diagnostics}
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@router.get("/api/db/{run_id}/cost-dashboard")
+async def get_db_cost_dashboard(run_id: str) -> dict[str, Any]:
+    """Consolidated per-run cost dashboard payload."""
+    db_path = await resolve_runtime_db(run_id)
+    try:
+        async with aiosqlite.connect(db_path) as db:
+            db.row_factory = aiosqlite.Row
+            workflow_id = await _resolve_workflow_id_from_db(db)
+
+            async with db.execute(
+                """SELECT model, phase,
+                          COUNT(*) as calls,
+                          SUM(tokens_in) as tokens_in,
+                          SUM(tokens_out) as tokens_out,
+                          SUM(cost_usd) as cost_usd,
+                          AVG(latency_ms) as avg_latency_ms
+                   FROM cost_records
+                   GROUP BY model, phase
+                   ORDER BY cost_usd DESC"""
+            ) as cur:
+                rows = await cur.fetchall()
+            records = [dict(row) for row in rows]
+
+            async with db.execute("SELECT COALESCE(SUM(cost_usd), 0) FROM cost_records") as cur:
+                total_cost = float((await cur.fetchone())[0])  # type: ignore[index]
+
+            async def _query_group(group_sql: str) -> list[dict[str, Any]]:
+                query = f"""
+                    SELECT {group_sql} AS group_key,
+                           COUNT(*) AS calls,
+                           COALESCE(SUM(tokens_in), 0) AS tokens_in,
+                           COALESCE(SUM(tokens_out), 0) AS tokens_out,
+                           COALESCE(SUM(cost_usd), 0.0) AS cost_usd
+                    FROM cost_records
+                    GROUP BY group_key
+                    ORDER BY cost_usd DESC
+                """
+                group_rows = await (await db.execute(query)).fetchall()
+                return [dict(r) for r in group_rows]
+
+            total_row = await (
+                await db.execute(
+                    """
+                    SELECT COALESCE(SUM(cost_usd), 0.0) AS total_cost_usd,
+                           COUNT(*) AS total_calls,
+                           COALESCE(SUM(tokens_in), 0) AS total_tokens_in,
+                           COALESCE(SUM(tokens_out), 0) AS total_tokens_out
+                    FROM cost_records
+                    """
+                )
+            ).fetchone()
+
+            by_phase = _format_cost_group_rows(
+                await _query_group("COALESCE(NULLIF(phase, ''), 'unknown')"),
+                "phase",
+            )
+            by_model = _format_cost_group_rows(
+                await _query_group("COALESCE(NULLIF(model, ''), 'unknown')"),
+                "model",
+            )
+
+            async with db.execute(
+                """
+                SELECT rationale
+                FROM decision_log
+                WHERE decision_type = 'screening_metric'
+                  AND phase = 'phase_3_screening'
+                ORDER BY id ASC
+                """
+            ) as cur:
+                metric_rows = await cur.fetchall()
+            screening_diagnostics = _build_screening_diagnostics_from_metrics(metric_rows)
+
+            return {
+                "run_id": run_id,
+                "workflow_id": workflow_id,
+                "total_cost": total_cost,
+                "totals": _format_cost_totals(dict(total_row) if total_row else None),
+                "by_phase": by_phase,
+                "by_model": by_model,
+                "records": records,
+                "screening_diagnostics": screening_diagnostics,
+            }
     except HTTPException:
         raise
     except Exception as exc:

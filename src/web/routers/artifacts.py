@@ -31,7 +31,7 @@ from src.web.shared import (
     _resolve_workflow_id_from_db,
 )
 from src.web.state import (
-    _active_runs,
+    _lifecycle_coordinator,
     _resolve_db_path_from_run_or_workflow,
 )
 
@@ -821,7 +821,7 @@ async def fetch_pdfs_for_run(run_id: str) -> StreamingResponse:
 
 @router.get("/api/run/{run_id}/events")
 async def get_run_events(run_id: str) -> dict[str, Any]:
-    record = _active_runs.get(run_id)
+    record = _lifecycle_coordinator.get(run_id)
     if record is None:
         raise HTTPException(status_code=404, detail="Run not found")
     return {"events": record.event_log}

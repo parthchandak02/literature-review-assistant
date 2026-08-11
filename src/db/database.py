@@ -527,6 +527,17 @@ async def run_migrations(db: aiosqlite.Connection) -> None:
         ALTER TABLE search_results ADD COLUMN query_variant TEXT NOT NULL DEFAULT 'primary';
         """,
     )
+    # 23. Backfill canonical primary_study_status from legacy JSON payloads.
+    await _apply(
+        23,
+        """
+        UPDATE extraction_records
+        SET primary_study_status = COALESCE(json_extract(data, '$.primary_study_status'), primary_study_status)
+        WHERE (primary_study_status = 'unknown' OR primary_study_status IS NULL)
+          AND data IS NOT NULL
+          AND json_valid(data);
+        """,
+    )
     await _validate_schema_contract(db)
     await db.commit()
 

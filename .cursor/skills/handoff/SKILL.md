@@ -64,7 +64,7 @@ Include when the next session will run or verify the app. Infer focus from recen
 ### Python / FastAPI backend
 
 - Python toolchain: `uv` (preferred).
-- Entry commands: `uv run python -m src.main ...`, `uv run pytest ...`, `make local-ci` / `make release-check`.
+- Entry commands: `uv run python -m src.main ...`, `uv run pytest ...`, `make check-local` / `make check-release`.
 - Important env var *names* only (never values); `pyproject.toml` / `config/` notes when relevant.
 - After `src/` changes: `pm2 restart litreview-api`.
 

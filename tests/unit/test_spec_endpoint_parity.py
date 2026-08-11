@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from scripts.check_spec_endpoint_parity import (
+from scripts.lib.check_api_docs import (
     Endpoint,
     compare_endpoint_sets,
     extract_fastapi_endpoints,

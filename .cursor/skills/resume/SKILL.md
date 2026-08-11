@@ -55,13 +55,13 @@ Use `resume` only for the same workflow. Do not mark complete until the previous
 ### 4. Release gate
 
 ```bash
-make release-check   # or: make local-ci
+make release-check   # or: make check-local
 ```
 
 ### 5. Workflow replay validation
 
 ```bash
-uv run python scripts/validate_workflow_replay.py \
+uv run python scripts/check.py replay-workflow \
   --workflow-id wf-XXXX \
   --profile local \
   --fail-on-error
@@ -70,6 +70,6 @@ uv run python scripts/validate_workflow_replay.py \
 ## Exit criteria
 
 - Target phase(s) completed without regression.
-- Release/local CI passed.
+- Release/local checks passed.
 - Replay script passed with `--profile local --fail-on-error`.
 - High-level changes: parity checklist in `docs/TASKS.md` before `commit` skill.

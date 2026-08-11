@@ -19,6 +19,8 @@ export {
 } from "./events"
 export {
   fetchHistory,
+  fetchHistoryRail,
+  railEntryToHistoryEntry,
   attachHistory,
   fetchActiveRun,
   resumeRun,
@@ -73,6 +75,9 @@ export {
   prismaFlowZipUrl,
   paperFileUrl,
   type PaperAllRow,
+  type PapersFacets,
+  type PapersAllResponse,
+  type PapersAllResponseWithFacets,
   type GradeSofRow,
   type GradeSofResponse,
   type ExtractedOutcomeRow,
@@ -82,11 +87,20 @@ export {
 } from "./db"
 export {
   fetchDbCosts,
+  fetchDbCostDashboard,
   fetchDbCostAggregates,
   getDbCostExportUrl,
   fetchHistoryCostAggregates,
   getHistoryCostExportUrl,
   type DbCostRow,
+  type CostDashboardTotals,
+  type CostDashboardPhaseRow,
+  type CostDashboardModelRow,
+  type CostDashboardResponse,
+  type DbCostDashboardTotals,
+  type DbCostDashboardPhaseRow,
+  type DbCostDashboardModelRow,
+  type DbCostDashboardResponse,
   type DbCostAggregateBucketRow,
   type DbCostAggregateGroupRow,
   type DbCostAggregateTotals,
@@ -101,8 +115,10 @@ export {
 } from "./costs"
 export {
   fetchWorkflowValidationSummary,
+  fetchWorkflowValidationSummaryWithChecks,
   fetchWorkflowValidationChecks,
   type ValidationSummary,
+  type ValidationSummaryWithChecks,
   type ValidationCheck,
 } from "./validation"
 export {
@@ -124,6 +140,7 @@ export {
 export type {
   EventDurability,
   HistoryEntry,
+  HistoryRailEntry,
   ReviewEvent,
   RunRequest,
   RunResponse,

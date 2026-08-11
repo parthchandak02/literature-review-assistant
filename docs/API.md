@@ -26,7 +26,7 @@
 
 ## Endpoint parity
 
-Enforced by `scripts/check_spec_endpoint_parity.py` against Section 10.1 below. Update this table when adding routes.
+Enforced by `scripts/check.py api` against Section 10.1 below. Update this table when adding routes.
 
 ### 10. API Contract
 
@@ -46,7 +46,7 @@ Enforced by `scripts/check_spec_endpoint_parity.py` against Section 10.1 below. 
 | GET | /api/config/env-keys/required | Required LLM provider UI keys for the active settings profile |
 | GET | /api/config/env-keys/status | Masked env-key presence map for Setup diagnostics |
 | GET | /api/health | Health check; polled every 6s by useBackendHealth hook |
-| GET | /api/history | Past runs from workflows_registry.db |
+| GET | /api/history | Past runs from workflows_registry.db; optional `view=rail` (slim sidebar rows) and `stats=false` (skip runtime.db stats) |
 | GET | /api/history/active-run | Whether a run for the given workflow_id is currently active (requires `workflow_id` query param) |
 | GET | /api/history/costs/aggregates | Global cost aggregates across registry-linked runtime.db files |
 | GET | /api/history/costs/export | Global cost CSV export across registry-linked runtime.db files |
@@ -58,19 +58,20 @@ Enforced by `scripts/check_spec_endpoint_parity.py` against Section 10.1 below. 
 | POST | /api/history/{workflow_id}/complete-hide | Move a non-running workflow into the manual Completed bucket |
 | POST | /api/history/{workflow_id}/complete-restore | Restore a workflow from the Completed bucket to In Progress |
 | DELETE | /api/history/{workflow_id} | Delete run directory + registry entry from disk |
-| GET | /api/db/{run_id}/papers-all | All papers with doi + url fields for clickable links |
+| GET | /api/db/{run_id}/papers-all | All papers with doi + url fields; optional `include=facets` co-fetches filter facet values |
 | GET | /api/db/{run_id}/papers-facets | Distinct facet values (sources, decisions) for filter UI |
 | GET | /api/db/{run_id}/papers-suggest | Autocomplete suggestions for paper search |
 | GET | /api/db/{run_id}/costs | Cost records grouped by model and phase (includes embedding phase) |
 | GET | /api/db/{run_id}/costs/aggregates | Time-bucket and dimension cost aggregates (day/week/month/workflow/phase/model) |
 | GET | /api/db/{run_id}/costs/export | CSV export for reconciliation (day/week/month buckets) |
+| GET | /api/db/{run_id}/cost-dashboard | Consolidated per-run cost dashboard payload (model/phase breakdown) |
 | GET | /api/db/{run_id}/tables | Vision-extracted table rows from papers |
 | GET | /api/db/{run_id}/rag-diagnostics | Per-section RAG retrieval diagnostics |
 | GET | /api/run/{run_id}/artifacts | Full run_summary.json for any run (live or historical) |
 | GET | /api/run/{run_id}/manuscript | Download manuscript content (`fmt=md` or `fmt=tex`) |
 | GET | /api/run/{run_id}/events | Replay buffer snapshot (all buffered SSE events for live run) |
 | GET | /api/workflow/{workflow_id}/events | Events from event_log table by workflow ID (historical) |
-| GET | /api/workflow/{workflow_id}/validation/summary | Latest workflow replay validation run summary |
+| GET | /api/workflow/{workflow_id}/validation/summary | Latest workflow replay validation run summary; optional `include=checks` embeds check rows |
 | GET | /api/workflow/{workflow_id}/validation/checks | Detailed checks for a validation run (latest by default) |
 | GET | /api/workflow/{workflow_id}/manuscript-audit/summary | Latest + history manuscript audit run summaries |
 | GET | /api/workflow/{workflow_id}/manuscript-audit/findings | Manuscript audit findings for latest or explicit audit_run_id |
@@ -103,4 +104,4 @@ Enforced by `scripts/check_spec_endpoint_parity.py` against Section 10.1 below. 
 
 ### 10.1.1 Endpoint parity checklist
 
-`scripts/check_spec_endpoint_parity.py` compares `/api/*` routes with `include_in_schema=True` in `src/web/app.py`.
+`scripts/check.py api` compares `/api/*` routes with `include_in_schema=True` in `src/web/app.py`.

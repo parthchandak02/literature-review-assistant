@@ -39,7 +39,7 @@ repos:
 
       - id: spec-endpoint-parity
         name: API Section 10.1 endpoint parity
-        entry: uv run python scripts/check_spec_endpoint_parity.py
+        entry: uv run python scripts/check.py api
         language: system
         pass_filenames: false
         always_run: true
@@ -61,7 +61,7 @@ repos:
 
       - id: replay-fixture-schema-pre-push
         name: replay fixture schema (pre-push)
-        entry: uv run python scripts/check_replay_fixture_schema.py
+        entry: uv run python scripts/check.py replay-fixture
         language: system
         pass_filenames: false
         stages: [pre-push]

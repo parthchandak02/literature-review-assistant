@@ -9,6 +9,7 @@ import aiosqlite
 from pydantic import ValidationError
 
 from src.models import ExtractionRecord
+from src.models.enums import PrimaryStudyStatus
 from src.synthesis.feasibility import SynthesisFeasibility
 from src.synthesis.narrative import NarrativeSynthesis
 
@@ -38,7 +39,9 @@ class ExtractionRepo:
         """
         cursor = await self.db.execute(
             """
-            SELECT paper_id, data FROM extraction_records WHERE workflow_id = ?
+            SELECT paper_id, primary_study_status, data
+            FROM extraction_records
+            WHERE workflow_id = ?
             """,
             (workflow_id,),
         )
@@ -46,15 +49,34 @@ class ExtractionRepo:
         records: list[ExtractionRecord] = []
         for row in rows:
             paper_id = str(row[0]) if row else "unknown"
-            data_json = str(row[1]) if len(row) > 1 else str(row[0])
+            column_status = str(row[1]) if len(row) > 1 and row[1] is not None else "unknown"
+            data_json = str(row[2]) if len(row) > 2 else str(row[1])
             try:
-                records.append(ExtractionRecord.model_validate_json(data_json))
-            except (ValidationError, Exception) as exc:
+                record = ExtractionRecord.model_validate_json(data_json)
+            except (ValidationError, ValueError) as exc:
                 _logger.warning(
                     "Skipping malformed extraction record for paper %s: %s",
                     paper_id,
                     exc,
                 )
+                continue
+            json_status = record.primary_study_status.value
+            effective_status = (
+                column_status if column_status != "unknown" else json_status
+            )
+            if effective_status != json_status:
+                try:
+                    record.primary_study_status = PrimaryStudyStatus(effective_status)
+                except ValueError as exc:
+                    _logger.warning(
+                        "Invalid primary_study_status column value %r for paper %s; "
+                        "falling back to JSON-derived status %r: %s",
+                        effective_status,
+                        paper_id,
+                        json_status,
+                        exc,
+                    )
+            records.append(record)
         return records
 
     async def save_extraction_record(self, workflow_id: str, record: ExtractionRecord) -> None:

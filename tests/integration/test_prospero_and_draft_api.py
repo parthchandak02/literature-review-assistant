@@ -211,3 +211,58 @@ async def test_submit_prospero_parked_active_run_updates_registry(client: httpx.
     snapshot = yaml.safe_load((run_dir / "config_snapshot.yaml").read_text(encoding="utf-8"))
     assert snapshot["protocol"]["registered"] is True
     assert snapshot["protocol"]["registration_number"] == "CRD42025678901"
+
+
+@pytest.mark.asyncio
+async def test_approve_screening_parked_run_updates_registry(client: httpx.AsyncClient, tmp_path: Path) -> None:
+    run_id = "run-hitl-test"
+    workflow_id = "wf-hitl-test"
+    run_root = tmp_path / "runs"
+    run_dir = run_root / "2026-08-10" / f"{workflow_id}-topic" / "run_01"
+    run_dir.mkdir(parents=True)
+    db_path = run_dir / "runtime.db"
+    topic = "HITL screening topic"
+
+    review_yaml = yaml.safe_dump({**MINIMAL_REVIEW, "research_question": topic}, sort_keys=False)
+    (run_dir / "review.yaml").write_text(review_yaml, encoding="utf-8")
+    (run_dir / "config_snapshot.yaml").write_text(review_yaml, encoding="utf-8")
+
+    await init_runtime_workflow_db(db_path, workflow_id, topic=topic, status="running")
+    await _init_registry(
+        run_root / "workflows_registry.db",
+        workflow_id=workflow_id,
+        db_path=db_path,
+        topic=topic,
+        status="awaiting_review",
+    )
+
+    record = _RunRecord(run_id=run_id, topic=topic)
+    record.db_path = str(db_path)
+    record.workflow_id = workflow_id
+    record.run_root = str(run_root)
+    record.done = False
+    _active_runs[run_id] = record
+
+    with patch(
+        "src.web.routers.screening_review._lifecycle_coordinator.start_resume",
+        new_callable=AsyncMock,
+    ) as mock_start_resume:
+        try:
+            response = await client.post(
+                f"/api/run/{run_id}/approve-screening",
+                json={"approved": True},
+            )
+        finally:
+            _active_runs.pop(run_id, None)
+
+    assert response.status_code == 200
+    mock_start_resume.assert_not_awaited()
+
+    async with aiosqlite.connect(str(run_root / "workflows_registry.db")) as reg_db:
+        async with reg_db.execute(
+            "SELECT status FROM workflows_registry WHERE workflow_id = ?",
+            (workflow_id,),
+        ) as cur:
+            row = await cur.fetchone()
+    assert row is not None
+    assert row[0] == "running"

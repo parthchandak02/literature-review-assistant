@@ -1,4 +1,4 @@
-"""Unit tests for scripts/inject_missing_citations.py.
+"""Unit tests for scripts.lib.inject_citations.
 
 Tests the pure helper functions (no DB, no file I/O) so they run fast
 without any external dependencies.
@@ -6,13 +6,7 @@ without any external dependencies.
 
 from __future__ import annotations
 
-import sys
-from pathlib import Path
-
-# Make the scripts directory importable
-sys.path.insert(0, str(Path(__file__).parent.parent.parent / "scripts"))
-
-from inject_missing_citations import (
+from scripts.lib.inject_citations import (
     _SENTINEL,
     _build_coverage_paragraph,
     _find_uncited_included_keys,

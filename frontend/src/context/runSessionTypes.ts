@@ -3,7 +3,13 @@
  */
 import type { Dispatch, SetStateAction } from "react"
 import type { CostStats } from "@/hooks/useCostStats"
-import type { HistoryEntry, RunRequest, ReviewEvent, ProsperoRegistration } from "@/lib/api"
+import type {
+  HistoryEntry,
+  RunRequest,
+  ReviewEvent,
+  ProsperoRegistration,
+  ScreeningOverride,
+} from "@/lib/api"
 import type { LiveRun } from "@/components/sidebar/types"
 
 export type RunTab = "activity" | "results" | "database" | "cost" | "config" | "review-screening"
@@ -84,6 +90,7 @@ export interface RunSessionActions {
   handleTabChange: (tab: RunTab) => void
   handleGoToSubmissionReferencePapers: () => void
   handleSubmitProsperoAndResume: (runId: string, registration: ProsperoRegistration) => Promise<void>
+  handleApproveScreeningAndResume: (runId: string, overrides?: ScreeningOverride[]) => Promise<void>
   openDraftRunShell: (topic: string) => void
 }
 

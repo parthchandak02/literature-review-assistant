@@ -97,7 +97,11 @@ async def run_writing_setup(
         )
 
     _canonical_included_ids_for_prisma, _ = await repository.resolve_canonical_included_paper_ids(state.workflow_id)
-    if not _canonical_included_ids_for_prisma:
+    if _canonical_included_ids_for_prisma:
+        state.included_papers = [
+            paper for paper in state.deduped_papers if str(paper.paper_id) in _canonical_included_ids_for_prisma
+        ]
+    else:
         _canonical_included_ids_for_prisma = {str(p.paper_id) for p in state.included_papers if p.paper_id}
     prisma_counts = await build_prisma_counts(
         repository,

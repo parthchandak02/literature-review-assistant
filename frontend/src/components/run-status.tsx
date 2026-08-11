@@ -1,5 +1,5 @@
 import { cn } from "@/lib/utils"
-import { STATUS_DOT, type RunStatus } from "@/lib/constants"
+import { STATUS_DOT, STATUS_LABEL, STATUS_TEXT, type RunStatus } from "@/lib/constants"
 import { Spinner } from "@/components/ui/feedback"
 
 /** Semantic status dot; optional ping for live/running states. */
@@ -36,6 +36,41 @@ export function StatusPulse({
       className={cn("inline-flex rounded-full shrink-0", dotSize, color, className)}
       aria-hidden
     />
+  )
+}
+
+/** Status dot + uppercase label for run cards and history rows. */
+export function RunStatusIndicator({
+  status,
+  animate = false,
+  label,
+  loading = false,
+  size = "xs",
+  className,
+}: {
+  status: RunStatus | "idle"
+  animate?: boolean
+  label?: string
+  loading?: boolean
+  size?: "xs" | "sm"
+  className?: string
+}) {
+  return (
+    <div className={cn("flex items-center gap-1.5 shrink-0", className)}>
+      {loading ? (
+        <Spinner size="xs" />
+      ) : (
+        <StatusPulse status={status} animate={animate} size={size} />
+      )}
+      <span
+        className={cn(
+          "font-semibold uppercase tracking-wide",
+          STATUS_TEXT[status],
+        )}
+      >
+        {label ?? STATUS_LABEL[status]}
+      </span>
+    </div>
   )
 }
 

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from types import SimpleNamespace
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -50,6 +51,113 @@ def _prisma_counts() -> PRISMACounts:
         records_after_deduplication=1,
         total_included=1,
     )
+
+
+def _paper_with_id(paper_id: str) -> CandidatePaper:
+    return CandidatePaper(
+        paper_id=paper_id,
+        title=f"Paper {paper_id}",
+        authors=["Smith"],
+        year=2024,
+        source_database="openalex",
+        source_category=SourceCategory.DATABASE,
+    )
+
+
+@pytest.mark.asyncio
+async def test_writing_setup_reloads_included_papers_from_canonical_cohort(tmp_path) -> None:
+    from src.orchestration.runners.writing.setup import run_writing_setup
+
+    db_path = str(tmp_path / "writing_cohort.db")
+    async with get_db(db_path) as db:
+        repo = WorkflowRepository(db)
+        await repo.create_workflow("wf-write", "topic", "hash")
+        for paper_id in ("p1", "p2"):
+            await repo.save_paper(_paper_with_id(paper_id))
+        await db.execute(
+            """
+            INSERT INTO study_cohort_membership (
+                workflow_id, paper_id, screening_status, fulltext_status,
+                synthesis_eligibility, source_phase
+            ) VALUES ('wf-write', 'p1', 'included', 'retrieved', 'included_primary', 'phase_3_screening')
+            """
+        )
+        await db.commit()
+
+    deduped = [_paper_with_id("p1"), _paper_with_id("p2")]
+    state = SimpleNamespace(
+        workflow_id="wf-write",
+        db_path=db_path,
+        dedup_count=2,
+        deduped_papers=deduped,
+        included_papers=list(deduped),
+        extraction_records=[],
+        artifacts={
+            "prisma_diagram": str(tmp_path / "prisma.svg"),
+            "timeline": str(tmp_path / "timeline.svg"),
+            "geographic": str(tmp_path / "geo.svg"),
+            "papers_dir": str(tmp_path / "papers"),
+        },
+        review=SimpleNamespace(
+            research_question="RQ",
+            keywords=["ai"],
+            search_limitation=None,
+        ),
+        settings=MagicMock(),
+        next_phase="phase_6_writing",
+        cohens_kappa=None,
+        kappa_stage=None,
+        kappa_n=0,
+        sensitivity_results=[],
+        heuristic_assessment_count=0,
+        batch_screen_forwarded=0,
+        batch_screen_excluded=0,
+        batch_screener_model=None,
+        batch_screen_threshold=0.2,
+        batch_screen_validation_n=0,
+        batch_screen_validation_npv=0.0,
+        fulltext_sought=0,
+        fulltext_not_retrieved=0,
+        sparse_evidence_mode=False,
+        excluded_non_primary_count=0,
+    )
+
+    prisma_counts = _prisma_counts()
+    save_writing_checkpoint = AsyncMock()
+    save_subphase_checkpoint = AsyncMock()
+
+    with (
+        patch("src.orchestration.runners.writing.setup.build_prisma_counts", return_value=prisma_counts),
+        patch("src.orchestration.runners.writing.setup.render_prisma_diagram"),
+        patch("src.orchestration.runners.writing.setup.render_timeline"),
+        patch("src.orchestration.runners.writing.setup.render_geographic"),
+        patch("src.orchestration.runners.writing.setup.register_citations_from_papers", new_callable=AsyncMock),
+        patch("src.orchestration.runners.writing.setup.register_methodology_citations", new_callable=AsyncMock),
+        patch(
+            "src.orchestration.runners.writing.setup.register_background_sr_citations",
+            new_callable=AsyncMock,
+            return_value=[],
+        ),
+        patch(
+            "src.orchestration.runners.writing.setup.prepare_writing_context",
+            return_value=SimpleNamespace(citekey_to_index={}),
+        ),
+        patch("src.orchestration.runners.writing.setup.build_writing_grounding", return_value=SimpleNamespace()),
+        patch("src.orchestration.runners.writing.setup.LLMProvider"),
+    ):
+        async with get_db(db_path) as db:
+            await run_writing_setup(
+                state,
+                repository=WorkflowRepository(db),
+                db=db,
+                citation_repo=MagicMock(ensure_schema=AsyncMock()),
+                narrative=None,
+                rc=None,
+                save_writing_checkpoint=save_writing_checkpoint,
+                save_subphase_checkpoint=save_subphase_checkpoint,
+            )
+
+    assert [p.paper_id for p in state.included_papers] == ["p1"]
 
 
 def _paper() -> CandidatePaper:

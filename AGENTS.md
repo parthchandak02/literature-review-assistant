@@ -39,6 +39,7 @@ If sources conflict, follow this order and verify in code.
 - Frontend flow work -> `docs/UI.md`
 - LLM/cost work -> `docs/ARCHITECTURE.md#llm-and-costs`
 - Validation/readiness -> `docs/TASKS.md`
+- Scripts / ops commands -> `docs/SCRIPTS.md` or `./scripts/help.sh`
 
 ## Hard Constraints
 

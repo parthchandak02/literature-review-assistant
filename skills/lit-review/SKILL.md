@@ -1,6 +1,6 @@
 ---
 name: lit-review
-description: "Run systematic literature reviews end-to-end from WhatsApp or chat: generate config, start pipeline, cron-monitor with watch_review.py, deliver submission zip on completion."
+description: "Run systematic literature reviews end-to-end from WhatsApp or chat: generate config, start pipeline, cron-monitor with review.py watch, deliver submission zip on completion."
 version: 1.8.0
 author: Hermes Agent
 platforms: [macos, linux]
@@ -10,6 +10,12 @@ metadata:
 ---
 
 # Systematic Literature Review Pipeline (lit-review)
+
+## Staleness warning
+
+WARNING: Hermes lit-review flow may not reflect recent pipeline changes (PROSPERO gate, config-draft API, screening review UI, phase order). Verify against `docs/ARCHITECTURE.md` before starting new runs via Hermes. Prefer web UI or `uv run python -m src.main` for production runs.
+
+---
 
 High-precision operator playbook for `literature-review-assistant`. When a user says **`/lit-review "some topic"`**, **`/skill lit-review`**, or asks for a systematic review on a topic in WhatsApp, follow this skill end-to-end: **start → cron-monitor → deliver zip** — with minimal Hermes token use after kickoff.
 
@@ -26,12 +32,12 @@ High-precision operator playbook for `literature-review-assistant`. When a user 
 | Step | Action |
 |------|--------|
 | 1 | `cd ~/projects/literature-review-assistant` |
-| 2 | `uv run python scripts/start_review.py --question "<topic>"` → review `config/review.yaml` |
+| 2 | `uv run python scripts/review.py start --question "<topic>"` → review `config/review.yaml` |
 | 3 | Launch pipeline in detached tmux; capture **workflow id** (`wf-NNNN`) from startup log |
 | 4 | Write `~/.hermes/scripts/litreview-watch-wf-NNNN.sh` (template in `references/hermes-monitoring.md`) with `CHAT_ID` + `WF_ID` |
 | 5 | Create **no-agent** cron: `every 10m` (or user-requested 5m / 20m / 60m), `--script litreview-watch-wf-NNNN.sh`, `--deliver whatsapp:<CHAT_ID>` |
 | 6 | Reply once in chat: started `wf-NNNN`, monitoring every N minutes, zip will arrive here when done |
-| 7 | **Stop** — do not poll sqlite or re-run `watch_review.py` manually; cron owns monitoring |
+| 7 | **Stop** — do not poll sqlite or re-run `review.py watch` manually; cron owns monitoring |
 
 On completion the wrapper exports (`src.main export`) and runs `hermes send … MEDIA:…zip`, then removes the cron job.
 
@@ -51,7 +57,7 @@ Already cloned, `uv sync`'d, credentials in repo `.env`. Models in `config/setti
 2. `cd literature-review-assistant && uv sync`
 3. Copy example `.env` and fill API keys
 4. `uv run python -m src.main --help`
-5. Hermes host: `nvm alias default 20.19.2`, run `scripts/hermes-maintain.sh` once (see `references/hermes-monitoring.md`)
+5. Hermes host: `nvm alias default 20.19.2`, run `scripts/hermes.sh maintain` once (see `references/hermes-monitoring.md`)
 
 ---
 
@@ -59,11 +65,11 @@ Already cloned, `uv sync`'d, credentials in repo `.env`. Models in `config/setti
 
 | Path | Role |
 |------|------|
-| `scripts/start_review.py` | Question → `config/review.yaml` |
+| `scripts/review.py start` | Question → `config/review.yaml` |
 | `src/main.py` | `run`, `resume`, `export`, `validate` |
-| `scripts/watch_review.py` | Low-noise monitor (stdout only on state change) — used by cron wrapper |
-| `scripts/show_run_info.py` | One-shot metadata for a workflow id |
-| `config/review.yaml` | Active review config (overwritten each `start_review.py`) |
+| `scripts/review.py watch` | Low-noise monitor (stdout only on state change) — used by cron wrapper |
+| `scripts/review.py info` | One-shot metadata for a workflow id |
+| `config/review.yaml` | Active review config (overwritten each `review.py start`) |
 | `runs/workflows_registry.db` | workflow id → runtime db path |
 | `references/hermes-monitoring.md` | Cron wrapper template, `hermes send`, pitfalls |
 
@@ -99,7 +105,7 @@ Already cloned, `uv sync`'d, credentials in repo `.env`. Models in `config/setti
 
 ```bash
 cd ~/projects/literature-review-assistant
-uv run python scripts/start_review.py --question "YOUR RESEARCH QUESTION"
+uv run python scripts/review.py start --question "YOUR RESEARCH QUESTION"
 ```
 
 Optional: `--profile standard` (default) or `health_sdg`. Skim `pico`, `keywords`, `inclusion_criteria`, `search_overrides`.
@@ -128,8 +134,8 @@ hermes cron create "every 10m" \
 ### Step 3 — Manual progress check (only if cron is not running)
 
 ```bash
-uv run python scripts/watch_review.py --workflow-id wf-NNNN
-uv run python scripts/show_run_info.py --workflow-id wf-NNNN
+uv run python scripts/review.py watch --workflow-id wf-NNNN
+uv run python scripts/review.py info --workflow-id wf-NNNN
 tail -30 /tmp/litreview-wf-NNNN.log
 ```
 

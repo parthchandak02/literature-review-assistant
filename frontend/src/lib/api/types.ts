@@ -57,6 +57,23 @@ export interface RunResponse {
   topic: string
 }
 
+/** Slim history row for sidebar rail UI (`GET /api/history?view=rail`). */
+export interface HistoryRailEntry {
+  workflow_id: string
+  topic: string
+  status: string
+  db_path: string
+  created_at: string
+  live_run_id?: string | null
+  is_archived?: boolean
+  is_completed_hidden?: boolean
+  notes?: string | null
+  papers_found?: number | null
+  papers_included?: number | null
+  total_cost?: number | null
+  stats_ok?: boolean | null
+}
+
 export interface HistoryEntry {
   workflow_id: string
   topic: string

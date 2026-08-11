@@ -6,12 +6,10 @@ const PROJECT_DIR = path.resolve(__dirname)
 // Production vs development:
 // - Production: litreview-api serves frontend/dist on port 8001. Do NOT run litreview-ui
 //   under PM2 in production (the Vite dev server is dev-only; serving dist avoids port
-//   5173 and stale dev-proxy confusion). Deploy: make deploy-prod or scripts/deploy_prod.sh
+//   5173 and stale dev-proxy confusion). Deploy: make deploy-prod or scripts/ops_pm2.sh restart --prod-ui
 // - Development: optionally start litreview-ui for Vite on 5173 (hot reload); API on 8001.
 //
 // PM2 restart policy: handles crash exits PM2 can observe.
-// HTTP liveness watchdog (scripts/pm2_health_watchdog.sh) handles zombie / hung states
-// by probing GET http://127.0.0.1:8001/api/health and rate-limiting pm2 restarts.
 const RESTART_POLICY = {
   autorestart: true,
   watch: false,

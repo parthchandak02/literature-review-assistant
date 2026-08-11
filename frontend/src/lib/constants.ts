@@ -26,6 +26,7 @@ export const PHASE_LABELS: Record<string, string> = {
   phase_2_search: "Search",
   phase_3_screening: "Screening",
   screening_calibration: "Threshold Calibration",
+  human_review_checkpoint: "Human Review Checkpoint",
   fulltext_pdf_retrieval: "Full-Text PDF Retrieval",
   citation_chasing: "Citation Chasing",
   phase_4_extraction_quality: "Extraction & Quality",
@@ -383,6 +384,16 @@ export function isProsperoPendingStatus(raw: string | null | undefined): boolean
   return normalized === "awaiting_prospero"
     || normalized === "config_generating"
     || normalized === "config_ready"
+}
+
+/** True when a history row is parked for human screening review. */
+export function isReviewPendingStatus(raw: string | null | undefined): boolean {
+  return (raw ?? "").toLowerCase() === "awaiting_review"
+}
+
+/** True when a run is parked at an external human gate (not actively streaming). */
+export function isParkedGateStatus(raw: string | null | undefined): boolean {
+  return isProsperoPendingStatus(raw) || isReviewPendingStatus(raw)
 }
 
 export function isConfigDraftStatus(raw: string | null | undefined): boolean {

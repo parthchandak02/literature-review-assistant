@@ -3,12 +3,16 @@ import { Spinner, FetchError } from "@/components/ui/feedback"
 import { ScreeningApprovalBar } from "@/components/screening/ScreeningApprovalBar"
 import { ScreeningFiltersBar, type ScreeningFilter } from "@/components/screening/ScreeningFiltersBar"
 import { ScreeningPaperList } from "@/components/screening/ScreeningPaperList"
-import { ScreeningStatsBar } from "@/components/screening/ScreeningStatsBar"
 import { ScreeningSummaryHeader } from "@/components/screening/ScreeningSummaryHeader"
-import { fetchScreeningSummary, approveScreening } from "@/lib/api"
+import { fetchScreeningSummary } from "@/lib/api"
 import type { ScreeningSummary, ScreeningOverride } from "@/lib/api"
 
-export function ScreeningReviewView({ runId }: { runId: string }) {
+interface ScreeningReviewViewProps {
+  runId: string
+  onApproveAndResume?: (overrides: ScreeningOverride[]) => Promise<void>
+}
+
+export function ScreeningReviewView({ runId, onApproveAndResume }: ScreeningReviewViewProps) {
   const [summary, setSummary] = useState<ScreeningSummary | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -52,7 +56,9 @@ export function ScreeningReviewView({ runId }: { runId: string }) {
     setApproving(true)
     try {
       const overrideList = Array.from(overrides.values())
-      await approveScreening(runId, overrideList.length > 0 ? overrideList : undefined)
+      if (onApproveAndResume) {
+        await onApproveAndResume(overrideList)
+      }
       setApproved(true)
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
@@ -87,14 +93,8 @@ export function ScreeningReviewView({ runId }: { runId: string }) {
   const uncertainCount = summary.papers.filter((p) => p.decision === "uncertain").length
 
   return (
-    <div className="space-y-5">
+    <div className="space-y-4">
       <ScreeningSummaryHeader />
-
-      <ScreeningStatsBar
-        total={summary.total}
-        includedCount={includedCount}
-        uncertainCount={uncertainCount}
-      />
 
       <ScreeningApprovalBar
         approved={approved}

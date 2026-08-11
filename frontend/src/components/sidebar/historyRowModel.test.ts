@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { buildInProgressRowModel } from "./historyRowModel"
+import { buildInProgressRowModel, buildRunCardModel } from "./historyRowModel"
 import type { HistoryEntry } from "@/lib/api"
 import type { LiveRun } from "./types"
 
@@ -37,6 +37,7 @@ describe("buildInProgressRowModel", () => {
     expect(model.papersFound).toBe(20)
     expect(model.cost).toBe(0.5)
     expect(model.isSelected).toBe(true)
+    expect(model.variant).toBe("in-progress")
   })
 
   it("detects reconnecting stale streaming status without live_run_id", () => {
@@ -73,5 +74,63 @@ describe("buildInProgressRowModel", () => {
     expect(model.isReconnectingRow).toBe(false)
     expect(model.isCompletedLaneEligible).toBe(false)
     expect(model.progressValue).toBeUndefined()
+  })
+
+  it("treats awaiting_review as parked, not running", () => {
+    const entry = { ...baseEntry, status: "awaiting_review" }
+    const model = buildInProgressRowModel(entry, null, null, null, null, {
+      onHideCompleted: async () => {},
+    })
+    expect(model.statusKey).toBe("awaiting_review")
+    expect(model.rowIsRunning).toBe(false)
+    expect(model.isCompletedLaneEligible).toBe(false)
+  })
+})
+
+describe("buildRunCardModel", () => {
+  it("builds live card model from standalone live run", () => {
+    const model = buildRunCardModel({
+      source: "live",
+      liveRun,
+      isSelected: true,
+      isRunning: true,
+    })
+    expect(model.variant).toBe("live")
+    expect(model.topic).toBe("Live topic")
+    expect(model.workflowId).toBe("wf-1")
+    expect(model.isSelected).toBe(true)
+    expect(model.rowIsRunning).toBe(true)
+    expect(model.showNoteField).toBe(false)
+    expect(model.showWorkflowBadge).toBe(true)
+    expect(model.progressValue).toBe(0.4)
+  })
+
+  it("builds completed lane model without progress bar", () => {
+    const entry = { ...baseEntry, status: "completed" }
+    const model = buildRunCardModel({
+      source: "lane",
+      entry,
+      variant: "completed",
+      isSelected: false,
+    })
+    expect(model.variant).toBe("completed")
+    expect(model.showProgressBar).toBe(false)
+    expect(model.showWorkflowBadge).toBe(false)
+    expect(model.showNoteField).toBe(false)
+    expect(model.papersFound).toBe(10)
+    expect(model.dateClassName).toContain("intent-success")
+  })
+
+  it("builds archived lane model with archived card styling", () => {
+    const entry = { ...baseEntry, status: "archived" }
+    const model = buildRunCardModel({
+      source: "lane",
+      entry,
+      variant: "archived",
+      isSelected: true,
+    })
+    expect(model.variant).toBe("archived")
+    expect(model.isSelected).toBe(true)
+    expect(model.cardClassName).toContain("sidebar-card-archived")
   })
 })

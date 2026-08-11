@@ -13,6 +13,61 @@ from src.web.run_resolver import resolve_runtime_db
 router = APIRouter(tags=["database_explorer"])
 
 
+def _parse_papers_include(include: str) -> set[str]:
+    """Parse comma-separated include tokens for papers-all."""
+    if not include:
+        return set()
+    return {part.strip() for part in include.split(",") if part.strip()}
+
+
+async def _fetch_papers_facets(db: aiosqlite.Connection) -> dict[str, Any]:
+    async with db.execute("SELECT DISTINCT year FROM papers WHERE year IS NOT NULL ORDER BY year DESC") as cur:
+        years = [row[0] for row in await cur.fetchall()]
+    async with db.execute(
+        "SELECT DISTINCT source_database FROM papers WHERE source_database IS NOT NULL ORDER BY source_database"
+    ) as cur:
+        sources = [row[0] for row in await cur.fetchall()]
+    async with db.execute(
+        "SELECT DISTINCT country FROM papers WHERE country IS NOT NULL ORDER BY country"
+    ) as cur:
+        countries = [row[0] for row in await cur.fetchall()]
+    async with db.execute(
+        "SELECT DISTINCT final_decision FROM dual_screening_results "
+        "WHERE stage = 'title_abstract' AND final_decision IS NOT NULL ORDER BY final_decision"
+    ) as cur:
+        ta_decisions = [row[0] for row in await cur.fetchall()]
+    async with db.execute(
+        "SELECT DISTINCT final_decision FROM dual_screening_results "
+        "WHERE stage = 'fulltext' AND final_decision IS NOT NULL ORDER BY final_decision"
+    ) as cur:
+        ft_decisions = [row[0] for row in await cur.fetchall()]
+    async with db.execute(
+        """
+        SELECT DISTINCT COALESCE(
+            er.primary_study_status,
+            json_extract(er.data, '$.primary_study_status'),
+            'unknown'
+        ) AS primary_status
+        FROM extraction_records er
+        WHERE COALESCE(
+            er.primary_study_status,
+            json_extract(er.data, '$.primary_study_status'),
+            'unknown'
+        ) IS NOT NULL
+        ORDER BY primary_status
+        """
+    ) as cur:
+        primary_statuses = [row[0] for row in await cur.fetchall()]
+    return {
+        "years": years,
+        "sources": sources,
+        "countries": countries,
+        "ta_decisions": ta_decisions,
+        "ft_decisions": ft_decisions,
+        "primary_statuses": primary_statuses,
+    }
+
+
 @router.get("/api/db/{run_id}/papers-facets")
 async def get_papers_facets(run_id: str) -> dict[str, Any]:
     """Return distinct values for all filter columns (used by autocomplete dropdowns)."""
@@ -20,43 +75,7 @@ async def get_papers_facets(run_id: str) -> dict[str, Any]:
     try:
         async with aiosqlite.connect(db_path) as db:
             db.row_factory = aiosqlite.Row
-            async with db.execute("SELECT DISTINCT year FROM papers WHERE year IS NOT NULL ORDER BY year DESC") as cur:
-                years = [row[0] for row in await cur.fetchall()]
-            async with db.execute(
-                "SELECT DISTINCT source_database FROM papers WHERE source_database IS NOT NULL ORDER BY source_database"
-            ) as cur:
-                sources = [row[0] for row in await cur.fetchall()]
-            async with db.execute(
-                "SELECT DISTINCT country FROM papers WHERE country IS NOT NULL ORDER BY country"
-            ) as cur:
-                countries = [row[0] for row in await cur.fetchall()]
-            async with db.execute(
-                "SELECT DISTINCT final_decision FROM dual_screening_results "
-                "WHERE stage = 'title_abstract' AND final_decision IS NOT NULL ORDER BY final_decision"
-            ) as cur:
-                ta_decisions = [row[0] for row in await cur.fetchall()]
-            async with db.execute(
-                "SELECT DISTINCT final_decision FROM dual_screening_results "
-                "WHERE stage = 'fulltext' AND final_decision IS NOT NULL ORDER BY final_decision"
-            ) as cur:
-                ft_decisions = [row[0] for row in await cur.fetchall()]
-            async with db.execute(
-                """
-                SELECT DISTINCT COALESCE(json_extract(er.data, '$.primary_study_status'), 'unknown') AS primary_status
-                FROM extraction_records er
-                WHERE COALESCE(json_extract(er.data, '$.primary_study_status'), 'unknown') IS NOT NULL
-                ORDER BY primary_status
-                """
-            ) as cur:
-                primary_statuses = [row[0] for row in await cur.fetchall()]
-        return {
-            "years": years,
-            "sources": sources,
-            "countries": countries,
-            "ta_decisions": ta_decisions,
-            "ft_decisions": ft_decisions,
-            "primary_statuses": primary_statuses,
-        }
+            return await _fetch_papers_facets(db)
     except HTTPException:
         raise
     except Exception as exc:
@@ -128,6 +147,7 @@ async def get_papers_all(
     country: str = "",
     offset: int = 0,
     limit: int = 50,
+    include: str = "",
 ) -> dict[str, Any]:
     """Unified per-paper table joining papers with final screening decisions."""
     db_path = await resolve_runtime_db(run_id)
@@ -155,7 +175,9 @@ async def get_papers_all(
                 conditions.append("COALESCE(ft.final_decision, '') LIKE ?")
                 params.append(f"%{ft_decision}%")
             if primary_status:
-                conditions.append("COALESCE(json_extract(er.data, '$.primary_study_status'), 'unknown') LIKE ?")
+                conditions.append(
+                    "COALESCE(er.primary_study_status, json_extract(er.data, '$.primary_study_status'), 'unknown') LIKE ?"
+                )
                 params.append(f"%{primary_status}%")
             if year:
                 conditions.append("CAST(p.year AS TEXT) LIKE ?")
@@ -187,8 +209,11 @@ async def get_papers_all(
                            p.source_database, p.doi, p.url, p.country,
                            ta.final_decision AS ta_decision,
                            ft.final_decision AS ft_decision,
-                           COALESCE(json_extract(er.data, '$.primary_study_status'), 'unknown')
-                               AS primary_study_status,
+                           COALESCE(
+                               er.primary_study_status,
+                               json_extract(er.data, '$.primary_study_status'),
+                               'unknown'
+                           ) AS primary_study_status,
                            er.data AS extraction_data,
                            ra.assessment_data AS rob_assessment_data
                     {base_query}
@@ -245,7 +270,10 @@ async def get_papers_all(
                     }
                 )
 
-            return {"total": total, "offset": offset, "limit": limit, "papers": papers}
+            response: dict[str, Any] = {"total": total, "offset": offset, "limit": limit, "papers": papers}
+            if "facets" in _parse_papers_include(include):
+                response["facets"] = await _fetch_papers_facets(db)
+            return response
     except HTTPException:
         raise
     except Exception as exc:

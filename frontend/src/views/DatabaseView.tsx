@@ -158,11 +158,27 @@ export function DatabaseView({ runId, isDone, dbAvailable, isLive }: DatabaseVie
       ? 0
       : pagination.page
 
+  const isInitialQuery =
+    queryPage === 0 &&
+    !titleFilter &&
+    !authorFilter &&
+    !taFilter &&
+    !ftFilter &&
+    !primaryStatusFilter &&
+    !yearFilter &&
+    !sourceFilter &&
+    !countryFilter
+
   const papersQuery = useDbPapers(runId, filters, queryPage, PAGE_SIZE, {
     enabled: dbAvailable,
     isLive,
+    includeFacets: isInitialQuery,
   })
-  const facetsQuery = useDbPapersFacets(runId, dbAvailable)
+  const facetsQuery = useDbPapersFacets(runId, dbAvailable, {
+    papersQueryIncludesFacets: isInitialQuery,
+    papersQueryFetched: papersQuery.isFetched,
+    papersHadFacets: Boolean(papersQuery.data?.facets),
+  })
   const outcomesQuery = useDbOutcomes(runId, { enabled: dbAvailable, isLive })
   const titleSuggestionsQuery = useDbPaperSuggest(runId, "title", titleSuggestQuery)
   const authorSuggestionsQuery = useDbPaperSuggest(runId, "author", authorSuggestQuery)

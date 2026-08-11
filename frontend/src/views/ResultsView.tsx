@@ -10,7 +10,7 @@ import {
 import { EmptyState } from "@/components/ui/feedback"
 import { ViewToolbar } from "@/components/ui/view-toolbar"
 import { CustomDiagramsCard } from "@/components/CustomDiagramsCard"
-import { ResultsPanel } from "@/components/ResultsPanel"
+import { ArtifactFileList } from "@/components/results/ArtifactFileList"
 import { ReferencesView } from "@/views/ReferencesView"
 import { collectCustomDiagramItems, customDiagramPipelineTouched } from "@/lib/customDiagrams"
 import { submissionZipUrl } from "@/lib/api"
@@ -217,7 +217,7 @@ export function ResultsView({
               <PrismaDiagramCard filePath={prismaDiagramPath} runId={exportRunId} />
             ) : null}
             <CustomDiagramsCard outputs={effectiveOutputs} />
-            <ResultsPanel
+            <ArtifactFileList
               outputs={effectiveOutputs}
               excludePaths={manuscriptExcludePaths}
               runId={exportRunId}
@@ -236,7 +236,7 @@ export function ResultsView({
         {activeCategory === "files" && (
           <div className="p-4 space-y-1">
             {exportRunId ? <ProsperoDownloadsCard runId={exportRunId} /> : null}
-            <ResultsPanel
+            <ArtifactFileList
               outputs={effectiveOutputs}
               excludePaths={manuscriptExcludePaths}
               runId={exportRunId}

@@ -12,6 +12,7 @@ If docs conflict with code, trust `src/` and `frontend/src/`. If docs conflict w
 | `API.md` | HTTP/SSE contracts; endpoint parity table (Section 10.1) |
 | `UI.md` | Frontend structure, design rules, regression checklist |
 | `TASKS.md` | Verification gates, open work, commit checklist |
+| `SCRIPTS.md` | Script entrypoints, intent routing, naming conventions |
 | `adr/` | Architecture decision records |
 
 ## Lifecycle routing
@@ -23,7 +24,7 @@ If docs conflict with code, trust `src/` and `frontend/src/`. If docs conflict w
 | Build | Domain skill in `.cursor/skills/**/SKILL.md` + relevant doc above |
 | Review | `API.md`, `ARCHITECTURE.md#persistence`, `UI.md` |
 | Frontend UI redesign | `UI.md` before changing run navigation or views |
-| Test | Parity and replay checks in `TASKS.md` |
+| Test | Parity and replay checks in `TASKS.md`; script routing in `SCRIPTS.md` |
 | Ship | `.cursor/skills/commit/SKILL.md` |
 
 ## Glossary
