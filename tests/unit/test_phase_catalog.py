@@ -53,6 +53,14 @@ def test_pre_writing_phase_order_is_subsequence_of_phase_order() -> None:
     assert phase_indices == sorted(phase_indices)
 
 
+def test_pre_writing_phase_order_includes_audit_before_finalize() -> None:
+    assert "phase_7_audit" in PRE_WRITING_PHASE_ORDER
+    writing_idx = PRE_WRITING_PHASE_ORDER.index("phase_6_writing")
+    audit_idx = PRE_WRITING_PHASE_ORDER.index("phase_7_audit")
+    finalize_idx = PRE_WRITING_PHASE_ORDER.index("finalize")
+    assert writing_idx < audit_idx < finalize_idx
+
+
 def test_sub_phase_checkpoint_keys_align_with_phase_order() -> None:
     for parent_phase, sub_phases in SUB_PHASE_CHECKPOINTS.items():
         assert parent_phase in PHASE_ORDER, f"{parent_phase!r} missing from PHASE_ORDER"

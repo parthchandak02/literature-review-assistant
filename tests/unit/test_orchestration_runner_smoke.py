@@ -17,6 +17,7 @@ def test_pre_writing_phase_helpers() -> None:
         "phase_5b_knowledge_graph",
         "phase_5c_pre_writing_gate",
         "phase_6_writing",
+        "phase_7_audit",
         "finalize",
     ]
     assert select_pre_writing_rewind_phase(["phase_6_writing", "phase_4_extraction_quality"]) == (

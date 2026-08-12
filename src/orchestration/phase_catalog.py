@@ -41,6 +41,7 @@ PRE_WRITING_PHASE_ORDER: tuple[str, ...] = (
     "phase_5b_knowledge_graph",
     "phase_5c_pre_writing_gate",
     "phase_6_writing",
+    "phase_7_audit",
     "finalize",
 )
 

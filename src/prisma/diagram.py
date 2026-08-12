@@ -248,28 +248,40 @@ def _ensure_colrev_stub() -> None:
         sys.modules["colrev.loader.load_utils"].load = lambda **kw: {}  # type: ignore[attr-defined]
 
 
+def _render_with_library(
+    db_registers: dict[str, Any],
+    included: dict[str, Any],
+    other_methods: dict[str, Any] | None,
+    path: Path,
+) -> None:
+    """Render via prisma-flow-diagram with adaptive vertical layout."""
+    from src.prisma.layout import adaptive_prisma_style, apply_adaptive_prisma_layout
+
+    diagram_cls = apply_adaptive_prisma_layout()
+    diagram_cls(
+        db_registers=db_registers,
+        included=included,
+        other_methods=other_methods,
+        style=adaptive_prisma_style(),
+    ).plot(filename=str(path), show=False)
+
+
 def render_prisma_diagram(counts: PRISMACounts, output_path: str) -> Path:
     """Render PRISMA 2020 two-column flow diagram to PNG."""
     path = Path(output_path)
     path.parent.mkdir(parents=True, exist_ok=True)
+    db_registers, included, other_methods = _map_counts_to_library_format(counts)
+
     try:
-        from prisma_flow_diagram import plot_prisma2020_new
+        _render_with_library(db_registers, included, other_methods, path)
+        return path
     except ImportError:
         _ensure_colrev_stub()
         try:
-            from prisma_flow_diagram import plot_prisma2020_new
+            _render_with_library(db_registers, included, other_methods, path)
+            return path
         except ImportError:
             return _render_fallback(counts, path)
-
-    db_registers, included, other_methods = _map_counts_to_library_format(counts)
-    plot_prisma2020_new(
-        db_registers=db_registers,
-        included=included,
-        other_methods=other_methods,
-        filename=str(path),
-        show=False,
-    )
-    return path
 
 
 async def build_prisma_counts(

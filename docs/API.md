@@ -98,6 +98,7 @@ Enforced by `scripts/check.py api` against Section 10.1 below. Update this table
 | GET | /api/run/{run_id}/prospero-form.docx | Download generated PROSPERO registration form (DOCX) |
 | GET | /api/run/{run_id}/prospero-form.md | Download generated PROSPERO registration form (Markdown) |
 | POST | /api/run/{run_id}/submit-prospero | Record PROSPERO registration (`registration_number`, `registration_date`) and resume workflow |
+| POST | /api/run/{run_id}/regenerate-prospero | Regenerate PROSPERO draft documents from the current run config |
 | GET | /api/run/{run_id}/manuscript-audit | Consolidated manuscript-audit payload resolved from run/workflow identifier |
 | GET | /api/run/{run_id}/readiness | Readiness scorecard for export and operational review (finalize, PRISMA, contracts, fallbacks, PDF) |
 | GET | /api/run/{run_id}/diagnostics | Step journal summary, recovery/fallback counts, writing manifests for run diagnostics |
