@@ -15,6 +15,8 @@ _OVERLAY_PATH = Path(__file__).resolve().with_name("humanizer_academic_overlay.m
 @lru_cache(maxsize=1)
 def load_humanizer_skill_text() -> str:
     """Return the full humanizer skill text from the canonical source."""
+    if not _SKILL_SOURCE_PATH.is_file():
+        return ""
     return _SKILL_SOURCE_PATH.read_text(encoding="utf-8").strip()
 
 
@@ -25,9 +27,10 @@ def load_humanizer_overlay_text() -> str:
 
 
 def build_humanize_system_prompt(section: str | None = None) -> str:
-    """Build the primary humanizer prompt with full skill + manuscript overlay."""
+    """Build the primary humanizer prompt with overlay and optional full skill."""
     section_hint = section or "unknown_section"
-    return (
+    skill_text = load_humanizer_skill_text()
+    parts = [
         "You are an expert academic editor for systematic review manuscripts.\n\n"
         f"Current section: {section_hint}\n\n"
         "MANDATORY INVARIANTS:\n"
@@ -37,10 +40,14 @@ def build_humanize_system_prompt(section: str | None = None) -> str:
         "- Do not change section structure or headings.\n"
         "- Return only revised section text.\n\n"
         "MANUSCRIPT OVERLAY:\n"
-        f"{load_humanizer_overlay_text()}\n\n"
-        "FULL HUMANIZER SKILL (apply all checks and rewrite discipline):\n"
-        f"{load_humanizer_skill_text()}\n"
-    )
+        f"{load_humanizer_overlay_text()}\n",
+    ]
+    if skill_text:
+        parts.append(
+            "\nFULL HUMANIZER SKILL (apply all checks and rewrite discipline):\n"
+            f"{skill_text}\n"
+        )
+    return "".join(parts)
 
 
 def build_humanize_repair_prompt(section: str, text: str, flags: list[HumanizerFlag]) -> str:

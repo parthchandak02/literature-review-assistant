@@ -43,7 +43,6 @@ _BEST_EFFORT_ISSUE_PREFIXES = (
     "thin_subsection_body:",
     "trailing_fragment_word",
     "trailing_fragment_punctuation",
-    "missing_required_citations:",
     "post_insufficient_substantive_paragraphs:",
     "post_missing_subheading:",
     "post_thin_subheading_body:",

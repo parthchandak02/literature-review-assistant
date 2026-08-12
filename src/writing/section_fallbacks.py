@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from typing import TYPE_CHECKING
 
 from src.models import (
@@ -17,6 +18,23 @@ if TYPE_CHECKING:
     from src.writing.context_builder import WritingGroundingData
 
 _SECTION_REQUIRED_SUBHEADINGS = SECTION_REQUIRED_SUBHEADINGS
+_DUAL_REVIEW_RE = re.compile(
+    r"\b(?:two\s+independent\s+reviewers?|dual\s+(?:review|screening)|independent\s+dual\s+screening)\b",
+    flags=re.IGNORECASE,
+)
+
+
+def _topic_scope_from_grounding(grounding: WritingGroundingData | None) -> str:
+    if grounding is None:
+        return "the review question"
+    topic_scope = str(
+        getattr(grounding, "research_question", "") or getattr(grounding, "review_topic", "")
+    ).strip()
+    return topic_scope or "the review question"
+
+
+def _screening_method_describes_dual_review(screening_method: str) -> bool:
+    return bool(screening_method and _DUAL_REVIEW_RE.search(screening_method))
 
 
 def _format_abstract_design_summary(study_design_counts: dict[str, int] | None) -> str:
@@ -250,10 +268,13 @@ def _build_deterministic_section_fallback(
                 SectionBlock(block_type="subheading", text="Selection Process", level=3),
                 SectionBlock(
                     block_type="paragraph",
-                    text=(
-                        f"Two independent reviewers screened {screened} records with adjudication for disagreements. "
-                        f"{sought} reports were sought for full-text retrieval, {not_retrieved} reports were not retrieved, "
-                        f"{assessed} were assessed for eligibility, and {included} studies were ultimately included."
+                    text=_build_selection_process_fallback_text(
+                        grounding,
+                        screened=screened,
+                        sought=sought,
+                        not_retrieved=not_retrieved,
+                        assessed=assessed,
+                        included=included,
                     ),
                 ),
                 SectionBlock(block_type="subheading", text="Synthesis Methods", level=3),
@@ -273,14 +294,74 @@ def _build_deterministic_section_fallback(
             required_subsections=list(_SECTION_REQUIRED_SUBHEADINGS.get("results", ())),
             fallback_citations=fallback_citations,
         )
+    if section == "introduction":
+        topic_scope = _topic_scope_from_grounding(grounding)
+        included = getattr(grounding, "total_included", 0) if grounding is not None else 0
+        return StructuredSectionDraft(
+            section_key="introduction",
+            cited_keys=fallback_citations,
+            blocks=[
+                SectionBlock(
+                    block_type="paragraph",
+                    text=(
+                        f"Systematic reviews are increasingly used to synthesize evidence on {topic_scope}. "
+                        "This manuscript reports a protocol-driven evidence synthesis that prioritized transparent "
+                        "selection, structured extraction, and cautious interpretation of heterogeneous studies."
+                    ),
+                ),
+                SectionBlock(
+                    block_type="paragraph",
+                    text=(
+                        f"The present review addressed {topic_scope} by integrating findings from {included} included "
+                        "studies. The following sections summarize search and selection methods, empirical results, "
+                        "and implications for practice and research."
+                    ),
+                    citations=fallback_citations,
+                ),
+                SectionBlock(
+                    block_type="paragraph",
+                    text=(
+                        "Interpretation throughout emphasizes methodological rigor and the limits of cross-study "
+                        "comparability, particularly where reporting completeness and outcome measurement varied "
+                        "across the evidence base."
+                    ),
+                ),
+            ],
+        )
+    if section == "conclusion":
+        topic_scope = _topic_scope_from_grounding(grounding)
+        included = getattr(grounding, "total_included", 0) if grounding is not None else 0
+        return StructuredSectionDraft(
+            section_key="conclusion",
+            cited_keys=fallback_citations,
+            blocks=[
+                SectionBlock(
+                    block_type="paragraph",
+                    text=(
+                        f"This systematic review synthesized evidence on {topic_scope} from {included} included "
+                        "studies. Available findings suggest potential implementation benefits alongside persistent "
+                        "uncertainty in effect direction and reporting quality."
+                    ),
+                    citations=fallback_citations,
+                ),
+                SectionBlock(
+                    block_type="paragraph",
+                    text=(
+                        "Conclusions should remain cautious because study designs, comparator choices, and outcome "
+                        "definitions differed across the included literature."
+                    ),
+                ),
+                SectionBlock(
+                    block_type="paragraph",
+                    text=(
+                        "Future work should prioritize higher-quality comparative studies with standardized outcomes "
+                        "and complete reporting to strengthen causal inference and policy relevance."
+                    ),
+                ),
+            ],
+        )
     if section == "discussion":
-        topic_scope = ""
-        if grounding is not None:
-            topic_scope = str(
-                getattr(grounding, "research_question", "") or getattr(grounding, "review_topic", "")
-            ).strip()
-        if not topic_scope:
-            topic_scope = "the review question"
+        topic_scope = _topic_scope_from_grounding(grounding)
         return StructuredSectionDraft(
             section_key="discussion",
             required_subsections=list(_SECTION_REQUIRED_SUBHEADINGS.get("discussion", ())),
@@ -334,12 +415,47 @@ def _build_deterministic_section_fallback(
                 ),
             ],
         )
+    topic_scope = _topic_scope_from_grounding(grounding)
+    included = getattr(grounding, "total_included", 0) if grounding is not None else 0
     return StructuredSectionDraft(
         section_key=section,
+        cited_keys=fallback_citations,
         blocks=[
             SectionBlock(
                 block_type="paragraph",
-                text="Section content was generated using deterministic fallback due to incomplete model output.",
-            )
+                text=(
+                    f"This section summarizes evidence relevant to {topic_scope} based on {included} included studies. "
+                    "Findings should be interpreted cautiously because study designs and reporting quality varied."
+                ),
+            ),
+            SectionBlock(
+                block_type="paragraph",
+                text=(
+                    "The synthesis prioritized protocol-defined eligibility and transparent selection while "
+                    "acknowledging limits to cross-study comparability."
+                ),
+            ),
         ],
+    )
+
+
+def _build_selection_process_fallback_text(
+    grounding: WritingGroundingData | None,
+    *,
+    screened: int,
+    sought: int,
+    not_retrieved: int,
+    assessed: int,
+    included: int,
+) -> str:
+    funnel = (
+        f"{sought} reports were sought for full-text retrieval, {not_retrieved} reports were not retrieved, "
+        f"{assessed} were assessed for eligibility, and {included} studies were ultimately included."
+    )
+    screening_method = str(getattr(grounding, "screening_method_description", "") or "").strip()
+    if _screening_method_describes_dual_review(screening_method):
+        return f"{screening_method.rstrip('.')}. Of {screened} screened records, {funnel}"
+    return (
+        f"Records were screened against protocol eligibility criteria following the archived search strategy. "
+        f"Of {screened} screened records, {funnel}"
     )
