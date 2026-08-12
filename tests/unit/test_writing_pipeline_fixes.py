@@ -30,6 +30,7 @@ from src.writing.orchestration import (
     _validate_structured_section_draft,
 )
 from src.writing.renderers import collect_section_heading_inventory, render_section_markdown
+from src.writing.section_fallbacks import _build_deterministic_section_fallback
 
 
 def _prisma_counts() -> PRISMACounts:
@@ -195,6 +196,82 @@ def test_best_effort_accept_prefers_richer_generated_draft() -> None:
         ["topic_anchor_terms_missing"],
         included_study_count=8,
     )
+
+
+def test_best_effort_accept_rejects_missing_required_citations() -> None:
+    generated = StructuredSectionDraft(
+        section_key="results",
+        blocks=[
+            SectionBlock(block_type="paragraph", text=" ".join(["substantive"] * 45) + "."),
+            SectionBlock(block_type="paragraph", text=" ".join(["evidence"] * 38) + "."),
+        ],
+    )
+    fallback = StructuredSectionDraft(
+        section_key="results",
+        blocks=[
+            SectionBlock(
+                block_type="paragraph",
+                text="Fallback paragraph with enough words to compare against the generated draft content.",
+            )
+        ],
+    )
+    assert not _best_effort_accept(
+        "results",
+        generated,
+        fallback,
+        ["missing_required_citations:3"],
+        included_study_count=8,
+    )
+
+
+def test_introduction_and_conclusion_fallbacks_are_grounded() -> None:
+    class _Grounding:
+        research_question = "the impact of simulation training on clinical skill acquisition"
+        review_topic = ""
+        total_included = 12
+
+    grounding = _Grounding()
+    for section in ("introduction", "conclusion"):
+        draft = _build_deterministic_section_fallback(section, grounding, {"Page2021"})
+        text = render_section_markdown(draft)
+        assert "deterministic fallback due to incomplete" not in text.lower()
+        assert "simulation training on clinical skill acquisition" in text
+        assert "12 included" in text
+        assert len(text.split()) >= 40
+
+
+def test_methods_fallback_does_not_invent_dual_review_without_grounding() -> None:
+    class _Grounding:
+        fulltext_sought = 66
+        fulltext_not_retrieved = 33
+        fulltext_assessed = 33
+        total_included = 10
+        total_screened = 1996
+        screening_method_description = ""
+
+    draft = _build_deterministic_section_fallback("methods", _Grounding(), {"Page2021"})
+    text = render_section_markdown(draft)
+    assert "two independent reviewers" not in text.lower()
+    assert "Records were screened against protocol eligibility criteria" in text
+    assert "66 reports were sought for full-text retrieval" in text
+    assert "33 reports were not retrieved" in text
+
+
+def test_methods_fallback_uses_dual_review_when_grounding_describes_it() -> None:
+    class _Grounding:
+        fulltext_sought = 45
+        fulltext_not_retrieved = 0
+        fulltext_assessed = 45
+        total_included = 19
+        total_screened = 1358
+        screening_method_description = (
+            "Two independent reviewers screened records with adjudication for disagreements."
+        )
+
+    draft = _build_deterministic_section_fallback("methods", _Grounding(), {"Page2021"})
+    text = render_section_markdown(draft)
+    assert "Two independent reviewers screened records with adjudication for disagreements." in text
+    assert "45 reports were sought for full-text retrieval" in text
 
 
 def test_key_finding_sanitization_becomes_not_reported() -> None:

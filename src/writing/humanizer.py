@@ -90,9 +90,9 @@ async def humanize_async(
         except Exception:
             timeout_seconds = 180.0
     truncated = text[:cut]
-    prompt = f"{build_humanize_system_prompt(section)}\n\n{_HUMANIZE_USER_TEMPLATE.format(text=truncated)}"
     client = get_chat_client(timeout_seconds=timeout_seconds)
     try:
+        prompt = f"{build_humanize_system_prompt(section)}\n\n{_HUMANIZE_USER_TEMPLATE.format(text=truncated)}"
         t0 = time.monotonic()
         refined, tok_in, tok_out, cw, cr = await client.complete_with_usage(
             prompt, model=model, temperature=temperature
