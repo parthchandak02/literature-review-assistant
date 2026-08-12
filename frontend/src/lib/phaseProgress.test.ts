@@ -115,4 +115,20 @@ describe("detectAwaitingProspero", () => {
       }),
     ).toBe(false)
   })
+
+  it("clears prospero park when historical status is running", () => {
+    expect(
+      detectAwaitingProspero({
+        historicalStatus: "running",
+        status: "done",
+        isRunning: false,
+        events: [
+          {
+            type: "done",
+            outputs: { status: "awaiting_prospero", workflow_id: "wf-0108" },
+          },
+        ],
+      }),
+    ).toBe(false)
+  })
 })

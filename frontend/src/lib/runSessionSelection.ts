@@ -78,7 +78,6 @@ export function selectedRunFromHistoryEntry(
     papersFound: entry.papers_found ?? null,
     papersIncluded: entry.papers_included ?? null,
     historicalCost: entry.total_cost ?? null,
-    attachPending: overrides.attachPending,
   }
 }
 

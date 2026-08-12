@@ -26,10 +26,10 @@ import { ChartTableToggle, type ChartTableMode } from "@/components/cost-ops/Cha
 import { CostChartTooltip } from "@/components/cost-ops/CostChartTooltip"
 import { CostOpsFiltersBar } from "@/components/cost-ops/CostOpsFiltersBar"
 import {
-  CostOpsBucketSection,
   CostOpsGroupSection,
   CostOpsPhaseSection,
-  CostsLoadingSkeleton,
+  CostOpsSpendSection,
+  CostsLoadingState,
 } from "@/components/cost-ops/CostOpsChartSection"
 import {
   buildPresetRange,
@@ -392,7 +392,7 @@ export function CostView({ costStats, dbRunId, workflowId, isLive, isSSEConnecte
               </div>
             )}
 
-            {opsLoading && !opsAggregates && <CostsLoadingSkeleton />}
+            {opsLoading && !opsAggregates && <CostsLoadingState />}
 
             {opsAggregates && (
               <>
@@ -423,15 +423,17 @@ export function CostView({ costStats, dbRunId, workflowId, isLive, isSSEConnecte
                   </div>
                 </div>
 
-                <div className={costOpsGridClass}>
-                  <CostOpsBucketSection title="Daily spend" rows={opsAggregates.by_day} viewMode={opsViewMode} />
-                  <CostOpsBucketSection title="Weekly spend" rows={opsAggregates.by_week} viewMode={opsViewMode} />
-                  <CostOpsBucketSection title="Monthly spend" rows={opsAggregates.by_month} viewMode={opsViewMode} />
-                </div>
-
-                <div className={costOpsGridClass}>
-                  <CostOpsPhaseSection title="Top phases" rows={opsAggregates.by_phase} viewMode={opsViewMode} />
-                  <CostOpsGroupSection title="Top models" rows={opsAggregates.by_model} viewMode={opsViewMode} />
+                <div className="space-y-2">
+                  <CostOpsSpendSection
+                    byDay={opsAggregates.by_day}
+                    byWeek={opsAggregates.by_week}
+                    byMonth={opsAggregates.by_month}
+                    viewMode={opsViewMode}
+                  />
+                  <div className={costOpsGridClass}>
+                    <CostOpsPhaseSection title="Top phases" rows={opsAggregates.by_phase} viewMode={opsViewMode} />
+                    <CostOpsGroupSection title="Top models" rows={opsAggregates.by_model} viewMode={opsViewMode} axisLabelKind="model" />
+                  </div>
                 </div>
               </>
             )}

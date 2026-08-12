@@ -1,4 +1,4 @@
-import { Suspense, lazy } from "react"
+import { useEffect, Suspense, lazy } from "react"
 import {
   Activity,
   BarChart3,
@@ -88,8 +88,11 @@ interface RunViewProps {
   onLaunchDraft?: (yaml: string) => void
   prosperoPrepareInProgress?: boolean
   prosperoSubmitting?: boolean
+  prosperoRegenerating?: boolean
   onPrepareProspero?: (yaml: string) => void
   onStartResearchAfterProspero?: (registration: ProsperoRegistration) => void | Promise<void>
+  onSaveProsperoRegistration?: (registration: ProsperoRegistration) => void | Promise<void>
+  onRegenerateProsperoDrafts?: () => void | Promise<void>
   onApproveScreeningAndResume?: (overrides: ScreeningOverride[]) => Promise<void>
 }
 
@@ -115,14 +118,16 @@ export function RunView({
   onLaunchDraft,
   prosperoPrepareInProgress = false,
   prosperoSubmitting = false,
+  prosperoRegenerating = false,
   onPrepareProspero,
   onStartResearchAfterProspero,
+  onSaveProsperoRegistration,
+  onRegenerateProsperoDrafts,
   onApproveScreeningAndResume,
 }: RunViewProps) {
   const isHistorical = !isViewingLiveRun
   const historicalQuery = useHistoricalEvents(run.workflowId, run.runId, {
     enabled: isHistorical,
-    attachPending: run.attachPending,
   })
   const historicalEvents = historicalQuery.data ?? []
   const historicalEventsLoading = historicalQuery.isPending
@@ -146,16 +151,13 @@ export function RunView({
     isAwaitingProspero,
   } = chrome
 
+  useEffect(() => {
+    if (!isAwaitingProspero || activeTab === "config") return
+    onTabChange("config")
+  }, [isAwaitingProspero, activeTab, onTabChange])
+
   return (
     <div className="flex flex-col gap-0 h-full">
-      {run.attachPending && (
-        <div
-          className="shrink-0 border-b border-intent-warning/40 bg-intent-warning-subtle px-6 py-2 text-sm text-intent-warning"
-          role="status"
-        >
-          Connecting to run session… Event replay uses workflow SQLite until attach completes.
-        </div>
-      )}
       <RunChrome
         run={run}
         chrome={chrome}
@@ -176,7 +178,6 @@ export function RunView({
               prefetchedHistoricalEvents={isHistorical ? historicalEvents : null}
               historicalEventsLoading={isHistorical ? historicalEventsLoading : false}
               allowHistoricalFallback={isHistorical}
-              attachPending={run.attachPending}
               status={status}
               runId={run.runId}
               workflowId={run.workflowId}
@@ -229,8 +230,11 @@ export function RunView({
               isAwaitingProspero={isAwaitingProspero}
               prosperoPrepareInProgress={prosperoPrepareInProgress}
               prosperoSubmitting={prosperoSubmitting}
+              prosperoRegenerating={prosperoRegenerating}
               onPrepareProspero={onPrepareProspero}
               onStartResearchAfterProspero={onStartResearchAfterProspero}
+              onSaveProsperoRegistration={onSaveProsperoRegistration}
+              onRegenerateProsperoDrafts={onRegenerateProsperoDrafts}
             />
           )}
 

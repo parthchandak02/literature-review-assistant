@@ -93,11 +93,22 @@ export interface ProsperoRegistration {
 export async function submitProsperoRegistration(
   runId: string,
   registration: ProsperoRegistration,
+  options?: { resume?: boolean },
 ): Promise<void> {
   const res = await fetch(`${API_BASE}/run/${encodeURIComponent(runId)}/submit-prospero`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(registration),
+    body: JSON.stringify({
+      ...registration,
+      resume: options?.resume ?? true,
+    }),
   })
   if (!res.ok) throw await apiError(res, "Failed to submit PROSPERO registration")
+}
+
+export async function regenerateProsperoDocs(runId: string): Promise<void> {
+  const res = await fetch(`${API_BASE}/run/${encodeURIComponent(runId)}/regenerate-prospero`, {
+    method: "POST",
+  })
+  if (!res.ok) throw await apiError(res, "Failed to regenerate PROSPERO documents")
 }

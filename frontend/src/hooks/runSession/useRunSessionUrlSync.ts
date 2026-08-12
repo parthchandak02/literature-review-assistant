@@ -2,6 +2,7 @@ import { useEffect } from "react"
 import { isTerminalHistoricalStatus } from "@/lib/runSelection"
 import { parseRunUrl } from "@/lib/runSessionUrl"
 import { connectLiveRun } from "@/lib/runSession"
+import { selectedRunFromHistoryEntry } from "@/lib/runSessionSelection"
 import {
   attachHistory,
   clearLiveRun,
@@ -69,23 +70,25 @@ export function useRunSessionUrlSync({
         )
         return
       }
+      if (isTerminalHistoricalStatus(entry.status) && !entry.live_run_id) {
+        if (isAborted?.()) return
+        clearLiveRunUi()
+        setSelectedRun(
+          selectedRunFromHistoryEntry(entry, {
+            runId: entry.workflow_id,
+          }),
+        )
+        setActiveRunTab(tab)
+        return
+      }
       const res = await attachHistory(entry)
       if (isAborted?.()) return
       clearLiveRunUi()
-      const isCompleted = isTerminalHistoricalStatus(entry.status)
-      setSelectedRun({
-        runId: res.run_id,
-        workflowId: entry.workflow_id,
-        topic: entry.topic,
-        dbPath: entry.db_path,
-        isDone: isCompleted,
-        historicalStatus: entry.status,
-        startedAt: null,
-        createdAt: entry.created_at,
-        papersFound: entry.papers_found ?? null,
-        papersIncluded: entry.papers_included ?? null,
-        historicalCost: entry.total_cost ?? null,
-      })
+      setSelectedRun(
+        selectedRunFromHistoryEntry(entry, {
+          runId: res.run_id,
+        }),
+      )
       setActiveRunTab(tab)
     } catch {
       if (!isAborted?.()) navigate("/", { replace: true })

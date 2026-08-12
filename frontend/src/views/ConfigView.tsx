@@ -11,6 +11,7 @@ import { ConfigGenerationStepper, type ConfigGenStepDisplay, type ConfigGenStepS
 import { GEN_STEPS } from "@/components/setup/constants"
 import { buildGenerationStepDetail } from "@/components/setup/generationHelpers"
 import type { ProsperoRegistration } from "@/lib/api"
+import { isProsperoRegistrationComplete, parseProsperoFromYaml } from "@/lib/prosperoConfig"
 
 // ---------------------------------------------------------------------------
 // ConfigView
@@ -26,8 +27,11 @@ export interface ConfigViewProps {
   isAwaitingProspero?: boolean
   prosperoPrepareInProgress?: boolean
   prosperoSubmitting?: boolean
+  prosperoRegenerating?: boolean
   onPrepareProspero?: (yaml: string) => void
   onStartResearchAfterProspero?: (registration: ProsperoRegistration) => void | Promise<void>
+  onSaveProsperoRegistration?: (registration: ProsperoRegistration) => void | Promise<void>
+  onRegenerateProsperoDrafts?: () => void | Promise<void>
 }
 
 export interface DraftConfigContext {
@@ -63,8 +67,11 @@ export function ConfigView({
   isAwaitingProspero = false,
   prosperoPrepareInProgress = false,
   prosperoSubmitting = false,
+  prosperoRegenerating = false,
   onPrepareProspero,
   onStartResearchAfterProspero,
+  onSaveProsperoRegistration,
+  onRegenerateProsperoDrafts,
 }: ConfigViewProps) {
   const isDraft = draftConfig !== null
   const streamedDraftYaml = draftConfig?.yaml ?? ""
@@ -129,6 +136,18 @@ export function ConfigView({
   const showDraftPrepareButton = isDraft && !showProsperoGate
   const savedDraftYaml = draftConfig?.yaml ?? ""
   const effectiveYaml = isDraft ? draftYaml : (yamlContent ?? savedDraftYaml)
+  const parsedProspero = useMemo(
+    () => parseProsperoFromYaml(effectiveYaml),
+    [effectiveYaml],
+  )
+  const registrationComplete = isProsperoRegistrationComplete(parsedProspero)
+  const showRegistrationPanel = Boolean(effectiveYaml.trim()) && (showProsperoGate || !isDraft)
+  const registrationInitial = parsedProspero.registrationNumber || parsedProspero.registrationDate
+    ? {
+        registration_number: parsedProspero.registrationNumber,
+        registration_date: parsedProspero.registrationDate,
+      }
+    : null
 
   if (loading && !isDraft) {
     return (
@@ -168,6 +187,23 @@ export function ConfigView({
           {generationSteps && (
             <ConfigGenerationStepper steps={generationSteps} />
           )}
+
+          {showRegistrationPanel ? (
+            <ProsperoGatePanel
+              runId={runId}
+              workflowId={workflowId}
+              mode={showProsperoGate ? "gate" : "manage"}
+              initialRegistration={registrationInitial}
+              isComplete={registrationComplete}
+              attention={isAwaitingProspero}
+              disabled={prosperoPrepareInProgress && !isAwaitingProspero}
+              isSubmitting={prosperoSubmitting}
+              isRegenerating={prosperoRegenerating}
+              onStartResearch={onStartResearchAfterProspero}
+              onSaveRegistration={onSaveProsperoRegistration}
+              onRegenerateDrafts={onRegenerateProsperoDrafts}
+            />
+          ) : null}
 
           <div className="card-surface overflow-hidden">
             <ViewToolbar
@@ -231,29 +267,12 @@ export function ConfigView({
                       </Button>
                     ) : null}
                   </div>
-                  {showProsperoGate && onStartResearchAfterProspero ? (
-                    <ProsperoGatePanel
-                      runId={runId}
-                      workflowId={workflowId}
-                      disabled={prosperoPrepareInProgress && !isAwaitingProspero}
-                      isSubmitting={prosperoSubmitting}
-                      onStartResearch={onStartResearchAfterProspero}
-                    />
-                  ) : null}
                 </>
               ) : (
                 <>
                   <pre className="text-xs font-mono text-foreground whitespace-pre-wrap break-words max-h-[70vh] overflow-y-auto leading-relaxed">
                     {effectiveYaml}
                   </pre>
-                  {showProsperoGate && onStartResearchAfterProspero ? (
-                    <ProsperoGatePanel
-                      runId={runId}
-                      workflowId={workflowId}
-                      isSubmitting={prosperoSubmitting}
-                      onStartResearch={onStartResearchAfterProspero}
-                    />
-                  ) : null}
                 </>
               )}
             </div>

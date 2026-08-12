@@ -19,11 +19,7 @@ export async function fetchWorkflowEvents(workflowId: string): Promise<ReviewEve
 export async function fetchHistoricalReviewEvents(
   workflowId: string | null | undefined,
   runId: string,
-  options?: { attachPending?: boolean },
 ): Promise<ReviewEvent[]> {
-  if (options?.attachPending) {
-    return workflowId ? fetchWorkflowEvents(workflowId) : []
-  }
   const runEvents = await fetchRunEvents(runId)
   if (workflowId && shouldFallbackToWorkflowEvents(runEvents.length, workflowId)) {
     return fetchWorkflowEvents(workflowId)

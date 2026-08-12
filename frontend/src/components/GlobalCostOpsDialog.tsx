@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { CalendarDays, X } from "lucide-react"
-import { Spinner } from "@/components/ui/feedback"
 import {
   fetchHistoryCostAggregates,
   getHistoryCostExportUrl,
@@ -20,7 +19,6 @@ import {
   type CostOpsPresetKey,
   formatInteger,
   formatUsd,
-  loadingStages,
   costOpsGridClass,
   resolveCostOpsPreset,
   statCardClass,
@@ -31,10 +29,10 @@ import type { ChartTableMode } from "@/components/cost-ops/ChartTableToggle"
 import { cn } from "@/lib/utils"
 import { CostOpsFiltersBar } from "@/components/cost-ops/CostOpsFiltersBar"
 import {
-  CostOpsBucketSection,
   CostOpsGroupSection,
   CostOpsPhaseSection,
-  CostsLoadingSkeleton,
+  CostOpsSpendSection,
+  CostsLoadingState,
 } from "@/components/cost-ops/CostOpsChartSection"
 
 type PresetKey = CostOpsPresetKey
@@ -54,7 +52,6 @@ export function CostsPanel() {
   const [endDate, setEndDate] = useState("")
   const [chartTableMode, setChartTableMode] = useState<ChartTableMode>("chart")
   const [loading, setLoading] = useState(false)
-  const [loadingStageIndex, setLoadingStageIndex] = useState(0)
   const [error, setError] = useState<string | null>(null)
   const [data, setData] = useState<HistoryCostAggregatesResponse | null>(null)
   const activeRequestRef = useRef(0)
@@ -69,19 +66,15 @@ export function CostsPanel() {
 
     setLoading(true)
     setError(null)
-    setLoadingStageIndex(0)
 
     try {
-      setLoadingStageIndex(1)
       const next = await fetchHistoryCostAggregates({
         start_ts: toApiStart(startDate),
         end_ts: toApiEnd(endDate),
         include_archived: true,
       }, { signal: controller.signal })
       if (requestId !== activeRequestRef.current) return
-      setLoadingStageIndex(2)
       setData(next)
-      setLoadingStageIndex(3)
     } catch (err) {
       if (controller.signal.aborted || requestId !== activeRequestRef.current) return
       setError(err instanceof Error ? err.message : "Failed to load cost data")
@@ -145,24 +138,6 @@ export function CostsPanel() {
         onRefresh={() => void loadAggregates()}
       />
 
-      {loading && (
-        <div className="rounded-lg border border-border/80 bg-card/70 px-2.5 py-1.5">
-          <div className="mb-1 flex items-center justify-between gap-2">
-            <div className="flex items-center gap-1.5 text-xs text-foreground">
-              <Spinner size="sm" />
-              <span>Loading cost analytics</span>
-            </div>
-            <span className="text-[10px] text-muted">{loadingStages[loadingStageIndex]}</span>
-          </div>
-          <div className="h-1 overflow-hidden rounded-full bg-surface-2">
-            <div
-              className="h-full rounded-full bg-intent-primary transition-all duration-300"
-              style={{ width: `${((loadingStageIndex + 1) / loadingStages.length) * 100}%` }}
-            />
-          </div>
-        </div>
-      )}
-
       {error && (
         <div className="rounded-lg border border-intent-danger-border bg-intent-danger-subtle px-3 py-2 text-xs text-intent-danger">
           {error}
@@ -170,7 +145,7 @@ export function CostsPanel() {
       )}
 
       {loading ? (
-        <CostsLoadingSkeleton />
+        <CostsLoadingState />
       ) : (
         <>
           <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
@@ -200,13 +175,18 @@ export function CostsPanel() {
             </div>
           </div>
 
-          <div className={costOpsGridClass}>
-            <CostOpsBucketSection title="Daily spend" rows={data?.by_day ?? []} viewMode={chartTableMode} />
-            <CostOpsBucketSection title="Weekly spend" rows={data?.by_week ?? []} viewMode={chartTableMode} />
-            <CostOpsBucketSection title="Monthly spend" rows={data?.by_month ?? []} viewMode={chartTableMode} />
-            <CostOpsGroupSection title="Top workflows" rows={data?.by_workflow ?? []} viewMode={chartTableMode} />
-            <CostOpsPhaseSection title="Top phases" rows={data?.by_phase ?? []} viewMode={chartTableMode} />
-            <CostOpsGroupSection title="Top models" rows={data?.by_model ?? []} viewMode={chartTableMode} />
+          <div className="space-y-2">
+            <CostOpsSpendSection
+              byDay={data?.by_day ?? []}
+              byWeek={data?.by_week ?? []}
+              byMonth={data?.by_month ?? []}
+              viewMode={chartTableMode}
+            />
+            <div className={costOpsGridClass}>
+              <CostOpsGroupSection title="Top workflows" rows={data?.by_workflow ?? []} viewMode={chartTableMode} axisLabelKind="workflow" />
+              <CostOpsPhaseSection title="Top phases" rows={data?.by_phase ?? []} viewMode={chartTableMode} />
+              <CostOpsGroupSection title="Top models" rows={data?.by_model ?? []} viewMode={chartTableMode} axisLabelKind="model" />
+            </div>
           </div>
         </>
       )}

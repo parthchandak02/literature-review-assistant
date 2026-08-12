@@ -42,6 +42,7 @@ export {
   startRunWithSupplementaryCsv,
   cancelRun,
   submitProsperoRegistration,
+  regenerateProsperoDocs,
   type ProsperoRegistration,
 } from "./runs"
 export {

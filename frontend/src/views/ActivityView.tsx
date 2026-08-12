@@ -16,8 +16,6 @@ export interface ActivityViewProps {
   historicalEventsLoading?: boolean
   /** When true, an empty event list can fall back to persisted history. */
   allowHistoricalFallback?: boolean
-  /** True while history attach is in flight — use workflow replay only. */
-  attachPending?: boolean
   status: string
   runId: string
   workflowId?: string | null
@@ -31,7 +29,6 @@ export function ActivityView({
   prefetchedHistoricalEvents = null,
   historicalEventsLoading = false,
   allowHistoricalFallback = false,
-  attachPending = false,
   status,
   runId,
   workflowId,
@@ -49,11 +46,11 @@ export function ActivityView({
   const isFallbackMode = allowHistoricalFallback && events.length === 0 && Boolean(runId)
 
   const loadHistoricalEvents = useCallback(
-    async (id: string, wfId: string | null | undefined, pending: boolean) => {
+    async (id: string, wfId: string | null | undefined) => {
       setLoadingHistory(true)
       setFetchError(null)
       try {
-        const evs = await fetchHistoricalReviewEvents(wfId, id, { attachPending: pending })
+        const evs = await fetchHistoricalReviewEvents(wfId, id)
         setHistoricalEvents(evs)
       } catch (e) {
         const msg = e instanceof Error ? e.message : String(e)
@@ -84,7 +81,7 @@ export function ActivityView({
     setFetchError(null)
     ;(async () => {
       try {
-        const evs = await fetchHistoricalReviewEvents(workflowId, runId, { attachPending })
+        const evs = await fetchHistoricalReviewEvents(workflowId, runId)
         if (!cancelled) setHistoricalEvents(evs)
       } catch (e) {
         if (!cancelled) {
@@ -104,7 +101,7 @@ export function ActivityView({
       cancelled = true
       setLoadingHistory(false)
     }
-  }, [isFallbackMode, runId, workflowId, hasPrefetchedHistorical, historicalEventsLoading, attachPending])
+  }, [isFallbackMode, runId, workflowId, hasPrefetchedHistorical, historicalEventsLoading])
 
   const [searchQuery, setSearchQuery] = useState("")
   const activeHistoricalEvents = hasPrefetchedHistorical ? (prefetchedHistoricalEvents ?? []) : historicalEvents
@@ -257,7 +254,6 @@ export function ActivityView({
           filteredEvents={filtered}
           runId={runId}
           workflowId={workflowId}
-          attachPending={attachPending}
           onRetryHistorical={loadHistoricalEvents}
         />
       </div>

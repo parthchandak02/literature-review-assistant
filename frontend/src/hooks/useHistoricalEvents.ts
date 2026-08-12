@@ -5,23 +5,19 @@ import type { ReviewEvent } from "@/lib/api"
 export function historicalEventsQueryKey(
   workflowId: string | null | undefined,
   runId: string,
-  attachPending?: boolean,
 ) {
-  return ["historicalEvents", workflowId ?? "", runId, attachPending ?? false] as const
+  return ["historicalEvents", workflowId ?? "", runId] as const
 }
 
 export function useHistoricalEvents(
   workflowId: string | null | undefined,
   runId: string,
-  options?: { enabled?: boolean; attachPending?: boolean },
+  options?: { enabled?: boolean },
 ) {
   const enabled = options?.enabled ?? true
   return useQuery({
-    queryKey: historicalEventsQueryKey(workflowId, runId, options?.attachPending),
-    queryFn: () =>
-      fetchHistoricalReviewEvents(workflowId, runId, {
-        attachPending: options?.attachPending,
-      }),
+    queryKey: historicalEventsQueryKey(workflowId, runId),
+    queryFn: () => fetchHistoricalReviewEvents(workflowId, runId),
     enabled: enabled && Boolean(runId),
     staleTime: 30_000,
   })

@@ -140,11 +140,7 @@ export async function fetchPapersSuggest(
   return apiFetch(`/db/${runId}/papers-suggest?${params}`)
 }
 
-export async function fetchGradeSof(
-  runId: string,
-  options?: { attachPending?: boolean },
-): Promise<GradeSofResponse | null> {
-  if (options?.attachPending) return null
+export async function fetchGradeSof(runId: string): Promise<GradeSofResponse | null> {
   try {
     return await apiFetch<GradeSofResponse>(`/run/${encodeURIComponent(runId)}/grade-sof`)
   } catch (err) {

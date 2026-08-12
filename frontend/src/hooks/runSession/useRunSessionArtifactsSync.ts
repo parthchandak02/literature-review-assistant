@@ -10,7 +10,7 @@ export function useRunSessionArtifactsSync({
 }: RunSessionSyncArgs) {
   useEffect(() => {
     const run = selectedRun
-    if (!run?.isDone || isViewingLiveRun || run.attachPending) {
+    if (!run?.isDone || isViewingLiveRun) {
       setHistoryOutputs({})
       return
     }
