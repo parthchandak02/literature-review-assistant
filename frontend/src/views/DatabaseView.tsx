@@ -26,13 +26,15 @@ interface DatabaseViewProps {
   dbAvailable: boolean
   /** True while the run is in progress and the DB is available (triggers auto-refresh). */
   isLive: boolean
+  /** True when the live SSE stream is connected and authoritative. */
+  isSSEConnected?: boolean
 }
 
 export function DatabaseView(props: DatabaseViewProps) {
   return <DatabaseViewBody key={props.runId} {...props} />
 }
 
-function DatabaseViewBody({ runId, isDone, dbAvailable, isLive }: DatabaseViewProps) {
+function DatabaseViewBody({ runId, isDone, dbAvailable, isLive, isSSEConnected }: DatabaseViewProps) {
   const {
     filters,
     queryPage,
@@ -66,6 +68,7 @@ function DatabaseViewBody({ runId, isDone, dbAvailable, isLive }: DatabaseViewPr
   const papersQuery = useDbPapers(runId, filters, queryPage, PAGE_SIZE, {
     enabled: dbAvailable,
     isLive,
+    isSSEConnected,
     includeFacets: isInitialQuery,
   })
   const facetsQuery = useDbPapersFacets(runId, dbAvailable, {
@@ -73,7 +76,7 @@ function DatabaseViewBody({ runId, isDone, dbAvailable, isLive }: DatabaseViewPr
     papersQueryFetched: papersQuery.isFetched,
     papersHadFacets: Boolean(papersQuery.data?.facets),
   })
-  const outcomesQuery = useDbOutcomes(runId, { enabled: dbAvailable, isLive })
+  const outcomesQuery = useDbOutcomes(runId, { enabled: dbAvailable, isLive, isSSEConnected })
   const titleSuggestionsQuery = useDbPaperSuggest(runId, "title", titleSuggestQuery)
   const authorSuggestionsQuery = useDbPaperSuggest(runId, "author", authorSuggestQuery)
 

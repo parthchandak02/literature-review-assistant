@@ -3,8 +3,13 @@ import {
   auditStatusToVariant,
   confidenceToVariant,
   humanizeReason,
+  INTERLEAVED_PHASE_MILESTONE,
   isProsperoRegistrationNumberValid,
+  milestoneForPhase,
+  milestoneLabelForPhase,
   phaseColor,
+  PHASE_MILESTONES,
+  PHASE_ORDER,
   prismaStatusToVariant,
   RESUME_PHASE_ORDER,
   resolveRunStatus,
@@ -71,5 +76,48 @@ describe("constants semantic mappings", () => {
       "phase_6_writing",
       "finalize",
     ])
+  })
+})
+
+describe("phase milestones", () => {
+  it("defines 7 milestones aligned with activity log sections", () => {
+    expect(PHASE_MILESTONES).toHaveLength(7)
+    expect(PHASE_MILESTONES.map((milestone) => milestone.key)).toEqual([
+      "start",
+      "prospero",
+      "discovery",
+      "evidence",
+      "synthesis",
+      "manuscript",
+      "finalize",
+    ])
+  })
+
+  it("maps every canonical phase order entry to a milestone", () => {
+    for (const phase of PHASE_ORDER) {
+      expect(milestoneForPhase(phase)).not.toBeNull()
+    }
+  })
+
+  it("maps common interleaved phases to the correct milestone", () => {
+    expect(milestoneForPhase("screening_calibration")?.key).toBe("discovery")
+    expect(milestoneForPhase("human_review_checkpoint")?.key).toBe("discovery")
+    expect(milestoneForPhase("citation_chasing")?.key).toBe("discovery")
+    expect(milestoneForPhase("phase_6_humanizer")?.key).toBe("manuscript")
+    expect(milestoneForPhase("phase_6a_hyde")?.key).toBe("manuscript")
+    expect(milestoneForPhase("resume")?.key).toBe("start")
+  })
+
+  it("maps prospero gate to the prospero milestone", () => {
+    const milestone = milestoneForPhase("phase_1_prospero_gate")
+    expect(milestone?.key).toBe("prospero")
+    expect(milestone?.label).toBe("PROSPERO")
+    expect(milestoneLabelForPhase("phase_1_prospero_gate")).toBe("PROSPERO")
+  })
+
+  it("keeps interleaved map keys in sync with milestone helpers", () => {
+    for (const [phase, expectedKey] of Object.entries(INTERLEAVED_PHASE_MILESTONE)) {
+      expect(milestoneForPhase(phase)?.key).toBe(expectedKey)
+    }
   })
 })

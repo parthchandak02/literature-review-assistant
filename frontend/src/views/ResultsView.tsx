@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react"
+import { Suspense, lazy, useEffect, useMemo, useState } from "react"
 import {
   FileText,
   BookOpen,
@@ -7,17 +7,11 @@ import {
   ShieldCheck,
   FolderOpen,
 } from "lucide-react"
-import { EmptyState } from "@/components/ui/feedback"
-import { CustomDiagramsCard } from "@/components/CustomDiagramsCard"
+import { EmptyState, Spinner } from "@/components/ui/feedback"
 import { ArtifactFileList } from "@/components/results/ArtifactFileList"
-import { ReferencesView } from "@/views/ReferencesView"
 import { collectCustomDiagramItems, customDiagramPipelineTouched } from "@/lib/customDiagrams"
 import { submissionZipUrl } from "@/lib/api"
-import { ManuscriptViewer } from "@/components/results/ManuscriptViewer"
-import { GradeSofCard } from "@/components/results/GradeSummarySection"
 import { ProsperoDownloadsCard } from "@/components/results/ProsperoSection"
-import { PrismaDiagramCard } from "@/components/results/PrismaSection"
-import { EvidenceNetworkSection } from "@/components/results/EvidenceNetworkSection"
 import {
   ResultsCategoryNav,
   type ResultsCategoryItem,
@@ -33,6 +27,35 @@ import {
   findAllFilesByExt,
   findFileByName,
 } from "@/components/results/manuscriptUtils"
+
+const ManuscriptViewer = lazy(() =>
+  import("@/components/results/ManuscriptViewer").then((m) => ({ default: m.ManuscriptViewer })),
+)
+const PrismaDiagramCard = lazy(() =>
+  import("@/components/results/PrismaSection").then((m) => ({ default: m.PrismaDiagramCard })),
+)
+const CustomDiagramsCard = lazy(() =>
+  import("@/components/CustomDiagramsCard").then((m) => ({ default: m.CustomDiagramsCard })),
+)
+const GradeSofCard = lazy(() =>
+  import("@/components/results/GradeSummarySection").then((m) => ({ default: m.GradeSofCard })),
+)
+const EvidenceNetworkSection = lazy(() =>
+  import("@/components/results/EvidenceNetworkSection").then((m) => ({
+    default: m.EvidenceNetworkSection,
+  })),
+)
+const ReferencesView = lazy(() =>
+  import("@/views/ReferencesView").then((m) => ({ default: m.ReferencesView })),
+)
+
+function CategoryPanelLoader() {
+  return (
+    <div className="flex items-center justify-center h-48">
+      <Spinner size="md" />
+    </div>
+  )
+}
 
 interface ResultsViewProps {
   outputs: Record<string, unknown>
@@ -190,21 +213,25 @@ export function ResultsView({
         aria-labelledby={`tab-${activeCategory}`}
       >
         {activeCategory === "manuscript" && manuscriptPath && (
-          <ManuscriptViewer
-            filePath={manuscriptPath}
-            docxPath={docxPath}
-            canExport={canExport}
-            exportRunId={exportRunId}
-            allOutputs={effectiveOutputs}
-          />
+          <Suspense fallback={<CategoryPanelLoader />}>
+            <ManuscriptViewer
+              filePath={manuscriptPath}
+              docxPath={docxPath}
+              canExport={canExport}
+              exportRunId={exportRunId}
+              allOutputs={effectiveOutputs}
+            />
+          </Suspense>
         )}
 
         {activeCategory === "figures" && (
           <div className="p-4 space-y-4">
-            {prismaDiagramPath ? (
-              <PrismaDiagramCard filePath={prismaDiagramPath} runId={exportRunId} />
-            ) : null}
-            <CustomDiagramsCard outputs={effectiveOutputs} />
+            <Suspense fallback={<CategoryPanelLoader />}>
+              {prismaDiagramPath ? (
+                <PrismaDiagramCard filePath={prismaDiagramPath} runId={exportRunId} />
+              ) : null}
+              <CustomDiagramsCard outputs={effectiveOutputs} />
+            </Suspense>
             <ArtifactFileList
               outputs={effectiveOutputs}
               excludePaths={manuscriptExcludePaths}
@@ -216,8 +243,10 @@ export function ResultsView({
 
         {activeCategory === "quality" && exportRunId && (
           <div className="p-4 space-y-1">
-            <GradeSofCard runId={exportRunId} />
-            <EvidenceNetworkSection runId={exportRunId} />
+            <Suspense fallback={<CategoryPanelLoader />}>
+              <GradeSofCard runId={exportRunId} />
+              <EvidenceNetworkSection runId={exportRunId} />
+            </Suspense>
           </div>
         )}
 
@@ -237,12 +266,14 @@ export function ResultsView({
 
         {activeCategory === "references" && (
           <div className="p-4">
-            <ReferencesView
-              runId={runId}
-              workflowId={workflowId}
-              isDone={isDone}
-              embedded
-            />
+            <Suspense fallback={<CategoryPanelLoader />}>
+              <ReferencesView
+                runId={runId}
+                workflowId={workflowId}
+                isDone={isDone}
+                embedded
+              />
+            </Suspense>
           </div>
         )}
       </div>

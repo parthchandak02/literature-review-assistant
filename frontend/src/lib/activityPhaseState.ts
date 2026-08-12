@@ -1,13 +1,63 @@
-import { PHASE_ORDER, RESUME_PHASE_ORDER } from "@/lib/constants"
+import { PHASE_MILESTONES, PHASE_ORDER, RESUME_PHASE_ORDER } from "@/lib/constants"
+import { PROSPERO_GATE_PHASE } from "@/lib/phaseProgress"
 import type { ReviewEvent } from "@/lib/api"
 
-export type PhaseStatus = "pending" | "running" | "done" | "error"
+export type PhaseStatus = "pending" | "running" | "done" | "error" | "awaiting"
+
+export type GateStatus = "awaiting_prospero" | "awaiting_review"
 
 export interface PhaseState {
   status: PhaseStatus
+  gateStatus?: GateStatus
   progress?: { current: number; total: number }
   startedTs?: string
   doneTss?: string
+}
+
+const DISCOVERY_GATE_PHASES = new Set(
+  PHASE_MILESTONES.find((milestone) => milestone.key === "discovery")?.phases ?? [
+    "phase_2_search",
+    "phase_3_screening",
+    "fulltext_pdf_retrieval",
+  ],
+)
+
+export function applyGateOverrides(
+  phaseStates: Record<string, PhaseState>,
+  gates: { awaitingProspero: boolean; awaitingReview: boolean },
+): Record<string, PhaseState> {
+  const next = { ...phaseStates }
+
+  if (gates.awaitingProspero) {
+    const prosperoState = next[PROSPERO_GATE_PHASE]
+    next[PROSPERO_GATE_PHASE] = {
+      ...prosperoState,
+      status: "awaiting",
+      gateStatus: "awaiting_prospero",
+      startedTs: prosperoState?.startedTs,
+      doneTss: prosperoState?.doneTss,
+      progress: prosperoState?.progress,
+    }
+  }
+
+  if (gates.awaitingReview) {
+    const reviewPhase =
+      [...DISCOVERY_GATE_PHASES].reverse().find((phase) => {
+        const phaseState = next[phase]
+        return phaseState?.status === "running" || phaseState?.status === "done"
+      }) ?? "phase_3_screening"
+    const reviewState = next[reviewPhase]
+    next[reviewPhase] = {
+      ...reviewState,
+      status: "awaiting",
+      gateStatus: "awaiting_review",
+      startedTs: reviewState?.startedTs,
+      doneTss: reviewState?.doneTss,
+      progress: reviewState?.progress,
+    }
+  }
+
+  return next
 }
 
 export function buildPhaseStates(events: ReviewEvent[], workflowCompleted: boolean): Record<string, PhaseState> {
@@ -81,6 +131,16 @@ export function buildMilestoneState(
   const states = phases.map((phase) => phaseStates[phase] ?? { status: "pending" as const })
   if (states.some((s) => s.status === "error")) {
     return { status: "error" }
+  }
+  const awaitingState = states.find((s) => s.status === "awaiting")
+  if (awaitingState) {
+    return {
+      status: "awaiting",
+      gateStatus: awaitingState.gateStatus,
+      progress: awaitingState.progress,
+      startedTs: awaitingState.startedTs,
+      doneTss: awaitingState.doneTss,
+    }
   }
   const allDone = states.every((s) => s.status === "done")
   if (allDone) {

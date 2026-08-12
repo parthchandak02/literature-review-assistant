@@ -30,4 +30,26 @@ export default defineConfig(({ command }) => ({
       },
     },
   },
+  build: {
+    rollupOptions: {
+      output: {
+        manualChunks(id) {
+          if (!id.includes('node_modules')) return
+          if (
+            id.includes('highlight.js')
+            || id.includes('lowlight')
+            || id.includes('react-markdown')
+            || id.includes('/remark-')
+            || id.includes('/rehype-')
+            || id.includes('/unified/')
+            || id.includes('/mdast-')
+            || id.includes('/hast-')
+            || id.includes('/micromark')
+          ) {
+            return 'markdown-vendor'
+          }
+        },
+      },
+    },
+  },
 }))

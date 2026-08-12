@@ -1,8 +1,9 @@
 import { useQuery, type QueryFunctionContext } from "@tanstack/react-query"
 import { fetchHistoryRail, railEntryToHistoryEntry } from "@/lib/api"
 import type { HistoryEntry } from "@/lib/api"
+import { HISTORY_REFRESH_MS, resolveHistoryRefetchInterval } from "@/lib/pollingBackoff"
 
-export const HISTORY_REFRESH_MS = 30_000
+export { HISTORY_REFRESH_MS, resolveHistoryRefetchInterval }
 
 export function historyQueryKey(runRoot = "runs") {
   return ["history", runRoot] as const

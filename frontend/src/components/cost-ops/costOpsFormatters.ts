@@ -1,4 +1,5 @@
 import { PHASE_LABEL_MAP } from "@/lib/constants"
+import { cn } from "@/lib/utils"
 
 export function toDateInputValue(date: Date): string {
   const year = date.getFullYear()
@@ -15,6 +16,20 @@ export function buildPresetRange(days: number): { startDate: string; endDate: st
     startDate: toDateInputValue(start),
     endDate: toDateInputValue(end),
   }
+}
+
+export type CostOpsPresetKey = "all" | "5d" | "30d" | "90d" | "custom"
+
+export function buildAllRange(): { startDate: string; endDate: string } {
+  return { startDate: "", endDate: "" }
+}
+
+export function resolveCostOpsPreset(
+  preset: Exclude<CostOpsPresetKey, "custom">,
+): { startDate: string; endDate: string } {
+  if (preset === "all") return buildAllRange()
+  const days = preset === "5d" ? 5 : preset === "30d" ? 30 : 90
+  return buildPresetRange(days)
 }
 
 export function toApiStart(date: string): string | undefined {
@@ -52,14 +67,27 @@ export function formatPhaseName(phase: string): string {
     .join(" ")
 }
 
-export const fieldLabelClass = "space-y-1.5 text-sm"
+export const fieldLabelClass = "space-y-1 text-xs"
 export const fieldControlClass =
-  "h-10 w-full min-w-0 rounded-lg border border-border bg-card/90 px-3 text-sm text-foreground shadow-sm outline-none transition-colors hover:border-border focus:border-intent-primary"
-export const statCardClass = "rounded-xl border border-border/80 bg-card/60 px-4 py-4"
+  "h-8 w-full min-w-0 rounded-md border border-border bg-card/90 px-2.5 text-xs text-foreground shadow-sm outline-none transition-colors hover:border-border focus:border-intent-primary"
+export const statCardClass = "rounded-lg border border-border/80 bg-card/60 px-2.5 py-2"
 export const loadingStages = [
   "Preparing filters",
   "Fetching cost aggregates",
   "Building summaries",
   "Rendering breakdowns",
 ] as const
-export const sectionHeaderClass = "border-b border-border/80 px-4 py-3 text-sm font-semibold text-foreground"
+export const sectionHeaderClass = "border-b border-border/80 px-2.5 py-1.5 text-xs font-semibold text-foreground"
+/** 3-up grid for cost breakdown panels; fits 6 sections in 2 rows on wide layouts */
+export const costOpsGridClass = "grid gap-2 grid-cols-2 md:grid-cols-3"
+/** Shared segmented control chrome for presets, view mode, and actions */
+export const costOpsSegmentGroupClass =
+  "flex flex-wrap items-center gap-1 rounded-lg border border-border/80 bg-card/50 p-1 shrink-0"
+export function costOpsSegmentButtonClass(active: boolean): string {
+  return cn(
+    "h-7 rounded-md px-2.5 text-xs shrink-0 inline-flex items-center gap-1.5 font-medium transition-colors",
+    active
+      ? "bg-intent-primary text-primary-foreground shadow-sm"
+      : "text-foreground hover:bg-surface-3/80 hover:text-foreground",
+  )
+}

@@ -5,7 +5,11 @@ import {
   Plus,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
-import { historyFetchErrorMessage, useHistory } from "@/hooks/useHistory"
+import {
+  historyFetchErrorMessage,
+  resolveHistoryRefetchInterval,
+  useHistory,
+} from "@/hooks/useHistory"
 import { useSidebarRuns } from "@/hooks/useSidebarRuns"
 import {
   TooltipProvider,
@@ -41,9 +45,10 @@ export function Sidebar({
   const {
     liveRunForSidebar: liveRun,
     selectedRun,
-    isViewingLiveRun: isLiveRunSelected,
+    isViewingLiveRun,
     isRunning,
   } = useRunSessionState()
+  const isLiveRunSelected = isViewingLiveRun
   const {
     handleSelectLiveRun: onSelectLiveRun,
     handleSelectHistory: onSelectHistory,
@@ -64,7 +69,9 @@ export function Sidebar({
     isLoading: loadingHistory,
     error: historyQueryError,
     refetch: refetchHistory,
-  } = useHistory()
+  } = useHistory({
+    refetchInterval: resolveHistoryRefetchInterval(isRunning, isViewingLiveRun),
+  })
   const historyError = historyQueryError ? historyFetchErrorMessage(historyQueryError) : null
 
   const [completedExpanded, setCompletedExpanded] = useState(false)

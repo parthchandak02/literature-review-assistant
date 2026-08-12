@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest"
 import {
+  applyGateOverrides,
+  buildMilestoneState,
   buildPhaseStates,
   isPhaseEligibleForResume,
   isPhaseResumeSelectable,
@@ -91,5 +93,64 @@ describe("isPhaseResumeSelectable", () => {
     expect(isPhaseResumeSelectable("phase_2_search", states, false)).toBe(
       isPhaseEligibleForResume("phase_2_search", states, false),
     )
+  })
+})
+
+describe("applyGateOverrides", () => {
+  it("overrides prospero phase to awaiting even when phase_done", () => {
+    const states = buildPhaseStates(
+      [
+        { type: "phase_start", phase: "start", description: "Start", total: null, ts: "2026-03-12T00:00:00Z" },
+        { type: "phase_done", phase: "start", summary: {}, total: 1, completed: 1, ts: "2026-03-12T00:00:00Z" },
+        { type: "phase_start", phase: "phase_1_prospero_gate", description: "PROSPERO", total: null, ts: "2026-03-12T00:00:01Z" },
+        {
+          type: "phase_done",
+          phase: "phase_1_prospero_gate",
+          summary: { awaiting_prospero: true, paused: true },
+          total: 0,
+          completed: 0,
+          ts: "2026-03-12T00:00:02Z",
+        },
+      ],
+      false,
+    )
+
+    const overridden = applyGateOverrides(states, { awaitingProspero: true, awaitingReview: false })
+
+    expect(overridden.phase_1_prospero_gate).toMatchObject({
+      status: "awaiting",
+      gateStatus: "awaiting_prospero",
+    })
+    expect(buildMilestoneState(["phase_1_prospero_gate"], overridden, false)).toMatchObject({
+      status: "awaiting",
+      gateStatus: "awaiting_prospero",
+    })
+  })
+
+  it("overrides discovery milestone when awaiting review", () => {
+    const states = buildPhaseStates(
+      [
+        { type: "phase_done", phase: "phase_2_search", summary: {}, total: 1, completed: 1, ts: "2026-03-12T00:00:00Z" },
+        { type: "phase_done", phase: "phase_3_screening", summary: {}, total: 1, completed: 1, ts: "2026-03-12T00:00:01Z" },
+      ],
+      false,
+    )
+
+    const overridden = applyGateOverrides(states, { awaitingProspero: false, awaitingReview: true })
+
+    expect(overridden.phase_3_screening).toMatchObject({
+      status: "awaiting",
+      gateStatus: "awaiting_review",
+    })
+    expect(
+      buildMilestoneState(
+        ["phase_2_search", "phase_3_screening", "fulltext_pdf_retrieval"],
+        overridden,
+        false,
+      ),
+    ).toMatchObject({
+      status: "awaiting",
+      gateStatus: "awaiting_review",
+    })
   })
 })

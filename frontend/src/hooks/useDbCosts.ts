@@ -9,8 +9,9 @@ import {
 } from "@/lib/api"
 import type { DbCostExportGranularity } from "@/lib/api"
 import { toApiEnd, toApiStart } from "@/components/cost-ops/costOpsFormatters"
+import { LIVE_COST_REFRESH_MS, resolveLiveQueryRefetchInterval } from "@/lib/pollingBackoff"
 
-export const LIVE_COST_REFRESH_MS = 5_000
+export { LIVE_COST_REFRESH_MS }
 
 export function dbCostsQueryKey(runId: string) {
   return ["dbCosts", runId] as const
@@ -46,27 +47,35 @@ export function workflowValidationChecksQueryKey(
 
 export function useDbCosts(
   runId: string | null | undefined,
-  options?: { enabled?: boolean; isLive?: boolean },
+  options?: { enabled?: boolean; isLive?: boolean; isSSEConnected?: boolean },
 ) {
   const enabled = (options?.enabled ?? true) && Boolean(runId)
   return useQuery({
     queryKey: dbCostsQueryKey(runId ?? ""),
     queryFn: () => fetchDbCosts(runId!),
     enabled,
-    refetchInterval: options?.isLive ? LIVE_COST_REFRESH_MS : false,
+    refetchInterval: resolveLiveQueryRefetchInterval(LIVE_COST_REFRESH_MS, {
+      isLive: Boolean(options?.isLive),
+      isSSEConnected: options?.isSSEConnected,
+    }),
+    refetchIntervalInBackground: false,
   })
 }
 
 export function useDbCostDashboard(
   runId: string | null | undefined,
-  options?: { enabled?: boolean; isLive?: boolean },
+  options?: { enabled?: boolean; isLive?: boolean; isSSEConnected?: boolean },
 ) {
   const enabled = (options?.enabled ?? true) && Boolean(runId)
   return useQuery({
     queryKey: dbCostDashboardQueryKey(runId ?? ""),
     queryFn: () => fetchDbCostDashboard(runId!),
     enabled,
-    refetchInterval: options?.isLive ? LIVE_COST_REFRESH_MS : false,
+    refetchInterval: resolveLiveQueryRefetchInterval(LIVE_COST_REFRESH_MS, {
+      isLive: Boolean(options?.isLive),
+      isSSEConnected: options?.isSSEConnected,
+    }),
+    refetchIntervalInBackground: false,
   })
 }
 

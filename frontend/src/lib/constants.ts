@@ -22,7 +22,7 @@ export type PhaseKey = (typeof PHASE_ORDER)[number]
 
 export const PHASE_LABELS: Record<string, string> = {
   start: "Start",
-  phase_1_prospero_gate: "PROSPERO Registration",
+  phase_1_prospero_gate: "PROSPERO",
   phase_2_search: "Search",
   phase_3_screening: "Screening",
   screening_calibration: "Threshold Calibration",
@@ -41,8 +41,13 @@ export const PHASE_LABELS: Record<string, string> = {
 
 export const PHASE_MILESTONES = [
   {
-    key: "protocol",
-    label: "Protocol",
+    key: "start",
+    label: "Start",
+    phases: ["start"],
+  },
+  {
+    key: "prospero",
+    label: "PROSPERO",
     phases: ["phase_1_prospero_gate"],
   },
   {
@@ -71,6 +76,45 @@ export const PHASE_MILESTONES = [
     phases: ["phase_7_audit", "finalize"],
   },
 ] as const
+
+export type PhaseMilestoneKey = (typeof PHASE_MILESTONES)[number]["key"]
+
+export type PhaseMilestone = (typeof PHASE_MILESTONES)[number]
+
+/** Interleaved phases that belong to a parent milestone but are not in PHASE_ORDER. */
+export const INTERLEAVED_PHASE_MILESTONE: Record<string, PhaseMilestoneKey> = {
+  screening_calibration: "discovery",
+  human_review_checkpoint: "discovery",
+  citation_chasing: "discovery",
+  resume: "start",
+  phase_6_humanizer: "manuscript",
+  phase_6a_hyde: "manuscript",
+  phase_6a2_outline: "manuscript",
+  phase_6b_phase_a: "manuscript",
+  phase_6c_phase_b: "manuscript",
+  phase_6d_assembly: "manuscript",
+  phase_6e_concepts: "manuscript",
+  phase_6f_custom_diagrams: "manuscript",
+}
+
+export function milestoneForPhase(phase: string): PhaseMilestone | null {
+  const direct = PHASE_MILESTONES.find((milestone) =>
+    milestone.phases.some((milestonePhase) => milestonePhase === phase),
+  )
+  if (direct) return direct
+
+  let milestoneKey = INTERLEAVED_PHASE_MILESTONE[phase]
+  if (!milestoneKey && phase.startsWith("phase_6_")) {
+    milestoneKey = "manuscript"
+  }
+  if (!milestoneKey) return null
+
+  return PHASE_MILESTONES.find((milestone) => milestone.key === milestoneKey) ?? null
+}
+
+export function milestoneLabelForPhase(phase: string): string {
+  return milestoneForPhase(phase)?.label ?? PHASE_LABELS[phase] ?? phase
+}
 
 /** Phase order for resume-from-phase (matches backend USER_RESUMABLE_PHASE_ORDER). */
 export const RESUME_PHASE_ORDER = [

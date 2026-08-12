@@ -74,6 +74,8 @@ interface RunViewProps {
   dbUnlocked: boolean
   /** True while the run is still streaming (for DatabaseView auto-refresh). */
   isLive: boolean
+  /** True when the live SSE stream is connected and authoritative. */
+  isSSEConnected?: boolean
   /** Resume from a specific phase (historical runs only). */
   onResumeFromPhase?: (phase: string) => Promise<void>
   /** True when resume controls were opened from the sidebar launcher. */
@@ -103,6 +105,7 @@ export function RunView({
   liveOutputs,
   dbUnlocked,
   isLive,
+  isSSEConnected = false,
   onResumeFromPhase,
   resumeModeActive = false,
   submissionFocusTarget = null,
@@ -202,6 +205,7 @@ export function RunView({
               isDone={isDone}
               dbAvailable={dbUnlocked}
               isLive={isLive}
+              isSSEConnected={isSSEConnected}
             />
           )}
 
@@ -211,6 +215,7 @@ export function RunView({
               dbRunId={run.runId}
               workflowId={run.workflowId}
               isLive={isLive}
+              isSSEConnected={isSSEConnected}
             />
           )}
 
