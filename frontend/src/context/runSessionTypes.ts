@@ -31,8 +31,6 @@ export interface SelectedRun {
   historicalCost?: number | null
   /** Raw backend status string for historical runs (e.g. "running", "failed", "completed"). */
   historicalStatus?: string | null
-  /** True while POST /history/attach is in flight for a completed workflow. */
-  attachPending?: boolean
 }
 export {
   beginLiveRun,
@@ -90,6 +88,8 @@ export interface RunSessionActions {
   handleTabChange: (tab: RunTab) => void
   handleGoToSubmissionReferencePapers: () => void
   handleSubmitProsperoAndResume: (runId: string, registration: ProsperoRegistration) => Promise<void>
+  handleUpdateProsperoRegistration: (runId: string, registration: ProsperoRegistration) => Promise<void>
+  handleRegenerateProsperoDocs: (runId: string) => Promise<void>
   handleApproveScreeningAndResume: (runId: string, overrides?: ScreeningOverride[]) => Promise<void>
   openDraftRunShell: (topic: string) => void
 }

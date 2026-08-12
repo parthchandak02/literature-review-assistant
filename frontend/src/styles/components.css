@@ -73,6 +73,56 @@
     background-color: color-mix(in srgb, var(--glass-surface-2) 95%, white 5%);
   }
 
+  /* PROSPERO gate attention ring */
+  @property --prospero-angle {
+    syntax: "<angle>";
+    inherits: false;
+    initial-value: 0deg;
+  }
+
+  @keyframes prospero-border-rotate {
+    to {
+      --prospero-angle: 360deg;
+    }
+  }
+
+  .prospero-attention-border {
+    position: relative;
+    border-radius: 0.75rem;
+  }
+
+  .prospero-attention-border::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    z-index: 2;
+    border-radius: inherit;
+    padding: 2px;
+    background: conic-gradient(
+      from var(--prospero-angle),
+      transparent 0deg 220deg,
+      var(--color-intent-warning) 300deg,
+      transparent 360deg
+    );
+    mask:
+      linear-gradient(#fff 0 0) content-box,
+      linear-gradient(#fff 0 0);
+    mask-composite: exclude;
+    -webkit-mask:
+      linear-gradient(#fff 0 0) content-box,
+      linear-gradient(#fff 0 0);
+    -webkit-mask-composite: xor;
+    animation: prospero-border-rotate 2.5s linear infinite;
+    pointer-events: none;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .prospero-attention-border::before {
+      animation: none;
+      background: var(--color-intent-warning);
+    }
+  }
+
   @supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
     html[data-theme="light"] .glass-panel,
     html[data-theme="light"] .glass-panel-strong,
@@ -348,6 +398,41 @@
 
   .tabular-nums {
     font-variant-numeric: tabular-nums;
+  }
+
+  /* ------------------------------------------------------------------ */
+  /* Date input (native picker, custom chrome)                           */
+  /* ------------------------------------------------------------------ */
+  .date-input-shell {
+    @apply relative block;
+  }
+
+  .date-input-control {
+    @apply relative w-full pr-10;
+    color-scheme: inherit;
+  }
+
+  .date-input-control::-webkit-calendar-picker-indicator {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    margin: 0;
+    padding: 0;
+    opacity: 0;
+    cursor: pointer;
+  }
+
+  .date-input-control::-webkit-datetime-edit-fields-wrapper {
+    padding: 0;
+  }
+
+  .date-input-icon {
+    @apply pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted;
+  }
+
+  .date-input-shell:focus-within .date-input-icon {
+    @apply text-foreground;
   }
 
   /* ------------------------------------------------------------------ */

@@ -16,8 +16,7 @@ export interface ActivityLogPanelProps {
   filteredEvents: ReviewEvent[]
   runId: string
   workflowId?: string | null
-  attachPending: boolean
-  onRetryHistorical: (runId: string, workflowId: string | null | undefined, attachPending: boolean) => void
+  onRetryHistorical: (runId: string, workflowId: string | null | undefined) => void
 }
 
 export function ActivityLogPanel({
@@ -29,7 +28,6 @@ export function ActivityLogPanel({
   filteredEvents,
   runId,
   workflowId,
-  attachPending,
   onRetryHistorical,
 }: ActivityLogPanelProps) {
   const logRef = useRef<LogStreamHandle>(null)
@@ -69,7 +67,7 @@ export function ActivityLogPanel({
               message={fetchError}
               onRetry={
                 runId
-                  ? () => onRetryHistorical(runId, workflowId, attachPending)
+                  ? () => onRetryHistorical(runId, workflowId)
                   : undefined
               }
             />

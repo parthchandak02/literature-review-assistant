@@ -1,5 +1,44 @@
 import { describe, expect, it } from "vitest"
-import { formatPhaseName, resolveCostOpsPreset } from "./costOpsFormatters"
+import {
+  formatPhaseName,
+  formatCostGroupAxisLabel,
+  formatSpendBucketAxisLabel,
+  formatSpendBucketLabel,
+  resolveCostOpsPreset,
+  sqliteWeekStart,
+} from "./costOpsFormatters"
+
+describe("formatCostGroupAxisLabel", () => {
+  it("shortens workflow ids for narrow charts", () => {
+    expect(formatCostGroupAxisLabel("wf-0083", "workflow")).toBe("0083")
+  })
+
+  it("uses model tail after provider prefix", () => {
+    expect(formatCostGroupAxisLabel("google:gemini-2.0-flash", "model")).toBe("gemini-2.0-…")
+  })
+
+  it("abbreviates multi-word phase names", () => {
+    expect(formatCostGroupAxisLabel("Pdf Vision Extraction", "phase")).toBe("Pdf Visi Extr")
+  })
+})
+
+describe("formatSpendBucketLabel", () => {
+  it("formats day buckets as readable dates", () => {
+    expect(formatSpendBucketLabel("2026-08-12", "day")).toMatch(/Aug 12, 2026/)
+    expect(formatSpendBucketAxisLabel("2026-08-12", "day")).toBe("Aug 12")
+  })
+
+  it("formats month buckets as month and year", () => {
+    expect(formatSpendBucketLabel("2026-08", "month")).toBe("August 2026")
+    expect(formatSpendBucketAxisLabel("2026-08", "month")).toBe("Aug")
+  })
+
+  it("formats week buckets as date ranges", () => {
+    const start = sqliteWeekStart(2026, 28)
+    expect(formatSpendBucketLabel("2026-W28", "week")).toContain(String(start.getDate()))
+    expect(formatSpendBucketAxisLabel("2026-W28", "week")).toMatch(/Jul|Aug/)
+  })
+})
 
 describe("resolveCostOpsPreset", () => {
   it("returns empty dates for all-time range", () => {

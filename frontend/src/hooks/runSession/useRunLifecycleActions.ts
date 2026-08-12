@@ -100,24 +100,9 @@ export function useRunLifecycleActions(
         setSelectedRun(
           selectedRunFromHistoryEntry(entry, {
             runId: entry.workflow_id,
-            attachPending: true,
           }),
         )
         focusSelectedWorkflow()
-        try {
-          const res = await attachHistory(entry)
-          setSelectedRun((current) => {
-            if (current?.workflowId !== entry.workflow_id) return current
-            return {
-              ...current,
-              runId: res.run_id,
-              attachPending: false,
-            }
-          })
-        } catch (err) {
-          const msg = err instanceof Error ? err.message : String(err)
-          toast.error(`Could not open run: ${msg}`)
-        }
         return
       }
 

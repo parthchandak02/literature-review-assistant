@@ -37,6 +37,7 @@ export {
   startRunWithSupplementaryCsv,
   cancelRun,
   submitProsperoRegistration,
+  regenerateProsperoDocs,
   subscribeWorkflowActiveRun,
   fetchArtifactText,
   fetchArtifacts,

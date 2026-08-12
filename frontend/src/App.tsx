@@ -120,6 +120,8 @@ function AppShell() {
     handleTimelineResumePhase,
     handleTabChange,
     handleSubmitProsperoAndResume,
+    handleUpdateProsperoRegistration,
+    handleRegenerateProsperoDocs,
     handleApproveScreeningAndResume,
     openDraftRunShell,
   } = useRunSessionActions()
@@ -154,6 +156,7 @@ function AppShell() {
     handleStartWithSupplementaryCsv,
     handleStartWithMasterlistCsv,
   })
+  const [prosperoRegenerating, setProsperoRegenerating] = useState(false)
   const [settingsOpen, setSettingsOpen] = useState(false)
   const { isOnline } = useBackendHealth(6000, { suppressOffline: status === "streaming" })
   const prevOnlineRef = useRef(isOnline)
@@ -224,6 +227,36 @@ function AppShell() {
     }
   }
 
+  async function handleSaveProsperoRegistration(
+    registration: { registration_number: string; registration_date: string },
+  ) {
+    const runId = selectedRun?.runId
+    if (!runId || runId === "draft") return
+    setProsperoSubmitting(true)
+    try {
+      await handleUpdateProsperoRegistration(runId, registration)
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      toast.error(message || "Failed to save PROSPERO registration")
+    } finally {
+      setProsperoSubmitting(false)
+    }
+  }
+
+  async function handleRegenerateProsperoDrafts() {
+    const runId = selectedRun?.runId
+    if (!runId || runId === "draft") return
+    setProsperoRegenerating(true)
+    try {
+      await handleRegenerateProsperoDocs(runId)
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      toast.error(message || "Failed to regenerate PROSPERO drafts")
+    } finally {
+      setProsperoRegenerating(false)
+    }
+  }
+
   async function handleApproveScreeningAndResumeWrapper(overrides: ScreeningOverride[]) {
     const runId = selectedRun?.runId
     if (!runId || runId === "draft") return
@@ -286,9 +319,16 @@ function AppShell() {
         onLaunchDraft={(yaml) => { void handleLaunchDraftConfig(yaml) }}
         prosperoPrepareInProgress={prosperoPrepareInProgress}
         prosperoSubmitting={prosperoSubmitting}
+        prosperoRegenerating={prosperoRegenerating}
         onPrepareProspero={(yaml) => { void handlePrepareProsperoConfig(yaml) }}
         onStartResearchAfterProspero={(registration) => {
           void handleStartResearchAfterProspero(registration)
+        }}
+        onSaveProsperoRegistration={(registration) => {
+          void handleSaveProsperoRegistration(registration)
+        }}
+        onRegenerateProsperoDrafts={() => {
+          void handleRegenerateProsperoDrafts()
         }}
         onApproveScreeningAndResume={handleApproveScreeningAndResumeWrapper}
       />

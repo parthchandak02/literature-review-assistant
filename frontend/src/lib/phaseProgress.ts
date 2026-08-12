@@ -40,6 +40,15 @@ export function detectAwaitingProspero(input: {
     return true
   }
 
+  const historical = (historicalStatus ?? "").toLowerCase()
+  if (
+    historical === "running" &&
+    !prosperoPrepareInProgress &&
+    status !== "awaiting_prospero"
+  ) {
+    return false
+  }
+
   const latestDoneStatus = latestDoneOutputStatus(events)
   if (latestDoneStatus === "awaiting_prospero") return true
   if (latestDoneStatus && !isRunning) return prosperoPrepareInProgress
