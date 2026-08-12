@@ -78,7 +78,7 @@ Recent remediation (2026-08-10, Phases 0-2) completed:
 |----|------|-------|--------|
 | S1-1 | Screening approve reconnect (`handleApproveScreeningAndResume` mirrors PROSPERO) | frontend | done |
 | S1-2 | Replay fixture DBs committable (`!tests/fixtures/replay/*.db`) | oss | done |
-| S1-3 | GitHub CI matches `scripts/check.sh local` | oss | done |
+| S1-3 | Local check suite (`scripts/check.sh local`) | oss | done |
 | S1-4 | Migration 23 `json_valid` guard + extraction enum fallback | backend | done |
 
 **Sprint 1 exit:** `make check-local` green on a fresh clone; manual QA: approve screening after 20s delay shows live Activity events without sidebar workaround.
@@ -90,7 +90,7 @@ Recent remediation (2026-08-10, Phases 0-2) completed:
 - `primary_study_status` migration 23 backfill + explorer column reads
 - `advanced.py` uses `resolve_runtime_db`; coordinator read paths in history/artifacts
 - CLI HITL no silent auto-approve on timeout
-- MIT `LICENSE`, README (DeepSeek default, clone URL, tabs), GitHub Actions CI (initial)
+- MIT `LICENSE`, README (DeepSeek default, clone URL, tabs)
 - Prospero/draft + HITL approve integration tests in `check-local`
 - `approve-screening` registry lookup via `find_by_workflow_id` (parity with PROSPERO gate)
 - Replay fixtures regenerated for schema migration 23

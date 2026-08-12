@@ -2,11 +2,11 @@
 # Consolidated PM2 operations for LitReview.
 #
 # Usage:
-#   ./scripts/ops_pm2.sh restart [flags]  # --backend --frontend --tunnel --prod-ui --all --status
+#   ./scripts/ops_pm2.sh restart [flags]  # default: api + ui; see help
 #   ./scripts/ops_pm2.sh sync [--dry-run|--status]
 #   ./scripts/ops_pm2.sh help
 #
-# Default if no subcommand: restart (backend only)
+# Default if no subcommand: restart (backend + frontend)
 
 set -euo pipefail
 
@@ -28,12 +28,15 @@ show_help() {
   sed -n '2,9p' "$0"
   echo
   echo "restart flags:"
-  echo "  --backend    restart litreview-api"
-  echo "  --frontend   restart litreview-ui (Vite dev)"
-  echo "  --tunnel     restart litreview-tunnel"
-  echo "  --prod-ui    pnpm build + restart litreview-api + health check"
-  echo "  --all        restart api, ui, tunnel"
-  echo "  --status     pm2 list only"
+  echo "  (default)       restart litreview-api + litreview-ui (local dev)"
+  echo "  --backend-only  restart litreview-api only"
+  echo "  --frontend-only restart litreview-ui only (Vite dev, port 5173)"
+  echo "  --tunnel-only   restart litreview-tunnel only"
+  echo "  --all           restart api, ui, and tunnel"
+  echo "  --prod-ui       pnpm build + restart litreview-api + health check"
+  echo "  --status        pm2 list only"
+  echo
+  echo "  Legacy aliases: --backend, --frontend, --tunnel (same as *-only)"
   echo
   echo "sync flags:"
   echo "  --dry-run    show actions only"
@@ -47,12 +50,13 @@ cmd_restart() {
   local PROD_UI=false
   local ALL=false
   local STATUS_ONLY=false
+  local EXPLICIT=false
 
   for arg in "$@"; do
     case "${arg}" in
-      --backend) BACKEND=true ;;
-      --frontend) FRONTEND=true ;;
-      --tunnel) TUNNEL=true ;;
+      --backend-only|--backend) BACKEND=true; EXPLICIT=true ;;
+      --frontend-only|--frontend) FRONTEND=true; EXPLICIT=true ;;
+      --tunnel-only|--tunnel) TUNNEL=true; EXPLICIT=true ;;
       --prod-ui) PROD_UI=true ;;
       --all) ALL=true ;;
       --status) STATUS_ONLY=true ;;
@@ -100,15 +104,22 @@ cmd_restart() {
     BACKEND=true
     FRONTEND=true
     TUNNEL=true
+    EXPLICIT=true
   fi
 
   if [[ "${PROD_UI}" == true ]]; then
+    if [[ "${EXPLICIT}" == true || "${ALL}" == true ]]; then
+      echo "Cannot combine --prod-ui with other restart targets." >&2
+      exit 1
+    fi
     build_frontend
     BACKEND=true
+    EXPLICIT=true
   fi
 
-  if [[ "${BACKEND}" == false && "${FRONTEND}" == false && "${TUNNEL}" == false ]]; then
+  if [[ "${EXPLICIT}" == false ]]; then
     BACKEND=true
+    FRONTEND=true
   fi
 
   if [[ "${BACKEND}" == true ]]; then

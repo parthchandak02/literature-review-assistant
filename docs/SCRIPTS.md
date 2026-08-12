@@ -8,7 +8,8 @@ Plain-language index for `scripts/`. Agents: read this before adding or invoking
 
 | I need to... | Command |
 |--------------|---------|
-| Restart API after `src/` changes | `make pm2-restart` or `./scripts/ops_pm2.sh restart` |
+| Restart local dev (api + ui) | `make pm2-restart` or `./scripts/ops_pm2.sh restart` |
+| Restart API only | `./scripts/ops_pm2.sh restart --backend-only` |
 | Build frontend + serve on production URL | `make deploy-prod` or `./scripts/ops_pm2.sh restart --prod-ui` |
 | Run all tests before commit | `make check-local` |
 | Run full pre-release gate | `make check-release` |
@@ -68,9 +69,8 @@ Subcommand names should describe the action (`api`, `replay-workflow`) not inter
 3. Add argparse `--help` (Python) or `help` subcommand (shell).
 4. Update this file and `scripts/help.sh`.
 5. Update README utility table if entrypoints change.
-6. Wire into `scripts/check.sh` / Makefile / `.github/workflows/ci.yml` if it is a release gate.
+6. Wire into `scripts/check.sh` / Makefile if it is a release gate.
 7. Update `.pre-commit-config.yaml` if it should run on every commit.
-8. GitHub Actions (`.github/workflows/ci.yml`) runs `make check-local` after `pnpm install`; keep in sync with `scripts/check.sh local`.
 
 ## Related docs
 

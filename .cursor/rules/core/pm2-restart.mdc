@@ -8,7 +8,8 @@ alwaysApply: true
 When making many changes in one session, periodically restart PM2 services before validating tests or reporting status.
 
 - Use exact process names: `litreview-api`, `litreview-ui`, `litreview-tunnel`.
-- Quick restart: `make pm2-restart` or `./scripts/ops_pm2.sh restart` (backend default), `make pm2-restart -- --prod-ui` or `ops_pm2.sh restart --prod-ui` (build + api), `ops_pm2.sh restart --all`.
-- After backend `src/` changes: `make pm2-restart` or `pm2 restart litreview-api`.
-- After frontend changes that must reflect on production URL: `make pm2-restart -- --prod-ui`.
+- Quick restart (local dev default): `make pm2-restart` or `./scripts/ops_pm2.sh restart` (api + ui).
+- Backend only: `./scripts/ops_pm2.sh restart --backend-only`.
+- Production URL: `make pm2-restart -- --prod-ui` or `ops_pm2.sh restart --prod-ui` (build + api).
+- Include tunnel: `ops_pm2.sh restart --all`.
 - Before claiming local/online verification, run `pm2 list` and confirm required processes are online.

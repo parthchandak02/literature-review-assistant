@@ -11,8 +11,10 @@ LitReview scripts — what to run when
 
 WHEN YOU NEED TO...                          COMMAND
 ---------------------------------------------------------------------------
-Restart API after backend (src/) changes     make pm2-restart
+Restart local dev (api + ui)                  make pm2-restart
                                              ./scripts/ops_pm2.sh restart
+Restart API only                             ./scripts/ops_pm2.sh restart --backend-only
+Restart Vite dev only (5173)                 ./scripts/ops_pm2.sh restart --frontend-only
 
 Ship frontend to production URL              make deploy-prod
                                              ./scripts/ops_pm2.sh restart --prod-ui
