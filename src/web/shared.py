@@ -130,6 +130,7 @@ class SubmitProsperoRequest(pydantic.BaseModel):
 
     registration_number: str
     registration_date: str
+    resume: bool = True
 
 
 # ---------------------------------------------------------------------------
@@ -209,7 +210,7 @@ def _age_seconds(value: Any) -> float | None:
 
 
 async def _ensure_runtime_db_migrated(db_path: str) -> None:
-    """Run runtime.db migrations once before historical read endpoints use it."""
+    """Backfill legacy manuscript sections into runtime.db (not schema migration)."""
     try:
         from src.db.database import get_db as _get_db
         from src.db.repositories import WorkflowRepository as _WorkflowRepository
@@ -239,7 +240,21 @@ async def _ensure_runtime_db_migrated(db_path: str) -> None:
             except Exception as _bf_exc:
                 _logger.debug("runtime.db manuscript backfill skipped: %s", _bf_exc)
     except Exception as exc:
-        _logger.warning("Historical runtime.db migration skipped for %s: %s", db_path, exc)
+        _logger.warning("Historical runtime.db manuscript backfill skipped for %s: %s", db_path, exc)
+
+
+async def _defer_runtime_db_manuscript_backfill(db_path: str) -> None:
+    """ponytail: legacy manuscript backfill off read/attach hot path."""
+    try:
+        await _ensure_runtime_db_migrated(db_path)
+    except Exception as exc:
+        _logger.debug("Deferred runtime.db backfill skipped for %s: %s", db_path, exc)
+
+
+def schedule_runtime_db_manuscript_backfill(db_path: str) -> None:
+    import asyncio
+
+    asyncio.create_task(_defer_runtime_db_manuscript_backfill(db_path))
 
 
 async def _resolve_workflow_id_from_db(db_path: str) -> str | None:

@@ -48,14 +48,32 @@ async def run_manuscript_audit_node(state: ReviewState, ctx: GraphRunContext[Rev
     if not manuscript_path or not os.path.isfile(manuscript_path):
         if rc:
             rc.emit_phase_done("phase_7_audit", {"status": "skipped", "reason": "manuscript_missing"})
+        filtered_artifacts = {
+            k: v for k, v in state.artifacts.items() if k == "run_summary" or os.path.isfile(v)
+        }
+        summary = {
+            "workflow_id": state.workflow_id,
+            "status": "failed",
+            "error": "manuscript_missing",
+            "gate": "manuscript_audit",
+            "phase": "phase_7_audit",
+            "output_dir": state.output_dir,
+            "artifacts": filtered_artifacts,
+        }
+        run_summary_path = state.artifacts.get("run_summary")
+        if run_summary_path:
+            Path(run_summary_path).write_text(json.dumps(summary, indent=2), encoding="utf-8")
         async with get_db(state.db_path) as db:
-            await WorkflowRepository(db).save_checkpoint(
+            repository = WorkflowRepository(db)
+            await repository.save_checkpoint(
                 state.workflow_id,
                 "phase_7_audit",
                 papers_processed=0,
-                status="completed",
+                status="partial",
             )
-        return None
+            await repository.update_workflow_status(state.workflow_id, "failed")
+        await update_registry_status(state.run_root, state.workflow_id, "failed")
+        return End(WorkflowRunResult.from_summary(summary))
 
     mode = str(getattr(state.settings.gates, "manuscript_audit_mode", "strict"))
     audit_gate_mode = str(getattr(state.settings.gates, "audit_gate_mode", "advisory"))

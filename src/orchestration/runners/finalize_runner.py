@@ -55,17 +55,24 @@ async def run_finalize_node(state: ReviewState, ctx: GraphRunContext[ReviewState
 
     _finalize_errors: list[str] = []
 
+    _strict_export = True
+    if state.settings:
+        _strict_export = str(getattr(state.settings.gates, "manuscript_contract_mode", "strict")) == "strict"
+
     _mmd_path = state.artifacts.get("manuscript_md", "")
     if _mmd_path and os.path.isfile(_mmd_path):
         try:
             await refresh_manuscript_export_artifacts(
                 state,
-                strict_export=False,
+                strict_export=_strict_export,
                 persist_assembly=True,
             )
             logger.info("FinalizeNode: wrote doc_manuscript.tex and references.bib")
         except Exception as _tex_err:  # noqa: BLE001
-            logger.warning("FinalizeNode: LaTeX artifact generation failed (non-fatal): %s", _tex_err)
+            logger.warning("FinalizeNode: LaTeX artifact generation failed: %s", _tex_err)
+            _finalize_errors.append(f"LaTeX artifact generation failed: {_tex_err}")
+    else:
+        _finalize_errors.append("manuscript_md missing or not found at finalize")
 
     if state.review and state.output_dir:
         try:
@@ -194,7 +201,8 @@ async def run_finalize_node(state: ReviewState, ctx: GraphRunContext[ReviewState
             await _pkg_sub(state.workflow_id, state.run_root)
             logger.info("FinalizeNode: submission/ pre-populated")
         except Exception as _sub_err:  # noqa: BLE001
-            logger.warning("FinalizeNode: submission pre-packaging failed (non-fatal): %s", _sub_err)
+            logger.warning("FinalizeNode: submission pre-packaging failed: %s", _sub_err)
+            _finalize_errors.append(f"submission pre-packaging failed: {_sub_err}")
 
     run_summary_key = "run_summary"
     filtered_artifacts = {k: v for k, v in state.artifacts.items() if k == run_summary_key or os.path.isfile(v)}

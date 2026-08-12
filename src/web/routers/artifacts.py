@@ -817,11 +817,16 @@ async def fetch_pdfs_for_run(run_id: str) -> StreamingResponse:
 
 
 @router.get("/api/run/{run_id}/events")
-async def get_run_events(run_id: str) -> dict[str, Any]:
+async def get_run_events(run_id: str, run_root: str = "runs") -> dict[str, Any]:
+    from src.web.state import _load_event_log_from_db
+
     record = _lifecycle_coordinator.get(run_id)
-    if record is None:
-        raise HTTPException(status_code=404, detail="Run not found")
-    return {"events": record.event_log}
+    if record is not None and (not record.done or record.event_log):
+        return {"events": record.event_log}
+    workflow_id = record.workflow_id if record else (run_id if run_id.startswith("wf-") else None)
+    db_path = await resolve_runtime_db(run_id, run_root)
+    events = await _load_event_log_from_db(db_path, workflow_id)
+    return {"events": events}
 
 
 @router.get("/api/workflow/{workflow_id}/events")

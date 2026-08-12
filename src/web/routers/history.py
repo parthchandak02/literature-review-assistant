@@ -594,7 +594,7 @@ async def restore_completed_history_run(workflow_id: str, run_root: str = "runs"
 async def attach_history(req: AttachRequest) -> RunResponse:
     """Create a read-only completed _RunRecord from a historical workflow."""
     run_id, record = await _lifecycle_coordinator.attach_history(req)
-    await _refresh_allowed_roots()
+    asyncio.create_task(_refresh_allowed_roots())
     return RunResponse(run_id=run_id, topic=record.topic)
 
 

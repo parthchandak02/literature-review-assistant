@@ -30,9 +30,9 @@ from src.db.workflow_registry import (
 from src.web.shared import (
     AttachRequest,
     ResumeRequest,
-    _ensure_runtime_db_migrated,
     _normalize_status,
     _validate_db_path,
+    schedule_runtime_db_manuscript_backfill,
 )
 
 if TYPE_CHECKING:
@@ -92,6 +92,12 @@ class RunLifecycleCoordinator:
     def find_active_by_workflow(self, workflow_id: str) -> Any | None:
         for record in self._active_runs.values():
             if record.workflow_id == workflow_id and not record.done:
+                return record
+        return None
+
+    def find_attached_done_by_workflow(self, workflow_id: str) -> Any | None:
+        for record in self._active_runs.values():
+            if record.workflow_id == workflow_id and record.done:
                 return record
         return None
 
@@ -288,6 +294,10 @@ class RunLifecycleCoordinator:
         _validate_db_path(req.db_path)
         resolved = await self.resolve_workflow(req.workflow_id, db_path_hint=req.db_path)
 
+        existing = self.find_attached_done_by_workflow(req.workflow_id)
+        if existing is not None:
+            return existing.run_id, existing
+
         if pathlib.Path(resolved.db_path).resolve() != pathlib.Path(req.db_path).resolve():
             _logger.info(
                 "Attach db_path hint differs from registry for %s; using registry path %s",
@@ -303,7 +313,6 @@ class RunLifecycleCoordinator:
         record.workflow_id = req.workflow_id
         record.run_root = resolved.run_root
 
-        await _ensure_runtime_db_migrated(resolved.db_path)
         summary_path = pathlib.Path(resolved.db_path).parent / "run_summary.json"
         if summary_path.exists():
             try:
@@ -351,6 +360,7 @@ class RunLifecycleCoordinator:
                     }
                 )
         self.set(run_id, record)
+        schedule_runtime_db_manuscript_backfill(resolved.db_path)
         return run_id, record
 
 
