@@ -107,7 +107,7 @@ Recent remediation (2026-08-10, Phases 0-2) completed:
 | P1 | Parametrized PROSPERO + HITL gate registry tests | done |
 | P1 | `resolve_resume_next_phase` gate routing unit tests | done |
 | P2 | Screening + Prospero component tests | pending |
-| P2 | `human_review_checkpoint` Activity log label | pending |
+| P2 | `human_review_checkpoint` Activity log label | done |
 
 ### Sprint 3 - Product surface (complete 2026-08-11)
 
@@ -120,7 +120,16 @@ Recent remediation (2026-08-10, Phases 0-2) completed:
 | C | Results: `ArtifactFileList`, `FilePreview`, `ManuscriptViewer` | done |
 | D | Run chrome: `RunView`, `RunChrome`, `Sidebar`, `useSidebarRuns` | done |
 
-**Exit:** `make check-local` green (2026-08-11); manual QA per `docs/UI.md#regression-checklist` (Cost/Data/Results/Sidebar items) still recommended before release tag.
+**Exit:** `make check-local` green (2026-08-11); manual QA per `docs/UI.md#regression-checklist` still recommended before release tag.
+
+### Sprint 4 - Ship lane polish (2026-08-12)
+
+| Item | Scope | Status |
+|------|-------|--------|
+| Registry stats invalidation | `state.py`, `history.py`, `lifecycle_coordinator.py` | done |
+| Run session sync decomposition | `useRunSessionUrlSync`, `useRunSessionLiveEffects`, `useRunSessionArtifactsSync` | done |
+| Activity phase labels + timeline | `human_review_checkpoint`, `PhaseTimeline`, `LogStream` | done |
+| History polling backoff | `pollingBackoff`, `workflowActiveRunWatcher` | done |
 
 ### Perf (2026-08-10)
 

@@ -5,7 +5,6 @@ import {
   DialogContent,
   DialogHeader,
   DialogTitle,
-  DialogDescription,
 } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
 import { ApiKeysPanel } from "@/components/ApiKeysSection"
@@ -29,15 +28,10 @@ export function SettingsDialog({ open, onOpenChange, initialTab = "keys" }: Sett
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-5xl border-border bg-card p-0 text-foreground">
-        <DialogHeader className="border-b border-border px-6 py-4">
-          <div className="flex items-start justify-between gap-4">
-            <div>
-              <DialogTitle className="text-foreground">Settings</DialogTitle>
-              <DialogDescription className="mt-0.5 text-muted">
-                API credentials and cross-run cost history. Per-run spend is on the Cost tab.
-              </DialogDescription>
-            </div>
+      <DialogContent className="max-w-7xl w-[min(80rem,96vw)] border-border bg-card p-0 text-foreground">
+        <DialogHeader className="border-b border-border px-5 py-3">
+          <div className="flex items-center justify-between gap-4">
+            <DialogTitle className="text-foreground">Settings</DialogTitle>
             <Button
               type="button"
               variant="ghost"
@@ -50,8 +44,7 @@ export function SettingsDialog({ open, onOpenChange, initialTab = "keys" }: Sett
             </Button>
           </div>
 
-          {/* Tab bar */}
-          <div className="flex gap-1 mt-3">
+          <div className="flex gap-1 mt-2">
             {TABS.map((t) => {
               const Icon = t.icon
               const active = tab === t.id
@@ -74,7 +67,7 @@ export function SettingsDialog({ open, onOpenChange, initialTab = "keys" }: Sett
           </div>
         </DialogHeader>
 
-        <div className="px-6 py-5 max-h-[70dvh] overflow-y-auto min-w-0">
+        <div className="px-5 py-3 max-h-[82dvh] overflow-y-auto min-w-0">
           {tab === "keys" && <ApiKeysPanel />}
           {tab === "costs" && <CostsPanel />}
         </div>

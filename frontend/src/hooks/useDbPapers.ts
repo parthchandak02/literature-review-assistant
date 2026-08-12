@@ -6,8 +6,9 @@ import {
   fetchPapersSuggest,
   type PapersFacets,
 } from "@/lib/api"
+import { LIVE_DB_REFRESH_MS, resolveLiveQueryRefetchInterval } from "@/lib/pollingBackoff"
 
-export const LIVE_DB_REFRESH_MS = 10_000
+export { LIVE_DB_REFRESH_MS }
 
 export interface DbPapersFilters {
   titleFilter: string
@@ -50,7 +51,12 @@ export function useDbPapers(
   filters: DbPapersFilters,
   page: number,
   pageSize: number,
-  options?: { enabled?: boolean; isLive?: boolean; includeFacets?: boolean },
+  options?: {
+    enabled?: boolean
+    isLive?: boolean
+    isSSEConnected?: boolean
+    includeFacets?: boolean
+  },
 ) {
   const queryClient = useQueryClient()
   const enabled = (options?.enabled ?? true) && Boolean(runId)
@@ -82,7 +88,11 @@ export function useDbPapers(
       return result
     },
     enabled,
-    refetchInterval: options?.isLive ? LIVE_DB_REFRESH_MS : false,
+    refetchInterval: resolveLiveQueryRefetchInterval(LIVE_DB_REFRESH_MS, {
+      isLive: Boolean(options?.isLive),
+      isSSEConnected: options?.isSSEConnected,
+    }),
+    refetchIntervalInBackground: false,
   })
 }
 
@@ -121,13 +131,20 @@ export function useDbPapersFacets(
   })
 }
 
-export function useDbOutcomes(runId: string, options?: { enabled?: boolean; isLive?: boolean }) {
+export function useDbOutcomes(
+  runId: string,
+  options?: { enabled?: boolean; isLive?: boolean; isSSEConnected?: boolean },
+) {
   const enabled = (options?.enabled ?? true) && Boolean(runId)
   return useQuery({
     queryKey: dbOutcomesQueryKey(runId),
     queryFn: () => fetchDbTables(runId),
     enabled,
-    refetchInterval: options?.isLive ? LIVE_DB_REFRESH_MS : false,
+    refetchInterval: resolveLiveQueryRefetchInterval(LIVE_DB_REFRESH_MS, {
+      isLive: Boolean(options?.isLive),
+      isSSEConnected: options?.isSSEConnected,
+    }),
+    refetchIntervalInBackground: false,
   })
 }
 

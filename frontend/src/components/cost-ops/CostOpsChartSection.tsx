@@ -9,6 +9,7 @@ import {
   formatInteger,
   formatPhaseName,
   formatUsd,
+  costOpsGridClass,
   sectionHeaderClass,
   statCardClass,
 } from "./costOpsFormatters"
@@ -21,21 +22,21 @@ export function CostOpsRawTable({
   labelHeader: string
 }) {
   return (
-    <div className="max-h-56 overflow-auto">
-      <table className="min-w-full text-sm">
+    <div className="max-h-36 overflow-auto">
+      <table className="min-w-full text-xs">
         <thead className="sticky top-0 bg-card/95 text-muted">
           <tr>
-            <th className="px-4 py-2 text-left font-medium">{labelHeader}</th>
-            <th className="px-4 py-2 text-right font-medium">Calls</th>
-            <th className="px-4 py-2 text-right font-medium">Cost</th>
+            <th className="px-2 py-1 text-left font-medium">{labelHeader}</th>
+            <th className="px-2 py-1 text-right font-medium">Calls</th>
+            <th className="px-2 py-1 text-right font-medium">Cost</th>
           </tr>
         </thead>
         <tbody>
           {rows.map((row) => (
             <tr key={`${labelHeader}-${row.label}`} className="border-t border-border text-foreground">
-              <td className="px-4 py-2">{row.label}</td>
-              <td className="px-4 py-2 text-right">{formatInteger(row.calls)}</td>
-              <td className="px-4 py-2 text-right">{formatUsd(row.cost_usd)}</td>
+              <td className="px-2 py-1 max-w-[10rem] truncate" title={row.label}>{row.label}</td>
+              <td className="px-2 py-1 text-right tabular-nums">{formatInteger(row.calls)}</td>
+              <td className="px-2 py-1 text-right tabular-nums">{formatUsd(row.cost_usd)}</td>
             </tr>
           ))}
         </tbody>
@@ -67,27 +68,27 @@ export function CostOpsChartSection({
         {title}
       </div>
       {rows.length === 0 ? (
-        <div className="px-4 py-6 text-sm text-muted">No cost records in this window.</div>
+        <div className="px-2.5 py-3 text-xs text-muted">No cost records in this window.</div>
       ) : viewMode === "table" ? (
         <CostOpsRawTable rows={rows} labelHeader={labelHeader} />
       ) : (
-        <div className="h-48 px-2 pb-3 pt-1">
+        <div className="h-28 px-1.5 pb-2 pt-0.5">
           <ResponsiveContainer width="100%" height="100%">
-            <BarChart data={chartData} margin={{ top: 12, right: 8, left: 0, bottom: 4 }}>
+            <BarChart data={chartData} margin={{ top: 4, right: 4, left: 0, bottom: 0 }}>
               <XAxis
                 dataKey="label"
-                tick={{ fill: CHART_THEME.tickFill, fontSize: 11 }}
-                tickFormatter={(value: string) => (value.length > 12 ? `${value.slice(0, 12)}...` : value)}
+                tick={{ fill: CHART_THEME.tickFill, fontSize: 9 }}
+                tickFormatter={(value: string) => (value.length > 10 ? `${value.slice(0, 10)}...` : value)}
                 interval="preserveStartEnd"
-                height={20}
+                height={16}
               />
               <YAxis
-                tick={{ fill: CHART_THEME.tickFill, fontSize: 11 }}
+                tick={{ fill: CHART_THEME.tickFill, fontSize: 9 }}
                 tickFormatter={formatAxisCost}
-                width={70}
+                width={52}
               />
               <Tooltip content={<CostChartTooltip />} cursor={{ fill: CHART_THEME.cursorFill }} />
-              <Bar dataKey="cost_usd" fill={CHART_THEME.seriesPrimary} radius={[6, 6, 0, 0]} />
+              <Bar dataKey="cost_usd" fill={CHART_THEME.seriesPrimary} radius={[4, 4, 0, 0]} />
             </BarChart>
           </ResponsiveContainer>
         </div>
@@ -166,48 +167,32 @@ export function CostOpsPhaseSection({
 
 export function CostsLoadingSkeleton() {
   return (
-    <div className="space-y-4">
-      <div className="grid gap-3 grid-cols-2 lg:grid-cols-4">
+    <div className="space-y-2">
+      <div className="grid gap-2 grid-cols-2 lg:grid-cols-4">
         {Array.from({ length: 4 }).map((_, index) => (
           <div
             key={`stat-skeleton-${index}`}
             className={`${statCardClass} flex items-center justify-center`}
           >
-            <div className="flex items-center gap-2 text-sm text-muted">
+            <div className="flex items-center gap-2 text-xs text-muted">
               <Spinner size="sm" />
-              <span>Loading metric</span>
+              <span>Loading</span>
             </div>
           </div>
         ))}
       </div>
 
-      <div className="grid gap-4 md:grid-cols-2 2xl:grid-cols-3">
-        {Array.from({ length: 3 }).map((_, index) => (
+      <div className={costOpsGridClass}>
+        {Array.from({ length: 6 }).map((_, index) => (
           <div
-            key={`bucket-skeleton-${index}`}
-            className="rounded-xl border border-border/80 bg-card/60 p-4"
+            key={`chart-skeleton-${index}`}
+            className="rounded-lg border border-border/80 bg-card/60"
           >
-            <div className="text-sm font-semibold text-foreground">
-              Loading chart
+            <div className="border-b border-border/80 px-2.5 py-1.5 text-xs font-semibold text-foreground">
+              Loading
             </div>
-            <div className="flex h-40 items-center justify-center">
-              <Spinner size="lg" />
-            </div>
-          </div>
-        ))}
-      </div>
-
-      <div className="grid gap-4 md:grid-cols-2 2xl:grid-cols-3">
-        {Array.from({ length: 3 }).map((_, index) => (
-          <div
-            key={`group-skeleton-${index}`}
-            className="rounded-xl border border-border/80 bg-card/60 p-4"
-          >
-            <div className="text-sm font-semibold text-foreground">
-              Loading breakdown
-            </div>
-            <div className="flex h-40 items-center justify-center">
-              <Spinner size="lg" />
+            <div className="flex h-28 items-center justify-center">
+              <Spinner size="sm" />
             </div>
           </div>
         ))}

@@ -1,10 +1,14 @@
 import { fetchActiveRun } from "@/lib/api/history"
 import {
+  nextWatcherFallbackDelay,
+  WATCHER_FALLBACK_INITIAL_MS,
+} from "@/lib/pollingBackoff"
+import {
   subscribeWorkflowActiveRun,
   type WorkflowActiveRunEvent,
 } from "@/lib/api/runLifecycle"
 
-const FALLBACK_TIMEOUT_MS = 30_000
+export const FALLBACK_TIMEOUT_MS = WATCHER_FALLBACK_INITIAL_MS
 
 export interface WorkflowActiveRunWatcherInput {
   workflowId: string
@@ -45,6 +49,7 @@ export function createWorkflowActiveRunWatcher(
   let disposed = false
   let unsubStream: (() => void) | null = null
   let timeoutId: ReturnType<typeof setTimeout> | null = null
+  let fallbackDelayMs = FALLBACK_TIMEOUT_MS
 
   function clearTimeoutIfNeeded() {
     if (timeoutId != null) {
@@ -87,22 +92,32 @@ export function createWorkflowActiveRunWatcher(
     })
   }
 
+  function resetFallbackBackoff() {
+    fallbackDelayMs = FALLBACK_TIMEOUT_MS
+  }
+
   function armFallbackTimeout() {
     if (disposed) return
     clearTimeoutIfNeeded()
+    const delayMs = fallbackDelayMs
     timeoutId = deps.setTimeout(() => {
       void fallbackFetchActiveRun()
-      if (!disposed) armFallbackTimeout()
-    }, FALLBACK_TIMEOUT_MS)
+      if (!disposed) {
+        fallbackDelayMs = nextWatcherFallbackDelay(fallbackDelayMs)
+        armFallbackTimeout()
+      }
+    }, delayMs)
   }
 
   function onWindowFocus() {
+    resetFallbackBackoff()
     void fallbackFetchActiveRun()
   }
 
   unsubStream = deps.subscribeWorkflowActiveRun(input.workflowId, {
     onAnnouncement: handleAnnouncement,
     onError: () => {
+      resetFallbackBackoff()
       void fallbackFetchActiveRun()
     },
   })

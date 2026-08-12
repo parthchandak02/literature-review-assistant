@@ -1,6 +1,6 @@
 import { forwardRef, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react"
 import { cn } from "@/lib/utils"
-import { PHASE_LABELS } from "@/lib/constants"
+import { milestoneForPhase, PHASE_MILESTONES, type PhaseMilestone } from "@/lib/constants"
 import type { ReviewEvent } from "@/lib/api"
 import { eventToLogEntry } from "@/lib/logLine"
 import type { LogLevel } from "@/lib/logLine"
@@ -52,9 +52,56 @@ function eventStableKey(ev: ReviewEvent): string {
   }
 }
 
-function buildRenderItems(events: ReviewEvent[]): RenderItem[] {
+const START_MILESTONE = PHASE_MILESTONES.find((milestone) => milestone.key === "start")!
+
+function milestoneByKey(key: string): PhaseMilestone | null {
+  return PHASE_MILESTONES.find((milestone) => milestone.key === key) ?? null
+}
+
+function inferMilestoneFromEventType(ev: ReviewEvent): PhaseMilestone | null {
+  switch (ev.type) {
+    case "connector_result":
+    case "screening_decision":
+    case "screening_prefilter_done":
+    case "deterministic_exclusion_qa_sample":
+    case "batch_screen_done":
+    case "screening_cap_overflow":
+    case "screening_calibration":
+    case "pdf_result":
+    case "search_override_status":
+      return milestoneForPhase("phase_2_search")
+    case "extraction_paper":
+      return milestoneForPhase("phase_4_extraction_quality")
+    case "synthesis":
+      return milestoneForPhase("phase_5_synthesis")
+    default:
+      return null
+  }
+}
+
+function resolveEventMilestone(
+  ev: ReviewEvent,
+  hasSeenPhasedEvent: boolean,
+  currentMilestoneKey: string | null,
+): PhaseMilestone | null {
+  const phase = "phase" in ev ? ev.phase : undefined
+  if (phase) {
+    const milestone = milestoneForPhase(phase)
+    if (milestone) return milestone
+  }
+  if (!hasSeenPhasedEvent) return null
+  const inferred = inferMilestoneFromEventType(ev)
+  if (inferred) return inferred
+  if (currentMilestoneKey) return milestoneByKey(currentMilestoneKey)
+  return null
+}
+
+// eslint-disable-next-line react-refresh/only-export-components -- pure helper tested alongside LogStream
+export function buildRenderItems(events: ReviewEvent[]): RenderItem[] {
   const items: RenderItem[] = []
   const keyCounts = new Map<string, number>()
+  let currentMilestoneKey: string | null = null
+  let hasSeenPhasedEvent = false
 
   for (let i = 0; i < events.length; i++) {
     const ev = events[i]
@@ -67,20 +114,31 @@ function buildRenderItems(events: ReviewEvent[]): RenderItem[] {
     keyCounts.set(rawKey, duplicateIndex + 1)
     const evKey = duplicateIndex === 0 ? rawKey : `${rawKey}-dup-${duplicateIndex}`
 
-    if (ev.type === "phase_start") {
-      const descRaw = (ev as { description?: string }).description
+    const milestone: PhaseMilestone =
+      resolveEventMilestone(ev, hasSeenPhasedEvent, currentMilestoneKey) ??
+      (currentMilestoneKey ? milestoneByKey(currentMilestoneKey) : START_MILESTONE) ??
+      START_MILESTONE
+
+    if (milestone.key !== "start") {
+      hasSeenPhasedEvent = true
+    }
+
+    if (milestone.key !== currentMilestoneKey) {
+      const descRaw = ev.type === "phase_start" ? ev.description : undefined
       const desc =
         typeof descRaw === "string" && descRaw.trim().length > 0 ? descRaw.trim() : undefined
       items.push({
         kind: "phase-sep",
-        phase: ev.phase,
-        label: PHASE_LABELS[ev.phase] ?? ev.phase,
+        phase: milestone.key,
+        label: milestone.label,
         description: desc,
-        key: `sep-${ev.phase}-${evKey}-${ts}`,
+        key: `sep-${milestone.key}-${evKey}-${ts}`,
       })
-      // phase_start is represented by a separator only to avoid duplicate rows.
-      continue
+      currentMilestoneKey = milestone.key
     }
+
+    // phase_start is represented by a separator only to avoid duplicate rows.
+    if (ev.type === "phase_start") continue
 
     items.push({
       kind: "event",

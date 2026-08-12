@@ -3,9 +3,10 @@ import { AlertTriangle } from "lucide-react"
 import { eventToLogEntry } from "@/lib/logLine"
 import { fetchHistoricalReviewEvents } from "@/lib/api"
 import { shouldShowHistoricalLoading, shouldUsePrefetchedHistorical } from "@/lib/runSelection"
-import { PHASE_LABELS, PHASE_MILESTONES } from "@/lib/constants"
+import { PHASE_MILESTONES } from "@/lib/constants"
 import type { ReviewEvent } from "@/lib/api"
-import { buildPhaseStates, isPhaseResumeSelectable } from "@/lib/activityPhaseState"
+import { buildPhaseStates, applyGateOverrides, isPhaseResumeSelectable } from "@/lib/activityPhaseState"
+import { detectAwaitingProspero, detectAwaitingReview } from "@/lib/phaseProgress"
 import { PhaseTimeline } from "@/components/activity/PhaseTimeline"
 import { ActivityLogPanel } from "@/components/activity/ActivityLogPanel"
 
@@ -42,7 +43,6 @@ export function ActivityView({
   const [loadingHistory, setLoadingHistory] = useState(false)
   const [fetchError, setFetchError] = useState<string | null>(null)
   const [armedResumePhase, setArmedResumePhase] = useState<string | null>(null)
-  const [resumeHint, setResumeHint] = useState<string | null>(null)
   const [isSubmittingResume, setIsSubmittingResume] = useState(false)
 
   const hasPrefetchedHistorical = shouldUsePrefetchedHistorical(prefetchedHistoricalEvents)
@@ -119,11 +119,34 @@ export function ActivityView({
     normalizedHistoricalStatus === "completed" ||
     normalizedHistoricalStatus === "done" ||
     status === "done"
-  const phaseStates = useMemo(
-    () => buildPhaseStates(activeEvents, completedWorkflow),
-    [activeEvents, completedWorkflow],
-  )
   const isRunning = status === "streaming" || status === "connecting"
+  const awaitingProspero = detectAwaitingProspero({
+    historicalStatus,
+    status,
+    events: activeEvents,
+    isRunning,
+  })
+  const awaitingReview = detectAwaitingReview({
+    historicalStatus,
+    status,
+    events: activeEvents,
+    isRunning,
+  })
+  const phaseStates = useMemo(
+    () =>
+      applyGateOverrides(buildPhaseStates(activeEvents, completedWorkflow), {
+        awaitingProspero,
+        awaitingReview,
+      }),
+    [activeEvents, completedWorkflow, awaitingProspero, awaitingReview],
+  )
+  const awaitingGateByMilestone = useMemo(
+    () => ({
+      ...(awaitingProspero ? { prospero: true } : {}),
+      ...(awaitingReview ? { discovery: true } : {}),
+    }),
+    [awaitingProspero, awaitingReview],
+  )
   const resumeBlockedReason = (() => {
     if (!onResumeFromPhase) return "Resume controls are not available for this run."
     if (
@@ -159,7 +182,6 @@ export function ActivityView({
     if (!armedResumePhase) return
     const timer = setTimeout(() => {
       setArmedResumePhase(null)
-      setResumeHint(null)
     }, 8000)
     return () => clearTimeout(timer)
   }, [armedResumePhase])
@@ -167,7 +189,6 @@ export function ActivityView({
   useEffect(() => {
     if (resumeModeActive) return
     setArmedResumePhase(null)
-    setResumeHint(null)
   }, [resumeModeActive])
 
   async function handlePhaseResumeTap(phase: string) {
@@ -175,17 +196,13 @@ export function ActivityView({
     if (!checkPhaseResumeSelectable(phase)) return
     if (armedResumePhase !== phase) {
       setArmedResumePhase(phase)
-      setResumeHint(`Tap ${PHASE_LABELS[phase] ?? phase} again to confirm resume`)
       return
     }
-    setResumeHint(`Resuming from ${PHASE_LABELS[phase] ?? phase}...`)
     setIsSubmittingResume(true)
     try {
       await onResumeFromPhase?.(phase)
       setArmedResumePhase(null)
-      setResumeHint(null)
     } catch {
-      setResumeHint("Resume failed. Tap a phase again to retry.")
       setArmedResumePhase(null)
     } finally {
       setIsSubmittingResume(false)
@@ -227,11 +244,8 @@ export function ActivityView({
           isPhaseResumeSelectable={checkPhaseResumeSelectable}
           armedResumePhase={armedResumePhase}
           armedMilestoneStartIdx={armedMilestoneStartIdx}
+          awaitingGateByMilestone={awaitingGateByMilestone}
           onResumeTap={handlePhaseResumeTap}
-          resumeModeActive={resumeModeActive}
-          resumeHint={resumeHint}
-          canResumeEligibility={canResumeEligibility}
-          resumeBlockedReason={resumeBlockedReason}
         />
 
         <ActivityLogPanel

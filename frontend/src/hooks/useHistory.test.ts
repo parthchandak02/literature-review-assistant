@@ -4,8 +4,10 @@ import type { HistoryEntry, HistoryRailEntry } from "@/lib/api"
 import {
   createHistoryQueryFn,
   fetchSidebarHistory,
+  HISTORY_REFRESH_MS,
   historyQueryKey,
   mergeHistoryStats,
+  resolveHistoryRefetchInterval,
 } from "./useHistory"
 
 const fetchHistoryRailMock = vi.fn()
@@ -58,6 +60,24 @@ function railEntry(
     ...overrides,
   }
 }
+
+describe("resolveHistoryRefetchInterval", () => {
+  it("returns false when SSE owns updates for the active live run", () => {
+    expect(resolveHistoryRefetchInterval(true, true)).toBe(false)
+  })
+
+  it("returns HISTORY_REFRESH_MS when not viewing a live run", () => {
+    expect(resolveHistoryRefetchInterval(true, false)).toBe(HISTORY_REFRESH_MS)
+  })
+
+  it("returns HISTORY_REFRESH_MS when viewing a live run that is not running", () => {
+    expect(resolveHistoryRefetchInterval(false, true)).toBe(HISTORY_REFRESH_MS)
+  })
+
+  it("returns HISTORY_REFRESH_MS when idle and not viewing a live run", () => {
+    expect(resolveHistoryRefetchInterval(false, false)).toBe(HISTORY_REFRESH_MS)
+  })
+})
 
 describe("historyQueryKey", () => {
   it("includes run root so cache keys differ by registry root", () => {

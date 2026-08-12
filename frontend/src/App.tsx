@@ -276,6 +276,7 @@ function AppShell() {
         liveOutputs={isViewingLiveRun ? liveOutputs : {}}
         dbUnlocked={Boolean(dbUnlocked)}
         isLive={isViewingLiveRun && isRunning && Boolean(dbUnlocked)}
+        isSSEConnected={isViewingLiveRun && liveStatus === "streaming"}
         onResumeFromPhase={!isViewingLiveRun && !isDraftRun ? handleTimelineResumePhase : undefined}
         resumeModeActive={resumeModeActive}
         submissionFocusTarget={submissionFocusTarget}

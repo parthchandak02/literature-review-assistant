@@ -12,9 +12,6 @@ import { DollarSign, Zap, ArrowUpDown, Activity, BarChart3 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { CHART_THEME } from "@/lib/constants"
 import { getDbCostExportUrl } from "@/lib/api"
-import type {
-  DbCostExportGranularity,
-} from "@/lib/api"
 import { buildCostStatsFromDashboard, type CostStats } from "@/hooks/useCostStats"
 import {
   costsFetchErrorMessage,
@@ -36,6 +33,7 @@ import {
 } from "@/components/cost-ops/CostOpsChartSection"
 import {
   buildPresetRange,
+  costOpsGridClass,
   formatInteger,
   formatPhaseName,
   formatUsd,
@@ -71,13 +69,13 @@ interface CostViewProps {
   dbRunId?: string | null
   workflowId?: string | null
   isLive?: boolean
+  isSSEConnected?: boolean
 }
 
-export function CostView({ costStats, dbRunId, workflowId, isLive }: CostViewProps) {
+export function CostView({ costStats, dbRunId, workflowId, isLive, isSSEConnected }: CostViewProps) {
   const defaultOpsRange = useMemo(() => buildPresetRange(30), [])
   const [opsStartDate, setOpsStartDate] = useState(defaultOpsRange.startDate)
   const [opsEndDate, setOpsEndDate] = useState(defaultOpsRange.endDate)
-  const [opsGranularity, setOpsGranularity] = useState<DbCostExportGranularity>("day")
   const [opsPreset, setOpsPreset] = useState<"5d" | "30d" | "90d" | "custom">("30d")
   const [opsViewMode, setOpsViewMode] = useState<ChartTableMode>("table")
   const [phaseViewMode, setPhaseViewMode] = useState<ChartTableMode>("chart")
@@ -96,7 +94,11 @@ export function CostView({ costStats, dbRunId, workflowId, isLive }: CostViewPro
     return q.get("ops") === "1"
   }, [])
 
-  const dashboardQuery = useDbCostDashboard(dbRunId, { enabled: Boolean(dbRunId), isLive })
+  const dashboardQuery = useDbCostDashboard(dbRunId, {
+    enabled: Boolean(dbRunId),
+    isLive,
+    isSSEConnected,
+  })
   const validationQuery = useWorkflowValidationSummaryWithChecks(workflowId)
   const validationSummary = validationQuery.data?.latest_run ?? null
 
@@ -104,7 +106,6 @@ export function CostView({ costStats, dbRunId, workflowId, isLive }: CostViewPro
     enabled: opsEnabled && Boolean(dbRunId),
     startDate: opsStartDate,
     endDate: opsEndDate,
-    granularity: opsGranularity,
   })
 
   const dbCostStats = useMemo(() => {
@@ -151,7 +152,7 @@ export function CostView({ costStats, dbRunId, workflowId, isLive }: CostViewPro
     ? getDbCostExportUrl(dbRunId, {
       start_ts: toApiStart(opsStartDate),
       end_ts: toApiEnd(opsEndDate),
-      granularity: opsGranularity,
+      granularity: "day",
     })
     : ""
 
@@ -366,10 +367,14 @@ export function CostView({ costStats, dbRunId, workflowId, isLive }: CostViewPro
               preset={opsPreset}
               startDate={opsStartDate}
               endDate={opsEndDate}
-              exportGranularity={opsGranularity}
               exportUrl={opsExportUrl}
               loading={opsLoading}
-              onPresetChange={applyOpsPreset}
+              chartTableMode={opsViewMode}
+              onChartTableModeChange={setOpsViewMode}
+              onPresetChange={(preset) => {
+                if (preset === "all") return
+                applyOpsPreset(preset)
+              }}
               onStartDateChange={(value) => {
                 setOpsPreset("custom")
                 setOpsStartDate(value)
@@ -378,7 +383,6 @@ export function CostView({ costStats, dbRunId, workflowId, isLive }: CostViewPro
                 setOpsPreset("custom")
                 setOpsEndDate(value)
               }}
-              onExportGranularityChange={setOpsGranularity}
               onRefresh={() => { void opsAggregatesQuery.refetch() }}
             />
 
@@ -392,10 +396,6 @@ export function CostView({ costStats, dbRunId, workflowId, isLive }: CostViewPro
 
             {opsAggregates && (
               <>
-                <div className="flex items-center justify-end">
-                  <ChartTableToggle mode={opsViewMode} onChange={setOpsViewMode} />
-                </div>
-
                 <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
                   <div className={cn(statCardClass, "min-w-0")}>
                     <div className="text-xs uppercase tracking-wide text-muted">Total cost</div>
@@ -423,13 +423,13 @@ export function CostView({ costStats, dbRunId, workflowId, isLive }: CostViewPro
                   </div>
                 </div>
 
-                <div className="grid gap-4 md:grid-cols-2 2xl:grid-cols-3">
+                <div className={costOpsGridClass}>
                   <CostOpsBucketSection title="Daily spend" rows={opsAggregates.by_day} viewMode={opsViewMode} />
                   <CostOpsBucketSection title="Weekly spend" rows={opsAggregates.by_week} viewMode={opsViewMode} />
                   <CostOpsBucketSection title="Monthly spend" rows={opsAggregates.by_month} viewMode={opsViewMode} />
                 </div>
 
-                <div className="grid gap-4 md:grid-cols-2 2xl:grid-cols-3">
+                <div className={costOpsGridClass}>
                   <CostOpsPhaseSection title="Top phases" rows={opsAggregates.by_phase} viewMode={opsViewMode} />
                   <CostOpsGroupSection title="Top models" rows={opsAggregates.by_model} viewMode={opsViewMode} />
                 </div>

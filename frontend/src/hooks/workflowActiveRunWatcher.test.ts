@@ -162,6 +162,28 @@ describe("createWorkflowActiveRunWatcher", () => {
     })
   })
 
+  it("backs off fallback polling while the workflow SSE subscription stays healthy", async () => {
+    const onActiveRun = vi.fn()
+    const deps = createDeps({
+      fetchActiveRun: vi.fn().mockResolvedValue(null),
+    })
+
+    createWorkflowActiveRunWatcher(
+      {
+        workflowId: "wf-1",
+        liveRunId: null,
+        selectedRunId: "hist-run",
+        onActiveRun,
+      },
+      deps,
+    )
+
+    expect(deps.timeouts[0]?.delay).toBe(30_000)
+    deps.timeouts[0]?.fn()
+    await Promise.resolve()
+    expect(deps.timeouts[1]?.delay).toBe(60_000)
+  })
+
   it("uses fetchActiveRun fallback after 30s without announcement", async () => {
     const onActiveRun = vi.fn()
     const deps = createDeps({
