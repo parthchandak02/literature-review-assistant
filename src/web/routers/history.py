@@ -85,6 +85,28 @@ def invalidate_stats_cache(workflow_id: str) -> None:
     _stats_cache.pop(workflow_id, None)
 
 
+async def clear_registry_stats(registry_path: str, workflow_id: str) -> None:
+    """Clear persisted registry stats when a workflow becomes active again."""
+    invalidate_stats_cache(workflow_id)
+    try:
+        async with _open_registry_db(registry_path) as db:
+            await _ensure_registry_columns(db, registry_path)
+            await db.execute(
+                """
+                UPDATE workflows_registry
+                SET papers_found = NULL,
+                    papers_included = NULL,
+                    total_cost = NULL,
+                    stats_updated_at = NULL
+                WHERE workflow_id = ?
+                """,
+                (workflow_id,),
+            )
+            await db.commit()
+    except Exception:
+        _logger.debug("Failed to clear registry stats for %s", workflow_id, exc_info=True)
+
+
 def should_use_registry_stats(
     *,
     reg_status: str,

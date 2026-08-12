@@ -364,6 +364,25 @@ async def _event_flusher_loop(record: _RunRecord, interval: int = 5) -> None:
 # ---------------------------------------------------------------------------
 
 
+_REGISTRY_STATS_PERSIST_STATUSES = frozenset({"completed", "failed", "interrupted"})
+
+
+async def _maybe_persist_registry_stats(run_root: str, workflow_id: str) -> None:
+    """Persist aggregate stats into workflows_registry after a terminal status write."""
+    try:
+        from src.web.routers.history import _fetch_run_stats
+
+        db_path = await _run_resolver.resolve_registry_db_path(workflow_id, run_root)
+        if db_path:
+            await _fetch_run_stats(db_path, workflow_id=workflow_id)
+    except Exception:
+        _logger.debug(
+            "Failed to refresh registry stats after terminal status for %s",
+            workflow_id,
+            exc_info=True,
+        )
+
+
 async def _apply_terminal_registry_status(
     run_root: str,
     workflow_id: str,
@@ -372,31 +391,40 @@ async def _apply_terminal_registry_status(
     """Map workflow terminal outputs to registry status (fresh run + resume)."""
     output_dict = _workflow_outputs_as_dict(outputs)
     terminal_status = _normalize_status(str(output_dict.get("status", "")))
+    registry_status: str
     if terminal_status == "failed":
+        registry_status = "failed"
         try:
-            await _update_registry_status(run_root, workflow_id, "failed")
+            await _update_registry_status(run_root, workflow_id, registry_status)
         except Exception as exc:
             _logger.error("Failed to update registry status to failed: %s", exc)
     elif terminal_status == "awaiting_prospero":
+        registry_status = "awaiting_prospero"
         try:
-            await _update_registry_status(run_root, workflow_id, "awaiting_prospero")
+            await _update_registry_status(run_root, workflow_id, registry_status)
         except Exception as exc:
             _logger.error("Failed to update registry status to awaiting_prospero: %s", exc)
     elif terminal_status == "awaiting_review":
+        registry_status = "awaiting_review"
         try:
-            await _update_registry_status(run_root, workflow_id, "awaiting_review")
+            await _update_registry_status(run_root, workflow_id, registry_status)
         except Exception as exc:
             _logger.error("Failed to update registry status to awaiting_review: %s", exc)
     elif terminal_status == "gate_blocked":
+        registry_status = "failed"
         try:
-            await _update_registry_status(run_root, workflow_id, "failed")
+            await _update_registry_status(run_root, workflow_id, registry_status)
         except Exception as exc:
             _logger.error("Failed to update registry status to failed after gate_blocked: %s", exc)
     else:
+        registry_status = "completed"
         try:
-            await _update_registry_status(run_root, workflow_id, "completed")
+            await _update_registry_status(run_root, workflow_id, registry_status)
         except Exception as exc:
             _logger.error("Failed to update registry status to completed: %s", exc)
+
+    if registry_status in _REGISTRY_STATS_PERSIST_STATUSES:
+        await _maybe_persist_registry_stats(run_root, workflow_id)
 
 
 async def _run_wrapper(record: _RunRecord, review_path: str, req: RunRequest) -> None:
@@ -421,6 +449,14 @@ async def _run_wrapper(record: _RunRecord, review_path: str, req: RunRequest) ->
         event: dict[str, Any] = {"type": "workflow_id_ready", "workflow_id": workflow_id}
         _append_event(record, event)
         _lifecycle_coordinator.notify_workflow_active_run(workflow_id, record.run_id, record.topic)
+
+        async def _clear_active_registry_stats() -> None:
+            from src.web.routers.history import clear_registry_stats
+
+            registry_path = str(pathlib.Path(run_root) / "workflows_registry.db")
+            await clear_registry_stats(registry_path, workflow_id)
+
+        asyncio.create_task(_clear_active_registry_stats())
         nonlocal heartbeat_task
         if heartbeat_task is None or heartbeat_task.done():
             heartbeat_task = asyncio.create_task(
@@ -481,6 +517,7 @@ async def _run_wrapper(record: _RunRecord, review_path: str, req: RunRequest) ->
                     await _update_registry_status(record.run_root, record.workflow_id, "interrupted")
                 except Exception as exc:
                     _logger.error("Failed to update registry status to interrupted: %s", exc)
+                await _maybe_persist_registry_stats(record.run_root, record.workflow_id)
         except Exception as exc:
             import traceback
 
@@ -499,6 +536,7 @@ async def _run_wrapper(record: _RunRecord, review_path: str, req: RunRequest) ->
                     await _update_registry_status(record.run_root, record.workflow_id, "failed")
                 except Exception as exc:
                     _logger.error("Failed to update registry status to failed: %s", exc)
+                await _maybe_persist_registry_stats(record.run_root, record.workflow_id)
         finally:
             if heartbeat_task is not None:
                 heartbeat_task.cancel()
@@ -596,6 +634,7 @@ async def _resume_wrapper(
             await _update_registry_status(run_root, workflow_id, "interrupted")
         except Exception as exc:
             _logger.error("Failed to update registry status to interrupted: %s", exc)
+        await _maybe_persist_registry_stats(run_root, workflow_id)
     except Exception as exc:
         import traceback
 
@@ -628,6 +667,7 @@ async def _resume_wrapper(
                 await _update_registry_status(run_root, workflow_id, "completed")
             except Exception as exc_reg:
                 _logger.error("Failed to update registry status to completed: %s", exc_reg)
+            await _maybe_persist_registry_stats(run_root, workflow_id)
         else:
             record.done = True
             record.error = str(exc)
@@ -641,6 +681,7 @@ async def _resume_wrapper(
                 await _update_registry_status(run_root, workflow_id, "failed")
             except Exception as exc_reg:
                 _logger.error("Failed to update registry status to failed: %s", exc_reg)
+            await _maybe_persist_registry_stats(run_root, workflow_id)
     finally:
         heartbeat_task.cancel()
         flusher_task.cancel()
