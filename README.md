@@ -360,7 +360,8 @@ Open `http://localhost:5173` (Vite dev UI, HMR) or `http://localhost:8001` (API 
 Useful PM2 commands (`scripts/ops_pm2.sh`):
 
 ```bash
-./scripts/ops_pm2.sh restart              # restart litreview-api (default, after src/ changes)
+./scripts/ops_pm2.sh restart              # restart litreview-api + litreview-ui (default)
+./scripts/ops_pm2.sh restart --backend-only  # API only (fast path after src/ changes)
 ./scripts/ops_pm2.sh restart --all        # restart api, ui, and tunnel
 ./scripts/ops_pm2.sh restart --prod-ui    # pnpm build + restart api (production URL)
 ./scripts/ops_pm2.sh restart --status     # pm2 list
