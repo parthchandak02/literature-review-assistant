@@ -255,6 +255,10 @@ class RunLifecycleCoordinator:
         from src.web.state import _RunRecord
 
         resolved = await self.claim_for_resume(req.workflow_id, req.db_path)
+        from src.web.routers.history import clear_registry_stats
+
+        registry_path = str(pathlib.Path(resolved.run_root) / "workflows_registry.db")
+        await clear_registry_stats(registry_path, req.workflow_id)
         run_id = str(uuid.uuid4())[:8]
         record = _RunRecord(run_id=run_id, topic=req.topic)
         record.db_path = resolved.db_path
