@@ -69,7 +69,7 @@ export function ConfigReviewStage({
   })
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [requiredLlmUiKeys, setRequiredLlmUiKeys] = useState<string[]>(["deepseek"])
+  const [requiredLlmUiKeys, setRequiredLlmUiKeys] = useState<string[]>(["fireworks"])
 
   // On mount, backfill any empty fields with values from the server's .env.
   // localStorage always wins; env fills in blanks the user hasn't set yet.

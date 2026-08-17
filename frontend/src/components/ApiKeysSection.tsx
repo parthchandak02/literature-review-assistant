@@ -20,7 +20,7 @@ interface ApiKeyField {
 }
 
 const LLM_FIELDS: ApiKeyField[] = [
-  { id: "deepseek", label: "DeepSeek", placeholder: "sk-...", group: "llm" },
+  { id: "fireworks", label: "Fireworks AI", placeholder: "fw_...", group: "llm" },
   { id: "gemini", label: "Gemini", placeholder: "AIza...", group: "llm" },
   { id: "openrouter", label: "OpenRouter", placeholder: "sk-or-v1-...", group: "llm" },
   { id: "openai", label: "OpenAI", placeholder: "sk-...", group: "llm" },
@@ -71,7 +71,7 @@ function KeyField({
         {usingEnv && (
           <span className="inline-flex items-center gap-1 text-[10px] text-intent-success font-medium">
             <Server className="h-2.5 w-2.5" />
-            .env
+            dotenv file
           </span>
         )}
         {hasValue && (
@@ -108,7 +108,7 @@ export function ApiKeysPanel({ onValidityChange }: { onValidityChange?: (valid: 
     return saved ? { ...emptyStoredApiKeys(), ...saved } : emptyStoredApiKeys()
   })
   const [envStatus, setEnvStatus] = useState<EnvKeysStatus | null>(null)
-  const [requiredKeys, setRequiredKeys] = useState<string[]>(["deepseek"])
+  const [requiredKeys, setRequiredKeys] = useState<string[]>(["fireworks"])
   const [showSearch, setShowSearch] = useState(false)
 
   useEffect(() => {

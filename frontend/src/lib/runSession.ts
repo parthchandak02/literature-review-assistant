@@ -141,7 +141,7 @@ export function beginLiveRun({
 export function runRequestToStoredKeys(req: RunRequest): StoredApiKeys {
   return {
     gemini: req.gemini_api_key ?? "",
-    deepseek: req.deepseek_api_key,
+    fireworks: req.fireworks_api_key,
     openrouter: req.openrouter_api_key ?? "",
     openai: req.openai_api_key ?? "",
     anthropic: req.anthropic_api_key ?? "",

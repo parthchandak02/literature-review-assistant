@@ -4,7 +4,7 @@ import { API_BASE } from "./internal"
 import { apiError } from "./internal"
 
 function appendKeysToForm(form: FormData, keys: StoredApiKeys): void {
-  form.append("deepseek_api_key", keys.deepseek)
+  form.append("fireworks_api_key", keys.fireworks)
   if (keys.gemini) form.append("gemini_api_key", keys.gemini)
   if (keys.openrouter) form.append("openrouter_api_key", keys.openrouter)
   if (keys.openai) form.append("openai_api_key", keys.openai)

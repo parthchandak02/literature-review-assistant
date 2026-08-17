@@ -139,7 +139,7 @@ async def refine_criteria_from_corrections(
         logger.warning(
             "refine_criteria_from_corrections received api_key argument; explicit key injection is deprecated and ignored."
         )
-    if not get_env("GEMINI_API_KEY") and not get_env("DEEPSEEK_API_KEY") and not get_env("OPENROUTER_API_KEY"):
+    if not get_env("GEMINI_API_KEY") and not get_env("FIREWORKS_API_KEY") and not get_env("OPENROUTER_API_KEY"):
         return []
 
     prompt = _REFINEMENT_PROMPT_TEMPLATE.format(corrections=_format_corrections_for_prompt(corrections, papers))

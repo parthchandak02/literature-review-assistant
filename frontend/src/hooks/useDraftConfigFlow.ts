@@ -136,7 +136,7 @@ export function useDraftConfigFlow(deps: UseDraftConfigFlowDeps) {
 
       const yaml = await generateConfigStream(
         req.question,
-        req.deepseekKey,
+        req.fireworksKey,
         req.generationProfile,
         (step, metadata) => {
           const normalizedStep = step === "structuring_retry" ? "structuring" : step
@@ -204,7 +204,7 @@ export function useDraftConfigFlow(deps: UseDraftConfigFlowDeps) {
         : undefined
     const req = buildRunRequest(
       yaml,
-      resolveStoredApiKeys({ deepseek: draftConfig.request.deepseekKey }),
+      resolveStoredApiKeys({ fireworks: draftConfig.request.fireworksKey }),
       undefined,
       reservedWorkflowId,
     )
@@ -231,7 +231,7 @@ export function useDraftConfigFlow(deps: UseDraftConfigFlowDeps) {
     if (!draftConfig?.request) return
     const req = buildRunRequest(
       yaml,
-      resolveStoredApiKeys({ deepseek: draftConfig.request.deepseekKey }),
+      resolveStoredApiKeys({ fireworks: draftConfig.request.fireworksKey }),
     )
     setDraftConfig(null)
     if (draftConfig.request.csvFile && draftConfig.request.csvMode === "masterlist") {

@@ -179,7 +179,7 @@ async def start_run_with_masterlist(
     csv_file: UploadFile = File(...),
     review_yaml: str = Form(...),
     gemini_api_key: str = Form(default=""),
-    deepseek_api_key: str | None = Form(default=None),
+    fireworks_api_key: str | None = Form(default=None),
     openrouter_api_key: str | None = Form(default=None),
     openai_api_key: str | None = Form(default=None),
     anthropic_api_key: str | None = Form(default=None),
@@ -220,7 +220,7 @@ async def start_run_with_masterlist(
     req = RunRequest(
         review_yaml=modified_yaml,
         gemini_api_key=gemini_api_key,
-        deepseek_api_key=deepseek_api_key,
+        fireworks_api_key=fireworks_api_key,
         openrouter_api_key=openrouter_api_key,
         openai_api_key=openai_api_key,
         anthropic_api_key=anthropic_api_key,
@@ -274,7 +274,7 @@ async def start_run_with_supplementary_csv(
     csv_file: UploadFile = File(...),
     review_yaml: str = Form(...),
     gemini_api_key: str = Form(default=""),
-    deepseek_api_key: str | None = Form(default=None),
+    fireworks_api_key: str | None = Form(default=None),
     openrouter_api_key: str | None = Form(default=None),
     openai_api_key: str | None = Form(default=None),
     anthropic_api_key: str | None = Form(default=None),
@@ -317,7 +317,7 @@ async def start_run_with_supplementary_csv(
     req = RunRequest(
         review_yaml=modified_yaml,
         gemini_api_key=gemini_api_key,
-        deepseek_api_key=deepseek_api_key,
+        fireworks_api_key=fireworks_api_key,
         openrouter_api_key=openrouter_api_key,
         openai_api_key=openai_api_key,
         anthropic_api_key=anthropic_api_key,
@@ -473,16 +473,16 @@ async def generate_config_stream(req: _GenerateConfigRequest) -> StreamingRespon
         raise HTTPException(status_code=422, detail="research_question must not be empty")
 
     env_overrides: dict[str, str] = {}
-    if req.deepseek_api_key.strip():
-        env_overrides["DEEPSEEK_API_KEY"] = req.deepseek_api_key.strip()
+    if req.fireworks_api_key.strip():
+        env_overrides["FIREWORKS_API_KEY"] = req.fireworks_api_key.strip()
     elif req.gemini_api_key.strip():
         env_overrides["GEMINI_API_KEY"] = req.gemini_api_key.strip()
 
     cfg = _load_configs(settings_path="config/settings.yaml")[1]
     agent_cfg = cfg.agents.get("config_generation") or cfg.agents.get("search")
-    required_env_key = _env_key_for_model(agent_cfg.model) if agent_cfg is not None else "DEEPSEEK_API_KEY"
+    required_env_key = _env_key_for_model(agent_cfg.model) if agent_cfg is not None else "FIREWORKS_API_KEY"
     if required_env_key is None:
-        required_env_key = "DEEPSEEK_API_KEY"
+        required_env_key = "FIREWORKS_API_KEY"
 
     async with async_env_override_context(env_overrides):
         if not get_env(required_env_key):

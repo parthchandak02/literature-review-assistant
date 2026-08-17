@@ -7,7 +7,8 @@ used in config/settings.yaml (e.g. "google:", "anthropic:", "openai:").
 Structured output strategy per provider:
 - Gemini (google:, google-cloud:): NativeOutput -- uses responseSchema
   at the API level, equivalent to the previous responseJsonSchema behavior.
-- DeepSeek (deepseek:): StructuredDict with thinking disabled via extra_body,
+- DeepSeek (deepseek:) and Fireworks-hosted DeepSeek (fireworks:...deepseek...):
+  StructuredDict with thinking disabled via extra_body,
   because V4 models default to thinking mode and reject tool_choice=required.
 - All other providers: default ToolOutput -- uses tool calling to enforce schema.
 
@@ -63,8 +64,11 @@ def _is_gemini(model: str) -> bool:
     return model.startswith(_GEMINI_PREFIXES)
 
 
-def _is_deepseek(model: str) -> bool:
-    return model.startswith(_DEEPSEEK_PREFIX)
+def _needs_thinking_disabled(model: str) -> bool:
+    lowered = model.lower()
+    return model.startswith(_DEEPSEEK_PREFIX) or (
+        model.startswith("fireworks:") and "deepseek" in lowered
+    )
 
 
 def _model_settings(
@@ -76,7 +80,7 @@ def _model_settings(
 ) -> ModelSettings:
     """Build per-request ModelSettings, applying provider-specific structured-output fixes."""
     settings: ModelSettings = ModelSettings(temperature=temperature, timeout=timeout)
-    if structured and _is_deepseek(model):
+    if structured and _needs_thinking_disabled(model):
         settings["extra_body"] = _DEEPSEEK_DISABLE_THINKING_EXTRA_BODY
     return settings
 

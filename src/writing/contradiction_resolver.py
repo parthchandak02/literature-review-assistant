@@ -93,7 +93,7 @@ async def generate_contradiction_paragraph(
         logger.warning(
             "generate_contradiction_paragraph received api_key argument; explicit key injection is deprecated and ignored."
         )
-    if not get_env("GEMINI_API_KEY") and not get_env("DEEPSEEK_API_KEY") and not get_env("OPENROUTER_API_KEY"):
+    if not get_env("GEMINI_API_KEY") and not get_env("FIREWORKS_API_KEY") and not get_env("OPENROUTER_API_KEY"):
         return _fallback_paragraph(flags)
 
     prompt = _RESOLVER_PROMPT_TEMPLATE.format(contradiction_list=_format_contradiction_list(flags))

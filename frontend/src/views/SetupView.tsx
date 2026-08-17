@@ -19,7 +19,7 @@ export function SetupView({
   const queryClient = useQueryClient()
   const { data: history = [], error: historyError } = useHistory()
   const [researchQuestion, setResearchQuestion] = useState("")
-  const [pendingDeepseekKey, setPendingDeepseekKey] = useState("")
+  const [pendingFireworksKey, setPendingFireworksKey] = useState("")
   const [pendingCsvFile, setPendingCsvFile] = useState<File | null>(null)
   const [pendingCsvMode, setPendingCsvMode] = useState<"supplementary" | "masterlist">("supplementary")
   const [loadingHistoryId, setLoadingHistoryId] = useState<string | null>(null)
@@ -59,7 +59,7 @@ export function SetupView({
       <QuestionStage
         onGenerateRequested={(req) => {
           setResearchQuestion(req.question)
-          setPendingDeepseekKey(req.deepseekKey)
+          setPendingFireworksKey(req.fireworksKey)
           setPendingCsvFile(req.csvFile ?? null)
           setPendingCsvMode(req.csvMode)
           onGenerateDraft(req)
@@ -71,7 +71,7 @@ export function SetupView({
         loadError={loadError ?? historyLoadError}
         onClearError={() => setLoadError(null)}
         initialQuestion={researchQuestion}
-        initialDeepseekKey={pendingDeepseekKey}
+        initialFireworksKey={pendingFireworksKey}
         initialCsvFile={pendingCsvFile}
         initialCsvMode={pendingCsvMode}
       />

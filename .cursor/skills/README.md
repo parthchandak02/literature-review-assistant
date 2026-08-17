@@ -9,6 +9,7 @@ Canonical agent workflows live in `.cursor/skills/<name>/SKILL.md` only. No `.cu
 | Session bootstrap | `bootstrap` | `build-phase`, `research` | Lifecycle routing from `docs/CONTEXT.md`. |
 | PM2 restart (local ops) | `restart` | `bootstrap` | Backend/frontend/tunnel/prod-ui via `scripts/ops_pm2.sh`. |
 | Commit/push + hook repair | `commit` | `general-rules` | `commit` owns landing workflow; `general-rules` owns cross-cutting defaults. |
+| LLM provider / API key changes | `llm-provider` | `general-rules` | Fireworks routing, model ids, environment key plumbing. |
 | Cross-cutting defaults | `general-rules` | none | uv, ruff, diagnose/TDD, scripting, doc discipline. |
 | Replay/resume drill | `resume` | `lit-review` | Engineering replay after `src/` changes; `lit-review` for operator/WhatsApp flows. |
 | Skill authoring | `author` | `inception`, `general-rules` | `author` owns structure; `inception` extracts learnings. |
@@ -43,7 +44,7 @@ Canonical agent workflows live in `.cursor/skills/<name>/SKILL.md` only. No `.cu
 
 ## Collaboration / Meta
 
-- `grill`, `handoff`, `author`, `inception`, `advisor`, `ponytail`, `architecture`, `caveman`, `commit`, `restart`, `resume`
+- `grill`, `handoff`, `author`, `inception`, `advisor`, `ponytail`, `architecture`, `caveman`, `commit`, `restart`, `resume`, `llm-provider`
 
 ## Overlap Boundaries
 

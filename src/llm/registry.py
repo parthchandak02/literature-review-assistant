@@ -26,6 +26,7 @@ PREFIX_TO_ENV: dict[str, str] = {
     "mistral:": "MISTRAL_API_KEY",
     "cohere:": "CO_API_KEY",
     "deepseek:": "DEEPSEEK_API_KEY",
+    "fireworks:": "FIREWORKS_API_KEY",
     "openrouter:": "OPENROUTER_API_KEY",
 }
 
@@ -42,6 +43,7 @@ PREFIX_TO_PROVIDER_ID: dict[str, str] = {
     "mistral:": "mistral",
     "cohere:": "cohere",
     "deepseek:": "deepseek",
+    "fireworks:": "fireworks",
     # OpenRouter is an OpenAI-compatible gateway for many providers.
     "openrouter:": "openai",
 }
@@ -93,6 +95,10 @@ def _provider_with_api_key(provider_name: str, api_key: str | None) -> Provider[
         from pydantic_ai.providers.deepseek import DeepSeekProvider
 
         return DeepSeekProvider(api_key=api_key)
+    if provider_name == "fireworks":
+        from pydantic_ai.providers.fireworks import FireworksProvider
+
+        return FireworksProvider(api_key=api_key)
     if provider_name == "openrouter":
         from pydantic_ai.providers.openrouter import OpenRouterProvider
 
@@ -158,7 +164,7 @@ def required_env_keys_from_settings(settings: SettingsConfig) -> list[str]:
                 required.add(env_key)
 
     if not required:
-        required.add("DEEPSEEK_API_KEY")
+        required.add("FIREWORKS_API_KEY")
     return sorted(required)
 
 
@@ -177,10 +183,14 @@ def supports_native_image_generation(model: str) -> bool:
 def rate_tier_for_model(model: str) -> str:
     """Map model strings to rate-limit tiers (flash-lite / flash / pro)."""
     lowered = model.lower()
-    if any(token in lowered for token in ("flash-lite", "lite", "mini")):
+    if "minimax" in lowered:
+        return "pro"
+    if any(token in lowered for token in ("flash-lite", "lite")):
+        return "flash-lite"
+    if "mini" in lowered:
         return "flash-lite"
     if "deepseek-v4-pro" in lowered or ("-pro" in lowered and "deepseek" in lowered):
         return "pro"
-    if any(token in lowered for token in ("flash", "haiku", "sonnet", "deepseek-v4-flash")):
+    if any(token in lowered for token in ("flash", "haiku", "sonnet", "deepseek-v4-flash", "gpt-oss")):
         return "flash"
     return "pro"

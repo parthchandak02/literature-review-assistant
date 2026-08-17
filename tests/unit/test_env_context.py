@@ -25,9 +25,9 @@ async def test_concurrent_env_overrides_do_not_cross_contaminate() -> None:
     observed: dict[str, str | None] = {}
 
     async def worker(label: str, api_key: str) -> None:
-        async with async_env_override_context({"DEEPSEEK_API_KEY": api_key}):
+        async with async_env_override_context({"FIREWORKS_API_KEY": api_key}):
             await asyncio.sleep(0.02)
-            observed[label] = get_env("DEEPSEEK_API_KEY")
+            observed[label] = get_env("FIREWORKS_API_KEY")
 
     await asyncio.gather(
         worker("run-a", "key-for-run-a"),
@@ -58,24 +58,24 @@ async def test_os_getenv_does_not_see_task_local_overrides() -> None:
 def test_resolve_env_overrides_from_run_request() -> None:
     req = RunRequest(
         review_yaml=_minimal_review_yaml(),
-        deepseek_api_key="ds-task-key",
+        fireworks_api_key="fw-task-key",
         pubmed_email="user@example.com",
     )
     overrides = resolve_env_overrides(req)
-    assert overrides["DEEPSEEK_API_KEY"] == "ds-task-key"
+    assert overrides["FIREWORKS_API_KEY"] == "fw-task-key"
     assert overrides["PUBMED_EMAIL"] == "user@example.com"
     assert overrides["NCBI_EMAIL"] == "user@example.com"
 
 
 def test_missing_required_env_keys_uses_request_overrides_without_os_mutation() -> None:
     _, settings = load_configs(settings_path="config/settings.yaml")
-    saved = os.environ.pop("DEEPSEEK_API_KEY", None)
+    saved = os.environ.pop("FIREWORKS_API_KEY", None)
     try:
-        missing = missing_required_env_keys(settings, {"DEEPSEEK_API_KEY": "provided-in-request"})
-        assert "DEEPSEEK_API_KEY" not in missing
+        missing = missing_required_env_keys(settings, {"FIREWORKS_API_KEY": "provided-in-request"})
+        assert "FIREWORKS_API_KEY" not in missing
     finally:
         if saved is not None:
-            os.environ["DEEPSEEK_API_KEY"] = saved
+            os.environ["FIREWORKS_API_KEY"] = saved
 
 
 @pytest.mark.asyncio
@@ -112,7 +112,7 @@ async def test_start_run_does_not_write_request_keys_to_process_environ() -> Non
                 "/api/run",
                 json={
                     "review_yaml": yaml.safe_dump(review_payload),
-                    "deepseek_api_key": marker,
+                    "fireworks_api_key": marker,
                     "run_root": "/tmp/litreview_env_context_test",
                 },
             )
@@ -120,4 +120,4 @@ async def test_start_run_does_not_write_request_keys_to_process_environ() -> Non
 
     assert response.status_code == 200
     mock_start.assert_awaited()
-    assert os.environ.get("DEEPSEEK_API_KEY") != marker
+    assert os.environ.get("FIREWORKS_API_KEY") != marker

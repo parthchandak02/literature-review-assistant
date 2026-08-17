@@ -31,16 +31,22 @@ def test_parse_model_ref_handles_openrouter() -> None:
 
 
 def test_required_env_keys_from_settings_includes_agent_and_embed_models() -> None:
-    settings = _settings_with_models("deepseek:deepseek-v4-flash", embed_model="openai:text-embedding-3-small")
+    settings = _settings_with_models(
+        "fireworks:accounts/fireworks/models/deepseek-v4-flash-0731",
+        embed_model="openai:text-embedding-3-small",
+    )
     keys = required_env_keys_from_settings(settings)
-    assert "DEEPSEEK_API_KEY" in keys
+    assert "FIREWORKS_API_KEY" in keys
     assert "OPENAI_API_KEY" in keys
 
 
 def test_rate_tier_for_model_maps_flash_lite_and_flash() -> None:
     assert rate_tier_for_model("google:gemini-2.5-flash-lite") == "flash-lite"
-    assert rate_tier_for_model("deepseek:deepseek-v4-flash") == "flash"
-    assert rate_tier_for_model("deepseek:deepseek-v4-pro") == "pro"
+    assert rate_tier_for_model("fireworks:accounts/fireworks/models/deepseek-v4-flash-0731") == "flash"
+    assert rate_tier_for_model("fireworks:accounts/fireworks/models/deepseek-v4-pro") == "pro"
+    assert rate_tier_for_model("fireworks:accounts/fireworks/models/deepseek-v4-pro-0813") == "pro"
+    assert rate_tier_for_model("fireworks:accounts/fireworks/models/gpt-oss-120b") == "flash"
+    assert rate_tier_for_model("fireworks:accounts/fireworks/models/minimax-m3") == "pro"
     assert rate_tier_for_model("openai:gpt-5") == "pro"
 
 

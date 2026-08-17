@@ -46,6 +46,7 @@ def llm_available(settings: ReviewState | None = None, settings_cfg: SettingsCon
             bool(get_env(key))
             for key in (
                 "GEMINI_API_KEY",
+                "FIREWORKS_API_KEY",
                 "DEEPSEEK_API_KEY",
                 "OPENROUTER_API_KEY",
                 "OPENAI_API_KEY",

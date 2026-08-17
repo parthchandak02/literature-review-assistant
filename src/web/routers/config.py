@@ -14,6 +14,7 @@ router = APIRouter(prefix="/api/config", tags=["config"])
 
 _UI_KEY_TO_ENV: dict[str, str] = {
     "gemini": "GEMINI_API_KEY",
+    "fireworks": "FIREWORKS_API_KEY",
     "deepseek": "DEEPSEEK_API_KEY",
     "openrouter": "OPENROUTER_API_KEY",
     "openai": "OPENAI_API_KEY",
@@ -35,7 +36,12 @@ _UI_KEY_TO_ENV: dict[str, str] = {
 
 def _mask_secret(value: str) -> str:
     trimmed = (value or "").strip()
-    if not trimmed or trimmed.lower() in {"undefined", "your-deepseek-api-key", "your-gemini-api-key"}:
+    if not trimmed or trimmed.lower() in {
+        "undefined",
+        "your-deepseek-api-key",
+        "your-fireworks-api-key",
+        "your-gemini-api-key",
+    }:
         return ""
     if len(trimmed) <= 8:
         return "••••"
@@ -55,6 +61,7 @@ async def get_review_config() -> dict[str, str]:
 async def get_env_keys() -> dict[str, str]:
     return {
         "gemini": os.environ.get("GEMINI_API_KEY", ""),
+        "fireworks": os.environ.get("FIREWORKS_API_KEY", ""),
         "deepseek": os.environ.get("DEEPSEEK_API_KEY", ""),
         "openrouter": os.environ.get("OPENROUTER_API_KEY", ""),
         "openai": os.environ.get("OPENAI_API_KEY", ""),

@@ -27,7 +27,7 @@ function draftConfigFixture(
   return {
     request: {
       question: "Test question",
-      deepseekKey: "key",
+      fireworksKey: "key",
       csvMode: "supplementary",
       generationProfile: "standard",
     },

@@ -18,7 +18,7 @@ interface QuestionStageProps {
   loadError: string | null
   onClearError: () => void
   initialQuestion: string
-  initialDeepseekKey: string
+  initialFireworksKey: string
   initialCsvFile: File | null
   initialCsvMode: CsvMode
 }
@@ -32,13 +32,13 @@ export function QuestionStage({
   loadError,
   onClearError,
   initialQuestion,
-  initialDeepseekKey,
+  initialFireworksKey,
   initialCsvFile,
   initialCsvMode,
 }: QuestionStageProps) {
   const [question, setQuestion] = useState(initialQuestion)
   const [envStatus, setEnvStatus] = useState<EnvKeysStatus | null>(null)
-  const [requiredUiKeys, setRequiredUiKeys] = useState<string[]>(["deepseek"])
+  const [requiredUiKeys, setRequiredUiKeys] = useState<string[]>(["fireworks"])
   const [submitError, setSubmitError] = useState<string | null>(null)
 
   useEffect(() => {
@@ -56,11 +56,11 @@ export function QuestionStage({
   function hasRequiredCredentials(): boolean {
     const saved = loadApiKeys()
     const savedByName = (saved ?? {}) as Record<string, string>
-    const required = requiredUiKeys.length > 0 ? requiredUiKeys : ["deepseek"]
+    const required = requiredUiKeys.length > 0 ? requiredUiKeys : ["fireworks"]
     return required.every((key) => {
       const browserVal = String(savedByName[key] ?? "").trim()
       const envConfigured = envStatus?.providers[key]?.configured ?? false
-      const initialVal = key === "deepseek" ? initialDeepseekKey?.trim() ?? "" : ""
+      const initialVal = key === "fireworks" ? initialFireworksKey?.trim() ?? "" : ""
       return !!browserVal || envConfigured || !!initialVal
     })
   }
@@ -93,10 +93,10 @@ export function QuestionStage({
       return
     }
     setSubmitError(null)
-    const savedKey = loadApiKeys()?.deepseek ?? ""
+    const savedKey = loadApiKeys()?.fireworks ?? ""
     onGenerateRequested({
       question: question.trim(),
-      deepseekKey: envStatus?.server_ready ? "" : (initialDeepseekKey || savedKey).trim(),
+      fireworksKey: envStatus?.server_ready ? "" : (initialFireworksKey || savedKey).trim(),
       csvFile: csvFile ?? undefined,
       csvMode,
       generationProfile: activeProfile,
