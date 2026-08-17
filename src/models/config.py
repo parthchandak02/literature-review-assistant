@@ -1043,7 +1043,8 @@ class ExtractionConfig(BaseModel):
     """Full-text retrieval and multi-modal extraction settings.
 
     Controls whether the pipeline fetches actual paper full text (vs. abstract-only)
-    and whether Gemini vision is used to extract quantitative data from PDF tables.
+    and whether the configured multimodal PDF vision model is used to extract
+    quantitative data from PDF tables.
     """
 
     sciencedirect_full_text: bool = Field(
@@ -1116,15 +1117,16 @@ class ExtractionConfig(BaseModel):
     use_pdf_vision: bool = Field(
         default=True,
         description=(
-            "When a PDF is available (from Unpaywall), send it to the Gemini vision model "
-            "to extract quantitative outcome data from tables. Merged with text extraction "
+            "When a PDF is available (from Unpaywall), send it to extraction.pdf_vision_model "
+            "(multimodal; e.g. Fireworks MiniMax M3) to extract quantitative outcome data from tables. "
+            "Merged with text extraction "
             "results; vision takes precedence for numeric fields (effect_size, CI, p-value). "
             "Disable for offline/cost-sensitive runs."
         ),
     )
     pdf_vision_model: str = Field(
         default="",
-        description="Gemini model used for PDF table vision extraction.",
+        description="Multimodal model used for PDF table vision extraction (see extraction.pdf_vision_model).",
     )
     full_text_min_chars: int = Field(
         default=500,

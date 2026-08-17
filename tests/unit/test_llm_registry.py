@@ -42,6 +42,9 @@ def test_required_env_keys_from_settings_includes_agent_and_embed_models() -> No
 
 def test_rate_tier_for_model_maps_flash_lite_and_flash() -> None:
     assert rate_tier_for_model("google:gemini-2.5-flash-lite") == "flash-lite"
+    assert rate_tier_for_model("google:gemini-2.5-flash") == "flash"
+    assert rate_tier_for_model("google:gemini-3.1-flash-image-preview") == "flash"
+    assert rate_tier_for_model("openai:gpt-4o-mini") == "flash-lite"
     assert rate_tier_for_model("fireworks:accounts/fireworks/models/deepseek-v4-flash-0731") == "flash"
     assert rate_tier_for_model("fireworks:accounts/fireworks/models/deepseek-v4-pro") == "pro"
     assert rate_tier_for_model("fireworks:accounts/fireworks/models/deepseek-v4-pro-0813") == "pro"

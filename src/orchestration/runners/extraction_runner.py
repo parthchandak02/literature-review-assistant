@@ -619,12 +619,7 @@ async def run_extraction_quality_node(state: ReviewState, ctx: GraphRunContext[R
                                 merge_outcomes,
                             )
 
-                            vision_model = (
-                                extraction_cfg.pdf_vision_model.replace("google:", "")
-                                .replace("google-cloud:", "")
-                                .replace("google-gla:", "")
-                                .replace("google-vertex:", "")
-                            )
+                            vision_model = extraction_cfg.pdf_vision_model.strip()
                             vision_outcomes = await extract_tables_from_pdf(
                                 ft_result.pdf_bytes,
                                 model_name=vision_model,

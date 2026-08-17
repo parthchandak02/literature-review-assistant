@@ -1,4 +1,4 @@
-"""Multimodal PDF table extraction (Gemini vision).
+"""Multimodal PDF table extraction via PydanticAI vision.
 
 Full-text retrieval lives in ``src.fulltext``; this module re-exports compatibility
 symbols for legacy imports.
@@ -119,8 +119,8 @@ async def extract_tables_from_pdf(
 ) -> list[OutcomeRecord]:
     """Extract quantitative outcome tables from PDF bytes via PydanticAI multimodal.
 
-    Uses PydanticAI BinaryContent to pass raw PDF bytes to Gemini vision
-    natively (no deprecated google-generativeai SDK, no run_in_executor).
+    Uses PydanticAI BinaryContent to pass raw PDF bytes to the configured
+    multimodal model (extraction.pdf_vision_model or agents.table_extraction).
 
     Args:
         pdf_bytes: Raw PDF bytes. If None, returns empty list.
