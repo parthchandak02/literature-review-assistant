@@ -87,7 +87,7 @@ The setup page uses one question-first flow:
 
 A secondary "Paste YAML directly" link is also available for pasting a raw config from a previous run or external source.
 
-`DEEPSEEK_API_KEY` is required (default LLM in `config/settings.yaml`). `GEMINI_API_KEY` is optional and only needed if you switch models back to `google:` in settings. The setup form also backfills any blank key fields from `GET /api/config/env-keys`, so keys already present in the local backend `.env` do not need to be retyped.
+`FIREWORKS_API_KEY` is required (default LLM in `config/settings.yaml`). `GEMINI_API_KEY` is also required for diagram image generation agents. The setup form also backfills any blank key fields from `GET /api/config/env-keys`, so keys already present in the local backend `.env` do not need to be retyped.
 
 The sidebar shows all your runs (live and historical) with status colors (emerald = completed, violet = running, red = error, amber = cancelled) and a stats strip (papers found, papers included, artifacts, cost). Selecting a run opens its dashboard with five base tabs in workflow order: Config (research question + review.yaml), Activity (phase timeline + event log), Data, Cost, and Results. Results uses category navigation (Manuscript, Figures, Quality, Files, References) as defined in `docs/UI.md`. A conditional Review Screening tab appears only when the run pauses for human-in-the-loop screening approval (`awaiting_review`). The floating Costs button (bottom-right) opens global LLM spend history and CSV export across registry-linked runs (`GET /api/history/costs/aggregates` and `GET /api/history/costs/export`), separate from the per-run Cost tab. To resume from a specific phase, use the Activity phase timeline (tap once to arm, tap again to confirm) or use the sidebar Resume button for default auto-resume. Non-running runs can be moved manually between `IN PROGRESS`, `COMPLETED`, and `ARCHIVED`; restore returns them to `IN PROGRESS`, and permanent delete remains an archived-item overflow action.
 
@@ -118,10 +118,10 @@ cp .env.example .env
 Edit `.env`:
 
 ```bash
-DEEPSEEK_API_KEY=your-key-here              # Required -- default LLM (get at platform.deepseek.com)
+FIREWORKS_API_KEY=your-key-here              # Required -- default LLM (get at fireworks.ai)
 OPENALEX_API_KEY=your-key-here            # Required if openalex is enabled (default review template includes openalex)
 PUBMED_EMAIL=your-email@example.com       # Strongly recommended for PubMed
-GEMINI_API_KEY=your-key-here              # Optional -- only if you switch models to google: in config/settings.yaml
+GEMINI_API_KEY=your-key-here              # Required for diagram image agents (google: models in settings.yaml)
 PUBMED_API_KEY=your-key-here              # Optional -- faster PubMed rate limits
 IEEE_API_KEY=your-key-here                # Optional -- IEEE Xplore access
 PERPLEXITY_SEARCH_API_KEY=your-key-here   # Optional -- auxiliary discovery
@@ -179,10 +179,10 @@ Your `submission/` folder is ready.
 
 | Key | Where to Get | Required? |
 |-----|-------------|-----------|
-| `DEEPSEEK_API_KEY` | [platform.deepseek.com](https://platform.deepseek.com/) | Yes (default LLM) |
+| `FIREWORKS_API_KEY` | [fireworks.ai](https://fireworks.ai/) | Yes (default LLM) |
 | `OPENALEX_API_KEY` | [openalex.org](https://openalex.org/sign-up) | Conditionally required (required for the default template unless `openalex` is removed from `target_databases`) |
 | `PUBMED_EMAIL` | Any email address | Recommended (PubMed identification/rate policy) |
-| `GEMINI_API_KEY` | [ai.google.dev](https://ai.google.dev) | No (only if you use `google:` models in `config/settings.yaml`) |
+| `GEMINI_API_KEY` | [ai.google.dev](https://ai.google.dev) | Yes (diagram image agents use `google:` models in `config/settings.yaml`) |
 | `PUBMED_API_KEY` | [ncbi.nlm.nih.gov/account](https://www.ncbi.nlm.nih.gov/account/settings/) | No (higher rate limits) |
 | `IEEE_API_KEY` | [developer.ieee.org](https://developer.ieee.org) | No |
 | `PERPLEXITY_SEARCH_API_KEY` | [docs.perplexity.ai](https://docs.perplexity.ai) | No |
@@ -193,11 +193,11 @@ Your `submission/` folder is ready.
 | `WOS_API_KEY` | [Clarivate developer portal](https://developer.clarivate.com) | No (Web of Science Starter API, 300 req/day free) |
 | `EMBASE_API_KEY` | Elsevier institutional (apisupport@elsevier.com) | No (Embase connector) |
 
-The default DeepSeek V4 models in `config/settings.yaml` are sufficient for most reviews. A full run typically costs under $5.
+The default Fireworks-hosted DeepSeek V4 models in `config/settings.yaml` are sufficient for most reviews. A typical 3,000-paper run costs roughly $10-15 on Fireworks serverless pricing (extraction and quality assessment dominate; screening is under 1% of LLM spend with batch pre-rank enabled).
 
 Web UI note: the browser setup form supports the most common connector keys. Some optional connectors (for example Embase and CORE retrieval) currently read credentials from the backend environment (`.env`) rather than per-run browser payload fields.
 
-**Cost control tip:** Screening is usually the biggest cost driver. In default batch mode (`reviewer_batch_size: 10`), one dual-reviewer call can process multiple papers; in per-paper mode (`reviewer_batch_size: 0`), it calls the LLM once per paper. To cap costs on exploratory runs, set `max_llm_screen` in `config/settings.yaml`:
+**Cost control tip:** Extraction and quality assessment are the main LLM cost drivers on Fireworks. Screening is cheap thanks to batch pre-rank (`batch_screen_enabled`) and the `max_llm_screen` cap. In default batch mode (`reviewer_batch_size: 10`), one dual-reviewer call can process multiple papers; in per-paper mode (`reviewer_batch_size: 0`), it calls the LLM once per paper. To cap screening volume on exploratory runs, set `max_llm_screen` in `config/settings.yaml`:
 
 ```yaml
 screening:

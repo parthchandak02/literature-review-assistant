@@ -31,7 +31,7 @@ _logger = logging.getLogger(__name__)
 class RunRequest(BaseModel):
     review_yaml: str
     gemini_api_key: str = ""
-    deepseek_api_key: str | None = None
+    fireworks_api_key: str | None = None
     openrouter_api_key: str | None = None
     openai_api_key: str | None = None
     anthropic_api_key: str | None = None
@@ -106,7 +106,7 @@ class _NoteBody(BaseModel):
 
 class _GenerateConfigRequest(BaseModel):
     research_question: str
-    deepseek_api_key: str = ""
+    fireworks_api_key: str = ""
     gemini_api_key: str = ""
     generation_profile: Literal["standard", "health_sdg"] = "standard"
 

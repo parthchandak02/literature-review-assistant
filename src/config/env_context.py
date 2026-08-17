@@ -52,8 +52,8 @@ def resolve_env_overrides(req: RunRequest) -> dict[str, str]:
     overrides: dict[str, str] = {}
     if req.gemini_api_key:
         overrides["GEMINI_API_KEY"] = req.gemini_api_key
-    if req.deepseek_api_key:
-        overrides["DEEPSEEK_API_KEY"] = req.deepseek_api_key
+    if req.fireworks_api_key:
+        overrides["FIREWORKS_API_KEY"] = req.fireworks_api_key
     if req.openrouter_api_key:
         overrides["OPENROUTER_API_KEY"] = req.openrouter_api_key
     if req.openai_api_key:

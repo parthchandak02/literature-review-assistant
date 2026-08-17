@@ -7,7 +7,7 @@ export interface StoredLiveRun {
 
 export interface StoredApiKeys {
   gemini: string
-  deepseek: string
+  fireworks: string
   openrouter: string
   openai: string
   anthropic: string
@@ -56,7 +56,7 @@ export function clearLiveRun(): void {
 export function emptyStoredApiKeys(): StoredApiKeys {
   return {
     gemini: "",
-    deepseek: "",
+    fireworks: "",
     openrouter: "",
     openai: "",
     anthropic: "",

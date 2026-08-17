@@ -31,7 +31,7 @@ export type ReviewEvent = (
 
 export interface RunRequest {
   review_yaml: string
-  deepseek_api_key: string
+  fireworks_api_key: string
   gemini_api_key?: string
   openrouter_api_key?: string
   openai_api_key?: string

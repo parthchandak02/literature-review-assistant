@@ -18,7 +18,7 @@ export interface EnvKeysStatus {
 }
 
 const LLM_UI_LABELS: Record<string, string> = {
-  deepseek: "DeepSeek",
+  fireworks: "Fireworks AI",
   gemini: "Gemini",
   openrouter: "OpenRouter",
   openai: "OpenAI",
@@ -44,7 +44,7 @@ export async function getDefaultReviewConfig(): Promise<string> {
  */
 export async function generateConfigStream(
   researchQuestion: string,
-  deepseekApiKey: string,
+  fireworksApiKey: string,
   generationProfile: "standard" | "health_sdg",
   onProgress: (step: string, metadata?: Record<string, unknown>) => void,
 ): Promise<string> {
@@ -53,7 +53,7 @@ export async function generateConfigStream(
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       research_question: researchQuestion,
-      deepseek_api_key: deepseekApiKey,
+      fireworks_api_key: fireworksApiKey,
       generation_profile: generationProfile,
     }),
   })
@@ -133,7 +133,7 @@ export function buildRunRequest(
 ): RunRequest {
   return {
     review_yaml: reviewYaml,
-    deepseek_api_key: keys.deepseek,
+    fireworks_api_key: keys.fireworks,
     gemini_api_key: keys.gemini || undefined,
     openrouter_api_key: keys.openrouter || undefined,
     openai_api_key: keys.openai || undefined,
@@ -172,9 +172,9 @@ export async function fetchEnvKeys(): Promise<StoredApiKeys> {
 export async function fetchRequiredLlmUiKeys(): Promise<string[]> {
   try {
     const payload = await apiFetch<{ ui_keys?: string[] }>("/config/env-keys/required")
-    return payload.ui_keys?.length ? payload.ui_keys : ["deepseek"]
+    return payload.ui_keys?.length ? payload.ui_keys : ["fireworks"]
   } catch {
-    return ["deepseek"]
+    return ["fireworks"]
   }
 }
 

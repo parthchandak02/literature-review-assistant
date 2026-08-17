@@ -10,6 +10,8 @@ from pathlib import Path
 
 def _classify_model(model: str) -> str:
     lowered = model.lower()
+    if lowered.startswith("fireworks:"):
+        return "fireworks"
     if lowered.startswith("deepseek:") or "deepseek" in lowered:
         return "deepseek"
     if lowered.startswith("google:") or "gemini" in lowered or lowered.startswith("google-"):

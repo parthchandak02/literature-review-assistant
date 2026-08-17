@@ -39,6 +39,16 @@ async def test_complete_uses_native_output_for_google(monkeypatch) -> None:
     assert isinstance(_FakeAgent.captured_output_type, NativeOutput)
 
 
+def test_model_settings_disables_thinking_for_fireworks_deepseek_structured() -> None:
+    settings = _model_settings(
+        temperature=0.1,
+        timeout=60.0,
+        model="fireworks:accounts/fireworks/models/deepseek-v4-flash-0731",
+        structured=True,
+    )
+    assert settings.get("extra_body") == {"thinking": {"type": "disabled"}}
+
+
 def test_model_settings_disables_thinking_for_deepseek_structured() -> None:
     settings = _model_settings(
         temperature=0.1,

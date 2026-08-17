@@ -38,6 +38,7 @@ If sources conflict, follow this order and verify in code.
 - DB/runtime state work -> `docs/ARCHITECTURE.md#persistence`
 - Frontend flow work -> `docs/UI.md`
 - LLM/cost work -> `docs/ARCHITECTURE.md#llm-and-costs`
+- LLM provider or API key changes -> `.cursor/skills/llm-provider/SKILL.md`
 - Validation/readiness -> `docs/TASKS.md`
 - Scripts / ops commands -> `docs/SCRIPTS.md` or `./scripts/help.sh`
 

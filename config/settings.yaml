@@ -1,7 +1,9 @@
 llm:
-  # DeepSeek V4 routing:
-  # - deepseek-v4-flash: bulk/high-throughput stages
-  # - deepseek-v4-pro: higher-quality extraction/writing/quality stages
+  # Fireworks AI task-tier routing (serverless; verify ids via live API):
+  # - deepseek-v4-flash-0731: bulk screening, batch rank, HyDE, rerank
+  # - gpt-oss-120b: low-volume tie-breakers (adjudicator)
+  # - deepseek-v4-pro-0813: extraction, RoB, writing, humanizer
+  # - minimax-m3: PDF vision table extraction (multimodal; not text-only DeepSeek)
   # Values are conservative relative to provider rate limits.
   flash_rpm: 60
   flash_lite_rpm: 120
@@ -11,67 +13,94 @@ llm:
   # Pricing fallback for models that may not yet exist in genai-prices.
   # Key is bare model ref (without provider prefix).
   price_fallback_per_mtok:
+    deepseek-v4-flash-0731:
+      input_per_mtok: 0.14
+      output_per_mtok: 0.28
     deepseek-v4-flash:
       input_per_mtok: 0.14
       output_per_mtok: 0.28
+    accounts/fireworks/models/deepseek-v4-flash-0731:
+      input_per_mtok: 0.14
+      output_per_mtok: 0.28
+    accounts/fireworks/models/deepseek-v4-pro:
+      input_per_mtok: 1.74
+      output_per_mtok: 3.48
     deepseek-v4-pro:
-      input_per_mtok: 0.435
-      output_per_mtok: 0.87
+      input_per_mtok: 1.74
+      output_per_mtok: 3.48
+    accounts/fireworks/models/deepseek-v4-pro-0813:
+      input_per_mtok: 1.32
+      output_per_mtok: 3.96
+    deepseek-v4-pro-0813:
+      input_per_mtok: 1.32
+      output_per_mtok: 3.96
+    accounts/fireworks/models/minimax-m3:
+      input_per_mtok: 0.30
+      output_per_mtok: 1.20
+    minimax-m3:
+      input_per_mtok: 0.30
+      output_per_mtok: 1.20
+    accounts/fireworks/models/gpt-oss-120b:
+      input_per_mtok: 0.15
+      output_per_mtok: 0.60
+    gpt-oss-120b:
+      input_per_mtok: 0.15
+      output_per_mtok: 0.60
 
 agents:
   screening_reviewer_a:
-    model: "deepseek:deepseek-v4-flash"
+    model: "fireworks:accounts/fireworks/models/deepseek-v4-flash-0731"
     temperature: 0.1
   screening_reviewer_b:
-    model: "deepseek:deepseek-v4-flash"
+    model: "fireworks:accounts/fireworks/models/deepseek-v4-flash-0731"
     temperature: 0.1
   screening_adjudicator:
-    model: "deepseek:deepseek-v4-flash"
+    model: "fireworks:accounts/fireworks/models/gpt-oss-120b"
     temperature: 0.2
   search:
-    model: "deepseek:deepseek-v4-flash"
+    model: "fireworks:accounts/fireworks/models/deepseek-v4-flash-0731"
     temperature: 0.1
   extraction:
-    model: "deepseek:deepseek-v4-pro"
+    model: "fireworks:accounts/fireworks/models/deepseek-v4-pro-0813"
     temperature: 0.1
   quality_assessment:
-    model: "deepseek:deepseek-v4-pro"
+    model: "fireworks:accounts/fireworks/models/deepseek-v4-pro-0813"
     temperature: 0.2
   study_type_detection:
-    model: "deepseek:deepseek-v4-flash"
+    model: "fireworks:accounts/fireworks/models/deepseek-v4-flash-0731"
     temperature: 0.2
   writing:
-    model: "deepseek:deepseek-v4-pro"
+    model: "fireworks:accounts/fireworks/models/deepseek-v4-pro-0813"
     temperature: 0.2
   abstract_generation:
-    model: "deepseek:deepseek-v4-flash"
+    model: "fireworks:accounts/fireworks/models/deepseek-v4-flash-0731"
     temperature: 0.2
   humanizer:
-    model: "deepseek:deepseek-v4-pro"
+    model: "fireworks:accounts/fireworks/models/deepseek-v4-pro-0813"
     temperature: 0.3
   contradiction_resolver:
-    model: "deepseek:deepseek-v4-pro"
+    model: "fireworks:accounts/fireworks/models/deepseek-v4-pro-0813"
     temperature: 0.2
   criteria_refinement:
-    model: "deepseek:deepseek-v4-pro"
+    model: "fireworks:accounts/fireworks/models/deepseek-v4-pro-0813"
     temperature: 0.2
   table_extraction:
-    model: "deepseek:deepseek-v4-flash"
+    model: "fireworks:accounts/fireworks/models/deepseek-v4-flash-0731"
     temperature: 0.1
   config_generation:
-    model: "deepseek:deepseek-v4-flash"
+    model: "fireworks:accounts/fireworks/models/deepseek-v4-flash-0731"
     temperature: 0.3
   batch_screener:
-    model: "deepseek:deepseek-v4-flash"
+    model: "fireworks:accounts/fireworks/models/deepseek-v4-flash-0731"
     temperature: 0.1
   concept_diagrams:
-    model: "deepseek:deepseek-v4-flash"
+    model: "fireworks:accounts/fireworks/models/deepseek-v4-flash-0731"
     temperature: 0.3
   research_diagram_preparer:
-    model: "deepseek:deepseek-v4-flash"
+    model: "fireworks:accounts/fireworks/models/deepseek-v4-flash-0731"
     temperature: 0.2
   research_diagram_placement:
-    model: "deepseek:deepseek-v4-flash"
+    model: "fireworks:accounts/fireworks/models/deepseek-v4-flash-0731"
     temperature: 0.1
   # ImageGenerationTool requires a Google image-capable model (not DeepSeek chat).
   research_diagram_drawing:
@@ -81,10 +110,10 @@ agents:
     model: "google:gemini-2.5-flash"
     temperature: 0.1
   narrative:
-    model: "deepseek:deepseek-v4-flash"
+    model: "fireworks:accounts/fireworks/models/deepseek-v4-flash-0731"
     temperature: 0.2
   citation_matching:
-    model: "deepseek:deepseek-v4-flash"
+    model: "fireworks:accounts/fireworks/models/deepseek-v4-flash-0731"
     temperature: 0.0
 
 diagram_generation:
@@ -187,7 +216,7 @@ dual_review:
   enabled: true
   kappa_warning_threshold: 0.4
   # reviewer_b_model: overridden via agents.screening_reviewer_b.model above.
-  # Reviewer A/B and adjudicator use deepseek-v4-flash for high-throughput screening.
+  # Reviewer A/B use flash-0731; adjudicator uses gpt-oss-120b for disagreement tie-breaks.
 
 gates:
   profile: "strict"
@@ -245,9 +274,9 @@ rag:
   chunk_max_words: 400
   chunk_overlap_sentences: 2
   use_hyde: true
-  hyde_model: "deepseek:deepseek-v4-flash"
+  hyde_model: "fireworks:accounts/fireworks/models/deepseek-v4-flash-0731"
   rerank: true
-  reranker_model: "deepseek:deepseek-v4-flash"
+  reranker_model: "fireworks:accounts/fireworks/models/deepseek-v4-flash-0731"
   candidate_k: 20      # Retrieved per section before reranking
   final_k: 8           # Final context chunks injected into writing prompt
   min_chunks_per_section: 1
@@ -318,7 +347,8 @@ extraction:
   openalex_content_full_text: true  # enabled; requires OPENALEX_API_KEY in .env
   crossref_links_full_text: true
   use_pdf_vision: true
-  pdf_vision_model: "deepseek:deepseek-v4-pro"
+  # DeepSeek V4 chat models are text-only; MiniMax M3 is serverless multimodal (512k ctx).
+  pdf_vision_model: "fireworks:accounts/fireworks/models/minimax-m3"
   full_text_min_chars: 500
   # Papers extracted concurrently; each paper's classify+extract+RoB steps run sequentially within it.
   extraction_concurrency: 4

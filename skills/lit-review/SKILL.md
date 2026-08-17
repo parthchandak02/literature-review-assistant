@@ -165,8 +165,8 @@ Re-create or resume the cron job for the same workflow id if monitoring should c
 - Use pipeline-generated writing; do not draft manuscript sections in chat.
 - Never invent citekeys; citations must come from run artifacts.
 - **Web of Science 512:** remove `web_of_science` from `target_databases` in `config/review.yaml` and `--fresh` if blocked.
-- **Protocol generation** after search can idle 60–90s (DeepSeek pro) — do not kill; wait 2–3 min.
+- **Protocol generation** after search can idle 60–90s (Fireworks pro tier) — do not kill; wait 2–3 min.
 - **Resume re-runs connectors** — remove slow/failing connectors before resume.
-- **DeepSeek split:** flash = screening/search; pro = extraction/writing/protocol (60–120s per call).
+- **Fireworks task tiers:** flash-0731 = bulk screening/search; gpt-oss-120b = adjudicator; pro-0813 = extraction/writing/RoB; minimax-m3 = PDF vision (60–120s per pro call).
 
 More edge cases: `references/session-troubleshooting.md`.

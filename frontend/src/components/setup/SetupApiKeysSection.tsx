@@ -11,10 +11,10 @@ interface ApiKeysProps {
 
 export function SetupApiKeysSection({ keys, onChange, embedded }: ApiKeysProps) {
   const [expanded, setExpanded] = useState(false)
-  const [showDeepseek, setShowDeepseek] = useState(false)
+  const [showFireworks, setShowFireworks] = useState(false)
 
   const fields: { id: keyof StoredApiKeys; label: string; placeholder: string; required?: boolean }[] = [
-    { id: "deepseek", label: "DeepSeek API Key", placeholder: "sk-...", required: true },
+    { id: "fireworks", label: "Fireworks AI API Key", placeholder: "fw_...", required: true },
     { id: "gemini", label: "Gemini API Key", placeholder: "optional -- AIza..." },
     { id: "openrouter", label: "OpenRouter API Key", placeholder: "optional -- sk-or-v1-..." },
     { id: "openai", label: "OpenAI API Key", placeholder: "optional -- sk-..." },
@@ -38,26 +38,36 @@ export function SetupApiKeysSection({ keys, onChange, embedded }: ApiKeysProps) 
 
   const formContent = (
     <div className={embedded ? "space-y-3" : "px-4 py-4 space-y-3"}>
-      {/* DeepSeek key -- always shown */}
+      {/* Fireworks key -- always shown */}
       <div>
-        <label className="block text-xs font-medium text-muted mb-1.5">
-          {primaryField.label} <span className="text-intent-danger">*</span>
-        </label>
+        <div className="flex items-center justify-between mb-1.5">
+          <label className="block text-xs font-medium text-muted">
+            {primaryField.label} <span className="text-intent-danger">*</span>
+          </label>
+          <a
+            href="https://fireworks.ai/"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-[11px] text-intent-primary hover:underline"
+          >
+            Get key
+          </a>
+        </div>
         <div className="relative">
           <Input
-            type={showDeepseek ? "text" : "password"}
-            value={keys.deepseek}
-            onChange={(e) => onChange({ ...keys, deepseek: e.target.value })}
+            type={showFireworks ? "text" : "password"}
+            value={keys.fireworks}
+            onChange={(e) => onChange({ ...keys, fireworks: e.target.value })}
             placeholder={primaryField.placeholder}
             autoComplete="off"
             className="pr-9 h-9 text-xs bg-background border-border text-foreground placeholder:text-muted focus-visible:ring-intent-primary-border"
           />
           <button
             type="button"
-            onClick={() => setShowDeepseek((v) => !v)}
+            onClick={() => setShowFireworks((v) => !v)}
             className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted hover:text-foreground transition-colors"
           >
-            {showDeepseek ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
+            {showFireworks ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
           </button>
         </div>
       </div>
@@ -99,7 +109,7 @@ export function SetupApiKeysSection({ keys, onChange, embedded }: ApiKeysProps) 
       <div className="flex items-center gap-2 px-4 py-3 border-b border-border">
         <Key className="h-3.5 w-3.5 text-muted shrink-0" />
         <span className="text-xs font-semibold text-foreground flex-1">API Keys</span>
-        {!keys.deepseek && (
+        {!keys.fireworks && (
           <span className="text-xs text-intent-danger font-medium">At least one LLM key required</span>
         )}
       </div>

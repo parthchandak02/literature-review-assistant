@@ -26,7 +26,17 @@ Copy example
 \.gitignore:[0-9]+:v[e]nv/
 Gemini API key is required
 GET /api/config/env-keys
+env-keys
 credentials from the backend environment
 PORT=8001
 [e]nv\.example
 Edit `\.[e]nv`:
+# llm-provider skill (operator docs; not credentials)
+llm-provider/SKILL
+Never commit the local dotenv
+Operator local dotenv
+Using \.[e]nv
+Server \.[e]nv is active
+Keys in <code
+configured on the server
+"source": "env"
