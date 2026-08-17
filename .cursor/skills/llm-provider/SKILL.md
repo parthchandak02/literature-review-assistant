@@ -24,7 +24,7 @@ agents.*.model  →  src/llm/registry.py  →  environment key + PydanticAI prov
 | Diagram images | Native image generation + vision critique | `agents.research_diagram_drawing`, `agents.research_diagram_critic` | `GEMINI_API_KEY` |
 | Embeddings | Local dense retrieval | `rag.embed_model` | none (local) |
 
-Example tier strings today (verify live before shipping): flash bulk uses a dated Fireworks id like `deepseek-v4-flash-0731`; quality uses `deepseek-v4-pro`; PDF vision uses a **vision-capable** Fireworks model (not text-only DeepSeek chat).
+Example tier strings today (verify live before shipping): flash bulk uses a dated Fireworks id like `deepseek-v4-flash-0731`; quality uses `deepseek-v4-pro-0813`; adjudicator may use `gpt-oss-120b`; PDF vision uses a **vision-capable** Fireworks model such as `minimax-m3` (not text-only DeepSeek chat).
 
 Fireworks base URL: `https://api.fireworks.ai/inference/v1` (OpenAI-compatible). Key: `FIREWORKS_API_KEY` (`fw_...`).
 
@@ -32,7 +32,7 @@ Fireworks base URL: `https://api.fireworks.ai/inference/v1` (OpenAI-compatible).
 
 **Modality caveat:** `extraction.pdf_vision_model` must support multimodal input (PDF/image). Text-only chat models (e.g. DeepSeek V4 Pro) will fail or silently skip vision extraction.
 
-**Cost fallback caveat:** `llm.price_fallback_per_mtok` must use **Fireworks serverless** rates when routing through `fireworks:`, not DeepSeek-direct API rates (Pro tier is ~4x higher on Fireworks).
+**Cost fallback caveat:** `llm.price_fallback_per_mtok` must use **Fireworks serverless** rates when routing through `fireworks:`, not DeepSeek-direct API rates. Rates differ by model id and host; verify against [Fireworks pricing](https://docs.fireworks.ai/serverless/pricing) when adding fallbacks.
 
 ## Workflow checklist
 

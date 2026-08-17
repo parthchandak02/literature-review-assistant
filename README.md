@@ -193,7 +193,7 @@ Your `submission/` folder is ready.
 | `WOS_API_KEY` | [Clarivate developer portal](https://developer.clarivate.com) | No (Web of Science Starter API, 300 req/day free) |
 | `EMBASE_API_KEY` | Elsevier institutional (apisupport@elsevier.com) | No (Embase connector) |
 
-The default Fireworks-hosted DeepSeek V4 models in `config/settings.yaml` are sufficient for most reviews. A typical 3,000-paper run costs roughly $10-15 on Fireworks serverless pricing (extraction and quality assessment dominate; screening is under 1% of LLM spend with batch pre-rank enabled).
+The default Fireworks task-tier models in `config/settings.yaml` (flash-0731 bulk, gpt-oss-120b adjudicator, pro-0813 quality, minimax-m3 PDF vision) are sufficient for most reviews. A typical 3,000-paper run is on the order of $10-15 on Fireworks serverless pricing; check the per-run Cost tab for actual spend (extraction and quality dominate; screening is under 1% with batch pre-rank).
 
 Web UI note: the browser setup form supports the most common connector keys. Some optional connectors (for example Embase and CORE retrieval) currently read credentials from the backend environment (`.env`) rather than per-run browser payload fields.
 

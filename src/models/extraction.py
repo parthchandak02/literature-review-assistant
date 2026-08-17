@@ -70,7 +70,7 @@ class ExtractionRecord(BaseModel):
             "landing_page_pdf",  # PDF discovered from publisher landing pages
             "landing_page_text",  # HTML/text discovered from publisher landing pages
             "publisher_direct_pdf",  # direct PDF bytes from publisher landing pages
-            "pdf_vision",  # table data extracted via Gemini vision from PDF
+            "pdf_vision",  # table data extracted via multimodal PDF vision
             "hybrid",  # merge of text-LLM and PDF-vision outcomes
             "heuristic",  # rule-based extraction fallback
         ]

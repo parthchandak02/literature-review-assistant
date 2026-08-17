@@ -185,9 +185,9 @@ def rate_tier_for_model(model: str) -> str:
     lowered = model.lower()
     if "minimax" in lowered:
         return "pro"
-    if any(token in lowered for token in ("flash-lite", "lite")):
+    if "flash-lite" in lowered or lowered.endswith("-lite"):
         return "flash-lite"
-    if "mini" in lowered:
+    if "4o-mini" in lowered:
         return "flash-lite"
     if "deepseek-v4-pro" in lowered or ("-pro" in lowered and "deepseek" in lowered):
         return "pro"
