@@ -735,9 +735,32 @@ async def run_screening_node(state: ReviewState, ctx: GraphRunContext[ReviewStat
         stage1_survivors = [p for p in meta_acceptable if p.paper_id in include_ids]
 
         # --- Intermediate checkpoint guard for fulltext PDF retrieval + LLM ---
+        stage2: list = []
+        fulltext_screened_count = 0
         _existing_cps = await repository.get_checkpoints(state.workflow_id)
-        if "phase_3b_fulltext" in _existing_cps:
+        _skip_fulltext = "phase_3b_fulltext" in _existing_cps
+        if _skip_fulltext:
+            _ft_processed = await repository.get_processed_paper_ids(state.workflow_id, "fulltext")
+            if stage1_survivors and not _ft_processed:
+                # Stale checkpoint from an interrupted run: fulltext never actually completed.
+                await repository.delete_checkpoints_for_phases(state.workflow_id, ["phase_3b_fulltext"])
+                _skip_fulltext = False
+                if rc and hasattr(rc, "log_status"):
+                    rc.log_status(
+                        "phase_3b_fulltext checkpoint found but no fulltext decisions in DB; "
+                        "re-running fulltext PDF retrieval and LLM screening."
+                    )
+
+        if _skip_fulltext:
             state.fulltext_sought = len(stage1_survivors)
+            _ft_included_ids = await repository.get_included_paper_ids(state.workflow_id)
+            state.included_papers = [p for p in stage1_survivors if p.paper_id in _ft_included_ids]
+            _not_retrieved_ids = await repository.get_fulltext_not_retrieved_ids(state.workflow_id)
+            state.fulltext_not_retrieved = len(_not_retrieved_ids)
+            no_full_text_excluded = len(_not_retrieved_ids)
+            fulltext_screened_count = len(
+                await repository.get_processed_paper_ids(state.workflow_id, "fulltext")
+            )
             if rc and hasattr(rc, "log_status"):
                 rc.log_status(
                     f"Skipping fulltext PDF retrieval and LLM screening "
@@ -799,6 +822,7 @@ async def run_screening_node(state: ReviewState, ctx: GraphRunContext[ReviewStat
             no_full_text_excluded = sum(
                 1 for d in stage2 if getattr(d, "exclusion_reason", None) == _ExclusionReason.NO_FULL_TEXT
             )
+            fulltext_screened_count = len(stage2)
             if stage1_survivors and not stage2:
                 _ft_processed = await repository.get_processed_paper_ids(state.workflow_id, "fulltext")
                 if _ft_processed:
@@ -891,7 +915,7 @@ async def run_screening_node(state: ReviewState, ctx: GraphRunContext[ReviewStat
                     f"pre_filter_method={pre_filter_method}, "
                     f"pre_filtered={len(pre_excluded)}, "
                     f"title_abstract_llm={len(stage1_llm)}, "
-                    f"fulltext_total={len(stage2)}, "
+                    f"fulltext_total={fulltext_screened_count}, "
                     f"included={len(state.included_papers)}"
                 ),
                 actor="workflow_run",

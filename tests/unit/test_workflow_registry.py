@@ -203,3 +203,15 @@ async def test_try_claim_for_resume_blocks_when_running(tmp_path) -> None:
     claimed, blocking = await try_claim_for_resume(run_root, "wf-live")
     assert claimed is False
     assert blocking == "running"
+
+
+def test_workflow_id_from_config_header(tmp_path) -> None:
+    from src.orchestration.workflow import _workflow_id_from_config_header
+
+    cfg = tmp_path / "review.yaml"
+    cfg.write_text(
+        "# workflow_id: wf-0114\n# run_dir: runs/example\nresearch_question: test\n",
+        encoding="utf-8",
+    )
+    assert _workflow_id_from_config_header(str(cfg)) == "wf-0114"
+    assert _workflow_id_from_config_header(str(tmp_path / "missing.yaml")) == ""

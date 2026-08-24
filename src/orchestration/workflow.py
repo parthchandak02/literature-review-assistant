@@ -9,7 +9,9 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+import re
 import signal
+from pathlib import Path
 
 from pydantic_graph import Graph
 
@@ -405,6 +407,24 @@ async def run_workflow_resume(
     return result.output
 
 
+_WORKFLOW_ID_HEADER_RE = re.compile(r"^\s*#\s*workflow_id:\s*(\S+)\s*$", re.IGNORECASE)
+
+
+def _workflow_id_from_config_header(review_path: str) -> str:
+    """Read reserved workflow_id from a config snapshot header comment, if present."""
+    path = Path(review_path)
+    if not path.is_file():
+        return ""
+    try:
+        for line in path.read_text(encoding="utf-8").splitlines()[:20]:
+            match = _WORKFLOW_ID_HEADER_RE.match(line)
+            if match:
+                return match.group(1).strip()
+    except OSError:
+        return ""
+    return ""
+
+
 async def run_workflow(
     review_path: str = "config/review.yaml",
     settings_path: str = "config/settings.yaml",
@@ -467,13 +487,14 @@ async def run_workflow(
             pass
 
     start = StartNode()
+    reserved_workflow_id = (workflow_id or "").strip() or _workflow_id_from_config_header(review_path)
     initial = ReviewState(
         review_path=review_path,
         settings_path=settings_path,
         run_root=run_root,
         run_context=run_context,
         parent_db_path=parent_db_path,
-        workflow_id=(workflow_id or "").strip(),
+        workflow_id=reserved_workflow_id,
     )
     result = await RUN_GRAPH.run(start, state=initial)
     return result.output
@@ -485,6 +506,7 @@ def run_workflow_sync(
     run_root: str = "runs",
     run_context: RunContext | None = None,
     fresh: bool = False,
+    workflow_id: str | None = None,
 ) -> WorkflowRunResult:
     return asyncio.run(
         run_workflow(
@@ -493,5 +515,6 @@ def run_workflow_sync(
             run_root=run_root,
             run_context=run_context,
             fresh=fresh,
+            workflow_id=workflow_id,
         )
     )
