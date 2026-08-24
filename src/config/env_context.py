@@ -44,6 +44,10 @@ def get_env(key: str, default: str | None = None) -> str | None:
         return os.environ.get("GEMINI_API_KEY", default)
     if key == "NCBI_EMAIL":
         return os.environ.get("PUBMED_EMAIL", default)
+    if key == "UNPAYWALL_EMAIL":
+        return os.environ.get("EMBASE_EMAIL") or os.environ.get("CROSSREF_EMAIL", default)
+    if key == "EMBASE_API_KEY":
+        return os.environ.get("SCOPUS_API_KEY", default)
     return default
 
 

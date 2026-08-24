@@ -40,7 +40,10 @@ _TAG_RE = re.compile(r"<[^>]+>")
 
 def load_scopus_session_cookie() -> str | None:
     """Return a Cookie header value from the operator's local session file."""
-    cookie_file = (get_env("SCOPUS_SESSION_COOKIE_FILE") or "").strip()
+    cookie_file = (
+        (get_env("SCOPUS_SESSION_COOKIE_FILE") or "").strip()
+        or (get_env("EMBASE_SESSION_COOKIE_FILE") or "").strip()
+    )
     if not cookie_file:
         return None
     loaded = _load_cookie_file(cookie_file)

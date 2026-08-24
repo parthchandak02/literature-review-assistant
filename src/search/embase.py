@@ -60,12 +60,12 @@ class EmbaseConnector(ElsevierConnectorMixin):
 
     def __init__(self, workflow_id: str) -> None:
         self.workflow_id = workflow_id
-        api_key = get_env("EMBASE_API_KEY")
+        api_key = (get_env("EMBASE_API_KEY") or get_env("SCOPUS_API_KEY") or "").strip()
         if not api_key:
             raise ValueError(
-                "EMBASE_API_KEY environment variable is required for the Embase connector. "
-                "Obtain an API key from your institution's Elsevier subscription. "
-                "Set EMBASE_API_KEY in your .env file and restart the server."
+                "EMBASE_API_KEY (or SCOPUS_API_KEY) is required for the Embase connector. "
+                "Use the same Elsevier developer key from https://dev.elsevier.com/ "
+                "and set EMBASE_API_KEY or SCOPUS_API_KEY in your .env file."
             )
         self._api_key = api_key.strip()
         self._insttoken = (get_env("ELSEVIER_INSTTOKEN") or "").strip() or None

@@ -59,6 +59,9 @@ Recent remediation (2026-08-10, Phases 0-2) completed:
 
 | Priority | Task |
 |----------|------|
+| P2 | Full-text: Playwright-based Elsevier cookie refresh (automate session export) |
+| P2 | Full-text: WSU `SCOPUS_INSTTOKEN` onboarding doc + library request template |
+| P3 | Full-text: Zotero / reference-manager PDF import path into manual ingest |
 | P3 | Split god-modules one per PR when touched (`markdown_refs`, `contracts`, `retrieval`) |
 | P3 | Export citation `complete_validated` |
 | P3 | Move `config_generator` out of `src/web/` |
