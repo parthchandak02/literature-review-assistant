@@ -112,13 +112,19 @@ def should_use_registry_stats(
     reg_status: str,
     stats_updated_at: str | None,
     live_run_id: str | None,
+    papers_included: int | None = None,
 ) -> bool:
     """Return True when persisted registry stats are fresh enough to skip runtime.db."""
     if live_run_id is not None:
         return False
     if not stats_updated_at:
         return False
-    return _normalize_status(reg_status) in _TERMINAL_STATUSES
+    if _normalize_status(reg_status) not in _TERMINAL_STATUSES:
+        return False
+    # Mid-run snapshots can persist papers_included=0 before fulltext completes.
+    if papers_included == 0:
+        return False
+    return True
 
 
 def stats_payload_from_registry_row(row: aiosqlite.Row) -> dict[str, Any]:
@@ -297,10 +303,12 @@ async def list_history(
         # Stats: prefer registry persistence, then in-memory cache, then runtime.db.
         if include_stats:
             stats_updated_at = row["stats_updated_at"] if row["stats_updated_at"] is not None else None
+            row_papers_included = row["papers_included"] if row["papers_included"] is not None else None
             if should_use_registry_stats(
                 reg_status=reg_status,
                 stats_updated_at=stats_updated_at,
                 live_run_id=live_run_id,
+                papers_included=row_papers_included,
             ):
                 stats_payload = stats_payload_from_registry_row(row)
             elif is_terminal and wf_id in _stats_cache:

@@ -29,6 +29,7 @@ from src.export.prisma_checklist import (
     validate_prisma,
 )
 from src.export.prisma_flow_export import export_prisma_flow_to_directory
+from src.export.revision_supplements import export_revision_supplements
 from src.search.pdf_parse import path_is_valid_pdf
 from src.writing.citation_grounding import extract_numeric_citation_refs, extract_used_citekeys
 
@@ -757,6 +758,7 @@ async def package_submission(
 
     await _export_screening_decisions(db_path, workflow_id, supp_dir / "screening_decisions.csv")
     await _export_extraction_records(db_path, workflow_id, supp_dir / "extracted_data.csv")
+    await export_revision_supplements(db_path, workflow_id, supp_dir)
     await export_prisma_flow_to_directory(supp_dir, db_path, workflow_id)
 
     (supp_dir / "cover_letter.md").write_text(

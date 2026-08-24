@@ -14,6 +14,7 @@ def test_should_use_registry_stats_when_terminal_and_timestamp_present() -> None
             reg_status="completed",
             stats_updated_at="2026-03-10T12:00:00",
             live_run_id=None,
+            papers_included=2,
         )
         is True
     )
@@ -22,6 +23,7 @@ def test_should_use_registry_stats_when_terminal_and_timestamp_present() -> None
             reg_status="failed",
             stats_updated_at="2026-03-10T12:00:00",
             live_run_id=None,
+            papers_included=1,
         )
         is True
     )
@@ -30,8 +32,21 @@ def test_should_use_registry_stats_when_terminal_and_timestamp_present() -> None
             reg_status="interrupted",
             stats_updated_at="2026-03-10T12:00:00",
             live_run_id=None,
+            papers_included=1,
         )
         is True
+    )
+
+
+def test_should_use_registry_stats_rejects_stale_zero_included_on_completed() -> None:
+    assert (
+        should_use_registry_stats(
+            reg_status="completed",
+            stats_updated_at="2026-03-10T12:00:00",
+            live_run_id=None,
+            papers_included=0,
+        )
+        is False
     )
 
 
