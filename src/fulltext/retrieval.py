@@ -1645,6 +1645,8 @@ async def fetch_full_text(
     use_openalex_content: bool = False,
     use_crossref_links: bool = True,
     use_landing_page: bool = True,
+    use_institutional_session: bool = True,
+    use_manual_ingest: bool = True,
     diagnostics: list[str] | None = None,
 ) -> FullTextResult:
     """Retrieve full text using a tiered resolver with parallel open-access racing.
@@ -1654,7 +1656,8 @@ async def fetch_full_text(
       Group B (parallel race, OA sources): Unpaywall, arXiv, Semantic Scholar,
           bioRxiv/medRxiv, CORE, OpenAlex Content, EuropePMC, citation_pdf_url.
           Returns on first success; all others are cancelled immediately.
-      Group C (sequential, auth/slow): ScienceDirect, PMC, Crossref, landing page.
+      Group C (sequential, auth/slow): ScienceDirect, institutional session PDF,
+          manual operator PDFs, PMC, Crossref, landing page.
       Fallback: abstract text.
 
     Args:
@@ -1667,6 +1670,8 @@ async def fetch_full_text(
         use_sciencedirect: Enable Group C ScienceDirect (Elsevier DOIs only).
         use_unpaywall: Enable Group B Unpaywall.
         use_pmc: Enable Group C PMC.
+        use_institutional_session: Enable ScienceDirect PDF via browser session cookie.
+        use_manual_ingest: Enable operator PDF drop folder (FULLTEXT_MANUAL_PDF_DIR).
 
     Returns:
         FullTextResult with text (and optionally pdf_bytes for PDF sources).
@@ -1793,6 +1798,33 @@ async def fetch_full_text(
                     effective_doi,
                 )
                 return result
+
+    # Tier 3b: ScienceDirect PDF via institutional browser session cookie
+    if use_institutional_session and effective_doi and _is_elsevier_doi(effective_doi):
+        from src.fulltext.institutional import fetch_sciencedirect_pdf_via_session
+
+        pdf_bytes = await fetch_sciencedirect_pdf_via_session(effective_doi, api_key=key)
+        if pdf_bytes:
+            logger.info(
+                "fetch_full_text: tier 3b institutional session PDF for doi=%s",
+                effective_doi,
+            )
+            _append_diag(diagnostics, "InstitutionalSession", "SUCCESS sciencedirect_session_pdf")
+            return FullTextResult(text="", source="sciencedirect_session_pdf", pdf_bytes=pdf_bytes)
+        _append_diag(diagnostics, "InstitutionalSession", "miss (no cookie, PII, or PDF)")
+
+    # Tier 3c: operator manual PDF drop folder (DOI must appear in filename)
+    if use_manual_ingest and effective_doi:
+        from src.fulltext.manual_ingest import load_manual_pdf_bytes, manual_pdf_directory
+
+        manual_pdf = load_manual_pdf_bytes(effective_doi)
+        if manual_pdf:
+            logger.info("fetch_full_text: tier 3c manual PDF for doi=%s", effective_doi)
+            _append_diag(diagnostics, "ManualIngest", "SUCCESS manual_pdf")
+            return FullTextResult(text="", source="manual_pdf", pdf_bytes=manual_pdf)
+        manual_dir = manual_pdf_directory()
+        if manual_dir:
+            _append_diag(diagnostics, "ManualIngest", f"miss in {manual_dir}")
 
     # Tier 4: PMC (NCBI E-utilities; NIH-funded OA papers)
     if use_pmc and (effective_doi or effective_pmid):
