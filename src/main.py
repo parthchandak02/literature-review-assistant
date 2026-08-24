@@ -227,6 +227,10 @@ def build_parser() -> argparse.ArgumentParser:
     run.add_argument("--settings", default="config/settings.yaml")
     run.add_argument("--run-root", default="runs")
     run.add_argument(
+        "--workflow-id",
+        help="Reuse a reserved draft workflow ID (e.g. wf-0114). Also read from # workflow_id: in config header.",
+    )
+    run.add_argument(
         "--fresh",
         action="store_true",
         help="Always start new run; skip resume prompt (needed when running in Progress context)",
@@ -448,6 +452,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                         run_root=args.run_root,
                         run_context=run_context,
                         fresh=getattr(args, "fresh", False),
+                        workflow_id=getattr(args, "workflow_id", None),
                     )
                 )
             _print_run_summary(console, summary)
