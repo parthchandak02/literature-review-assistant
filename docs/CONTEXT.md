@@ -8,6 +8,7 @@ If docs conflict with code, trust `src/` and `frontend/src/`. If docs conflict w
 
 | Doc | Use when |
 |-----|----------|
+| `SYSTEM_DIAGRAM.md` | End-to-end developer system diagram (entry, orchestration, connectors, delivery) |
 | `ARCHITECTURE.md` | Runtime planes, pipeline, persistence, LLM/costs, invariants |
 | `API.md` | HTTP/SSE contracts; endpoint parity table (Section 10.1) |
 | `UI.md` | Frontend structure, design rules, regression checklist |

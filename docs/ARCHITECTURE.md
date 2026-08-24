@@ -40,6 +40,8 @@ Build phases (1-8) are planning labels. Runtime checkpoints use `phase_catalog.p
 
 ## Pipeline
 
+Visual end-to-end map (entry points, connectors, delivery): [SYSTEM_DIAGRAM.md](./SYSTEM_DIAGRAM.md).
+
 ### Agent lifecycle stages
 
 Think → Plan → Build → Review → Test → Ship (route via `docs/CONTEXT.md`).

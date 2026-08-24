@@ -84,3 +84,14 @@ reference/
 # Institutional session exports (operator-local; never commit)
 *scopus*cookies*
 *.har
+
+# Revision / manuscript work materials (local + Google Drive; not repo source)
+# Drive folder: https://drive.google.com/drive/folders/1w5pCzpvjMN3XtBxH_meU9y6CGaBvJ7-h
+# PDF zip:       https://drive.google.com/file/d/1hwn4qP6rp7INbs603jTtkx91jHVV7rPR/view?usp=drivesdk
+.review-materials/
+
+# Empty local placeholder (not project data)
+.tables
+
+# One-off revision workflow snapshots (use runs/*/config_snapshot.yaml to replay)
+config/review_wf*_revision.yaml

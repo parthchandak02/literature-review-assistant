@@ -108,9 +108,7 @@ export function computeRunChrome(input: RunChromeInput): RunChromeVM {
 
   const funnelStages = computeFunnelStages(effectiveEvents)
   const canonicalIncluded =
-    (isHistorical || isDone) && run.papersIncluded != null && run.papersIncluded > 0
-      ? run.papersIncluded
-      : null
+    (isHistorical || isDone) && run.papersIncluded != null ? run.papersIncluded : null
   const displayFunnelStages = applyCanonicalIncluded(funnelStages, canonicalIncluded)
 
   const fallbackFound = run.papersFound ?? null
