@@ -14,6 +14,7 @@ If docs conflict with code, trust `src/` and `frontend/src/`. If docs conflict w
 | `UI.md` | Frontend structure, design rules, regression checklist |
 | `TASKS.md` | Verification gates, open work, commit checklist |
 | `SCRIPTS.md` | Script entrypoints, intent routing, naming conventions |
+| `agents/dashboard-hosting.md` | Production URL, PM2 + tunnel, Cloudflare Access session TTL (`720h`) |
 | `adr/` | Architecture decision records |
 
 ## Lifecycle routing

@@ -30,6 +30,10 @@ If your tool does not auto-load `.cursor/rules/`, use explicit file reads:
 
 If sources conflict, follow this order and verify in code.
 
+## Production hosting
+
+Public URL: `https://litreview.parthchandak.info` (Cloudflare Tunnel → local `:8001`). Cloudflare Access email OTP at edge; tune Application session to 30d (`720h`) so devices re-auth monthly, not daily. See [docs/agents/dashboard-hosting.md](docs/agents/dashboard-hosting.md).
+
 ## Minimal Task Routing
 
 - Architecture or behavior questions -> `docs/ARCHITECTURE.md`
