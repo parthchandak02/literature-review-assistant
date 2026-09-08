@@ -68,6 +68,8 @@ frontend/.vite/
 
 # Cursor local plans (machine-specific, not project code)
 .cursor/plans/
+.cursorindexingignore
+.specstory/
 
 # Cloudflare Tunnel config (machine-specific, credentials in ~/.cloudflared/)
 cloudflared-config-litreview.yml
