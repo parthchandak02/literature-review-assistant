@@ -53,6 +53,10 @@ _MIGRATION_ADD_IS_COMPLETED_HIDDEN = (
     "ALTER TABLE workflows_registry ADD COLUMN is_completed_hidden INTEGER NOT NULL DEFAULT 0"
 )
 _MIGRATION_ADD_COMPLETED_HIDDEN_AT = "ALTER TABLE workflows_registry ADD COLUMN completed_hidden_at TEXT"
+_MIGRATION_ADD_PAPERS_FOUND = "ALTER TABLE workflows_registry ADD COLUMN papers_found INTEGER"
+_MIGRATION_ADD_PAPERS_INCLUDED = "ALTER TABLE workflows_registry ADD COLUMN papers_included INTEGER"
+_MIGRATION_ADD_TOTAL_COST = "ALTER TABLE workflows_registry ADD COLUMN total_cost REAL"
+_MIGRATION_ADD_STATS_UPDATED_AT = "ALTER TABLE workflows_registry ADD COLUMN stats_updated_at TEXT"
 
 
 @asynccontextmanager
@@ -221,6 +225,17 @@ async def _ensure_registry(run_root: str) -> str:
             await db.execute(_MIGRATION_ADD_COMPLETED_HIDDEN_AT)
         except Exception:
             pass  # Column already exists -- sqlite raises OperationalError, ignore it.
+        # Migration: persisted sidebar stats cache (history rail).
+        for migration in (
+            _MIGRATION_ADD_PAPERS_FOUND,
+            _MIGRATION_ADD_PAPERS_INCLUDED,
+            _MIGRATION_ADD_TOTAL_COST,
+            _MIGRATION_ADD_STATS_UPDATED_AT,
+        ):
+            try:
+                await db.execute(migration)
+            except Exception:
+                pass  # Column already exists -- sqlite raises OperationalError, ignore it.
         # Migration: create sequential counter table for wf-NNNN IDs (existing installs).
         try:
             await db.execute(
