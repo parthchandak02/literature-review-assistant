@@ -30,6 +30,7 @@ function draftConfigFixture(
       fireworksKey: "key",
       csvMode: "supplementary",
       generationProfile: "standard",
+      reviewType: "systematic",
     },
     yaml: "",
     isGenerating: false,

@@ -293,6 +293,15 @@ class _Pico(BaseModel):
     outcome: str = Field(description="Outcomes measured (efficacy, safety, efficiency, cost, etc.)")
 
 
+class _Pcc(BaseModel):
+    population: str = Field(description="Who or what is being studied")
+    concept: str = Field(description="Main concept, phenomenon, or area being mapped")
+    context: str = Field(description="Setting, geography, timeframe, or other contextual boundaries")
+
+
+_SCOPING_PICO_OUTCOME = "evidence characteristics and gaps"
+
+
 class _SearchOverrides(BaseModel):
     pubmed: str | None = Field(
         default=None,
@@ -410,7 +419,7 @@ class _GeneratedDomainExpert(BaseModel):
 
 class _GeneratedConfig(BaseModel):
     research_question: str = Field(description="Refined, precise systematic review research question")
-    review_type: str = Field(description="Always 'systematic'")
+    review_type: str = Field(description="Review type: 'systematic' or 'scoping'")
     pico: _Pico
     keywords: list[str] = Field(
         description="18-28 specific search keywords including intervention synonyms, abbreviations, population/setting terms, outcome terms, and implementation terms; brands/acronyms may appear but must remain supplemental; each keyword must include at least one token with length >= 2",
@@ -449,6 +458,25 @@ class _GeneratedConfig(BaseModel):
     )
 
 
+class _GeneratedScopingConfig(BaseModel):
+    research_question: str = Field(description="Refined, precise scoping review research question")
+    review_type: str = Field(description="Always 'scoping'")
+    pcc: _Pcc
+    keywords: list[str] = Field(
+        description="18-28 specific search keywords including concept synonyms, population/setting terms, and mapping terms",
+        min_length=15,
+        max_length=32,
+    )
+    domain: str = Field(description="One-line domain description (topic area and setting)")
+    scope: str = Field(
+        description="2-4 sentence scope statement: what is covered, what populations and settings, what evidence will be mapped"
+    )
+    domain_expert: _GeneratedDomainExpert = Field(default_factory=_GeneratedDomainExpert)
+    inclusion_criteria: list[str] = Field(min_length=4, max_length=10)
+    exclusion_criteria: list[str] = Field(min_length=3, max_length=8)
+    search_overrides: _SearchOverrides | None = None
+
+
 class _GeneratedConfigHealthSdg(_GeneratedConfig):
     research_entry: ResearchEntryConfig = Field(
         description=(
@@ -456,6 +484,21 @@ class _GeneratedConfigHealthSdg(_GeneratedConfig):
             "UN Sustainable Development Goal alignment."
         )
     )
+
+
+def _is_scoping_config(cfg: _GeneratedConfig | _GeneratedScopingConfig | _GeneratedConfigHealthSdg) -> bool:
+    return isinstance(cfg, _GeneratedScopingConfig) or str(cfg.review_type).strip().lower() == "scoping"
+
+
+def _resolve_pico_view(cfg: _GeneratedConfig | _GeneratedScopingConfig | _GeneratedConfigHealthSdg) -> _Pico:
+    if isinstance(cfg, _GeneratedScopingConfig):
+        return _Pico(
+            population=cfg.pcc.population,
+            intervention=cfg.pcc.concept,
+            comparison=cfg.pcc.context,
+            outcome=_SCOPING_PICO_OUTCOME,
+        )
+    return cfg.pico
 
 
 # ---------------------------------------------------------------------------
@@ -583,16 +626,17 @@ class _DomainRoute:
     policy: str
 
 
-def _is_biomedical_topic(cfg: _GeneratedConfig) -> bool:
+def _is_biomedical_topic(cfg: _GeneratedConfig | _GeneratedScopingConfig | _GeneratedConfigHealthSdg) -> bool:
     """Heuristic detector used to keep non-medical defaults neutral."""
+    pico = _resolve_pico_view(cfg)
     text = " ".join(
         [
             cfg.research_question,
             cfg.domain,
             cfg.scope,
-            cfg.pico.population,
-            cfg.pico.intervention,
-            cfg.pico.outcome,
+            pico.population,
+            pico.intervention,
+            pico.outcome,
         ]
     ).lower()
     return any(token in text for token in _BIOMEDICAL_HINTS)
@@ -606,16 +650,19 @@ def _match_terms(text: str, terms: set[str]) -> list[str]:
     return sorted(matched)
 
 
-def _route_topic_with_confidence(cfg: _GeneratedConfig) -> _DomainRoute:
+def _route_topic_with_confidence(
+    cfg: _GeneratedConfig | _GeneratedScopingConfig | _GeneratedConfigHealthSdg,
+) -> _DomainRoute:
     """Route topic domain with confidence and explicit fallback policy."""
+    pico = _resolve_pico_view(cfg)
     text = " ".join(
         [
             cfg.research_question,
             cfg.domain,
             cfg.scope,
-            cfg.pico.population,
-            cfg.pico.intervention,
-            cfg.pico.outcome,
+            pico.population,
+            pico.intervention,
+            pico.outcome,
         ]
     ).lower()
     matched_bio = _match_terms(text, _BIOMEDICAL_HINTS)
@@ -657,7 +704,7 @@ def _route_topic_with_confidence(cfg: _GeneratedConfig) -> _DomainRoute:
 
 
 def _resolve_target_databases(
-    cfg: _GeneratedConfig,
+    cfg: _GeneratedConfig | _GeneratedScopingConfig | _GeneratedConfigHealthSdg,
     defaults: _DefaultConfigDict | None = None,
 ) -> tuple[list[str], _DomainRoute]:
     """Apply confidence-routed domain policy for target databases."""
@@ -685,12 +732,13 @@ def _resolve_target_databases(
 
 
 def _build_yaml(
-    cfg: _GeneratedConfig | _GeneratedConfigHealthSdg,
+    cfg: _GeneratedConfig | _GeneratedScopingConfig | _GeneratedConfigHealthSdg,
     defaults: _DefaultConfigDict | None = None,
     resolved_databases: list[str] | None = None,
     generation_mode: str = "web_grounded",
     generation_profile: Literal["standard", "health_sdg"] = "standard",
     fallback_reason: str | None = None,
+    question_framework: Literal["pico", "picos", "peco", "pcc"] | None = None,
 ) -> str:
     """Build YAML from LLM output, using defaults for structural settings when provided."""
     if defaults is not None:
@@ -725,6 +773,9 @@ def _build_yaml(
     lines.append("")
     lines.append(f"research_question: {_yaml_str(cfg.research_question)}")
     lines.append(f"review_type: {_yaml_str(cfg.review_type)}")
+    is_scoping = _is_scoping_config(cfg)
+    resolved_framework = question_framework or ("pcc" if is_scoping else "pico")
+    lines.append(f"question_framework: {_yaml_str(resolved_framework)}")
     lines.append("")
 
     if defaults is not None:
@@ -736,11 +787,18 @@ def _build_yaml(
         lines.append(f"last_search_date: {last_date!r}" if last_date else "last_search_date: null")
         lines.append("")
 
+    pico_view = _resolve_pico_view(cfg)
+    if is_scoping and isinstance(cfg, _GeneratedScopingConfig):
+        lines.append("pcc:")
+        lines.append(f"  population: {_yaml_str(cfg.pcc.population)}")
+        lines.append(f"  concept: {_yaml_str(cfg.pcc.concept)}")
+        lines.append(f"  context: {_yaml_str(cfg.pcc.context)}")
+        lines.append("")
     lines.append("pico:")
-    lines.append(f"  population: {_yaml_str(cfg.pico.population)}")
-    lines.append(f"  intervention: {_yaml_str(cfg.pico.intervention)}")
-    lines.append(f"  comparison: {_yaml_str(cfg.pico.comparison)}")
-    lines.append(f"  outcome: {_yaml_str(cfg.pico.outcome)}")
+    lines.append(f"  population: {_yaml_str(pico_view.population)}")
+    lines.append(f"  intervention: {_yaml_str(pico_view.intervention)}")
+    lines.append(f"  comparison: {_yaml_str(pico_view.comparison)}")
+    lines.append(f"  outcome: {_yaml_str(pico_view.outcome)}")
     lines.append("")
     lines.append("keywords:")
     for kw in cfg.keywords:
@@ -770,7 +828,7 @@ def _build_yaml(
     if not merged_domain_expert.related_terms:
         merged_domain_expert.related_terms = list(cfg.keywords[8:14])
     if not merged_domain_expert.outcome_focus:
-        merged_domain_expert.outcome_focus = [cfg.pico.outcome]
+        merged_domain_expert.outcome_focus = [pico_view.outcome]
     lines.append("domain_expert:")
     lines.append(f"  expert_role: {_yaml_str(merged_domain_expert.expert_role)}")
     lines.append(f"  domain_summary: {_yaml_str(merged_domain_expert.domain_summary)}")
@@ -819,9 +877,10 @@ def _build_yaml(
     if defaults is not None:
         protocol = defaults.get("protocol") or {}
         funding = defaults.get("funding") or {}
+        registry = "OSF" if is_scoping else str(protocol.get("registry", "PROSPERO"))
         lines.append("protocol:")
         lines.append(f"  registered: {str(protocol.get('registered', False)).lower()}")
-        lines.append(f"  registry: {_yaml_str(protocol.get('registry', 'PROSPERO'))}")
+        lines.append(f"  registry: {_yaml_str(registry)}")
         lines.append(f"  registration_number: {_yaml_str(protocol.get('registration_number', ''))}")
         lines.append(f"  registration_date: {_yaml_str(protocol.get('registration_date', ''))}")
         lines.append(f"  url: {_yaml_str(protocol.get('url', ''))}")
@@ -1043,6 +1102,32 @@ _STRUCTURE_PROMPT = (
     "  CRITICAL for all databases: Use short keyword phrases -- NEVER full\n"
     "  sentences or PICO descriptions as search terms. Full PICO strings never appear\n"
     "  verbatim in papers and will always return zero results.\n\n"
+    "Return the response as a JSON object matching the schema exactly. All text fields\n"
+    "must be in English. Do not truncate or omit any field."
+)
+
+_SCOPING_STRUCTURE_PROMPT = (
+    "You are an expert in scoping review configuration design. Using the research brief\n"
+    "below, generate a complete scoping review configuration with neutral language.\n\n"
+    "Original research question:\n"
+    "{research_question}\n\n"
+    "Research brief (from web search):\n"
+    "{research_brief}\n\n"
+    "Instructions:\n"
+    "- Refine the research question into a precise scoping review question that maps\n"
+    "  evidence breadth, key concepts, and knowledge gaps.\n"
+    "- Generate PCC components: population (who/what), concept (main phenomenon or area),\n"
+    "  and context (setting, geography, timeframe, or other boundaries).\n"
+    "- Generate 18-28 specific search keywords covering concept synonyms, population/setting\n"
+    "  terms, and mapping-oriented vocabulary.\n"
+    "- Generate 6-8 inclusion criteria suited to scoping reviews (study types, settings,\n"
+    "  languages, publication types). Scoping reviews may include primary studies and\n"
+    "  secondary sources when relevant to mapping the evidence.\n"
+    "- Generate 5-7 exclusion criteria as complete sentences.\n"
+    "- Generate a one-line domain description and a 2-4 sentence scope statement.\n"
+    "- Set review_type to exactly 'scoping'.\n"
+    "- Generate search_overrides with the same database guidance as systematic reviews,\n"
+    "  but phrase queries for breadth and concept mapping rather than effect estimation.\n\n"
     "Return the response as a JSON object matching the schema exactly. All text fields\n"
     "must be in English. Do not truncate or omit any field."
 )
@@ -1319,6 +1404,8 @@ async def generate_config_yaml(
     research_question: str,
     progress_cb: Callable[[dict[str, Any]], None] | None = None,
     generation_profile: Literal["standard", "health_sdg"] = "standard",
+    review_type: Literal["systematic", "scoping"] = "systematic",
+    question_framework: Literal["pico", "picos", "peco", "pcc"] | None = None,
 ) -> str:
     """Generate a complete review config YAML from a research question.
 
@@ -1385,18 +1472,31 @@ async def generate_config_yaml(
     # ------------------------------------------------------------------
     # Stage 2: structured output from research brief
     # ------------------------------------------------------------------
-    emit("structuring", detail="Generating PICO, keywords, inclusion criteria, and database queries...")
-    structure_prompt = _STRUCTURE_PROMPT.format(
-        research_question=rq,
-        research_brief=research_brief,
+    is_scoping = review_type == "scoping"
+    structure_detail = (
+        "Generating PCC, keywords, inclusion criteria, and database queries..."
+        if is_scoping
+        else "Generating PICO, keywords, inclusion criteria, and database queries..."
     )
-    if generation_profile == "health_sdg":
-        structure_prompt += _HEALTH_SDG_STRUCTURE_APPEND
+    emit("structuring", detail=structure_detail)
+    if is_scoping:
+        structure_prompt = _SCOPING_STRUCTURE_PROMPT.format(
+            research_question=rq,
+            research_brief=research_brief,
+        )
+        target_model: type[_GeneratedConfig] | type[_GeneratedConfigHealthSdg] | type[_GeneratedScopingConfig]
+        target_model = _GeneratedScopingConfig
+    else:
+        structure_prompt = _STRUCTURE_PROMPT.format(
+            research_question=rq,
+            research_brief=research_brief,
+        )
+        if generation_profile == "health_sdg":
+            structure_prompt += _HEALTH_SDG_STRUCTURE_APPEND
+        target_model = _GeneratedConfigHealthSdg if generation_profile == "health_sdg" else _GeneratedConfig
     using_fallback = research_brief == _FALLBACK_RESEARCH_BRIEF
     if using_fallback:
         structure_prompt += _FALLBACK_STRUCTURE_INSTRUCTION
-    target_model: type[_GeneratedConfig] | type[_GeneratedConfigHealthSdg]
-    target_model = _GeneratedConfigHealthSdg if generation_profile == "health_sdg" else _GeneratedConfig
     schema = target_model.model_json_schema()
 
     async def _run_structure(prompt: str) -> str:
@@ -1446,7 +1546,7 @@ async def generate_config_yaml(
             )
             raise RuntimeError(f"Generated config failed schema validation: {retry_exc}") from retry_exc
 
-    parsed = parsed.model_copy(update={"review_type": "systematic"})
+    parsed = parsed.model_copy(update={"review_type": review_type})
 
     # Post-process: add short root forms for multi-word keywords so the
     # abstract substring pre-filter catches phrasing variants the LLM missed.
@@ -1479,6 +1579,7 @@ async def generate_config_yaml(
             f"(domain={route.domain}, confidence={route.confidence:.2f})"
         ),
     )
+    resolved_framework = question_framework or ("pcc" if is_scoping else "pico")
     return _build_yaml(
         parsed,
         defaults,
@@ -1486,6 +1587,7 @@ async def generate_config_yaml(
         generation_mode="model_fallback" if using_fallback else "web_grounded",
         generation_profile=generation_profile,
         fallback_reason=fallback_reason if using_fallback else None,
+        question_framework=resolved_framework,
     )
 
 

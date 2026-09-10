@@ -47,6 +47,8 @@ export async function generateConfigStream(
   fireworksApiKey: string,
   generationProfile: "standard" | "health_sdg",
   onProgress: (step: string, metadata?: Record<string, unknown>) => void,
+  reviewType: "systematic" | "scoping" = "systematic",
+  questionFramework?: "PICO" | "PCC",
 ): Promise<string> {
   const res = await fetch(`${API_BASE}/config/generate/stream`, {
     method: "POST",
@@ -55,6 +57,8 @@ export async function generateConfigStream(
       research_question: researchQuestion,
       fireworks_api_key: fireworksApiKey,
       generation_profile: generationProfile,
+      review_type: reviewType,
+      ...(questionFramework ? { question_framework: questionFramework } : {}),
     }),
   })
   if (!res.ok) {

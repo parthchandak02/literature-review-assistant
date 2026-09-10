@@ -7,10 +7,15 @@ export interface SetupViewProps {
 
 export type CsvMode = "supplementary" | "masterlist"
 export type GenerationProfile = "standard" | "health_sdg"
+export type ReviewTypeChoice = "systematic" | "scoping"
+export type QuestionFramework = "PICO" | "PCC"
+
 export interface ConfigGenerateRequest {
   question: string
   fireworksKey: string
   csvFile?: File
   csvMode: CsvMode
   generationProfile: GenerationProfile
+  reviewType: ReviewTypeChoice
+  questionFramework?: QuestionFramework
 }

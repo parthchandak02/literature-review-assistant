@@ -22,6 +22,7 @@ from src.models.config import (
     IEEEExportConfig,
     ManuscriptAuditConfig,
     MetaAnalysisConfig,
+    PCCConfig,
     PICOConfig,
     ProtocolRegistration,
     ResearchEntryConfig,
@@ -75,6 +76,7 @@ from src.models.manuscript_review import (
     ManuscriptAuditResult,
     ManuscriptContractViolation,
 )
+from src.models.methodology_profile import MethodologyProfile, resolve_profile
 from src.models.papers import CandidatePaper, SearchResult
 from src.models.quality import (
     CaspAssessment,
@@ -176,6 +178,8 @@ __all__ = [
     "MetaAnalysisConfig",
     "ManuscriptAuditConfig",
     "MetaAnalysisResult",
+    "MethodologyProfile",
+    "PCCConfig",
     "PICOConfig",
     "PrimaryStudyStatus",
     "PRISMACounts",
@@ -183,6 +187,7 @@ __all__ = [
     "ProtocolDocument",
     "RagRetrievalDiagnostic",
     "ProtocolRegistration",
+    "resolve_profile",
     "ReviewConfig",
     "ReviewType",
     "ReviewerType",

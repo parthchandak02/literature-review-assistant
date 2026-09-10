@@ -1,17 +1,23 @@
 import { useEffect, useRef, useState } from "react"
-import { ChevronDown, Clock, FileCode2, HeartPulse, RotateCcw, Sparkles } from "lucide-react"
+import { ChevronDown, Clock, FileCode2, HeartPulse, ArrowLeft, RotateCcw, Sparkles } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Spinner, FetchError } from "@/components/ui/feedback"
 import { Textarea } from "@/components/ui/textarea"
 import { formatShortDate } from "@/lib/format"
 import { fetchEnvKeysStatus, fetchRequiredLlmUiKeys, loadApiKeys } from "@/lib/api"
 import type { EnvKeysStatus, HistoryEntry } from "@/lib/api"
-import type { ConfigGenerateRequest, CsvMode, GenerationProfile } from "./types"
+import type { ConfigGenerateRequest, CsvMode, GenerationProfile, ReviewTypeChoice } from "./types"
 import { CsvDropZone } from "./CsvDropZone"
 
+function questionFrameworkForReviewType(reviewType: ReviewTypeChoice): "PICO" | "PCC" {
+  return reviewType === "scoping" ? "PCC" : "PICO"
+}
+
 interface QuestionStageProps {
+  reviewType: ReviewTypeChoice
   onGenerateRequested: (req: ConfigGenerateRequest) => void
   onPasteYaml: () => void
+  onBack?: () => void
   history: HistoryEntry[]
   onLoadFromHistory: (entry: HistoryEntry) => void
   loadingHistoryId: string | null
@@ -24,8 +30,10 @@ interface QuestionStageProps {
 }
 
 export function QuestionStage({
+  reviewType,
   onGenerateRequested,
   onPasteYaml,
+  onBack,
   history,
   onLoadFromHistory,
   loadingHistoryId,
@@ -100,19 +108,38 @@ export function QuestionStage({
       csvFile: csvFile ?? undefined,
       csvMode,
       generationProfile: activeProfile,
+      reviewType,
+      questionFramework: questionFrameworkForReviewType(reviewType),
     })
   }
 
   const completedRuns = history.filter((h) => h.status === "completed").slice(0, 10)
   const canGenerate = !!question.trim()
+  const heroCopy =
+    reviewType === "scoping"
+      ? "Describe your scoping question to generate PCC, search keywords, and screening criteria."
+      : "Describe your review question to generate PICO, search keywords, and screening criteria."
+  const questionPlaceholder =
+    reviewType === "scoping"
+      ? "What is known about [concept] in [population] in [context]?"
+      : "What is the effect of [intervention] on [outcome] in [population]?"
 
   return (
     <div className="flex flex-col gap-6">
+      {onBack && (
+        <button
+          type="button"
+          onClick={onBack}
+          className="flex items-center gap-1.5 text-xs text-muted hover:text-foreground transition-colors self-start"
+        >
+          <ArrowLeft className="h-3.5 w-3.5" />
+          Change review type
+        </button>
+      )}
+
       {/* Hero */}
       <div className="text-center pt-4 pb-1">
-        <p className="text-sm text-muted max-w-sm mx-auto leading-relaxed">
-          Describe your review question to generate PICO, search keywords, and screening criteria.
-        </p>
+        <p className="text-sm text-muted max-w-sm mx-auto leading-relaxed">{heroCopy}</p>
       </div>
 
       {/* Research question */}
@@ -124,7 +151,7 @@ export function QuestionStage({
             if (submitError) setSubmitError(null)
           }}
           rows={3}
-          placeholder="What is the effect of [intervention] on [outcome] in [population]?"
+          placeholder={questionPlaceholder}
           className="resize-none text-sm bg-card border-border text-foreground placeholder:text-muted focus-visible:ring-intent-primary-border leading-relaxed"
           onKeyDown={(e) => {
             if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) void handleGenerate()

@@ -155,6 +155,8 @@ export function useDraftConfigFlow(deps: UseDraftConfigFlowDeps) {
             }
           })
         },
+        req.reviewType,
+        req.questionFramework,
       )
       await saveWorkflowConfigDraft(reserved.workflow_id, yaml)
       setDraftConfig((prev) =>

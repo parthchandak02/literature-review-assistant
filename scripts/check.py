@@ -49,6 +49,17 @@ def _build_parser() -> argparse.ArgumentParser:
         default="runs",
         help="Runs root used for registry lookups",
     )
+
+    methodology = subparsers.add_parser(
+        "config-methodology",
+        help="Validate review YAML through ReviewConfig + resolve_profile and print JSON",
+    )
+    methodology.add_argument(
+        "config_path",
+        nargs="?",
+        default="tests/fixtures/scoping/review_scoping_smoke.yaml",
+        help="Path to review YAML (default: scoping smoke fixture)",
+    )
     return parser
 
 
@@ -101,6 +112,15 @@ def main(argv: list[str] | None = None) -> int:
             replay_main,
             "check_workflow_replay.py",
             _replay_workflow_argv(args),
+        )
+
+    if args.command == "config-methodology":
+        from scripts.lib.check_config_methodology import main as methodology_main
+
+        return _run_subcommand_main(
+            methodology_main,
+            "check_config_methodology.py",
+            [args.config_path] if args.config_path else None,
         )
 
     parser.error(f"unknown command: {args.command}")
