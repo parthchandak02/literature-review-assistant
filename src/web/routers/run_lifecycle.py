@@ -510,6 +510,8 @@ async def generate_config_stream(req: _GenerateConfigRequest) -> StreamingRespon
                     req.research_question,
                     progress_cb=progress_cb,
                     generation_profile=req.generation_profile,
+                    review_type=req.review_type,
+                    question_framework=req.question_framework,
                 )
                 quality = evaluate_config_quality_yaml(yaml_content)
                 queue.put_nowait({"type": "done", "yaml": yaml_content, "quality": quality})

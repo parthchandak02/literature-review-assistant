@@ -30,6 +30,8 @@ Validate replay test fixture                 uv run python scripts/check.py repl
 Validate a workflow replay DB                uv run python scripts/check.py replay-workflow \\
                                                --workflow-id wf-XXXX --profile local --fail-on-error
 
+Validate review YAML methodology profile     uv run python scripts/check.py config-methodology
+
 Start config from a research question        uv run python scripts/review.py start \\
                                                --question "your question"
 
@@ -56,7 +58,7 @@ Hermes operator setup                        ./scripts/hermes.sh maintain
 ENTRYPOINTS (user-facing — use these)
   scripts/ops_pm2.sh   servers (PM2 restart, deploy)
   scripts/check.sh     run full test suites (local | release)
-  scripts/check.py     individual quality checks (api | replay-fixture | replay-workflow)
+  scripts/check.py     individual quality checks (api | replay-fixture | replay-workflow | config-methodology)
   scripts/review.py    start | watch | info
   scripts/repair.py    fix old runs (finalize, re-extract, inject-citations, regen-replay-fixture)
   scripts/hermes.sh    Hermes maintain | link-skill

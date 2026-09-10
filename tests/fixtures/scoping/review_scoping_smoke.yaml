@@ -1,0 +1,59 @@
+research_question: "What evidence exists on digital health literacy interventions for older adults in community settings?"
+review_type: "scoping"
+question_framework: "pcc"
+
+pcc:
+  population: "Older adults in community or primary-care settings"
+  concept: "Digital health literacy interventions and training programs"
+  context: "Community-based and outpatient healthcare delivery in high-income countries, 2010-present"
+
+pico:
+  population: "Older adults in community or primary-care settings"
+  intervention: "Digital health literacy interventions and training programs"
+  comparison: "Community-based and outpatient healthcare delivery in high-income countries, 2010-present"
+  outcome: "evidence characteristics and gaps"
+
+keywords:
+  - "digital health literacy"
+  - "older adults"
+  - "health literacy"
+  - "digital literacy"
+  - "community health"
+  - "patient education"
+  - "telehealth literacy"
+  - "eHealth literacy"
+  - "mobile health literacy"
+  - "community settings"
+  - "primary care"
+  - "aging population"
+  - "health information"
+  - "technology adoption"
+  - "digital skills training"
+
+domain: "Digital health literacy for older adults in community settings"
+scope: "This scoping review maps published evidence on digital health literacy interventions for older adults receiving care in community and primary-care settings. It includes quantitative and qualitative primary studies plus relevant reviews when they help characterize the evidence base. The review focuses on intervention types, delivery modes, and reported outcomes related to literacy, engagement, and access."
+
+inclusion_criteria:
+  - "Peer-reviewed studies reporting digital health literacy interventions for older adults."
+  - "Studies conducted in community, outpatient, or primary-care settings."
+  - "Articles published in English between 2010 and 2026."
+  - "Studies describing intervention content, delivery, or outcomes relevant to digital health literacy."
+
+exclusion_criteria:
+  - "Hospital-only inpatient studies without community relevance."
+  - "Editorials and opinion pieces without empirical data."
+  - "Studies focused exclusively on clinical treatment efficacy unrelated to literacy."
+
+date_range_start: 2010
+date_range_end: 2026
+target_databases:
+  - openalex
+  - pubmed
+  - semantic_scholar
+
+protocol:
+  registered: false
+  registry: "OSF"
+  registration_number: ""
+  registration_date: ""
+  url: ""

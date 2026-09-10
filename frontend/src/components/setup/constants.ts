@@ -1,3 +1,5 @@
+import type { ReviewTypeChoice } from "./types"
+
 export const GEN_STEPS: { key: string; label: string; shortLabel: string; detail: string }[] = [
   { key: "start", shortLabel: "Question", label: "Analyzing your research question", detail: "Understanding scope, domain, and intent" },
   { key: "web_research", shortLabel: "Web Search", label: "Searching the web", detail: "Discovering brand names, synonyms, and domain terminology" },
@@ -10,3 +12,27 @@ export const GEN_STEPS: { key: string; label: string; shortLabel: string; detail
 
 export const WEB_RESEARCH_FALLBACK_STEP = "web_research_fallback"
 export const WEB_RESEARCH_DONE_INDEX = GEN_STEPS.findIndex((s) => s.key === "web_research_done")
+
+const STRUCTURING_BY_REVIEW_TYPE: Record<
+  ReviewTypeChoice,
+  { shortLabel: string; label: string; detail: string }
+> = {
+  systematic: {
+    shortLabel: "PICO",
+    label: "Generating PICO and criteria",
+    detail: "Population, intervention, comparison, outcome, keywords, and screening criteria",
+  },
+  scoping: {
+    shortLabel: "PCC",
+    label: "Generating PCC and criteria",
+    detail: "Population, concept, context, keywords, and screening criteria",
+  },
+}
+
+export function structuringStepForReviewType(reviewType: ReviewTypeChoice): {
+  shortLabel: string
+  label: string
+  detail: string
+} {
+  return STRUCTURING_BY_REVIEW_TYPE[reviewType]
+}

@@ -5,10 +5,13 @@ import type { HistoryEntry } from "@/lib/api"
 import { useHistory } from "@/hooks/useHistory"
 import { runConfigQueryKey } from "@/hooks/useRunConfig"
 import { QuestionStage } from "@/components/setup/QuestionStage"
-import type { SetupViewProps } from "@/components/setup/types"
+import { ReviewTypeDecisionStage } from "@/components/setup/ReviewTypeDecisionStage"
+import type { ReviewTypeChoice, SetupViewProps } from "@/components/setup/types"
 
-export type { ConfigGenerateRequest, CsvMode, GenerationProfile } from "@/components/setup/types"
+export type { ConfigGenerateRequest, CsvMode, GenerationProfile, ReviewTypeChoice } from "@/components/setup/types"
 export { ConfigReviewStage } from "@/components/setup/ConfigReviewStage"
+
+type SetupStep = "review_type" | "question"
 
 export function SetupView({
   defaultReviewYaml,
@@ -18,6 +21,8 @@ export function SetupView({
 }: SetupViewProps) {
   const queryClient = useQueryClient()
   const { data: history = [], error: historyError } = useHistory()
+  const [setupStep, setSetupStep] = useState<SetupStep>("review_type")
+  const [reviewType, setReviewType] = useState<ReviewTypeChoice | null>(null)
   const [researchQuestion, setResearchQuestion] = useState("")
   const [pendingFireworksKey, setPendingFireworksKey] = useState("")
   const [pendingCsvFile, setPendingCsvFile] = useState<File | null>(null)
@@ -56,25 +61,36 @@ export function SetupView({
 
   return (
     <div className="max-w-xl mx-auto pt-6 pb-16 px-4" aria-disabled={disabled}>
-      <QuestionStage
-        onGenerateRequested={(req) => {
-          setResearchQuestion(req.question)
-          setPendingFireworksKey(req.fireworksKey)
-          setPendingCsvFile(req.csvFile ?? null)
-          setPendingCsvMode(req.csvMode)
-          onGenerateDraft(req)
-        }}
-        onPasteYaml={handlePasteYaml}
-        history={history}
-        onLoadFromHistory={(entry) => void handleLoadFromHistory(entry)}
-        loadingHistoryId={loadingHistoryId}
-        loadError={loadError ?? historyLoadError}
-        onClearError={() => setLoadError(null)}
-        initialQuestion={researchQuestion}
-        initialFireworksKey={pendingFireworksKey}
-        initialCsvFile={pendingCsvFile}
-        initialCsvMode={pendingCsvMode}
-      />
+      {setupStep === "review_type" ? (
+        <ReviewTypeDecisionStage
+          onComplete={(selectedReviewType) => {
+            setReviewType(selectedReviewType)
+            setSetupStep("question")
+          }}
+        />
+      ) : reviewType ? (
+        <QuestionStage
+          reviewType={reviewType}
+          onBack={() => setSetupStep("review_type")}
+          onGenerateRequested={(req) => {
+            setResearchQuestion(req.question)
+            setPendingFireworksKey(req.fireworksKey)
+            setPendingCsvFile(req.csvFile ?? null)
+            setPendingCsvMode(req.csvMode)
+            onGenerateDraft(req)
+          }}
+          onPasteYaml={handlePasteYaml}
+          history={history}
+          onLoadFromHistory={(entry) => void handleLoadFromHistory(entry)}
+          loadingHistoryId={loadingHistoryId}
+          loadError={loadError ?? historyLoadError}
+          onClearError={() => setLoadError(null)}
+          initialQuestion={researchQuestion}
+          initialFireworksKey={pendingFireworksKey}
+          initialCsvFile={pendingCsvFile}
+          initialCsvMode={pendingCsvMode}
+        />
+      ) : null}
     </div>
   )
 }

@@ -4,9 +4,9 @@ from __future__ import annotations
 
 import re
 import uuid
-from typing import Literal
+from typing import Any, Literal
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 from src.models.enums import ReviewType
 
@@ -81,6 +81,15 @@ class PICOConfig(BaseModel):
     intervention: str
     comparison: str
     outcome: str
+
+
+class PCCConfig(BaseModel):
+    population: str
+    concept: str
+    context: str
+
+
+QuestionFramework = Literal["pico", "picos", "peco", "pcc"]
 
 
 class ProtocolRegistration(BaseModel):
@@ -189,6 +198,8 @@ class ReviewConfig(BaseModel):
     project_id: str = Field(default_factory=lambda: str(uuid.uuid4())[:8])
     research_question: str
     review_type: ReviewType
+    question_framework: QuestionFramework | None = None
+    pcc: PCCConfig | None = None
     pico: PICOConfig
     keywords: list[str] = Field(min_length=1)
     domain: str
@@ -298,6 +309,27 @@ class ReviewConfig(BaseModel):
             "and UN Sustainable Development Goal targets."
         ),
     )
+
+    @model_validator(mode="before")
+    @classmethod
+    def _default_question_framework(cls, data: Any) -> Any:
+        if not isinstance(data, dict):
+            return data
+        if data.get("question_framework") is None:
+            review_type = data.get("review_type", ReviewType.SYSTEMATIC)
+            review_value = review_type.value if isinstance(review_type, ReviewType) else str(review_type)
+            data["question_framework"] = "pcc" if review_value == ReviewType.SCOPING.value else "pico"
+        return data
+
+    @model_validator(mode="after")
+    def _validate_scoping_pcc(self) -> ReviewConfig:
+        if self.review_type == ReviewType.SCOPING:
+            if self.pcc is None:
+                raise ValueError("Scoping reviews require a populated pcc block (population, concept, context).")
+            for field_name in ("population", "concept", "context"):
+                if not str(getattr(self.pcc, field_name) or "").strip():
+                    raise ValueError(f"Scoping reviews require pcc.{field_name} to be non-empty.")
+        return self
 
     @field_validator("target_databases")
     @classmethod

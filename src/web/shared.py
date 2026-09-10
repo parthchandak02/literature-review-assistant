@@ -109,6 +109,8 @@ class _GenerateConfigRequest(BaseModel):
     fireworks_api_key: str = ""
     gemini_api_key: str = ""
     generation_profile: Literal["standard", "health_sdg"] = "standard"
+    review_type: Literal["systematic", "scoping"] = "systematic"
+    question_framework: Literal["pico", "picos", "peco", "pcc"] | None = None
 
 
 class ScreeningOverride(pydantic.BaseModel):
