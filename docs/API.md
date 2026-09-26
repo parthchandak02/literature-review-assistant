@@ -2,7 +2,7 @@
 
 ## Canonical sources
 
-- **Routes:** `src/web/app.py`
+- **Routes:** `src/web/routers/*.py` (mounted in `src/web/app.py`, which also serves `/runs/*` and `frontend/dist`)
 - **Frontend client:** `frontend/src/lib/api.ts`
 - **DB resolve:** `resolve_runtime_db()` in `src/web/run_resolver.py` (accepts active `run_id` or `wf-*`)
 
@@ -22,7 +22,18 @@
 - `/api/config/generate/stream` is POST, not GET.
 - `/api/run` is JSON; CSV uploads use multipart endpoints.
 - `/api/history/active-run` requires `workflow_id` query param.
-- SSE run events: `/api/stream/{run_id}` or `/api/stream/workflow/{workflow_id}` after gate resume.
+- SSE run events: `/api/stream/{run_id}` or `/api/stream/workflow/{workflow_id}` after gate resume. Streams stop when the client disconnects.
+
+## Security and path rules
+
+Guards live in `src/web/path_guard.py`.
+
+- **Run roots:** `run_root` must resolve under `./runs` or an entry in `LITREVIEW_RUNS_ROOTS` (`os.pathsep`-separated); otherwise 400. Applies to `POST /api/run`, `/api/run-with-masterlist`, `/api/run-with-supplementary-csv`, and `DELETE /api/history/{workflow_id}` (which also rejects run dirs outside `run_root`).
+- **Attach:** `POST /api/history/attach` `db_path` must be under a known run root (configured roots, candidate `runs/` dirs, registry-derived roots); otherwise 400.
+- **Downloads:** `/api/download` checks `Path.is_relative_to` against allowed roots; returns 403 for paths outside them and for database (`.db`, `.sqlite`) and dotenv files (incl. WAL/SHM/journal), 404 if not a file.
+- **Static `/runs/*`:** served by a handler (not `StaticFiles`) that returns 404 for database/env files and paths outside `runs/`.
+- **Env keys:** `GET /api/config/env-keys` returns blank strings for every secret; only `pubmedEmail` and `crossrefEmail` carry server values. Blank run keys fall back to server env. Use `/env-keys/status` for configured/required state.
+- **Run slots:** the concurrency slot is acquired before the in-memory run record is registered, so a 429 leaves no orphan record (no stray 409 on retry).
 
 ## Endpoint parity
 
@@ -40,10 +51,10 @@ Enforced by `scripts/check.py api` against Section 10.1 below. Update this table
 | GET | /api/stream/{run_id} | SSE stream of ReviewEvent JSON; heartbeat every 15s; ends with done/error/cancelled |
 | GET | /api/stream/workflow/{workflow_id} | SSE stream keyed by workflow_id (reconnect after gate resume without run_id) |
 | POST | /api/cancel/{run_id} | Cancel active run; sets cancellation event |
-| GET | /api/download | Download artifact file (query param `path`; restricted to runs/) |
+| GET | /api/download | Download artifact file (query param `path`; restricted to allowed run roots; 403 for db/env files) |
 | GET | /api/config/review | Default review.yaml content (pre-fills Setup form) |
 | POST | /api/config/generate/stream | SSE-streamed config generation (`research_question`, `gemini_api_key`, optional `generation_profile=standard|health_sdg`) |
-| GET | /api/config/env-keys | API keys already set in server dotenv; used to pre-fill Setup form |
+| GET | /api/config/env-keys | Setup key map; secrets always blank, only PubMed/Crossref emails pre-filled from server env |
 | GET | /api/config/env-keys/required | Required LLM provider UI keys for the active settings profile |
 | GET | /api/config/env-keys/status | Masked env-key presence map for Setup diagnostics |
 | GET | /api/health | Health check; polled every 6s by useBackendHealth hook |
@@ -106,4 +117,4 @@ Enforced by `scripts/check.py api` against Section 10.1 below. Update this table
 
 ### 10.1.1 Endpoint parity checklist
 
-`scripts/check.py api` compares `/api/*` routes with `include_in_schema=True` in `src/web/app.py`.
+`scripts/check.py api` compares `/api/*` routes with `include_in_schema=True` in `src/web/app.py` and `src/web/routers/*.py`.

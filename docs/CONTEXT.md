@@ -44,6 +44,9 @@ If docs conflict with code, trust `src/` and `frontend/src/`. If docs conflict w
 - **RunSession:** Frontend selection contract (`RunSessionProvider`, `useRunSession*`, `runSession.ts`).
 - **WorkflowRunResult:** Typed graph end (`src/models/workflow.py`).
 - **resolve_runtime_db:** Canonical DB path resolver (`src/web/run_resolver.py`).
+- **ReviewFacts:** Canonical cross-artifact facts (PRISMA counts, included cohort, kappa) (`src/manuscript/review_facts.py`).
+- **Jev:** TypeSafe typed-decision API (`src/llm/jev_client.py`); per-surface `off` / `shadow` / `live` under `jev:` in `config/settings.yaml`.
+- **needs_revision:** Terminal run status when contracts/audit block under `gates.audit_gate_mode: needs_revision`; artifacts still produced.
 
 ## ADRs
 

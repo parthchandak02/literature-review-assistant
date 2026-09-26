@@ -32,7 +32,7 @@ flowchart TB
         cli -->|"run_workflow_sync<br/>or API resume"| orch
         reviewYaml --> api
         settingsYaml --> api
-        api["FastAPI<br/>src/web/app.py<br/>run_lifecycle + history routers"]
+        api["FastAPI<br/>src/web/app.py + src/web/routers/*<br/>run_lifecycle + history routers"]
         api --> coord
         coord["RunLifecycleCoordinator<br/>src/web/lifecycle_coordinator.py<br/>asyncio task + SSE event_log"]
         coord --> orch
@@ -50,8 +50,11 @@ flowchart TB
         runners --> llm
         runners --> tools
         llm["LLM layer<br/>src/llm/pydantic_client.py<br/>PydanticAIClient + RateLimiter<br/>config/settings.yaml agents"]
-        llm --> providers["Providers<br/>Google / Anthropic / OpenAI / Groq / OpenRouter"]
+        llm --> providers["Providers<br/>Fireworks (default tiers) / Google (diagram images)<br/>Anthropic / OpenAI / Groq / OpenRouter"]
         llm --> cost["cost_records<br/>LLMProvider.log_cost"]
+        runners --> jev["Jev decision layer<br/>src/llm/jev_client.py<br/>off / shadow / live per surface"]
+        jev --> cost
+        jev --> jevDecisions["jev_decisions<br/>shadow + live records"]
         runners --> subagents
         subagents["Sub-agent patterns (phase-local)"]
         subagents --> dual["DualReviewerScreener<br/>src/screening/dual_screener.py<br/>reviewer A + B + adjudicator"]
@@ -124,7 +127,7 @@ flowchart LR
     p5c -->|ready| p6
     p6["phase_6_writing<br/>writing_runner<br/>HyDE → outline → sections"]
     p6 --> p7["phase_7_audit<br/>audit_runner<br/>contracts + LLM audit"]
-    p7 --> fin["finalize<br/>finalize_runner<br/>IEEE pack + registry completed"]
+    p7 --> fin["finalize<br/>finalize_runner<br/>IEEE pack + registry completed / needs_revision"]
     fin --> endNode["End(WorkflowRunResult)"]
 
     p1 -.->|park| prosperoPark["End awaiting_prospero"]
@@ -197,17 +200,21 @@ Fulltext retrieval (`src/fulltext/retrieval.py`) races Unpaywall, publisher PDFs
 |-------|-----|-----------------|
 | prospero gate | - | registration gate |
 | search | - | connectors, dedup, CSV import |
-| screening | dual reviewers, batch ranker, adjudicator | keyword/BM25 prefilter, heuristics |
-| extraction | extraction, classification, RoB/GRADE prompts | cohort rules, gate checks |
+| screening | dual reviewers, batch ranker, adjudicator; Jev `screening_reviewer_b`, `batch_pre_rank` | keyword/BM25 prefilter, heuristics |
+| extraction | extraction, classification, RoB/GRADE prompts; Jev `study_design` | cohort rules, gate checks |
 | embedding | embedding API | chunking |
 | synthesis | optional narrative direction | `statsmodels` pooling, forest/funnel |
 | knowledge graph | - | graph build, Louvain, gap detection |
-| pre-writing gate | - | prerequisite validation, rewind policy |
-| writing | HyDE, outline, sections, humanizer | `evidence_assembler`, contracts, grounding |
-| audit | `run_manuscript_audit` profiles | `run_manuscript_contracts`, readiness |
+| pre-writing gate | - | prerequisite validation, `ReviewFacts` cross-artifact check, rewind policy |
+| writing | HyDE, outline, sections, humanizer, RAG rerank (Jev `rag_rerank`) | `evidence_assembler`, `ReviewFacts`, contracts, grounding |
+| audit | `run_manuscript_audit` profiles | `run_manuscript_contracts`, readiness, `ReviewFacts` |
 | finalize | - | LaTeX pack, CSV supplements, registry |
 
 Every orchestration LLM call logs to `cost_records` via `LLMProvider.log_cost()` (except pre-run `config_generator.py`).
+
+Jev surfaces run `off` / `shadow` / `live` (repo default `shadow`: LLM decides, Jev recorded in `jev_decisions`). See [ARCHITECTURE.md#jev-decision-layer](./ARCHITECTURE.md#jev-decision-layer).
+
+`ReviewFacts` (`src/manuscript/review_facts.py`) is the single source for PRISMA counts, included cohort, and kappa across pre-writing gate, writing setup, audit, contracts, readiness, and PRISMA flow export.
 
 ---
 
@@ -226,7 +233,7 @@ Every orchestration LLM call logs to `cost_records` via `LLMProvider.log_cost()`
 | pre-writing | `validation_*`, `gate_results` | - | readiness |
 | writing | `manuscript_*`, `section_*`, `writing_manifests` | `doc_manuscript.md`, PRISMA/diagram figs | ManuscriptViewer |
 | audit | `manuscript_audit_*` | `run_summary.json` update | readiness audit |
-| finalize | assemblies, `completed` status | `submission/*`, final summary | Export, ZIP/DOCX |
+| finalize | assemblies, `completed` / `needs_revision` status | `submission/*`, final summary | Export, ZIP/DOCX |
 
 **Canonical truth:** included studies = `study_cohort_membership.synthesis_eligibility='included_primary'`; costs = `cost_records`; registry `db_path` resolves runtime DB location.
 
@@ -269,7 +276,7 @@ src/orchestration/phase_catalog.py     PHASE_ORDER, rollback_cascade_for
 src/orchestration/resume.py            load_resume_state, validate_resume_allowed
 src/orchestration/nodes/               graph nodes (thin)
 src/orchestration/runners/             phase runners (fat)
-src/web/app.py                         FastAPI app + router mount
+src/web/app.py                         FastAPI app, router mount, /runs/* guard
 src/web/lifecycle_coordinator.py       RunLifecycleCoordinator
 src/web/state.py                       _run_wrapper, _resume_wrapper, WebRunContext
 src/web/routers/run_lifecycle.py       POST /api/run, SSE streams
@@ -284,6 +291,9 @@ src/fulltext/retrieval.py              tiered PDF/fulltext fetch
 src/screening/dual_screener.py         dual-reviewer screening
 src/writing/orchestration.py           section ratchet loop
 src/manuscript/contracts.py            deterministic manuscript contracts
+src/manuscript/review_facts.py         ReviewFacts cross-artifact facts
+src/llm/jev_client.py                  Jev (TypeSafe) client, modes, cost + jev_decisions
+src/web/path_guard.py                  run-root and sensitive-file guards
 src/manuscript/reviewer.py             LLM audit orchestration
 src/export/submission_packager.py      package_submission
 frontend/src/App.tsx                   SetupView / RunView shell

@@ -32,6 +32,10 @@ Validate a workflow replay DB                uv run python scripts/check.py repl
 
 Validate review YAML methodology profile     uv run python scripts/check.py config-methodology
 
+Evaluate Jev vs LLM reviewer B (offline)     uv run python scripts/check.py jev-eval \\
+                                               --db runs/<...>/runtime.db
+  (add --live-sample N --confirm-live for a paid live re-screen)
+
 Start config from a research question        uv run python scripts/review.py start \\
                                                --question "your question"
 
@@ -58,7 +62,7 @@ Hermes operator setup                        ./scripts/hermes.sh maintain
 ENTRYPOINTS (user-facing — use these)
   scripts/ops_pm2.sh   servers (PM2 restart, deploy)
   scripts/check.sh     run full test suites (local | release)
-  scripts/check.py     individual quality checks (api | replay-fixture | replay-workflow | config-methodology)
+  scripts/check.py     individual quality checks (api | replay-fixture | replay-workflow | config-methodology | jev-eval)
   scripts/review.py    start | watch | info
   scripts/repair.py    fix old runs (finalize, re-extract, inject-citations, regen-replay-fixture)
   scripts/hermes.sh    Hermes maintain | link-skill

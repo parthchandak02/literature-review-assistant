@@ -91,6 +91,21 @@ Control plane (FastAPI)  --enqueue-->  runs queue (SQLite)  <--lease--  Worker p
 - **Gates block**: a run whose contracts or audit fail ends as `needs_revision`, not `done`
   (artifacts still produced and inspectable).
 
+## Status (2026-09-26)
+
+| Phase | Status |
+|---|---|
+| P0 | Done (`b208751`) |
+| P1 | Partial: `needs_revision` status + `audit_gate_mode: needs_revision` shipped; `cost_records.workflow_id` passed at LLM call sites (`2655940`) |
+| P2 | Partial: `ReviewFacts` in `src/manuscript/review_facts.py` feeds pre-writing gate, writing setup, audit, contracts, readiness, PRISMA flow export; `grounding_patches.py` and humanizer regex/blocklists not yet removed |
+| P3 | Not started |
+| P4 | Stage 0 done: `ops_pm2.sh restart` refuses while runs are live (`--force` overrides); uvicorn `--timeout-graceful-shutdown 30`, PM2 `kill_timeout` 70000 in `ecosystem.config.example.js`. Stages 1-2 not started |
+| P5 | Partial: four surfaces (`screening_reviewer_b`, `batch_pre_rank`, `study_design`, `rag_rerank`) with `off\|shadow\|live` (repo default `shadow`), `jev_decisions`, Jev cost pricing; eval shipped as `scripts/check.py jev-eval` (not `jev-calibration`). Not started: CASP/MMAT, RoB signalling, GRADE domains, effect direction, citation-support surfaces. No surface flipped to `live` |
+| P6-P7 | Not started |
+| P8 | Partial: shared rate limiter keyed on actual provider key env vars |
+
+Mode naming in code is `off|shadow|live` (this plan's `on` = `live`).
+
 ## Phased plan
 
 Each phase ends with its own tests plus `make check-local`, `pm2 restart litreview-api`, and a commit.

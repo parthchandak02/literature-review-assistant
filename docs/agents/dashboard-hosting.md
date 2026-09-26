@@ -56,6 +56,8 @@ open http://127.0.0.1:5173
 
 - **Frontend:** Vite HMR on `:5173` updates instantly. Use this URL while developing.
 - **Backend:** PM2 does not hot-reload by default. After editing Python, run `./scripts/ops_pm2.sh restart --backend-only` (or use plain `uvicorn --reload` in a terminal).
+- **Live runs:** workflows run inside the API process. `ops_pm2.sh restart` refuses to restart the API while registry rows are `running`; `--force` overrides and interrupts them (resume from checkpoint afterward).
+- **Graceful shutdown:** `ecosystem.config.example.js` runs uvicorn with `--timeout-graceful-shutdown 30` (open connections, SSE included), then the app lifespan waits up to 30s for workflow tasks to checkpoint; PM2 `kill_timeout` is 70000 ms so SIGKILL comes after both. `./scripts/ops_pm2.sh sync` updates `kill_timeout` in `ecosystem.config.js` but not the uvicorn `args`; copy those from the example by hand.
 - **Production URL** (`litreview.parthchandak.info`): rebuild with `./scripts/ops_pm2.sh restart --prod-ui`.
 - **Do not** restart `litreview-ui` expecting the public site to update; PM2 `litreview-ui` is dev-only. Public traffic hits `litreview-api` + `frontend/dist`.
 

@@ -6,7 +6,7 @@ Automate systematic reviews from research question to submission artifacts with 
 
 ## Runtime planes
 
-- **API and orchestration:** `src/web/app.py`, `src/web/routers/`, `src/orchestration/workflow.py`, `src/orchestration/resume.py`
+- **API and orchestration:** `src/web/app.py` (mount + `/runs/*` + SPA), `src/web/routers/` (all `/api/*` routes), `src/web/path_guard.py`, `src/orchestration/workflow.py`, `src/orchestration/resume.py`
 - **Data plane:** per-run `runtime.db` (`src/db/schema.sql`)
 - **Control plane:** `runs/workflows_registry.db` (`src/db/workflow_registry.py`)
 - **Frontend:** `frontend/src/` with typed API in `frontend/src/lib/api.ts`
@@ -19,6 +19,8 @@ Automate systematic reviews from research question to submission artifacts with 
 - No LLM-computed statistics when deterministic code exists.
 - LLM calls logged in `cost_records` with model and token accounting.
 - Model IDs from `config/settings.yaml`, not hardcoded in source.
+- Unknown `settings.yaml` keys are dropped by `SettingsConfig`; `load_configs` logs a warning via `find_unknown_settings_keys` (`src/config/loader.py`) and `tests/unit/test_settings_unknown_keys.py` locks the repo file.
+- Cross-artifact numbers (PRISMA counts, included cohort, kappa) come from `ReviewFacts` (`src/manuscript/review_facts.py`), not ad hoc queries.
 
 ## Canonical paths
 
@@ -30,6 +32,8 @@ Automate systematic reviews from research question to submission artifacts with 
 | DB schema | `src/db/schema.sql` |
 | Registry | `src/db/workflow_registry.py` |
 | Stats truth | `src/db/source_of_truth.py`, `src/db/stats.py` |
+| Review facts | `src/manuscript/review_facts.py` (`ReviewFacts`, `build_review_facts`) |
+| Jev client | `src/llm/jev_client.py` |
 | API routers | `system`, `config`, `run_lifecycle`, `history`, `database_explorer`, `costs`, `validation`, `artifacts`, `screening_review`, `advanced`, `prospero_gate`, `workflow_draft` |
 | Frontend API | `frontend/src/lib/api.ts` |
 | Frontend phases | `frontend/src/lib/constants.ts` |
@@ -101,6 +105,14 @@ flowchart TD
 
 Web mode parks via `End(WorkflowRunResult)`; CLI may poll or exit.
 
+### Terminal status and audit gate
+
+`gates.audit_gate_mode` (`advisory` | `strict` | `needs_revision`; repo default `needs_revision`) decides what a blocking contract/audit result does (`src/orchestration/helpers/manuscript_gate.py`):
+
+- `advisory`: run finishes `completed`; audit report kept.
+- `needs_revision`: all artifacts still produced; finalize sets status `needs_revision` (`WorkflowRunStatus.NEEDS_REVISION`).
+- `strict`: pipeline stops before finalize.
+
 ---
 
 ## Persistence
@@ -119,6 +131,8 @@ Search/corpus, screening, extraction/cohort, synthesis/graph, writing/manuscript
 - **Included studies:** `study_cohort_membership` with `synthesis_eligibility='included_primary'`
 - **Costs:** `cost_records`
 - **Registry:** use `db_path` from registry rows; do not guess paths
+- **Cross-artifact facts:** `build_review_facts()` assembles PRISMA counts, `included_primary` ids, and kappa. Consumers: pre-writing gate, writing setup, audit runner, manuscript contracts, readiness, PRISMA flow export. `validate_cross_artifact()` mismatches become a blocking `review_facts_cross_artifact` check (gate/readiness) or contract violation.
+- **Jev decisions:** `jev_decisions` table (created in `src/db/database.py` migrations), one row per Jev call with mode/latency/tokens/cost in `details_json`.
 
 ### Resume and rewind
 
@@ -130,14 +144,16 @@ Checkpoints via `src/orchestration/resume.py`. Rewind clears downstream artifact
 
 ### Configuration
 
-All model IDs in `config/settings.yaml`. Use `complete_validated()` for structured LLM output.
+All model IDs in `config/settings.yaml`. Default chat agents are Fireworks task tiers (`FIREWORKS_API_KEY`); `google:` models are used only for diagram image agents (`GEMINI_API_KEY`). Use `complete_validated()` for structured LLM output.
+
+The shared rate limiter (`src/llm/shared_rate_limiter.py`) is keyed on a hash of the provider key env vars actually used by configured agents, so runs sharing provider keys share one limiter.
 
 ### Cost surfaces
 
 - Per-run: `/api/db/{run_id}/costs`, `.../aggregates`, `.../export`
 - Global: `/api/history/costs/aggregates`, `.../export`
 
-Filters use `cost_records.created_at`.
+Filters use `cost_records.created_at`. LLM call sites pass `workflow_id` into `cost_records`. Jev calls log phase `<phase>_jev` (live) or `jev_shadow_<phase>` (shadow).
 
 ### Screening funnel (cost control)
 
@@ -146,4 +162,21 @@ Filters use `cost_records.created_at`.
 3. `batch_screen_*` pre-rank
 4. Dual-reviewer screening (`reviewer_batch_size`)
 
-Default recall-first profile in `config/settings.yaml`: `max_llm_screen: 200`, `batch_screen_threshold: 0.30`, `reviewer_batch_size: 10`. Raise threshold only after replay validation.
+Default recall-first profile in `config/settings.yaml`: `max_llm_screen: 200`, `batch_screen_threshold: 0.30`, `reviewer_batch_size: 10`. Raise threshold only after replay validation. The cap is raised to `jev.screening_cap_when_enabled` (1000) only when `jev.screening_reviewer_b` is `live`.
+
+### Jev decision layer
+
+TypeSafe Jev typed-decision API via `src/llm/jev_client.py` (`TYPESAFE_API_KEY`, pinned `jev.model`). Fail-open to the LLM path.
+
+| Surface (`jev.*`) | Module | `live` behavior |
+|-------------------|--------|-----------------|
+| `screening_reviewer_b` | `src/screening/jev_screening.py` | Jev is reviewer B; low confidence escalates to LLM |
+| `batch_pre_rank` | `src/screening/jev_batch_ranker.py` | Jev scores every paper; LLM on failure |
+| `study_design` | `src/extraction/jev_study_design.py` | Confident Jev answer skips the LLM classifier |
+| `rag_rerank` | `src/rag/jev_rerank.py` | Jev chunk order; LLM reranker on failure |
+
+- Modes: `off` | `shadow` | `live` (bools accepted: `true`→`live`, `false`→`off`). `jev.enabled: false` forces all off. Repo default: all `shadow`.
+- `shadow`: LLM decision is used; Jev runs side-by-side (bounded by `shadow_concurrency`) and is recorded in `jev_decisions`.
+- Thresholds: `route_confidence` (include/uncertain), `exclude_confidence` (exclude, conservative).
+- Cost: `price_per_call_usd`, `price_input_per_mtok`, `price_output_per_mtok` (0.0 logs $0; set from the TypeSafe price sheet).
+- Offline eval: `uv run python scripts/check.py jev-eval --db <runtime.db>` (agreement, include recall/precision, kappa, threshold sweep, latency, cost). `--live-sample N --confirm-live` re-screens N papers with external calls; never writes to the run DB.

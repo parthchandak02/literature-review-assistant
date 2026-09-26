@@ -87,9 +87,9 @@ The setup page uses one question-first flow:
 
 A secondary "Paste YAML directly" link is also available for pasting a raw config from a previous run or external source.
 
-`FIREWORKS_API_KEY` is required (default LLM in `config/settings.yaml`). `GEMINI_API_KEY` is also required for diagram image generation agents. The setup form also backfills any blank key fields from `GET /api/config/env-keys`, so keys already present in the local backend `.env` do not need to be retyped.
+`FIREWORKS_API_KEY` is required (default LLM in `config/settings.yaml`). `GEMINI_API_KEY` is also required for diagram image generation agents. Keys already in the backend `.env` do not need to be retyped: the setup form shows them as "Configured on server" (from `GET /api/config/env-keys/status`) and runs submitted with a blank key fall back to the server value. The server never returns secret values to the browser.
 
-The sidebar shows all your runs (live and historical) with status colors (emerald = completed, violet = running, red = error, amber = cancelled) and a stats strip (papers found, papers included, artifacts, cost). Selecting a run opens its dashboard with five base tabs in workflow order: Config (research question + review.yaml), Activity (phase timeline + event log), Data, Cost, and Results. Results uses category navigation (Manuscript, Figures, Quality, Files, References) as defined in `docs/UI.md`. A conditional Review Screening tab appears only when the run pauses for human-in-the-loop screening approval (`awaiting_review`). The floating Costs button (bottom-right) opens global LLM spend history and CSV export across registry-linked runs (`GET /api/history/costs/aggregates` and `GET /api/history/costs/export`), separate from the per-run Cost tab. To resume from a specific phase, use the Activity phase timeline (tap once to arm, tap again to confirm) or use the sidebar Resume button for default auto-resume. Non-running runs can be moved manually between `IN PROGRESS`, `COMPLETED`, and `ARCHIVED`; restore returns them to `IN PROGRESS`, and permanent delete remains an archived-item overflow action.
+The sidebar shows all your runs (live and historical) with status colors (emerald = completed, violet = running, red = error, amber = cancelled or needs revision) and a stats strip (papers found, papers included, artifacts, cost). Runs waiting on you (config drafts, PROSPERO registration, screening review) are grouped under "Needs your input"; the rest sit under "Reviews". Selecting a run opens its dashboard with five base tabs: Activity (phase timeline + event log), Results, Data, Config (research question + review.yaml), and Cost. Results uses category navigation (Manuscript, Figures, Quality, Files, References) as defined in `docs/UI.md`. A conditional Review Screening tab appears only when the run pauses for human-in-the-loop screening approval (`awaiting_review`). The floating Costs button (bottom-right) opens global LLM spend history and CSV export across registry-linked runs (`GET /api/history/costs/aggregates` and `GET /api/history/costs/export`), separate from the per-run Cost tab. To resume from a specific phase, use the Activity phase timeline (tap once to arm, tap again to confirm) or use the sidebar Resume button for default auto-resume. Non-running runs can be moved manually between `IN PROGRESS`, `COMPLETED`, and `ARCHIVED`; restore returns them to `IN PROGRESS`, and permanent delete remains an archived-item overflow action.
 
 **Tip -- reuse a past config:** Click "+" to open the form, then use the "Load from past run" dropdown to pre-populate the form from any previous run's config. Useful for iterating on the same research question with different parameters.
 
@@ -122,6 +122,7 @@ FIREWORKS_API_KEY=your-key-here              # Required -- default LLM (get at f
 OPENALEX_API_KEY=your-key-here            # Required if openalex is enabled (default review template includes openalex)
 PUBMED_EMAIL=your-email@example.com       # Strongly recommended for PubMed
 GEMINI_API_KEY=your-key-here              # Required for diagram image agents (google: models in settings.yaml)
+TYPESAFE_API_KEY=your-key-here            # Optional -- Jev decision API (jev.* surfaces; fail-open to LLM when unset)
 PUBMED_API_KEY=your-key-here              # Optional -- faster PubMed rate limits
 IEEE_API_KEY=your-key-here                # Optional -- IEEE Xplore access
 PERPLEXITY_SEARCH_API_KEY=your-key-here   # Optional -- auxiliary discovery
@@ -183,6 +184,7 @@ Your `submission/` folder is ready.
 | `OPENALEX_API_KEY` | [openalex.org](https://openalex.org/sign-up) | Conditionally required (required for the default template unless `openalex` is removed from `target_databases`) |
 | `PUBMED_EMAIL` | Any email address | Recommended (PubMed identification/rate policy) |
 | `GEMINI_API_KEY` | [ai.google.dev](https://ai.google.dev) | Yes (diagram image agents use `google:` models in `config/settings.yaml`) |
+| `TYPESAFE_API_KEY` | TypeSafe (Jev) | No (Jev surfaces in `jev:`; backend dotenv file only, not the Setup form) |
 | `PUBMED_API_KEY` | [ncbi.nlm.nih.gov/account](https://www.ncbi.nlm.nih.gov/account/settings/) | No (higher rate limits) |
 | `IEEE_API_KEY` | [developer.ieee.org](https://developer.ieee.org) | No |
 | `PERPLEXITY_SEARCH_API_KEY` | [docs.perplexity.ai](https://docs.perplexity.ai) | No |
@@ -261,14 +263,16 @@ Two config files control behavior:
 - `living_review: false` -- set to `true` + set `last_search_date` to re-run only from that date forward
 
 **`config/settings.yaml`** -- change this rarely:
-- LLM model assignments (which Gemini tier handles screening vs. writing)
+- LLM model assignments (`agents.*`; default Fireworks task tiers, `google:` only for diagram images)
 - `agents.screening_reviewer_b.model` -- second reviewer model; defaults can match reviewer A, or you can set a different model for cross-model validation
 - Screening thresholds (include/exclude confidence cutoffs)
 - `max_llm_screen` -- hard cap on LLM screening volume (cost control)
 - `human_in_the_loop.enabled` -- pause after screening for manual review of AI decisions
 - `gates.manuscript_contract_mode` -- contract enforcement (`observe` / `soft` / `strict`, default is `strict`)
 - `gates.manuscript_audit_mode` -- manuscript-audit verdict mode (`observe` / `soft` / `strict`) used to classify audit runs as passed or failed
-- `gates.audit_gate_mode` -- workflow behavior for blocking audit findings (`advisory` keeps workflow completion and preserves the audit report; `strict` marks the run failed)
+- `gates.audit_gate_mode` -- workflow behavior for blocking contract/audit findings (`advisory` completes the run and keeps the audit report; `needs_revision` (repo default) produces all artifacts and ends with status `needs_revision`; `strict` marks the run failed)
+- `jev.*` -- Jev (TypeSafe) decision surfaces `screening_reviewer_b`, `batch_pre_rank`, `study_design`, `rag_rerank`, each `off` / `shadow` / `live` (repo default `shadow`: LLM decides, Jev is logged to `jev_decisions` for comparison via `scripts/check.py jev-eval`). See `docs/ARCHITECTURE.md#jev-decision-layer`
+- Unknown keys in `settings.yaml` are ignored by the model; the loader logs a warning listing them
 - `writing.ratchet_*` -- optional section rewrite loop controls (`ratchet_max_iterations`, `ratchet_cost_cap_per_section`, `ratchet_outline_enabled`) for outline-guided writing quality refinement
 - `manuscript_audit.*` -- profile activation and `cost_cap_usd` for manuscript-audit calls
 - Quality gate thresholds
@@ -434,7 +438,7 @@ cd frontend && pnpm fix && pnpm typecheck
 | `src/quality/` | RoB 2, ROBINS-I, CASP, MMAT, GRADE |
 | `src/synthesis/` | Feasibility checker, meta-analysis, narrative synthesis |
 | `src/manuscript/` | Readiness scorecards, manuscript contracts, PRISMA disclosure checks, audit reviewer |
-| `src/rag/` | RAG pipeline: chunker, embedder (PydanticAI), hybrid BM25+dense retriever (RRF), HyDE query expansion, Gemini listwise reranker |
+| `src/rag/` | RAG pipeline: chunker, embedder (PydanticAI), hybrid BM25+dense retriever (RRF), HyDE query expansion, listwise LLM reranker (optional Jev rerank) |
 | `src/knowledge_graph/` | Builder, community (Louvain), gap detector |
 | `src/writing/` | Section writer, outline generator, humanizer, deterministic guardrails, grounding, evidence_assembler |
 | `src/citation/` | Citation ledger -- claim-to-evidence-to-BibTeX lineage |
@@ -443,7 +447,7 @@ cd frontend && pnpm fix && pnpm typecheck
 | `src/prisma/` | PRISMA 2020 flow diagram generator |
 | `src/protocol/` | PROSPERO-format protocol generator |
 | `src/web/` | FastAPI backend for the browser UI |
-| `src/llm/` | Gemini client, PydanticAI agent factory, rate limiter |
+| `src/llm/` | PydanticAI client + agent factory, provider registry, shared rate limiter, Jev client |
 | `src/config/` | Config loader (review.yaml + settings.yaml) |
 | `src/utils/` | SSL context, structured logging, shared path helpers |
 | `frontend/` | React + TypeScript web UI |
@@ -454,7 +458,7 @@ cd frontend && pnpm fix && pnpm typecheck
 |------------|---------|
 | `scripts/ops_pm2.sh` | PM2 restart, production deploy (`restart --prod-ui`), ecosystem sync |
 | `scripts/check.sh` | Run all checks (`local`) or full release gate (`release`) |
-| `scripts/check.py` | `api`, `replay-fixture`, `replay-workflow` |
+| `scripts/check.py` | `api`, `replay-fixture`, `replay-workflow`, `config-methodology`, `jev-eval` |
 | `scripts/review.py` | `start`, `watch`, `info` (optional `--costs`) |
 | `scripts/repair.py` | `finalize`, `re-extract`, `inject-citations`, `regen-replay-fixture` |
 | `scripts/hermes.sh` | `maintain`, `link-skill` (see staleness warning in skill docs) |
@@ -470,7 +474,7 @@ Implementation modules live under `scripts/lib/`; use the entrypoints above.
 - Corporate proxy: set `SSL_CERT_FILE` to your org CA bundle
 - Dev only (insecure): `RESEARCH_AGENT_SSL_SKIP_VERIFY=1`
 
-**Rate limit errors:** The tool respects Gemini free-tier limits automatically. If you hit them, wait a minute and resume.
+**Rate limit errors:** Requests are throttled per provider key by the shared rate limiter (RPM tiers in `config/settings.yaml`). If you still hit 429s, wait a minute and resume, or lower the tier RPMs.
 
 **"No papers found":** Check `OPENALEX_API_KEY`, verify `target_databases` in `config/review.yaml`, and inspect `doc_search_strategies_appendix.md` for over-restrictive query overrides. Also check connector warnings in Activity logs (for example quota failures or low-recall warnings).
 

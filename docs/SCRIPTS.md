@@ -16,6 +16,8 @@ Plain-language index for `scripts/`. Agents: read this before adding or invoking
 | Verify API docs match FastAPI routes | `make check-api` or `uv run python scripts/check.py api` |
 | Verify replay test fixture schema | `uv run python scripts/check.py replay-fixture` |
 | Validate a workflow `runtime.db` replay | `uv run python scripts/check.py replay-workflow --workflow-id wf-XXXX --profile local --fail-on-error` |
+| Compare Jev vs LLM reviewer B on a finished run (offline) | `uv run python scripts/check.py jev-eval --db runs/<...>/runtime.db` |
+| Same, plus live re-screen of N papers (external API calls, costs money) | `uv run python scripts/check.py jev-eval --db <runtime.db> --live-sample N --confirm-live` |
 | Validate scoping/systematic config YAML + methodology profile | `uv run python scripts/check.py config-methodology` |
 | Phase 1 scoping acceptance gate (agents) | `uv run python .cursor/skills/verify-litreview/control_litreview.py phase1-gate --json` |
 | Generate `config/review.yaml` from a question | `uv run python scripts/review.py start --question "..."` |
@@ -35,7 +37,7 @@ Only these files are user-facing CLIs. Implementation lives in `scripts/lib/`.
 |--------|---------------------|---------|
 | `scripts/ops_pm2.sh` | `restart`, `sync`, `help` | PM2 process control (`litreview-api`, `litreview-ui`, `litreview-tunnel`) |
 | `scripts/check.sh` | `local`, `release` | Full test suites (ruff, pytest, frontend, replay) |
-| `scripts/check.py` | `api`, `replay-fixture`, `replay-workflow`, `config-methodology` | Individual quality checks |
+| `scripts/check.py` | `api`, `replay-fixture`, `replay-workflow`, `config-methodology`, `jev-eval` | Individual quality checks |
 | `scripts/review.py` | `start`, `watch`, `info` | Review workflow operator tools |
 | `scripts/repair.py` | `finalize`, `re-extract`, `inject-citations`, `regen-replay-fixture` | Fix old or broken runs |
 | `scripts/hermes.sh` | `maintain`, `link-skill`, `help` | Hermes operator setup (see staleness warning in script) |

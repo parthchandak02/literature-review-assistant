@@ -2,6 +2,8 @@
 
 Verification gates, commit checklist, and open work.
 
+**Current plan:** [rearchitecture/README.md](./rearchitecture/README.md) (P0-P8). The backlog and sprint history below predate it.
+
 ## Before you commit (high-level changes)
 
 If you change architecture, phases, public API, persistence/schema, or `docs/`:
@@ -15,7 +17,7 @@ Narrow bugfixes can rely on tests and hooks only.
 ## Docs-to-code parity
 
 1. Doc paths resolve to existing files under `docs/`
-2. Endpoint table matches `src/web/app.py` (`docs/API.md` Section 10.1)
+2. Endpoint table matches `src/web/app.py` + `src/web/routers/*.py` (`docs/API.md` Section 10.1)
 3. Phase order matches `src/orchestration/phase_catalog.py`
 4. Frontend `RESUME_PHASE_ORDER` matches `USER_RESUMABLE_PHASE_ORDER`
 5. Schema claims match `src/db/schema.sql`
@@ -29,6 +31,7 @@ Narrow bugfixes can rely on tests and hooks only.
 |------|---------|
 | API docs match routes | `uv run python scripts/check.py api` |
 | Replay workflow | `uv run python scripts/check.py replay-workflow` |
+| Jev vs LLM agreement (optional) | `uv run python scripts/check.py jev-eval --db <runtime.db>` |
 | Backend | `uv run pytest tests/unit -q` + targeted integration |
 | Frontend | `cd frontend && pnpm test && pnpm typecheck` |
 | Full local checks | `make check-local` (alias: `make local-ci`) |
@@ -48,7 +51,7 @@ Top-level checkpoints in `phase_catalog.py` are implemented in `workflow.py` `RU
 Recent remediation (2026-08-10, Phases 0-2) completed:
 
 - Resume claim SQL fix; `primary_study_status` column reads
-- Endpoint parity green (66 routes)
+- Endpoint parity green (66 routes at the time; 69 as of 2026-09-26)
 - `WorkflowRunResult` typed graph end
 - Unified HITL/Prospero web park pattern
 - `connectLiveRun` + canonical `awaiting_review` status
@@ -64,12 +67,12 @@ Recent remediation (2026-08-10, Phases 0-2) completed:
 | P3 | Full-text: Zotero / reference-manager PDF import path into manual ingest |
 | P3 | Split god-modules one per PR when touched (`markdown_refs`, `contracts`, `retrieval`) |
 | P3 | Export citation `complete_validated` |
+| P3 | Broad API `response_model` typing |
 | P3 | Move `config_generator` out of `src/web/` |
 | P3 | Delete `workflow.py` pass-through wrappers; finish `End[WorkflowRunResult]` typing |
 | P4 | `ProsperoGatePanel` component tests |
 | P4 | Graph resume parametrized tests for `phase_1_prospero_gate` |
 | P4 | Replay script phase-name lock |
-| Investigate | `test_resume_workflow_smoke.py` hang (skipped in release-check) |
 
 ## Publication readiness (audit 2026-08-10)
 
@@ -93,11 +96,11 @@ Recent remediation (2026-08-10, Phases 0-2) completed:
 - `primary_study_status` migration 23 backfill + explorer column reads
 - `advanced.py` uses `resolve_runtime_db`; coordinator read paths in history/artifacts
 - CLI HITL no silent auto-approve on timeout
-- MIT `LICENSE`, README (DeepSeek default, clone URL, tabs)
+- MIT `LICENSE`, README (clone URL, tabs; LLM default since moved to Fireworks task tiers)
 - Prospero/draft + HITL approve integration tests in `check-local`
 - `approve-screening` registry lookup via `find_by_workflow_id` (parity with PROSPERO gate)
 - Replay fixtures regenerated for schema migration 23
-- Resume smoke hang quarantined with skip + timeout guard
+- Resume smoke hang quarantined (later replaced by bounded, un-skipped tests with `pytest.mark.timeout`; see Sprint 2)
 
 ### Sprint 2 (after blockers)
 
@@ -139,11 +142,6 @@ Recent remediation (2026-08-10, Phases 0-2) completed:
 - Parked-run active-run poll backoff: 2.5s interval (was 800ms) while `awaiting_review` / `awaiting_prospero`
 - Sidebar history already uses rail + `stats=false` on poll (see `useHistory.ts`)
 - Local baseline: `/api/health` ~130ms, `/api/history?view=rail&stats=false` ~85ms (tunnel/host dependent)
-
-
-- God-module splits when touched
-- Export citation `complete_validated`
-- Broad API `response_model` typing
 
 ## Reliability refactor sequence
 
