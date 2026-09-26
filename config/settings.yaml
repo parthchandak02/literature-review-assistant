@@ -1,8 +1,8 @@
 llm:
   # Fireworks AI task-tier routing (serverless; verify ids via live API):
-  # - deepseek-v4-flash-0731: bulk screening, batch rank, HyDE, rerank
+  # - deepseek-v4p1-flash: bulk screening, batch rank, HyDE, rerank
   # - gpt-oss-120b: low-volume tie-breakers (adjudicator)
-  # - deepseek-v4-pro-0813: extraction, RoB, writing, humanizer
+  # - glm-5p3: extraction, RoB, writing, humanizer
   # - minimax-m3: PDF vision table extraction (multimodal; not text-only DeepSeek)
   # Values are conservative relative to provider rate limits.
   flash_rpm: 60
@@ -13,6 +13,19 @@ llm:
   # Pricing fallback for models that may not yet exist in genai-prices.
   # Key is bare model ref (without provider prefix).
   price_fallback_per_mtok:
+    # Fireworks serverless list prices (checked 2026-09-26, fireworks.ai/models).
+    accounts/fireworks/models/deepseek-v4p1-flash:
+      input_per_mtok: 0.22
+      output_per_mtok: 0.66
+    deepseek-v4p1-flash:
+      input_per_mtok: 0.22
+      output_per_mtok: 0.66
+    accounts/fireworks/models/glm-5p3:
+      input_per_mtok: 1.40
+      output_per_mtok: 4.40
+    glm-5p3:
+      input_per_mtok: 1.40
+      output_per_mtok: 4.40
     deepseek-v4-flash-0731:
       input_per_mtok: 0.14
       output_per_mtok: 0.28
@@ -49,58 +62,58 @@ llm:
 
 agents:
   screening_reviewer_a:
-    model: "fireworks:accounts/fireworks/models/deepseek-v4-flash-0731"
+    model: "fireworks:accounts/fireworks/models/deepseek-v4p1-flash"
     temperature: 0.1
   screening_reviewer_b:
-    model: "fireworks:accounts/fireworks/models/deepseek-v4-flash-0731"
+    model: "fireworks:accounts/fireworks/models/deepseek-v4p1-flash"
     temperature: 0.1
   screening_adjudicator:
     model: "fireworks:accounts/fireworks/models/gpt-oss-120b"
     temperature: 0.2
   search:
-    model: "fireworks:accounts/fireworks/models/deepseek-v4-flash-0731"
+    model: "fireworks:accounts/fireworks/models/deepseek-v4p1-flash"
     temperature: 0.1
   extraction:
-    model: "fireworks:accounts/fireworks/models/deepseek-v4-pro-0813"
+    model: "fireworks:accounts/fireworks/models/glm-5p3"
     temperature: 0.1
   quality_assessment:
-    model: "fireworks:accounts/fireworks/models/deepseek-v4-pro-0813"
+    model: "fireworks:accounts/fireworks/models/glm-5p3"
     temperature: 0.2
   study_type_detection:
-    model: "fireworks:accounts/fireworks/models/deepseek-v4-flash-0731"
+    model: "fireworks:accounts/fireworks/models/deepseek-v4p1-flash"
     temperature: 0.2
   writing:
-    model: "fireworks:accounts/fireworks/models/deepseek-v4-pro-0813"
+    model: "fireworks:accounts/fireworks/models/glm-5p3"
     temperature: 0.2
   abstract_generation:
-    model: "fireworks:accounts/fireworks/models/deepseek-v4-flash-0731"
+    model: "fireworks:accounts/fireworks/models/deepseek-v4p1-flash"
     temperature: 0.2
   humanizer:
-    model: "fireworks:accounts/fireworks/models/deepseek-v4-pro-0813"
+    model: "fireworks:accounts/fireworks/models/glm-5p3"
     temperature: 0.3
   contradiction_resolver:
-    model: "fireworks:accounts/fireworks/models/deepseek-v4-pro-0813"
+    model: "fireworks:accounts/fireworks/models/glm-5p3"
     temperature: 0.2
   criteria_refinement:
-    model: "fireworks:accounts/fireworks/models/deepseek-v4-pro-0813"
+    model: "fireworks:accounts/fireworks/models/glm-5p3"
     temperature: 0.2
   table_extraction:
     model: "fireworks:accounts/fireworks/models/minimax-m3"
     temperature: 0.1
   config_generation:
-    model: "fireworks:accounts/fireworks/models/deepseek-v4-flash-0731"
+    model: "fireworks:accounts/fireworks/models/deepseek-v4p1-flash"
     temperature: 0.3
   batch_screener:
-    model: "fireworks:accounts/fireworks/models/deepseek-v4-flash-0731"
+    model: "fireworks:accounts/fireworks/models/deepseek-v4p1-flash"
     temperature: 0.1
   concept_diagrams:
-    model: "fireworks:accounts/fireworks/models/deepseek-v4-flash-0731"
+    model: "fireworks:accounts/fireworks/models/deepseek-v4p1-flash"
     temperature: 0.3
   research_diagram_preparer:
-    model: "fireworks:accounts/fireworks/models/deepseek-v4-flash-0731"
+    model: "fireworks:accounts/fireworks/models/deepseek-v4p1-flash"
     temperature: 0.2
   research_diagram_placement:
-    model: "fireworks:accounts/fireworks/models/deepseek-v4-flash-0731"
+    model: "fireworks:accounts/fireworks/models/deepseek-v4p1-flash"
     temperature: 0.1
   # ImageGenerationTool requires a Google image-capable model (not DeepSeek chat).
   research_diagram_drawing:
@@ -110,10 +123,10 @@ agents:
     model: "google:gemini-2.5-flash"
     temperature: 0.1
   narrative:
-    model: "fireworks:accounts/fireworks/models/deepseek-v4-flash-0731"
+    model: "fireworks:accounts/fireworks/models/deepseek-v4p1-flash"
     temperature: 0.2
   citation_matching:
-    model: "fireworks:accounts/fireworks/models/deepseek-v4-flash-0731"
+    model: "fireworks:accounts/fireworks/models/deepseek-v4p1-flash"
     temperature: 0.0
 
 diagram_generation:
@@ -242,7 +255,7 @@ dual_review:
   enabled: true
   kappa_warning_threshold: 0.4
   # reviewer_b_model: overridden via agents.screening_reviewer_b.model above.
-  # Reviewer A/B use flash-0731; adjudicator uses gpt-oss-120b for disagreement tie-breaks.
+  # Reviewer A/B use deepseek-v4p1-flash; adjudicator uses gpt-oss-120b for disagreement tie-breaks.
 
 gates:
   profile: "strict"
@@ -300,9 +313,9 @@ rag:
   chunk_max_words: 400
   chunk_overlap_sentences: 2
   use_hyde: true
-  hyde_model: "fireworks:accounts/fireworks/models/deepseek-v4-flash-0731"
+  hyde_model: "fireworks:accounts/fireworks/models/deepseek-v4p1-flash"
   rerank: true
-  reranker_model: "fireworks:accounts/fireworks/models/deepseek-v4-flash-0731"
+  reranker_model: "fireworks:accounts/fireworks/models/deepseek-v4p1-flash"
   candidate_k: 20      # Retrieved per section before reranking
   final_k: 8           # Final context chunks injected into writing prompt
   min_chunks_per_section: 1

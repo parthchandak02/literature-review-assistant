@@ -48,6 +48,8 @@ def test_rate_tier_for_model_maps_flash_lite_and_flash() -> None:
     assert rate_tier_for_model("fireworks:accounts/fireworks/models/deepseek-v4-flash-0731") == "flash"
     assert rate_tier_for_model("fireworks:accounts/fireworks/models/deepseek-v4-pro") == "pro"
     assert rate_tier_for_model("fireworks:accounts/fireworks/models/deepseek-v4-pro-0813") == "pro"
+    assert rate_tier_for_model("fireworks:accounts/fireworks/models/deepseek-v4p1-flash") == "flash"
+    assert rate_tier_for_model("fireworks:accounts/fireworks/models/glm-5p3") == "pro"
     assert rate_tier_for_model("fireworks:accounts/fireworks/models/gpt-oss-120b") == "flash"
     assert rate_tier_for_model("fireworks:accounts/fireworks/models/minimax-m3") == "pro"
     assert rate_tier_for_model("openai:gpt-5") == "pro"

@@ -24,7 +24,7 @@ agents.*.model  →  src/llm/registry.py  →  environment key + PydanticAI prov
 | Diagram images | Native image generation + vision critique | `agents.research_diagram_drawing`, `agents.research_diagram_critic` | `GEMINI_API_KEY` |
 | Embeddings | Local dense retrieval | `rag.embed_model` | none (local) |
 
-Example tier strings today (verify live before shipping): flash bulk uses a dated Fireworks id like `deepseek-v4-flash-0731`; quality uses `deepseek-v4-pro-0813`; adjudicator may use `gpt-oss-120b`; PDF vision uses a **vision-capable** Fireworks model such as `minimax-m3` (not text-only DeepSeek chat).
+Example tier strings today (verify live before shipping): flash bulk uses `deepseek-v4p1-flash`; quality uses `glm-5p3` (deepseek-v4-flash-0731 and deepseek-v4-pro-0813 were retired from serverless in Sep 2026); adjudicator may use `gpt-oss-120b`; PDF vision uses a **vision-capable** Fireworks model such as `minimax-m3` (not text-only DeepSeek chat).
 
 Fireworks base URL: `https://api.fireworks.ai/inference/v1` (OpenAI-compatible). Key: `FIREWORKS_API_KEY` (`fw_...`).
 
@@ -75,7 +75,7 @@ from dotenv import load_dotenv
 load_dotenv()
 from src.llm.registry import build_agent
 import asyncio
-m = 'fireworks:accounts/fireworks/models/deepseek-v4-flash-0731'
+m = 'fireworks:accounts/fireworks/models/deepseek-v4p1-flash'
 async def main():
     r = await build_agent(m).run('Reply: ok')
     print(r.output)
