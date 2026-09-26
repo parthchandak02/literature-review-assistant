@@ -47,17 +47,22 @@ cmd_local() {
 
   FIXTURE_DIR="$ROOT/tests/fixtures/replay"
   REPLAY_WORKFLOW_ID="$(uv run python -c 'import json, pathlib; m=json.loads(pathlib.Path("tests/fixtures/replay/manifest.json").read_text()); print(m["workflow_id"])')"
-  REPLAY_DB_PATH="$FIXTURE_DIR/runtime.db"
+  REPLAY_TMP="$(mktemp -d "${TMPDIR:-/tmp}/litreview-replay.XXXXXX")"
+  cleanup_replay_tmp() {
+    rm -rf "$REPLAY_TMP"
+  }
+  trap cleanup_replay_tmp EXIT
+  cp "$FIXTURE_DIR/runtime.db" "$REPLAY_TMP/runtime.db"
+  REPLAY_DB_PATH="$REPLAY_TMP/runtime.db"
 
-  export WORKFLOW_REPLAY_ID="$REPLAY_WORKFLOW_ID"
-  export WORKFLOW_REPLAY_DB_PATH="$REPLAY_DB_PATH"
-
-  echo "==> check.py replay-workflow (profile=local, fixture)"
+  echo "==> check.py replay-workflow (profile=local, fixture copy)"
   uv run python scripts/check.py replay-workflow \
     --workflow-id "$REPLAY_WORKFLOW_ID" \
     --db-path "$REPLAY_DB_PATH" \
     --profile local \
     --fail-on-error
+  trap - EXIT
+  cleanup_replay_tmp
 
   echo "local checks passed"
 }

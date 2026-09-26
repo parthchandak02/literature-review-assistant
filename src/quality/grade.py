@@ -165,7 +165,7 @@ class GradeAssessor:
             if isinstance(overall, RiskOfBiasJudgment):
                 if overall == RiskOfBiasJudgment.HIGH:
                     rob_downgrade = max(rob_downgrade, 2)
-                elif overall == RiskOfBiasJudgment.SOME_CONCERNS:
+                elif overall in {RiskOfBiasJudgment.SOME_CONCERNS, RiskOfBiasJudgment.NOT_ASSESSED}:
                     rob_downgrade = max(rob_downgrade, 1)
             elif isinstance(overall, RobinsIJudgment):
                 if overall in {RobinsIJudgment.CRITICAL}:

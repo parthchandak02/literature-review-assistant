@@ -26,8 +26,13 @@ def resolve_manuscript_gate_action(audit_gate_mode: str, gate_blocked: bool) -> 
         return "pass"
     if audit_gate_mode == "advisory":
         return "advisory_only"
+    if audit_gate_mode == "needs_revision":
+        return "needs_revision"
     return "strict_block"
 
 
 def manuscript_gate_blocks_workflow(audit_gate_mode: str, gate_blocked: bool) -> bool:
-    return gate_blocked and audit_gate_mode == "strict"
+    """Return True only when the gate should stop the pipeline before finalize."""
+    if not gate_blocked:
+        return False
+    return audit_gate_mode == "strict"

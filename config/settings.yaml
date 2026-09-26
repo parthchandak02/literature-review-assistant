@@ -222,7 +222,7 @@ gates:
   profile: "strict"
   manuscript_contract_mode: "strict"
   manuscript_audit_mode: "strict"
-  audit_gate_mode: "advisory"
+  audit_gate_mode: "needs_revision"
   search_volume_minimum: 50
   screening_minimum: 5
   sparse_topic_min: 2

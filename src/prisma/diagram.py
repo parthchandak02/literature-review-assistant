@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -12,6 +13,8 @@ from src.models import PRISMACounts
 
 if TYPE_CHECKING:
     from src.db.repositories import WorkflowRepository
+
+_logger = logging.getLogger(__name__)
 
 _EXCLUSION_REASON_LABELS: dict[str, str] = {
     "wrong_population": "Wrong population",
@@ -284,6 +287,11 @@ def render_prisma_diagram(counts: PRISMACounts, output_path: str) -> Path:
             return _render_fallback(counts, path)
 
 
+def reasons_sum_matches_excluded(reasons: dict[str, int], excluded_total: int) -> bool:
+    """PRISMA 2020 item 16a: excluded-with-reasons must sum to the excluded box."""
+    return sum(reasons.values()) == excluded_total
+
+
 async def build_prisma_counts(
     repo: WorkflowRepository,
     workflow_id: str,
@@ -370,11 +378,21 @@ async def build_prisma_counts(
     if _batch_event and isinstance(_batch_event, dict):
         _batch_excluded = int(_batch_event.get("excluded", 0))
     automation_excluded = _batch_excluded if _batch_excluded > 0 else max(0, records_after_dedup - records_screened)
+    reasons_valid = reasons_sum_matches_excluded(reports_excluded_with_reasons, excluded_total)
+    if not reasons_valid:
+        _logger.error(
+            "PRISMA arithmetic violation for %s: sum(reports_excluded_with_reasons)=%d != fulltext excluded=%d (%s)",
+            workflow_id,
+            sum(reports_excluded_with_reasons.values()),
+            excluded_total,
+            reports_excluded_with_reasons,
+        )
     arithmetic_valid = (
         (records_screened == records_after_dedup or automation_excluded > 0)
         and records_screened == records_excluded_screening + reports_sought
         and reports_sought == reports_not_retrieved + reports_assessed
         and reports_assessed == excluded_total + included_total
+        and reasons_valid
     )
 
     counts = PRISMACounts(

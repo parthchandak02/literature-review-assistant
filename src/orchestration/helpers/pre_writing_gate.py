@@ -15,7 +15,10 @@ from src.models import (
 from src.orchestration.phase_catalog import PRE_WRITING_PHASE_ORDER
 from src.orchestration.state import ReviewState
 from src.prisma import build_prisma_counts
+from src.rag.embedder import embedding_json_is_null
 from src.writing.orchestration import _citation_entries_from_papers
+
+PRE_WRITING_GATE_PHASE = "phase_5c_pre_writing_gate"
 
 
 def pre_writing_phases_from(start_phase: str) -> list[str]:
@@ -79,14 +82,22 @@ async def compute_pre_writing_gate_report(
 
     chunk_cursor = await db.execute(
         """
-        SELECT DISTINCT paper_id
+        SELECT paper_id, embedding
         FROM paper_chunks_meta
         WHERE workflow_id = ?
         """,
         (state.workflow_id,),
     )
     chunk_rows = await chunk_cursor.fetchall()
-    chunk_ids = {str(row[0]) for row in chunk_rows if row and row[0]}
+    chunk_ids: set[str] = set()
+    null_vector_ids: set[str] = set()
+    for row in chunk_rows:
+        if not row or not row[0]:
+            continue
+        paper_id = str(row[0])
+        chunk_ids.add(paper_id)
+        if embedding_json_is_null(row[1]):
+            null_vector_ids.add(paper_id)
 
     dedup_count = state.dedup_count
     if dedup_count <= 0:
@@ -106,6 +117,7 @@ async def compute_pre_writing_gate_report(
     missing_extraction = sorted(included_ids - extraction_ids)
     missing_quality = sorted(extraction_ids - quality_ids)
     missing_chunks = sorted(extraction_ids - chunk_ids)
+    null_vector_papers = sorted(extraction_ids & null_vector_ids)
     citation_catalog_ok = len(citekeys) == len(included_papers) and len(set(citekeys)) == len(citekeys)
 
     checks: list[PreWritingGateCheck] = []
@@ -158,6 +170,18 @@ async def compute_pre_writing_gate_report(
     )
     if missing_chunks:
         blocking_reasons.append(f"missing RAG chunks for {len(missing_chunks)} extracted papers")
+        rewind_candidates.append("phase_4b_embedding")
+
+    checks.append(
+        PreWritingGateCheck(
+            name="rag_embedding_validity",
+            ok=not null_vector_papers,
+            detail=f"null_or_zero_vector_papers={len(null_vector_papers)}",
+            rewind_phase=None if not null_vector_papers else "phase_4b_embedding",
+        )
+    )
+    if null_vector_papers:
+        blocking_reasons.append(f"null or zero-vector RAG embeddings for {len(null_vector_papers)} extracted papers")
         rewind_candidates.append("phase_4b_embedding")
 
     checks.append(
@@ -238,4 +262,8 @@ async def rewind_pre_writing_phase(
     phases_to_clear = pre_writing_phases_from(rewind_phase)
     if phases_to_clear:
         await repository.delete_checkpoints_for_phases(workflow_id, phases_to_clear)
-    await repository.rollback_phase_data(workflow_id, rewind_phase)
+    await repository.rollback_phase_data(
+        workflow_id,
+        rewind_phase,
+        preserve_recovery_phases=frozenset({PRE_WRITING_GATE_PHASE}),
+    )

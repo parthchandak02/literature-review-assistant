@@ -22,7 +22,6 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-import aiosqlite
 import pytest
 import pytest_asyncio
 import structlog
@@ -30,8 +29,8 @@ import yaml
 
 from src.db.database import get_db
 from src.db.repositories import WorkflowRepository
-from src.db.workflow_registry import candidate_run_roots, resolve_workflow_db_path
 from src.llm.pydantic_client import PydanticAIClient
+from tests.replay_fixture import committed_replay_runtime_path, copy_runtime_db_to_tmp
 
 MINIMAL_REVIEW: dict[str, Any] = {
     "research_question": "What is the effect of the intervention on the primary outcome in the target population?",
@@ -50,6 +49,11 @@ MINIMAL_REVIEW: dict[str, Any] = {
     "date_range_start": 2015,
     "date_range_end": 2026,
     "target_databases": ["openalex"],
+    "protocol": {
+        "registered": True,
+        "registration_number": "CRD42025678901",
+        "registration_date": "2026-01-15",
+    },
 }
 
 MINIMAL_SETTINGS: dict[str, Any] = {
@@ -262,37 +266,27 @@ def reset_structured_log() -> None:
 
 
 @pytest.fixture
-async def real_workflow_target() -> tuple[str, Path]:
-    """Return (workflow_id, runtime_db_path) for real-data replay tests.
+async def real_workflow_target(tmp_path: Path) -> tuple[str, Path]:
+    """Return (workflow_id, writable runtime_db_path) for replay integration tests.
+
+    Always copies the source database into ``tmp_path`` so schema migrations and
+    validation runs never mutate committed files under tests/fixtures/replay/.
 
     Priority:
-    1) WORKFLOW_REPLAY_DB_PATH + WORKFLOW_REPLAY_ID
-    2) WORKFLOW_REPLAY_ID resolved from registry
-    3) latest workflow id in registry
+    1) WORKFLOW_REPLAY_DB_PATH + WORKFLOW_REPLAY_ID (source path; copied to tmp)
+    2) Committed tests/fixtures/replay profile (default)
     """
     env_db = os.getenv("WORKFLOW_REPLAY_DB_PATH", "").strip()
     env_wf = os.getenv("WORKFLOW_REPLAY_ID", "").strip()
     if env_db and env_wf:
-        db_path = Path(env_db).expanduser().resolve()
-        if not db_path.exists():
-            pytest.skip(f"WORKFLOW_REPLAY_DB_PATH not found: {db_path}")
-        return env_wf, db_path
+        source = Path(env_db).expanduser().resolve()
+        if not source.exists():
+            pytest.skip(f"WORKFLOW_REPLAY_DB_PATH not found: {source}")
+        dest = copy_runtime_db_to_tmp(source, tmp_path, name=f"replay_{env_wf}.db")
+        return env_wf, dest
 
-    roots = candidate_run_roots("runs", anchor_file=__file__)
-    workflow_id = env_wf
-    if not workflow_id:
-        registry = Path(roots[0]) / "workflows_registry.db"
-        if not registry.exists():
-            pytest.skip("No workflows_registry.db found for real workflow replay tests.")
-        async with aiosqlite.connect(str(registry)) as db:
-            row = await (
-                await db.execute("SELECT workflow_id FROM workflows_registry ORDER BY updated_at DESC LIMIT 1")
-            ).fetchone()
-        if not row or not row[0]:
-            pytest.skip("No workflow id found in workflows_registry.")
-        workflow_id = str(row[0])
-
-    resolved = await resolve_workflow_db_path(workflow_id, roots)
-    if not resolved:
-        pytest.skip(f"Could not resolve runtime.db for workflow_id={workflow_id}")
-    return workflow_id, Path(resolved).resolve()
+    workflow_id, source = committed_replay_runtime_path("default")
+    if not source.exists():
+        pytest.skip(f"Committed replay fixture missing: {source}")
+    dest = copy_runtime_db_to_tmp(source, tmp_path, name=f"replay_{workflow_id}.db")
+    return workflow_id, dest

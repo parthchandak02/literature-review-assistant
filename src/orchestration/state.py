@@ -75,3 +75,6 @@ class ReviewState:
     rag_sections_error: int = 0
     rag_sections_skipped: int = 0
     rag_threshold_breached: bool = False
+    # Set when manuscript contract/audit gate fails under needs_revision mode.
+    manuscript_gate_blocked: bool = False
+    manuscript_gate_failure_reasons: list[str] = field(default_factory=list)

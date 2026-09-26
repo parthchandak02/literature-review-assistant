@@ -3,6 +3,7 @@ from __future__ import annotations
 import sqlite3
 from pathlib import Path
 
+import pytest
 import yaml
 
 from src.main import main
@@ -25,7 +26,12 @@ def _write_review_yaml(path: Path) -> None:
         "exclusion_criteria": ["opinion pieces"],
         "date_range_start": 2015,
         "date_range_end": 2026,
-        "target_databases": ["unsupported_db"],
+        "target_databases": ["openalex"],
+        "protocol": {
+            "registered": True,
+            "registration_number": "CRD42025678901",
+            "registration_date": "2026-01-15",
+        },
         "target_sections": ["abstract", "methods", "results"],
     }
     path.write_text(yaml.safe_dump(payload, sort_keys=False), encoding="utf-8")
@@ -42,14 +48,38 @@ def _write_settings_yaml(path: Path) -> None:
             "extraction": {"model": "google:gemini-2.5-pro", "temperature": 0.1},
             "writing": {"model": "google:gemini-2.5-pro", "temperature": 0.2},
         },
-        # warning mode so search_volume_gate doesn't hard-fail on 0 results
-        # (unsupported_db connector returns 0 papers) -- lets all phases run.
+        # warning mode so search_volume_gate doesn't hard-fail on 0 papers from mocked search.
         "gates": {"profile": "warning"},
+        "rag": {
+            "embed_model": "sentence-transformers:lightonai/DenseOn",
+            "use_hyde": False,
+            "rerank": False,
+        },
     }
     path.write_text(yaml.safe_dump(payload, sort_keys=False), encoding="utf-8")
 
 
-def test_run_executes_single_path_orchestrator(tmp_path) -> None:
+def _patch_empty_search_connectors(monkeypatch: pytest.MonkeyPatch) -> None:
+    def _fake_build_connectors(workflow_id: str, target_databases: list[str]) -> tuple[list, dict[str, str]]:
+        _ = (workflow_id, target_databases)
+        return [], {}
+
+    monkeypatch.setattr(
+        "src.orchestration.helpers.search_connectors.build_connectors",
+        _fake_build_connectors,
+    )
+    monkeypatch.setattr(
+        "src.orchestration.runners.search_runner._build_connectors",
+        _fake_build_connectors,
+    )
+    monkeypatch.setattr(
+        "src.orchestration.workflow._build_connectors",
+        _fake_build_connectors,
+    )
+
+
+def test_run_executes_single_path_orchestrator(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
+    _patch_empty_search_connectors(monkeypatch)
     review_path = tmp_path / "review.yaml"
     settings_path = tmp_path / "settings.yaml"
     run_root = tmp_path / "runs"
@@ -83,6 +113,7 @@ def test_run_executes_single_path_orchestrator(tmp_path) -> None:
     finally:
         conn.close()
     assert {
+        "phase_1_prospero_gate",
         "phase_2_search",
         "phase_3_screening",
         "phase_4_extraction_quality",

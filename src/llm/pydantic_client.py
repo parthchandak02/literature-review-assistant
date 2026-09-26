@@ -19,9 +19,14 @@ that previously existed in the codebase.
 from __future__ import annotations
 
 import asyncio
+import contextlib
+import contextvars
 import json
 import logging
 import random
+import re
+import time
+from collections.abc import Iterator
 from typing import Any, TypeVar
 
 from pydantic import BaseModel
@@ -53,11 +58,85 @@ _DEEPSEEK_DISABLE_THINKING_EXTRA_BODY: dict[str, object] = {"thinking": {"type":
 _MAX_RETRIES = 5
 _BASE_DELAY = 2.0  # seconds
 _MAX_DELAY = 90.0  # seconds cap
+# One logical LLM call (including every nested retry layer) may not spend more
+# than this many transient retries or this much wall-clock time retrying.
+_MAX_TOTAL_TRANSIENT_RETRIES = _MAX_RETRIES
+_RETRY_DEADLINE_SECONDS = 300.0
 
 # HTTP status codes that indicate a transient server-side problem.
-_RETRYABLE_CODES = {"429", "502", "503", "504"}
-# Substrings found in exception messages for retryable conditions.
-_RETRYABLE_MSGS = {"unavailable", "resource_exhausted", "rate", "overloaded", "gateway", "quota"}
+_RETRYABLE_STATUS_CODES = frozenset({429, 500, 502, 503, 504})
+# Status code embedded in a message: "status_code: 503", "Error code: 429", "HTTP 502".
+_STATUS_IN_MSG = re.compile(r"(?i:status[_ ]?code|error code|http(?:/[\d.]+)?)\W{0,3}(\d{3})\b")
+# Google-style "<code> <STATUS_NAME>", e.g. "503 UNAVAILABLE" (case-sensitive on purpose).
+_STATUS_NAME_IN_MSG = re.compile(r"\b(\d{3}) [A-Z][A-Z_]{3,}\b")
+# Whole-phrase transient markers; word boundaries keep "moderate"/"generate" out.
+_TRANSIENT_PHRASES = re.compile(
+    r"\b(?:rate[ _-]?limit(?:ed|s)?|too many requests|resource[ _]exhausted|overloaded|"
+    r"service unavailable|temporarily unavailable|bad gateway|gateway timeout|timed out)\b",
+    re.IGNORECASE,
+)
+
+
+def _transient_exception_types() -> tuple[type[BaseException], ...]:
+    types: list[type[BaseException]] = [TimeoutError, asyncio.TimeoutError, ConnectionError]
+    try:
+        import httpx
+
+        types += [httpx.TimeoutException, httpx.NetworkError, httpx.RemoteProtocolError]
+    except ImportError:  # pragma: no cover
+        pass
+    try:
+        import aiohttp
+
+        types += [aiohttp.ClientConnectionError, aiohttp.ServerTimeoutError]
+    except ImportError:  # pragma: no cover
+        pass
+    try:
+        import openai
+
+        types += [openai.APIConnectionError, openai.APITimeoutError]
+    except ImportError:  # pragma: no cover
+        pass
+    return tuple(types)
+
+
+_TRANSIENT_EXCEPTION_TYPES = _transient_exception_types()
+
+
+class _RetryBudget:
+    __slots__ = ("deadline", "retries_left")
+
+    def __init__(self, *, deadline_seconds: float, max_retries: int) -> None:
+        self.deadline = time.monotonic() + deadline_seconds
+        self.retries_left = max_retries
+
+
+_retry_budget_var: contextvars.ContextVar[_RetryBudget | None] = contextvars.ContextVar(
+    "llm_retry_budget", default=None
+)
+
+
+@contextlib.contextmanager
+def retry_budget(
+    *,
+    deadline_seconds: float = _RETRY_DEADLINE_SECONDS,
+    max_retries: int = _MAX_TOTAL_TRANSIENT_RETRIES,
+) -> Iterator[_RetryBudget]:
+    """Share one transient-retry budget across all nested ``_run_with_retry`` calls.
+
+    The outermost scope wins, so validation-retry loops (or callers wrapping a
+    fallback chain) cap the total transient retries instead of multiplying them.
+    """
+    existing = _retry_budget_var.get()
+    if existing is not None:
+        yield existing
+        return
+    budget = _RetryBudget(deadline_seconds=deadline_seconds, max_retries=max_retries)
+    token = _retry_budget_var.set(budget)
+    try:
+        yield budget
+    finally:
+        _retry_budget_var.reset(token)
 
 
 def _is_gemini(model: str) -> bool:
@@ -85,10 +164,49 @@ def _model_settings(
     return settings
 
 
+def _exception_chain(exc: BaseException) -> list[BaseException]:
+    chain: list[BaseException] = []
+    current: BaseException | None = exc
+    while current is not None and current not in chain and len(chain) < 8:
+        chain.append(current)
+        current = current.__cause__ or current.__context__
+    return chain
+
+
+def _status_code_of(exc: BaseException) -> int | None:
+    """Return the HTTP status carried by the exception (attribute first, then message)."""
+    for obj in _exception_chain(exc):
+        for candidate in (
+            getattr(obj, "status_code", None),
+            getattr(obj, "status", None),
+            getattr(obj, "code", None),
+            getattr(getattr(obj, "response", None), "status_code", None),
+        ):
+            if isinstance(candidate, int) and 100 <= candidate <= 599:
+                return candidate
+    message = str(exc)
+    for pattern in (_STATUS_IN_MSG, _STATUS_NAME_IN_MSG):
+        match = pattern.search(message)
+        if match:
+            code = int(match.group(1))
+            if 100 <= code <= 599:
+                return code
+    return None
+
+
 def _is_retryable(exc: BaseException) -> bool:
-    """Return True if *exc* represents a transient provider error worth retrying."""
-    s = str(exc).lower()
-    return any(c in s for c in _RETRYABLE_CODES) or any(m in s for m in _RETRYABLE_MSGS)
+    """Return True if *exc* represents a transient provider error worth retrying.
+
+    Classification order: transport exception types (timeouts, connection
+    errors) -> HTTP status (429/500/502/503/504 retry, any other status does
+    not) -> whole-phrase transient markers in the message.
+    """
+    if any(isinstance(obj, _TRANSIENT_EXCEPTION_TYPES) for obj in _exception_chain(exc)):
+        return True
+    status = _status_code_of(exc)
+    if status is not None:
+        return status in _RETRYABLE_STATUS_CODES
+    return bool(_TRANSIENT_PHRASES.search(str(exc)))
 
 
 def _parse_retry_after(exc: BaseException) -> float:
@@ -100,8 +218,6 @@ def _parse_retry_after(exc: BaseException) -> float:
     """
     exc_str = str(exc)
     # Try common patterns: "retry-after: 30", "Retry-After=30", "retry_after=30"
-    import re
-
     patterns = [
         r"retry[-_]after[:\s=]+(\d+(?:\.\d+)?)",
         r'"retry-after":\s*"?(\d+(?:\.\d+)?)"?',
@@ -131,32 +247,38 @@ def _parse_retry_after(exc: BaseException) -> float:
 async def _run_with_retry(agent: Agent[Any, Any], prompt: str, *, model_settings: ModelSettings) -> Any:
     """Run *agent* with exponential-backoff retry on transient errors.
 
-    Retries up to _MAX_RETRIES times on 429/502/503/504 and similar transient
-    conditions. Non-retryable errors (auth failures, schema errors, etc.) are
-    re-raised immediately on the first occurrence.
+    Retries transient conditions (see ``_is_retryable``). Non-retryable errors
+    (auth failures, schema errors, etc.) are re-raised immediately.
 
-    When a 429 response includes a Retry-After header, its value is used as the
-    minimum wait before the next attempt (honouring the server's back-pressure).
+    Retries draw from the ambient ``retry_budget`` (created here if none is
+    active), so nested callers share one cap on retry count and wall-clock
+    deadline. A Retry-After that would overrun the deadline fails fast.
     """
-    for attempt in range(_MAX_RETRIES):
-        try:
-            return await agent.run(prompt, model_settings=model_settings)
-        except Exception as exc:
-            if not _is_retryable(exc) or attempt == _MAX_RETRIES - 1:
-                raise
-            retry_after = _parse_retry_after(exc)
-            exponential_delay = min(_BASE_DELAY * (2**attempt) + random.uniform(0, 1), _MAX_DELAY)
-            delay = max(exponential_delay, retry_after)
-            logger.warning(
-                "LLM transient error (attempt %d/%d), retrying in %.1fs%s: %s",
-                attempt + 1,
-                _MAX_RETRIES,
-                delay,
-                f" (Retry-After={retry_after:.0f}s)" if retry_after > 0 else "",
-                exc,
-            )
-            await asyncio.sleep(delay)
-    raise RuntimeError("unreachable")  # pragma: no cover
+    with retry_budget() as budget:
+        attempt = 0
+        while True:
+            try:
+                return await agent.run(prompt, model_settings=model_settings)
+            except Exception as exc:
+                if not _is_retryable(exc):
+                    raise
+                retry_after = _parse_retry_after(exc)
+                exponential_delay = min(_BASE_DELAY * (2**attempt) + random.uniform(0, 1), _MAX_DELAY)
+                delay = max(exponential_delay, retry_after)
+                if budget.retries_left <= 0 or time.monotonic() + delay > budget.deadline:
+                    logger.warning("LLM transient error; retry budget exhausted, giving up: %s", exc)
+                    raise
+                budget.retries_left -= 1
+                attempt += 1
+                logger.warning(
+                    "LLM transient error (retry %d, %d left in budget), retrying in %.1fs%s: %s",
+                    attempt,
+                    budget.retries_left,
+                    delay,
+                    f" (Retry-After={retry_after:.0f}s)" if retry_after > 0 else "",
+                    exc,
+                )
+                await asyncio.sleep(delay)
 
 
 _DEFAULT_TIMEOUT_SECONDS = 120.0
@@ -168,9 +290,10 @@ class PydanticAIClient:
     Satisfies the LLMBackend protocol. Switching the underlying model is a
     one-line change in config/settings.yaml -- no code changes required.
 
-    Retry behavior: transient errors (503 UNAVAILABLE, 429 RESOURCE_EXHAUSTED,
-    802/504 gateway errors) are retried up to _MAX_RETRIES times with exponential
-    backoff and jitter. Non-retryable errors propagate immediately.
+    Retry behavior: transient errors (HTTP 429/500/502/503/504, timeouts,
+    connection errors) are retried with exponential backoff and jitter, drawing
+    from a shared per-call retry budget (count + deadline). Non-retryable errors
+    propagate immediately.
 
     timeout_seconds: Per-request HTTP timeout passed to ModelSettings.timeout.
     Reads from config/settings.yaml llm.request_timeout_seconds at construction
@@ -306,7 +429,29 @@ class PydanticAIClient:
 
         After *max_validation_retries* attempts the last exception propagates
         so callers can still fall back to a heuristic if desired.
+
+        All validation attempts share one transient-retry budget.
         """
+        with retry_budget():
+            return await self._complete_validated(
+                prompt,
+                model=model,
+                temperature=temperature,
+                response_model=response_model,
+                json_schema=json_schema,
+                max_validation_retries=max_validation_retries,
+            )
+
+    async def _complete_validated(
+        self,
+        prompt: str,
+        *,
+        model: str,
+        temperature: float,
+        response_model: type[_T],
+        json_schema: dict | None,
+        max_validation_retries: int,
+    ) -> tuple[_T, int, int, int, int, int]:
         effective_schema = json_schema or response_model.model_json_schema()
         total_in = total_out = total_cw = total_cr = 0
         current_prompt = prompt
@@ -363,6 +508,26 @@ class PydanticAIClient:
         Mirrors ``complete_validated()`` but accepts prompt parts such as
         BinaryContent instances plus text instructions for multimodal calls.
         """
+        with retry_budget():
+            return await self._complete_validated_parts(
+                prompt_parts,
+                model=model,
+                temperature=temperature,
+                response_model=response_model,
+                json_schema=json_schema,
+                max_validation_retries=max_validation_retries,
+            )
+
+    async def _complete_validated_parts(
+        self,
+        prompt_parts: list[Any],
+        *,
+        model: str,
+        temperature: float,
+        response_model: type[_T],
+        json_schema: dict | None,
+        max_validation_retries: int,
+    ) -> tuple[_T, int, int, int, int, int]:
         effective_schema = json_schema or response_model.model_json_schema()
         total_in = total_out = total_cw = total_cr = 0
         current_parts = list(prompt_parts)

@@ -188,6 +188,9 @@ async def run_manuscript_audit_node(state: ReviewState, ctx: GraphRunContext[Rev
             )
             gate_failure_reasons = collect_manuscript_gate_failure_reasons(contract_result, audit_result)
             gate_blocked = len(gate_failure_reasons) > 0
+            if gate_blocked and audit_gate_mode == "needs_revision":
+                state.manuscript_gate_blocked = True
+                state.manuscript_gate_failure_reasons = list(gate_failure_reasons)
             gate_action = resolve_manuscript_gate_action(audit_gate_mode, gate_blocked)
             await repository.save_manuscript_audit(
                 audit_result,

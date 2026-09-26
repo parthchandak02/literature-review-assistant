@@ -2,11 +2,20 @@
 
 from __future__ import annotations
 
+import json
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
+from pathlib import Path
+from typing import TYPE_CHECKING
 
+from src.db.database import get_db
 from src.db.repositories import WorkflowRepository
+from src.db.workflow_registry import update_status as update_registry_status
 from src.models import GateResult, GateStatus, SettingsConfig
+from src.models.workflow import WorkflowRunResult, WorkflowRunStatus
+
+if TYPE_CHECKING:
+    from src.orchestration.state import ReviewState
 
 GateCheck = Callable[[], Awaitable[tuple[bool, str, str, str]]]
 
@@ -199,6 +208,29 @@ class GateRunner:
 
         return await self.run_gate(workflow_id, phase, "cost_budget", check)
 
+    async def run_cost_budget_boundary_gate(self, workflow_id: str, phase: str) -> GateResult | None:
+        """Check summed ``cost_records`` spend before entering a paid phase.
+
+        The budget is a hard ceiling in every gate profile: an exceeded budget is
+        always recorded as FAILED. Returns None when ``cost_budget_max <= 0`` (disabled).
+        """
+        max_cost = self.settings.gates.cost_budget_max
+        if max_cost <= 0:
+            return None
+        total_cost = await self.repository.get_total_cost(workflow_id)
+        exceeded = total_cost >= max_cost
+        result = GateResult(
+            workflow_id=workflow_id,
+            gate_name="cost_budget",
+            phase=phase,
+            status=GateStatus.FAILED if exceeded else GateStatus.PASSED,
+            details=f"total_cost={total_cost:.4f}, max={max_cost:.4f}",
+            threshold=f"{max_cost:.4f}",
+            actual_value=f"{total_cost:.4f}",
+        )
+        await self.repository.save_gate_result(result)
+        return result
+
     async def run_resume_integrity_gate(
         self,
         workflow_id: str,
@@ -210,3 +242,46 @@ class GateRunner:
             return (valid, details, "valid", "valid" if valid else "invalid")
 
         return await self.run_gate(workflow_id, phase, "resume_integrity", check)
+
+
+async def enforce_cost_budget(state: ReviewState, phase: str) -> WorkflowRunResult | None:
+    """Stop the workflow before ``phase`` when run spend has reached ``gates.cost_budget_max``.
+
+    Returns a FAILED ``WorkflowRunResult`` (gate ``cost_budget``) after persisting the
+    gate result, run summary, and workflow/registry status; otherwise None.
+    """
+    if state.settings is None or not state.db_path or not state.workflow_id:
+        return None
+    async with get_db(state.db_path) as db:
+        repository = WorkflowRepository(db)
+        result = await GateRunner(repository, state.settings).run_cost_budget_boundary_gate(state.workflow_id, phase)
+        if result is None or result.status != GateStatus.FAILED:
+            return None
+        err_msg = (
+            f"Cost budget exceeded before {phase}: spent ${result.actual_value} "
+            f"of ${result.threshold} (gates.cost_budget_max). Raise the budget and resume to continue."
+        )
+        await repository.update_workflow_status(state.workflow_id, "failed")
+    await update_registry_status(state.run_root, state.workflow_id, "failed")
+
+    run_result = WorkflowRunResult(
+        status=WorkflowRunStatus.FAILED,
+        workflow_id=state.workflow_id,
+        db_path=state.db_path,
+        output_dir=state.output_dir or None,
+        error=err_msg,
+        phase=phase,
+        gate="cost_budget",
+        details={
+            "total_cost_usd": float(result.actual_value or 0.0),
+            "cost_budget_max": float(result.threshold or 0.0),
+        },
+    )
+    run_summary_path = state.artifacts.get("run_summary")
+    if run_summary_path:
+        Path(run_summary_path).write_text(json.dumps(run_result.to_output_dict(), indent=2), encoding="utf-8")
+    rc = state.run_context
+    if rc:
+        rc.log_status(err_msg)
+        rc.emit_phase_done(phase, {"error": err_msg, "gate": "cost_budget"})
+    return run_result

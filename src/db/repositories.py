@@ -190,12 +190,22 @@ class WorkflowRepository:
             )
         )
 
-    async def rollback_phase_data(self, workflow_id: str, from_phase: str) -> None:
+    async def rollback_phase_data(
+        self,
+        workflow_id: str,
+        from_phase: str,
+        *,
+        preserve_recovery_phases: frozenset[str] = frozenset(),
+    ) -> None:
         """Delete phase-scoped data for explicit resume rewinds.
 
         This enforces idempotent re-runs when a user resumes from an earlier
         phase (especially `phase_2_search`) by clearing all downstream
         materialized state before replay.
+
+        ``preserve_recovery_phases`` keeps ``recovery_policies`` rows for the
+        listed phases. Automatic gate rewinds must preserve their own policy,
+        otherwise the rewind bound is reset by the rewind itself.
         """
         from src.orchestration.phase_catalog import PHASE_ORDER, rollback_cascade_for
 
@@ -218,6 +228,8 @@ class WorkflowRepository:
                 "DELETE FROM workflow_steps WHERE workflow_id = ? AND phase = ?",
                 (workflow_id, p),
             )
+            if p in preserve_recovery_phases:
+                continue
             await self.db.execute(
                 "DELETE FROM recovery_policies WHERE workflow_id = ? AND phase = ?",
                 (workflow_id, p),

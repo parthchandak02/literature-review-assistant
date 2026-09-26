@@ -155,6 +155,8 @@ def test_manuscript_gate_matrix_covers_single_and_combined_failures(
         ("strict", False, True, "strict_block", True),
         ("advisory", True, False, "advisory_only", False),
         ("strict", True, False, "strict_block", True),
+        ("needs_revision", False, True, "needs_revision", False),
+        ("needs_revision", True, False, "needs_revision", False),
     ],
 )
 def test_manuscript_gate_action_matrix(

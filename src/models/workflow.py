@@ -25,6 +25,7 @@ class WorkflowRunStatus(str, Enum):
     AWAITING_PROSPERO = "awaiting_prospero"
     AWAITING_REVIEW = "awaiting_review"
     GATE_BLOCKED = "gate_blocked"
+    NEEDS_REVISION = "needs_revision"
 
 
 class WorkflowRunResult(BaseModel):
@@ -47,6 +48,7 @@ class WorkflowRunResult(BaseModel):
             WorkflowRunStatus.AWAITING_PROSPERO: "awaiting_prospero",
             WorkflowRunStatus.AWAITING_REVIEW: "awaiting_review",
             WorkflowRunStatus.GATE_BLOCKED: "gate_blocked",
+            WorkflowRunStatus.NEEDS_REVISION: "needs_revision",
         }[self.status]
         base: dict[str, Any] = {"status": legacy_status, "workflow_id": self.workflow_id}
         if self.db_path is not None:
@@ -81,6 +83,8 @@ class WorkflowRunResult(BaseModel):
             status = WorkflowRunStatus.AWAITING_REVIEW
         elif raw_status == "gate_blocked":
             status = WorkflowRunStatus.GATE_BLOCKED
+        elif raw_status in ("needs_revision", "needs-revision"):
+            status = WorkflowRunStatus.NEEDS_REVISION
         else:
             status = WorkflowRunStatus.COMPLETED
 

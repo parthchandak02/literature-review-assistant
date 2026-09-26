@@ -18,35 +18,55 @@ _ROB2_JUDGMENT = Literal["low", "some_concerns", "high"]
 
 
 class _Rob2LLMResponse(BaseModel):
-    domain_1_randomization: _ROB2_JUDGMENT = "some_concerns"
+    # Domains default to None (missing), never to a judgment: a domain the
+    # model omitted must surface as not_assessed, not as a risk level.
+    domain_1_randomization: _ROB2_JUDGMENT | None = None
     domain_1_rationale: str = ""
-    domain_2_deviations: _ROB2_JUDGMENT = "some_concerns"
+    domain_2_deviations: _ROB2_JUDGMENT | None = None
     domain_2_rationale: str = ""
-    domain_3_missing_data: _ROB2_JUDGMENT = "low"
+    domain_3_missing_data: _ROB2_JUDGMENT | None = None
     domain_3_rationale: str = ""
-    domain_4_measurement: _ROB2_JUDGMENT = "some_concerns"
+    domain_4_measurement: _ROB2_JUDGMENT | None = None
     domain_4_rationale: str = ""
-    domain_5_selection: _ROB2_JUDGMENT = "low"
+    domain_5_selection: _ROB2_JUDGMENT | None = None
     domain_5_rationale: str = ""
-    overall_judgment: _ROB2_JUDGMENT = "some_concerns"
     overall_rationale: str = ""
 
 
-def _to_rob2_judgment(value: str) -> RiskOfBiasJudgment:
+_MISSING_DOMAIN_RATIONALE = "Not assessed: domain judgment missing or unparseable in assessor output."
+
+
+def _to_rob2_judgment(value: str | None) -> RiskOfBiasJudgment:
     mapping = {
         "low": RiskOfBiasJudgment.LOW,
         "some_concerns": RiskOfBiasJudgment.SOME_CONCERNS,
         "high": RiskOfBiasJudgment.HIGH,
     }
-    return mapping.get(str(value).lower(), RiskOfBiasJudgment.SOME_CONCERNS)
+    if value is None:
+        return RiskOfBiasJudgment.NOT_ASSESSED
+    return mapping.get(str(value).strip().lower(), RiskOfBiasJudgment.NOT_ASSESSED)
 
 
-def _max_judgment(values: list[RiskOfBiasJudgment]) -> RiskOfBiasJudgment:
-    if RiskOfBiasJudgment.HIGH in values:
+def compute_rob2_overall(domains: list[RiskOfBiasJudgment]) -> RiskOfBiasJudgment:
+    """Deterministic RoB 2 overall judgment.
+
+    Any high -> high; otherwise any missing domain -> not_assessed (an
+    incomplete assessment can never be low); any some concerns -> some
+    concerns; all five low -> low.
+    """
+    if RiskOfBiasJudgment.HIGH in domains:
         return RiskOfBiasJudgment.HIGH
-    if RiskOfBiasJudgment.SOME_CONCERNS in values:
+    if not domains or RiskOfBiasJudgment.NOT_ASSESSED in domains:
+        return RiskOfBiasJudgment.NOT_ASSESSED
+    if RiskOfBiasJudgment.SOME_CONCERNS in domains:
         return RiskOfBiasJudgment.SOME_CONCERNS
     return RiskOfBiasJudgment.LOW
+
+
+def _domain_rationale(judgment: RiskOfBiasJudgment, rationale: str) -> str:
+    if judgment == RiskOfBiasJudgment.NOT_ASSESSED:
+        return _MISSING_DOMAIN_RATIONALE
+    return rationale or "LLM assessment."
 
 
 def _build_rob2_prompt(record: ExtractionRecord, full_text: str) -> str:
@@ -72,9 +92,10 @@ def _build_rob2_prompt(record: ExtractionRecord, full_text: str) -> str:
             "D3 - Missing outcome data: Were outcome data available for all (or nearly all) participants?",
             "D4 - Measurement of the outcome: Was the outcome measured appropriately and consistently?",
             "D5 - Selection of the reported result: Was the result selected from multiple analyses?",
-            "Overall: any 'high' -> 'high'; any 'some_concerns' -> 'some_concerns'; else 'low'.",
+            "Every domain D1-D5 is required. The overall judgment is computed from the domains in code.",
             "",
-            "Return ONLY valid JSON matching the schema. Provide a 1-2 sentence rationale per domain.",
+            "Return ONLY valid JSON matching the schema. Provide a 1-2 sentence rationale per domain",
+            "and a 1-2 sentence overall_rationale.",
         ]
     )
 
@@ -93,29 +114,59 @@ class Rob2Assessor:
         self.provider = provider
 
     def _heuristic(self, record: ExtractionRecord) -> RoB2Assessment:
-        """Conservative heuristic fallback when LLM call fails.
+        """Fallback when the LLM call fails: every domain is not_assessed.
 
-        All domains default to 'some_concerns' (not LOW) to avoid granting
-        low-risk status without evidence. Assessment is flagged as heuristic
-        so downstream consumers can identify and flag these entries.
+        No domain receives a risk level without evidence, and the overall is
+        not_assessed so GRADE and exports treat the study as unappraised.
         """
-        sc = RiskOfBiasJudgment.SOME_CONCERNS
+        na = RiskOfBiasJudgment.NOT_ASSESSED
+        rationale = "Not assessed: LLM assessment unavailable (heuristic fallback)."
         return RoB2Assessment(
             paper_id=record.paper_id,
-            domain_1_randomization=sc,
-            domain_1_rationale="Heuristic fallback: LLM unavailable; conservative default applied.",
-            domain_2_deviations=sc,
-            domain_2_rationale="Heuristic fallback: LLM unavailable; conservative default applied.",
-            domain_3_missing_data=sc,
-            domain_3_rationale="Heuristic fallback: LLM unavailable; conservative default applied.",
-            domain_4_measurement=sc,
-            domain_4_rationale="Heuristic fallback: LLM unavailable; conservative default applied.",
-            domain_5_selection=sc,
-            domain_5_rationale="Heuristic fallback: LLM unavailable; conservative default applied.",
-            overall_judgment=sc,
-            overall_rationale="Heuristic fallback: conservative overall judgment.",
+            domain_1_randomization=na,
+            domain_1_rationale=rationale,
+            domain_2_deviations=na,
+            domain_2_rationale=rationale,
+            domain_3_missing_data=na,
+            domain_3_rationale=rationale,
+            domain_4_measurement=na,
+            domain_4_rationale=rationale,
+            domain_5_selection=na,
+            domain_5_rationale=rationale,
+            overall_judgment=na,
+            overall_rationale=rationale,
             assessment_source="heuristic",
             fallback_used=True,
+        )
+
+    @staticmethod
+    def _from_llm(paper_id: str, parsed: _Rob2LLMResponse) -> RoB2Assessment:
+        d1 = _to_rob2_judgment(parsed.domain_1_randomization)
+        d2 = _to_rob2_judgment(parsed.domain_2_deviations)
+        d3 = _to_rob2_judgment(parsed.domain_3_missing_data)
+        d4 = _to_rob2_judgment(parsed.domain_4_measurement)
+        d5 = _to_rob2_judgment(parsed.domain_5_selection)
+        overall = compute_rob2_overall([d1, d2, d3, d4, d5])
+        if overall == RiskOfBiasJudgment.NOT_ASSESSED:
+            overall_rationale = "Incomplete assessment: one or more RoB 2 domains were not assessed."
+        else:
+            overall_rationale = parsed.overall_rationale or "Overall judgment derived from domain judgments."
+        return RoB2Assessment(
+            paper_id=paper_id,
+            domain_1_randomization=d1,
+            domain_1_rationale=_domain_rationale(d1, parsed.domain_1_rationale),
+            domain_2_deviations=d2,
+            domain_2_rationale=_domain_rationale(d2, parsed.domain_2_rationale),
+            domain_3_missing_data=d3,
+            domain_3_rationale=_domain_rationale(d3, parsed.domain_3_rationale),
+            domain_4_measurement=d4,
+            domain_4_rationale=_domain_rationale(d4, parsed.domain_4_rationale),
+            domain_5_selection=d5,
+            domain_5_rationale=_domain_rationale(d5, parsed.domain_5_rationale),
+            overall_judgment=overall,
+            overall_rationale=overall_rationale,
+            assessment_source="llm",
+            fallback_used=False,
         )
 
     async def assess(self, record: ExtractionRecord, full_text: str = "") -> RoB2Assessment:
@@ -129,23 +180,7 @@ class Rob2Assessor:
                     prompt=prompt,
                     response_model=_Rob2LLMResponse,
                 )
-                return RoB2Assessment(
-                    paper_id=record.paper_id,
-                    domain_1_randomization=_to_rob2_judgment(parsed.domain_1_randomization),
-                    domain_1_rationale=parsed.domain_1_rationale or "LLM assessment.",
-                    domain_2_deviations=_to_rob2_judgment(parsed.domain_2_deviations),
-                    domain_2_rationale=parsed.domain_2_rationale or "LLM assessment.",
-                    domain_3_missing_data=_to_rob2_judgment(parsed.domain_3_missing_data),
-                    domain_3_rationale=parsed.domain_3_rationale or "LLM assessment.",
-                    domain_4_measurement=_to_rob2_judgment(parsed.domain_4_measurement),
-                    domain_4_rationale=parsed.domain_4_rationale or "LLM assessment.",
-                    domain_5_selection=_to_rob2_judgment(parsed.domain_5_selection),
-                    domain_5_rationale=parsed.domain_5_rationale or "LLM assessment.",
-                    overall_judgment=_to_rob2_judgment(parsed.overall_judgment),
-                    overall_rationale=parsed.overall_rationale or "LLM overall judgment.",
-                    assessment_source="llm",
-                    fallback_used=False,
-                )
+                return self._from_llm(record.paper_id, parsed)
             except Exception as exc:
                 logger.warning(
                     "RoB 2 LLM assessment failed for %s (%s); using heuristic.",

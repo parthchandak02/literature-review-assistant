@@ -13,7 +13,7 @@ import re
 import signal
 from pathlib import Path
 
-from pydantic_graph import Graph
+from pydantic_graph import BaseNode, End, Graph
 
 from src.config.loader import load_configs
 from src.db.database import get_db
@@ -35,6 +35,7 @@ from src.models import (
 )
 from src.orchestration.context import RunContext
 from src.orchestration.embedding_node import EmbeddingNode
+from src.orchestration.gates import enforce_cost_budget
 from src.orchestration.helpers.extraction_metrics import (
     ABSTRACT_ONLY_EXTRACTION_SOURCES as HELPER_ABSTRACT_ONLY_EXTRACTION_SOURCES,
 )
@@ -333,6 +334,33 @@ RUN_GRAPH = Graph(
 )
 
 
+# Nodes that spend LLM/API budget; the cost budget gate runs before each one.
+_BUDGETED_NODE_PHASES: dict[type, str] = {
+    SearchNode: "phase_2_search",
+    ScreeningNode: "phase_3_screening",
+    ExtractionQualityNode: "phase_4_extraction_quality",
+    EmbeddingNode: "phase_4b_embedding",
+    SynthesisNode: "phase_5_synthesis",
+    KnowledgeGraphNode: "phase_5b_knowledge_graph",
+    WritingNode: "phase_6_writing",
+    ManuscriptAuditNode: "phase_7_audit",
+}
+
+
+async def run_graph_with_budget(start: BaseNode[ReviewState], state: ReviewState) -> WorkflowRunResult:
+    """Drive RUN_GRAPH node by node, enforcing ``gates.cost_budget_max`` before paid phases."""
+    async with RUN_GRAPH.iter(start, state=state) as graph_run:
+        node: BaseNode[ReviewState] | End[WorkflowRunResult] = start
+        while not isinstance(node, End):
+            phase = _BUDGETED_NODE_PHASES.get(type(node))
+            if phase is not None:
+                blocked = await enforce_cost_budget(state, phase)
+                if blocked is not None:
+                    return blocked
+            node = await graph_run.next(node)
+        return node.data
+
+
 # ---------------------------------------------------------------------------
 # Workflow entry points
 # ---------------------------------------------------------------------------
@@ -402,9 +430,7 @@ async def run_workflow_resume(
             loop.add_signal_handler(signal.SIGINT, _make_sigint_handler(run_context))
         except NotImplementedError:
             pass
-    start = ResumeStartNode()
-    result = await RUN_GRAPH.run(start, state=state)
-    return result.output
+    return await run_graph_with_budget(ResumeStartNode(), state)
 
 
 _WORKFLOW_ID_HEADER_RE = re.compile(r"^\s*#\s*workflow_id:\s*(\S+)\s*$", re.IGNORECASE)
@@ -496,8 +522,7 @@ async def run_workflow(
         parent_db_path=parent_db_path,
         workflow_id=reserved_workflow_id,
     )
-    result = await RUN_GRAPH.run(start, state=initial)
-    return result.output
+    return await run_graph_with_budget(start, initial)
 
 
 def run_workflow_sync(

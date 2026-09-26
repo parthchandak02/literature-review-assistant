@@ -459,3 +459,70 @@ def _build_selection_process_fallback_text(
         f"Records were screened against protocol eligibility criteria following the archived search strategy. "
         f"Of {screened} screened records, {funnel}"
     )
+
+
+EMPTY_SECTION_PLACEHOLDER_FALLBACK_TYPE = "empty_section_placeholder"
+
+
+def build_empty_section_placeholder(section: str, *, research_question: str, prisma_sentence: str) -> str | None:
+    """Deterministic placeholder text for an empty section, or None if the section has none."""
+    if section == "abstract":
+        return (
+            "**Background:** This review synthesizes the available evidence for the topic. "
+            f"**Objectives:** This review evaluated {research_question}. "
+            "**Methods:** Bibliographic databases were searched using the configured protocol and settings. "
+            f"**Results:** {prisma_sentence} "
+            "**Conclusion:** Evidence synthesis was generated from included studies. "
+            "**Keywords:** systematic review, evidence synthesis, outcomes, implementation, methodology."
+        )
+    if section == "methods":
+        return "Two independent reviewers screened records with adjudication for disagreements. " + prisma_sentence
+    return None
+
+
+def fill_empty_section_placeholders(
+    sections_written: list[str],
+    section_keys: list[str],
+    *,
+    research_question: str,
+    prisma_sentence: str,
+) -> set[str]:
+    """Fill empty sections that have a placeholder in place; return the keys that were filled.
+
+    Callers must pass the returned keys to ``resolve_section_manifest_outcome``
+    so placeholder output is recorded as a fallback, never as a pass.
+    """
+    filled: set[str] = set()
+    for idx, section in enumerate(section_keys):
+        if idx >= len(sections_written) or sections_written[idx].strip():
+            continue
+        placeholder = build_empty_section_placeholder(
+            section, research_question=research_question, prisma_sentence=prisma_sentence
+        )
+        if placeholder is not None:
+            sections_written[idx] = placeholder
+            filled.add(section)
+    return filled
+
+
+def resolve_section_manifest_outcome(
+    section_key: str,
+    *,
+    writer_fallback_used: bool,
+    validation_issues: list[str],
+    failed_sections: list[str] | set[str],
+    placeholder_sections: set[str],
+) -> tuple[str, bool, list[str]]:
+    """Return (contract_status, fallback_used, contract_issues) for a writing manifest row.
+
+    Any deterministic output (writer fallback, failed-section recovery, or an
+    empty-section placeholder) is ``failed`` with ``fallback_used=True``.
+    """
+    issues = list(validation_issues)
+    placeholder_used = section_key in placeholder_sections
+    if placeholder_used:
+        issues.append(f"{EMPTY_SECTION_PLACEHOLDER_FALLBACK_TYPE}:{section_key}")
+    fallback_used = writer_fallback_used or section_key in failed_sections or placeholder_used
+    if fallback_used:
+        return "failed", True, issues
+    return ("warning" if issues else "passed"), False, issues

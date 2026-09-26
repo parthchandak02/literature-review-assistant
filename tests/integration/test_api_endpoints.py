@@ -1299,7 +1299,7 @@ async def test_studies_files_zip_no_files_returns_404(
     try:
         response = await client.get(f"/api/run/{run_id}/studies-files.zip")
         assert response.status_code == 404
-        assert "No downloadable study files found" in response.json().get("detail", "")
+        assert "No valid PDF study files found" in response.json().get("detail", "")
     finally:
         _active_runs.pop(run_id, None)
 
@@ -1330,7 +1330,7 @@ async def test_start_run_valid_payload_accepted(client: httpx.AsyncClient) -> No
         "exclusion_criteria": ["opinion pieces"],
         "date_range_start": 2015,
         "date_range_end": 2026,
-        "target_databases": ["unsupported_db"],  # no real API calls
+        "target_databases": ["openalex"],  # mocked search in integration conftest when needed
     }
     req = {
         "review_yaml": yaml.safe_dump(review_payload),
@@ -1366,7 +1366,7 @@ async def test_start_run_with_masterlist_valid_payload_accepted(client: httpx.As
         "exclusion_criteria": ["non-empirical"],
         "date_range_start": 2015,
         "date_range_end": 2026,
-        "target_databases": ["unsupported_db"],
+        "target_databases": ["openalex"],
     }
     csv_content = (
         "Authors,Title,Year,Source title,DOI,Link,Abstract,Author Keywords\n"
@@ -1437,7 +1437,7 @@ async def test_start_run_with_supplementary_csv_valid_payload_accepted(client: h
         "exclusion_criteria": ["opinion pieces"],
         "date_range_start": 2015,
         "date_range_end": 2026,
-        "target_databases": ["unsupported_db"],
+        "target_databases": ["openalex"],
     }
     csv_content = (
         "Authors,Title,Year,Source title,DOI,Link,Abstract,Author Keywords\n"
@@ -1504,7 +1504,7 @@ async def test_start_run_with_supplementary_csv_drops_old_staged_paths(client: h
         "exclusion_criteria": ["opinion pieces"],
         "date_range_start": 2015,
         "date_range_end": 2026,
-        "target_databases": ["unsupported_db"],
+        "target_databases": ["openalex"],
         "supplementary_csv_paths": ["/tmp/litreview_test_runs/staging/older/supplementary.csv"],
     }
     csv_content = (
@@ -2230,7 +2230,10 @@ async def test_generate_config_stream_includes_topic_routing_metadata(
         research_question: str,
         progress_cb=None,
         generation_profile: str = "standard",
+        review_type: str | None = None,
+        question_framework: str | None = None,
     ) -> str:
+        _ = (review_type, question_framework)
         assert research_question
         assert generation_profile == "standard"
         if progress_cb is not None:
@@ -2278,7 +2281,10 @@ async def test_generate_config_stream_done_event_includes_quality_metrics(
         research_question: str,
         progress_cb=None,
         generation_profile: str = "standard",
+        review_type: str | None = None,
+        question_framework: str | None = None,
     ) -> str:
+        _ = (review_type, question_framework)
         assert research_question
         assert generation_profile == "standard"
         if progress_cb is not None:
@@ -2362,7 +2368,10 @@ async def test_generate_config_stream_passes_health_sdg_profile(
         research_question: str,
         progress_cb=None,
         generation_profile: str = "standard",
+        review_type: str | None = None,
+        question_framework: str | None = None,
     ) -> str:
+        _ = (review_type, question_framework)
         nonlocal seen_profile
         assert research_question
         seen_profile = generation_profile

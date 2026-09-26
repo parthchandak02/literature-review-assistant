@@ -133,23 +133,34 @@ class ScreeningRepo:
                 if decision == "exclude":
                     ft_excluded += c
 
+        # Reasons are tallied only for papers whose FINAL fulltext decision is
+        # exclude (dual_screening_results, which human overrides also update),
+        # so a reviewer's exclude vote on an ultimately included paper never
+        # contributes a reason, and each finally excluded paper contributes
+        # exactly one. Keeps sum(reasons) == ft_excluded.
         reason_cursor = await self.db.execute(
             """
-            WITH ranked_reasons AS (
+            WITH final_excluded AS (
+                SELECT paper_id
+                FROM dual_screening_results
+                WHERE workflow_id = ? AND stage = 'fulltext' AND final_decision = 'exclude'
+            ),
+            ranked_reasons AS (
                 SELECT
-                    paper_id,
-                    COALESCE(NULLIF(TRIM(exclusion_reason), ''), 'other') AS exclusion_reason,
-                    CASE reviewer_type
+                    sd.paper_id,
+                    COALESCE(NULLIF(TRIM(sd.exclusion_reason), ''), 'other') AS exclusion_reason,
+                    CASE sd.reviewer_type
                         WHEN 'human_override' THEN 0
                         WHEN 'adjudicator' THEN 1
                         WHEN 'reviewer_a' THEN 2
                         WHEN 'reviewer_b' THEN 3
                         ELSE 4
                     END AS reviewer_priority,
-                    created_at,
-                    id
-                FROM screening_decisions
-                WHERE workflow_id = ? AND stage = 'fulltext' AND decision = 'exclude'
+                    sd.created_at,
+                    sd.id
+                FROM screening_decisions sd
+                JOIN final_excluded fe ON fe.paper_id = sd.paper_id
+                WHERE sd.workflow_id = ? AND sd.stage = 'fulltext' AND sd.decision = 'exclude'
             ),
             primary_reasons AS (
                 SELECT paper_id, exclusion_reason
@@ -165,11 +176,12 @@ class ScreeningRepo:
                 )
                 WHERE rn = 1
             )
-            SELECT exclusion_reason, COUNT(*)
-            FROM primary_reasons
-            GROUP BY exclusion_reason
+            SELECT COALESCE(pr.exclusion_reason, 'other'), COUNT(*)
+            FROM final_excluded fe
+            LEFT JOIN primary_reasons pr ON pr.paper_id = fe.paper_id
+            GROUP BY COALESCE(pr.exclusion_reason, 'other')
             """,
-            (workflow_id,),
+            (workflow_id, workflow_id),
         )
         for reason, cnt in await reason_cursor.fetchall():
             key = str(reason).strip().lower().replace(" ", "_") if reason else "other"
@@ -202,7 +214,21 @@ class ScreeningRepo:
             reports_not_retrieved = int(cohort_row[1] or 0)
             ft_assessed = int(cohort_row[2] or 0)
         else:
-            reports_not_retrieved = exclusion_reasons.pop("no_full_text", 0)
+            # Sparse fulltext rows: derive not-retrieved from adjudicator/reviewer
+            # decisions (PRISMA item 17), not from the exclusion-reason tally.
+            not_retrieved_cursor = await self.db.execute(
+                """
+                SELECT COUNT(DISTINCT paper_id)
+                FROM screening_decisions
+                WHERE workflow_id = ? AND stage = 'fulltext'
+                  AND decision = 'exclude'
+                  AND REPLACE(LOWER(TRIM(COALESCE(exclusion_reason, ''))), ' ', '_') = 'no_full_text'
+                """,
+                (workflow_id,),
+            )
+            nr_row = await not_retrieved_cursor.fetchone()
+            reports_not_retrieved = int(nr_row[0] or 0) if nr_row else 0
+            reports_not_retrieved = max(reports_not_retrieved, exclusion_reasons.pop("no_full_text", 0))
             ft_assessed = max(0, ft_assessed - reports_not_retrieved)
             ft_excluded = max(0, ft_excluded - reports_not_retrieved)
         exclusion_reasons.pop("no_full_text", None)

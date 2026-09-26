@@ -469,7 +469,7 @@ class AgentConfig(BaseModel):
 
 
 GateMode = Literal["observe", "soft", "strict"]
-AuditGateMode = Literal["advisory", "strict"]
+AuditGateMode = Literal["advisory", "strict", "needs_revision"]
 
 
 class ScreeningConfig(BaseModel):

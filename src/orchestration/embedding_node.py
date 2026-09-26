@@ -1,7 +1,8 @@
 """EmbeddingNode: Phase 4b -- chunk and embed extracted papers for RAG retrieval.
 
 Runs after ExtractionQualityNode, before SynthesisNode.
-Idempotent on resume: skips papers already in paper_chunks_meta.
+Idempotent on resume: skips papers whose stored chunks all have non-zero vectors.
+Papers whose embedding fails are not persisted, so resume and the pre-writing gate retry them.
 Embedding calls go through pydantic_ai.embeddings.Embedder (see rag.embed_model in settings.yaml).
 Auth is handled by PydanticAI per provider (local models need no API key).
 """
@@ -18,7 +19,7 @@ from src.db.database import get_db
 from src.models import CostRecord
 from src.orchestration.state import ReviewState
 from src.rag.chunker import chunk_extraction_record, chunk_table_outcomes
-from src.rag.embedder import embed_texts
+from src.rag.embedder import embed_texts, embedding_json_is_null
 
 logger = logging.getLogger(__name__)
 
@@ -49,15 +50,33 @@ class EmbeddingNode(BaseNode[ReviewState]):
         chunk_max_words = rag_cfg.chunk_max_words
         chunk_overlap_sentences = rag_cfg.chunk_overlap_sentences
 
+        failed_paper_ids: set[str] = set()
         async with get_db(state.db_path) as db:
-            # Load already-embedded paper_ids for idempotent resume
+            # A paper is done only when every stored chunk has a usable vector;
+            # papers with null/zero vectors are cleared and re-embedded.
             already_done: set[str] = set()
+            invalid_papers: set[str] = set()
             async with db.execute(
-                "SELECT DISTINCT paper_id FROM paper_chunks_meta WHERE workflow_id = ?",
+                "SELECT paper_id, embedding FROM paper_chunks_meta WHERE workflow_id = ?",
                 (state.workflow_id,),
             ) as cursor:
                 async for row in cursor:
-                    already_done.add(row[0])
+                    paper_id = str(row[0])
+                    if embedding_json_is_null(row[1]):
+                        invalid_papers.add(paper_id)
+                    else:
+                        already_done.add(paper_id)
+            already_done -= invalid_papers
+            if invalid_papers:
+                logger.warning(
+                    "EmbeddingNode: %d papers have null/zero embeddings; re-embedding",
+                    len(invalid_papers),
+                )
+                await db.executemany(
+                    "DELETE FROM paper_chunks_meta WHERE workflow_id = ? AND paper_id = ?",
+                    [(state.workflow_id, pid) for pid in sorted(invalid_papers)],
+                )
+                await db.commit()
 
             to_embed = [r for r in state.extraction_records if r.paper_id not in already_done]
 
@@ -132,10 +151,15 @@ class EmbeddingNode(BaseNode[ReviewState]):
                     except Exception as _ce:
                         logger.debug("EmbeddingNode: could not save cost record: %s", _ce)
 
-                    if rc:
-                        rc.log_status(f"Persisting {len(all_chunks)} embedded chunks to database...")
-                    # Bulk insert all chunks in a single executemany call -- orders of
-                    # magnitude faster than per-row execute for large embedding sets.
+                    if len(embeddings) != len(all_chunks):
+                        raise RuntimeError(
+                            f"embed_texts returned {len(embeddings)} vectors for {len(all_chunks)} chunks"
+                        )
+                    # Persist per paper atomically: a paper with any failed chunk
+                    # stores nothing, so resume and the pre-writing gate see it as missing.
+                    failed_paper_ids = {
+                        chunk.paper_id for chunk, embedding in zip(all_chunks, embeddings) if embedding is None
+                    }
                     chunk_rows = [
                         (
                             chunk.chunk_id,
@@ -146,7 +170,20 @@ class EmbeddingNode(BaseNode[ReviewState]):
                             json.dumps(embedding),
                         )
                         for chunk, embedding in zip(all_chunks, embeddings)
+                        if embedding is not None and chunk.paper_id not in failed_paper_ids
                     ]
+                    if failed_paper_ids:
+                        logger.warning(
+                            "EmbeddingNode: embedding failed for %d papers; not persisted: %s",
+                            len(failed_paper_ids),
+                            ", ".join(sorted(failed_paper_ids)[:10]),
+                        )
+                        if rc:
+                            rc.log_status(
+                                f"Embedding failed for {len(failed_paper_ids)} papers; they will be retried on resume."
+                            )
+                    if rc:
+                        rc.log_status(f"Persisting {len(chunk_rows)} embedded chunks to database...")
                     await db.executemany(
                         """
                         INSERT OR IGNORE INTO paper_chunks_meta
@@ -158,24 +195,28 @@ class EmbeddingNode(BaseNode[ReviewState]):
                     await db.commit()
                     logger.info(
                         "EmbeddingNode: embedded %d chunks from %d papers",
-                        len(all_chunks),
-                        len(to_embed),
+                        len(chunk_rows),
+                        len(to_embed) - len(failed_paper_ids),
                     )
 
-            # Save checkpoint
+            # Save checkpoint; "partial" makes resume re-enter this phase.
             from src.db.repositories import WorkflowRepository
 
             repo = WorkflowRepository(db)
             await repo.save_checkpoint(
                 state.workflow_id,
                 "phase_4b_embedding",
-                papers_processed=len(state.extraction_records),
+                papers_processed=len(state.extraction_records) - len(failed_paper_ids),
+                status="partial" if failed_paper_ids else "completed",
             )
 
         if rc:
             rc.emit_phase_done(
                 "phase_4b_embedding",
-                {"chunks_embedded": len(state.extraction_records)},
+                {
+                    "chunks_embedded": len(state.extraction_records) - len(failed_paper_ids),
+                    "embedding_failed_papers": len(failed_paper_ids),
+                },
             )
 
         return SynthesisNode()

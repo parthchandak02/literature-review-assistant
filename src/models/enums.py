@@ -28,6 +28,7 @@ class RiskOfBiasJudgment(str, Enum):
     LOW = "low"
     SOME_CONCERNS = "some_concerns"
     HIGH = "high"
+    NOT_ASSESSED = "not_assessed"
 
 
 class RobinsIJudgment(str, Enum):

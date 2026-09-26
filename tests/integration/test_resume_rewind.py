@@ -41,6 +41,10 @@ async def _seed_resume_run(
         config_hash="resume-rewind-hash",
         status="interrupted",
     )
+    async with get_db(str(db_path)) as db:
+        repo = WorkflowRepository(db)
+        await repo.save_checkpoint(workflow_id, "phase_1_prospero_gate", papers_processed=0)
+        await db.commit()
     fixture = WorkflowDbFixture(
         workflow_id=workflow_id,
         db_path=db_path,

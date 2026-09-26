@@ -102,7 +102,12 @@ async def test_start_run_does_not_write_request_keys_to_process_environ() -> Non
         "exclusion_criteria": ["opinion pieces"],
         "date_range_start": 2015,
         "date_range_end": 2026,
-        "target_databases": ["unsupported_db"],
+        "target_databases": ["openalex"],
+        "protocol": {
+            "registered": True,
+            "registration_number": "CRD42025678901",
+            "registration_date": "2026-01-15",
+        },
     }
 
     mock_start = AsyncMock(return_value={"workflow_id": "wf-test", "status": "completed"})

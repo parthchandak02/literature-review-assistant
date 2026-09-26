@@ -215,10 +215,13 @@ async def run_finalize_node(state: ReviewState, ctx: GraphRunContext[ReviewState
                 _canonical_included_count = len(_canonical_ids)
     except Exception:
         pass
+    _terminal_status = "done"
+    if state.manuscript_gate_blocked:
+        _terminal_status = "needs_revision"
     summary: dict[str, str | int | float | bool | dict[str, int] | dict[str, str]] = {
         "run_id": state.run_id,
         "workflow_id": state.workflow_id,
-        "status": "done",
+        "status": _terminal_status,
         "log_dir": state.log_dir,
         "output_dir": state.output_dir,
         "search_counts": state.search_counts,
@@ -259,11 +262,19 @@ async def run_finalize_node(state: ReviewState, ctx: GraphRunContext[ReviewState
     if _finalize_errors:
         summary["status"] = "failed"
         summary["error"] = "; ".join(_finalize_errors)
+    elif state.manuscript_gate_blocked:
+        summary["status"] = "needs_revision"
+        summary["gate_failure_reasons"] = list(state.manuscript_gate_failure_reasons)
     Path(state.artifacts["run_summary"]).write_text(json.dumps(summary, indent=2), encoding="utf-8")
-    await update_registry_status(state.run_root, state.workflow_id, "failed" if _finalize_errors else "completed")
+    _registry_status = (
+        "failed"
+        if _finalize_errors
+        else ("needs_revision" if state.manuscript_gate_blocked else "completed")
+    )
+    await update_registry_status(state.run_root, state.workflow_id, _registry_status)
     async with get_db(state.db_path) as db:
         repo = WorkflowRepository(db)
-        await repo.update_workflow_status(state.workflow_id, "failed" if _finalize_errors else "completed")
+        await repo.update_workflow_status(state.workflow_id, _registry_status)
         await repo.save_checkpoint(
             state.workflow_id,
             "finalize",

@@ -49,6 +49,11 @@ _MINIMAL_SETTINGS = {
         "writing": {"model": "google:gemini-2.5-pro", "temperature": 0.2},
     },
     "gates": {"profile": "warning"},
+    "rag": {
+        "embed_model": "sentence-transformers:lightonai/DenseOn",
+        "use_hyde": False,
+        "rerank": False,
+    },
 }
 
 # All tables that the schema migration must create in a fresh runtime.db
