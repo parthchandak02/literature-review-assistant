@@ -801,6 +801,10 @@ class JevConfig(BaseModel):
         default=True,
         description="Use Jev for dual-reviewer B at title/abstract; low confidence escalates to LLM.",
     )
+    rag_rerank: bool = Field(
+        default=True,
+        description="Use Jev to score RAG chunks before falling back to the listwise LLM reranker.",
+    )
     screening_cap_when_enabled: int | None = Field(
         default=1000,
         ge=0,

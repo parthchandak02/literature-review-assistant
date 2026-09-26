@@ -178,6 +178,7 @@ jev:
   route_confidence: 0.6
   exclude_confidence: 0.85
   screening_reviewer_b: true
+  rag_rerank: true
   screening_cap_when_enabled: 1000
   timeout_seconds: 120
   # Recall safety slice around the cap cutoff.

@@ -123,6 +123,31 @@ def _build_direction_prompt(results_summary: str, outcome_name: str) -> str:
     )
 
 
+async def _record_direction_fallback(
+    repository: object | None,
+    workflow_id: str,
+    paper_id: str,
+    reason: str,
+) -> None:
+    if not repository or not workflow_id:
+        return
+    try:
+        from src.models import FallbackEventRecord
+
+        await repository.save_fallback_event(
+            FallbackEventRecord(
+                workflow_id=workflow_id,
+                phase="phase_5_narrative_direction",
+                module="synthesis.narrative",
+                fallback_type="keyword_direction",
+                reason=reason[:500],
+                paper_id=paper_id or None,
+            )
+        )
+    except Exception:
+        logger.warning("Could not record narrative direction fallback", exc_info=True)
+
+
 async def _classify_direction_llm(
     results_summary: str,
     outcome_name: str,
@@ -130,6 +155,8 @@ async def _classify_direction_llm(
     settings: object,
     llm_provider: object | None = None,
     workflow_id: str = "",
+    paper_id: str = "",
+    repository: object | None = None,
 ) -> Literal["positive", "negative", "mixed", "null"]:
     """Call LLM to classify effect direction for a single study summary."""
     from src.llm.provider import LLMProvider
@@ -137,7 +164,9 @@ async def _classify_direction_llm(
     from src.models.config import SettingsConfig
 
     if not isinstance(llm_client, PydanticAIClient) or not isinstance(settings, SettingsConfig):
-        return _keyword_direction(results_summary)
+        direction = _keyword_direction(results_summary)
+        await _record_direction_fallback(repository, workflow_id, paper_id, "llm_client_or_settings_unavailable")
+        return direction
 
     agent_cfg = settings.agents.get("narrative") or settings.agents.get("extraction")
     if agent_cfg:
@@ -178,7 +207,9 @@ async def _classify_direction_llm(
         return parsed.direction
     except Exception as exc:
         logger.warning("LLM direction classification failed (%s); using keyword fallback.", exc)
-        return _keyword_direction(results_summary)
+        direction = _keyword_direction(results_summary)
+        await _record_direction_fallback(repository, workflow_id, paper_id, f"llm_error:{type(exc).__name__}")
+        return direction
 
 
 # ---------------------------------------------------------------------------
@@ -215,6 +246,7 @@ async def build_narrative_synthesis(
     pico: object | None = None,
     llm_provider: object | None = None,
     workflow_id: str = "",
+    repository: object | None = None,
 ) -> NarrativeSynthesis:
     """Build a narrative synthesis from extraction records.
 
@@ -244,9 +276,17 @@ async def build_narrative_synthesis(
                 settings,
                 llm_provider=llm_provider,
                 workflow_id=workflow_id,
+                paper_id=record.paper_id,
+                repository=repository,
             )
         else:
             direction = _keyword_direction(summary)
+            await _record_direction_fallback(
+                repository,
+                workflow_id,
+                record.paper_id,
+                "narrative_llm_disabled",
+            )
 
         direction_counts[direction] = direction_counts.get(direction, 0) + 1
         rows.append(

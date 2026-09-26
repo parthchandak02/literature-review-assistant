@@ -60,6 +60,29 @@ def _format_contradiction_list(flags: list[ContradictionFlag]) -> str:
     return "\n".join(lines)
 
 
+async def _record_contradiction_fallback(
+    repository: WorkflowRepository | None,
+    workflow_id: str,
+    reason: str,
+) -> None:
+    if repository is None or not workflow_id:
+        return
+    try:
+        from src.models import FallbackEventRecord
+
+        await repository.save_fallback_event(
+            FallbackEventRecord(
+                workflow_id=workflow_id,
+                phase="phase_6_writing",
+                module="writing.contradiction_resolver",
+                fallback_type="template_paragraph",
+                reason=reason[:500],
+            )
+        )
+    except Exception as exc:
+        logger.warning("Could not record contradiction fallback: %s", exc)
+
+
 def _fallback_paragraph(flags: list[ContradictionFlag]) -> str:
     outcomes = list({f.outcome_name for f in flags[:3]})
     outcome_str = ", ".join(outcomes) if outcomes else "the primary outcomes"
@@ -94,6 +117,7 @@ async def generate_contradiction_paragraph(
             "generate_contradiction_paragraph received api_key argument; explicit key injection is deprecated and ignored."
         )
     if not get_env("GEMINI_API_KEY") and not get_env("FIREWORKS_API_KEY") and not get_env("OPENROUTER_API_KEY"):
+        await _record_contradiction_fallback(repository, workflow_id, "no_llm_api_keys")
         return _fallback_paragraph(flags)
 
     prompt = _RESOLVER_PROMPT_TEMPLATE.format(contradiction_list=_format_contradiction_list(flags))
@@ -101,7 +125,7 @@ async def generate_contradiction_paragraph(
         from src.config.loader import load_configs
 
         _, settings = load_configs(settings_path="config/settings.yaml")
-        provider = LLMProvider(settings=settings, repository=repository)
+        provider = LLMProvider(settings=settings, repository=repository, workflow_id=workflow_id)
         reserve_agent = "contradiction_resolver" if "contradiction_resolver" in settings.agents else "writing"
         await provider.reserve_call_slot(reserve_agent)
         client = get_chat_client()
@@ -110,6 +134,7 @@ async def generate_contradiction_paragraph(
         latency_ms = int((monotonic() - started) * 1000)
         text = str(raw or "").strip()
         if len(text) < 50:
+            await _record_contradiction_fallback(repository, workflow_id, "llm_output_too_short")
             text = _fallback_paragraph(flags)
         if repository is not None and workflow_id:
             cost = provider.estimate_cost_usd(model_name, tok_in, tok_out, cw, cr)
@@ -120,12 +145,14 @@ async def generate_contradiction_paragraph(
                 cost,
                 latency_ms,
                 phase="writing_contradiction_resolver",
+                workflow_id=workflow_id,
                 cache_read_tokens=cr,
                 cache_write_tokens=cw,
             )
         return text
     except Exception as exc:
         logger.warning("Contradiction resolver LLM call failed: %s", exc)
+        await _record_contradiction_fallback(repository, workflow_id, f"llm_error:{type(exc).__name__}")
         return _fallback_paragraph(flags)
 
 

@@ -199,17 +199,21 @@ async def run_synthesis_node(state: ReviewState, ctx: GraphRunContext[ReviewStat
                 pico=state.review.pico if state.review else None,
                 llm_provider=_synth_provider,
                 workflow_id=state.workflow_id,
+                repository=_synth_repo,
             )
     else:
-        narrative = await build_narrative_synthesis(
-            "primary_outcome",
-            state.extraction_records,
-            llm_client=_synth_llm,
-            settings=state.settings,
-            review_question=state.review.research_question if state.review else "",
-            pico=state.review.pico if state.review else None,
-            workflow_id=state.workflow_id,
-        )
+        async with get_db(state.db_path) as _synth_db:
+            _synth_repo_offline = WorkflowRepository(_synth_db)
+            narrative = await build_narrative_synthesis(
+                "primary_outcome",
+                state.extraction_records,
+                llm_client=_synth_llm,
+                settings=state.settings,
+                review_question=state.review.research_question if state.review else "",
+                pico=state.review.pico if state.review else None,
+                workflow_id=state.workflow_id,
+                repository=_synth_repo_offline,
+            )
 
     meta_result = None
     rendered_forest = None

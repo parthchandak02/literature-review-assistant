@@ -92,6 +92,34 @@ async def rerank_chunks(
     if not chunks or len(chunks) <= 1:
         return chunks[:top_k]
 
+    if workflow_id and repository is not None:
+        try:
+            from src.config.loader import load_configs
+
+            _, settings = load_configs(settings_path="config/settings.yaml")
+            jev_cfg = getattr(settings, "jev", None)
+            if (
+                jev_cfg is not None
+                and getattr(jev_cfg, "enabled", False)
+                and getattr(jev_cfg, "rag_rerank", False)
+            ):
+                from src.rag.jev_rerank import jev_rerank_chunks
+
+                provider = LLMProvider(settings=settings, repository=repository, workflow_id=workflow_id)
+                jev_ordered = await jev_rerank_chunks(
+                    query,
+                    chunks,
+                    top_k=top_k,
+                    jev=jev_cfg,
+                    workflow_id=workflow_id,
+                    repository=repository,
+                    provider=provider,
+                )
+                if jev_ordered is not None:
+                    return jev_ordered
+        except Exception as exc:
+            logger.warning("[reranker] Jev path failed (%s); falling back to LLM reranker", exc)
+
     # Truncate each chunk to 400 chars so the prompt stays within token budget.
     chunk_lines = "\n".join(f"[{i}] {c.content[:400].replace(chr(10), ' ')}" for i, c in enumerate(chunks))
     prompt = _RERANK_PROMPT.format(
@@ -178,4 +206,19 @@ async def rerank_chunks(
             elapsed_ms,
             exc,
         )
+        if repository and workflow_id:
+            try:
+                from src.models import FallbackEventRecord
+
+                await repository.save_fallback_event(
+                    FallbackEventRecord(
+                        workflow_id=workflow_id,
+                        phase="phase_6_rerank",
+                        module="rag.reranker",
+                        fallback_type="rrf_order",
+                        reason=str(exc)[:500],
+                    )
+                )
+            except Exception:
+                logger.debug("reranker fallback event not recorded", exc_info=True)
         return chunks[:top_k]
