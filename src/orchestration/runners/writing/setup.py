@@ -10,11 +10,12 @@ from typing import Any
 
 from src.db.repositories import CitationRepository, WorkflowRepository
 from src.llm.provider import LLMProvider
+from src.manuscript.review_facts import build_review_facts
 from src.models import SectionDraft
 from src.orchestration.helpers.runtime import rc as helper_rc
 from src.orchestration.helpers.writing_manuscript import build_minimal_sections_for_zero_papers
 from src.orchestration.state import ReviewState
-from src.prisma import build_prisma_counts, render_prisma_diagram
+from src.prisma import render_prisma_diagram
 from src.visualization import render_geographic, render_timeline
 from src.writing.context_builder import build_writing_grounding
 from src.writing.orchestration import (
@@ -103,13 +104,14 @@ async def run_writing_setup(
         ]
     else:
         _canonical_included_ids_for_prisma = {str(p.paper_id) for p in state.included_papers if p.paper_id}
-    prisma_counts = await build_prisma_counts(
+    review_facts = await build_review_facts(
         repository,
         state.workflow_id,
-        state.dedup_count,
+        dedup_count=state.dedup_count,
         included_qualitative=0,
         included_quantitative=len(_canonical_included_ids_for_prisma),
     )
+    prisma_counts = review_facts.prisma
     render_prisma_diagram(prisma_counts, state.artifacts["prisma_diagram"])
     render_timeline(state.included_papers, state.artifacts["timeline"])
     render_geographic(state.included_papers, state.artifacts["geographic"])

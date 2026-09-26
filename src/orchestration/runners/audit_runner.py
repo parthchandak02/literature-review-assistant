@@ -14,6 +14,7 @@ from src.db.repositories import CitationRepository, WorkflowRepository
 from src.db.workflow_registry import update_status as update_registry_status
 from src.llm.provider import LLMProvider
 from src.manuscript.contracts import run_manuscript_contracts
+from src.manuscript.review_facts import build_review_facts
 from src.manuscript.reviewer import run_manuscript_audit, serialize_audit_context, serialize_contract_summary
 from src.models.workflow import WorkflowRunResult
 from src.orchestration.helpers.manuscript_gate import (
@@ -24,7 +25,6 @@ from src.orchestration.helpers.manuscript_gate import (
 from src.orchestration.helpers.runtime import rc as helper_rc
 from src.orchestration.helpers.writing_manuscript import refresh_manuscript_export_artifacts
 from src.orchestration.state import ReviewState
-from src.prisma import build_prisma_counts
 
 logger = logging.getLogger(__name__)
 
@@ -119,13 +119,14 @@ async def run_manuscript_audit_node(state: ReviewState, ctx: GraphRunContext[Rev
             synthesis_ids = await repository.get_synthesis_included_paper_ids(state.workflow_id)
             if not synthesis_ids:
                 synthesis_ids = await repository.get_included_paper_ids(state.workflow_id)
-            prisma_counts = await build_prisma_counts(
+            review_facts = await build_review_facts(
                 repository,
                 state.workflow_id,
-                dedup_count,
+                dedup_count=dedup_count,
                 included_qualitative=0,
                 included_quantitative=len(synthesis_ids),
             )
+            prisma_counts = review_facts.prisma
             rob2_rows, robins_i_rows = await repository.load_rob_assessments(state.workflow_id)
             casp_rows = await repository.load_casp_assessments(state.workflow_id)
             mmat_rows = await repository.load_mmat_assessments(state.workflow_id)
@@ -172,6 +173,7 @@ async def run_manuscript_audit_node(state: ReviewState, ctx: GraphRunContext[Rev
                     "mmat": len(mmat_rows),
                 },
                 "prisma_counts": prisma_counts.model_dump(mode="json"),
+                "review_facts_cross_artifact": review_facts.validate_cross_artifact(),
                 "manuscript_stats": {
                     "word_count": len(manuscript_text.split()),
                     "char_count": len(manuscript_text),
