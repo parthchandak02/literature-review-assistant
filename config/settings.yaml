@@ -179,6 +179,8 @@ jev:
   exclude_confidence: 0.85
   screening_reviewer_b: true
   rag_rerank: true
+  batch_pre_rank: true
+  study_design: true
   screening_cap_when_enabled: 1000
   timeout_seconds: 120
   # Recall safety slice around the cap cutoff.

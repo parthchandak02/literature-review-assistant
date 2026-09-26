@@ -14,7 +14,7 @@ from src.models import (
 )
 from src.orchestration.phase_catalog import PRE_WRITING_PHASE_ORDER
 from src.orchestration.state import ReviewState
-from src.prisma import build_prisma_counts
+from src.manuscript.review_facts import build_review_facts
 from src.rag.embedder import embedding_json_is_null
 from src.writing.orchestration import _citation_entries_from_papers
 
@@ -102,13 +102,15 @@ async def compute_pre_writing_gate_report(
     dedup_count = state.dedup_count
     if dedup_count <= 0:
         dedup_count = int(await repository.get_dedup_count(state.workflow_id) or 0)
-    prisma = await build_prisma_counts(
+    review_facts = await build_review_facts(
         repository,
         state.workflow_id,
-        dedup_count,
+        dedup_count=dedup_count,
         included_qualitative=0,
         included_quantitative=len(included_ids),
     )
+    prisma = review_facts.prisma
+    cross_artifact_issues = review_facts.validate_cross_artifact()
 
     citation_entries = _citation_entries_from_papers(included_papers)
     citekeys = [citekey for citekey, _paper in citation_entries]
@@ -134,6 +136,19 @@ async def compute_pre_writing_gate_report(
     )
     if not prisma.arithmetic_valid:
         blocking_reasons.append("PRISMA arithmetic is inconsistent before writing")
+        rewind_candidates.append("phase_4_extraction_quality")
+
+    facts_ok = not cross_artifact_issues
+    checks.append(
+        PreWritingGateCheck(
+            name="review_facts_cross_artifact",
+            ok=facts_ok,
+            detail="; ".join(cross_artifact_issues) if cross_artifact_issues else "aligned",
+            rewind_phase=None if facts_ok else "phase_4_extraction_quality",
+        )
+    )
+    if not facts_ok:
+        blocking_reasons.append("ReviewFacts cross-artifact check failed before writing")
         rewind_candidates.append("phase_4_extraction_quality")
 
     checks.append(

@@ -805,6 +805,14 @@ class JevConfig(BaseModel):
         default=True,
         description="Use Jev to score RAG chunks before falling back to the listwise LLM reranker.",
     )
+    batch_pre_rank: bool = Field(
+        default=True,
+        description="Use Jev for batch LLM pre-ranker scoring when enabled.",
+    )
+    study_design: bool = Field(
+        default=True,
+        description="Use Jev for study-design classification before Pro-tier LLM.",
+    )
     screening_cap_when_enabled: int | None = Field(
         default=1000,
         ge=0,

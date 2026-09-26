@@ -235,6 +235,29 @@ class BatchLLMRanker:
         On any parse failure, returns all papers at score 1.0 (safe fallback:
         all go to dual-review rather than silently discarding them).
         """
+        if self._provider is not None and self._workflow_id:
+            jev_cfg = getattr(self._provider.settings, "jev", None)
+            if (
+                jev_cfg is not None
+                and getattr(jev_cfg, "enabled", False)
+                and getattr(jev_cfg, "batch_pre_rank", False)
+            ):
+                from src.screening.jev_batch_ranker import jev_batch_relevance_scores
+
+                jev_scores = await jev_batch_relevance_scores(
+                    papers=batch,
+                    research_question=self._research_question,
+                    population=self._population,
+                    intervention=self._intervention,
+                    outcome=self._outcome,
+                    jev=jev_cfg,
+                    workflow_id=self._workflow_id,
+                    repository=getattr(self._provider, "repository", None),
+                    provider=self._provider,
+                )
+                if jev_scores is not None:
+                    return jev_scores
+
         paper_list = _build_paper_list(batch)
         prompt = (
             _SYSTEM_PROMPT
@@ -279,6 +302,7 @@ class BatchLLMRanker:
                     cost,
                     latency_ms,
                     phase="screening_batch_ranker",
+                    workflow_id=self._workflow_id,
                     cache_read_tokens=cr,
                     cache_write_tokens=cw,
                 )

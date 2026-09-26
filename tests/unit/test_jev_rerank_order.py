@@ -1,5 +1,12 @@
 from src.rag.jev_rerank import _order_by_scores
 from src.rag.retriever import RetrievedChunk
+from src.screening.jev_batch_ranker import _score_to_unit
+
+
+def test_score_to_unit_maps_rubric_to_zero_one() -> None:
+    assert _score_to_unit(4.0) == 1.0
+    assert _score_to_unit(0.0) == 0.0
+    assert _score_to_unit(2.0) == 0.5
 
 
 def test_order_by_scores_puts_highest_first() -> None:

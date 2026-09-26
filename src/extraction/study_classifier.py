@@ -263,6 +263,35 @@ class StudyClassifier:
             )
             return StudyDesign.NARRATIVE_REVIEW
 
+        jev_cfg = getattr(self.provider.settings, "jev", None)
+        if (
+            jev_cfg is not None
+            and getattr(jev_cfg, "enabled", False)
+            and getattr(jev_cfg, "study_design", False)
+        ):
+            from src.extraction.jev_study_design import jev_classify_study_design
+
+            jev_design = await jev_classify_study_design(
+                review=self.review,
+                paper=paper,
+                jev=jev_cfg,
+                workflow_id=workflow_id,
+                repository=self.repository,
+                provider=self.provider,
+            )
+            if jev_design is not None:
+                await self.repository.append_decision_log(
+                    DecisionLogEntry(
+                        decision_type="study_classification",
+                        paper_id=paper.paper_id,
+                        decision=jev_design.value,
+                        rationale="Jev study-design classification.",
+                        actor="jev_study_design",
+                        phase="phase_4_extraction_quality",
+                    )
+                )
+                return jev_design
+
         prompt = self._build_prompt(paper, abstract_only=abstract_only)
         runtime = await self.provider.reserve_call_slot(self.agent_name)
         started = time.perf_counter()
@@ -293,6 +322,7 @@ class StudyClassifier:
             cost_usd=cost_usd,
             latency_ms=elapsed_ms,
             phase="phase_4_extraction_quality",
+            workflow_id=workflow_id,
             cache_read_tokens=cache_read,
             cache_write_tokens=cache_write,
         )
