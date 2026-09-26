@@ -11,7 +11,7 @@ from src.db.database import get_db
 from src.db.repositories import CitationRepository, WorkflowRepository
 from src.export.prisma_checklist import validate_prisma
 from src.manuscript.contracts import run_manuscript_contracts
-from src.prisma.diagram import build_prisma_counts
+from src.manuscript.review_facts import build_review_facts
 
 
 class ReadinessCheck(BaseModel):
@@ -101,7 +101,14 @@ async def compute_readiness_scorecard(
         sids = await repo.get_synthesis_included_paper_ids(workflow_id)
         if not sids:
             sids = await repo.get_included_paper_ids(workflow_id)
-        prisma = await build_prisma_counts(repo, workflow_id, dedup, 0, len(sids))
+        review_facts = await build_review_facts(
+            repo,
+            workflow_id,
+            dedup_count=dedup,
+            included_qualitative=0,
+            included_quantitative=len(sids),
+        )
+        prisma = review_facts.prisma
         prisma_ok = bool(prisma.arithmetic_valid)
         checks.append(
             ReadinessCheck(
@@ -114,6 +121,17 @@ async def compute_readiness_scorecard(
         )
         if not prisma_ok:
             blocking.append("PRISMA flow counts are not arithmetically valid")
+        cross_issues = review_facts.validate_cross_artifact()
+        facts_ok = not cross_issues
+        checks.append(
+            ReadinessCheck(
+                name="review_facts_cross_artifact",
+                ok=facts_ok,
+                detail="; ".join(cross_issues) if cross_issues else "cohort and PRISMA aligned",
+            )
+        )
+        if not facts_ok:
+            blocking.append("ReviewFacts cross-artifact check failed")
 
         latest_audit = None
         try:

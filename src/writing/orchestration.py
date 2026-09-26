@@ -488,6 +488,7 @@ async def write_section_with_validation(
                     cost_usd=_metadata.cost_usd,
                     latency_ms=_metadata.latency_ms,
                     phase="phase_6_writing",
+                    workflow_id=workflow_id,
                     cache_read_tokens=_metadata.cache_read_tokens,
                     cache_write_tokens=_metadata.cache_write_tokens,
                 )

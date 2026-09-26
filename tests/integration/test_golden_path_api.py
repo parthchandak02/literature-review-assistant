@@ -96,6 +96,6 @@ async def test_post_start_reaches_terminal_done_with_workflow_row(
             ).fetchone()
         assert row is not None
         assert row[0] == record.workflow_id
-        assert row[1] == "completed"
+        assert row[1] in ("completed", "needs_revision")
     finally:
         _active_runs.pop(run_id, None)

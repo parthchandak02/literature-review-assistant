@@ -128,6 +128,7 @@ async def generate_section_outline(
     grounding: WritingGroundingData,
     citation_catalog: str,
     provider=None,
+    workflow_id: str = "",
     on_llm_call=None,
 ) -> SectionOutline:
     """Generate a section outline with deterministic fallback."""
@@ -159,6 +160,7 @@ async def generate_section_outline(
         latency_ms = int((time.perf_counter() - started) * 1000)
         if provider is not None:
             cost_usd = provider.estimate_cost_usd(agent_cfg.model, tokens_in, tokens_out, cache_write, cache_read)
+            wf = workflow_id or getattr(provider, "workflow_id", "") or ""
             await provider.log_cost(
                 model=agent_cfg.model,
                 tokens_in=tokens_in,
@@ -166,6 +168,7 @@ async def generate_section_outline(
                 cost_usd=cost_usd,
                 latency_ms=latency_ms,
                 phase="phase_6_writing_outline",
+                workflow_id=wf,
                 cache_read_tokens=cache_read,
                 cache_write_tokens=cache_write,
             )

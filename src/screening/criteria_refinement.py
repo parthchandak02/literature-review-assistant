@@ -179,6 +179,7 @@ async def refine_criteria_from_corrections(
                 cost,
                 latency_ms=0,
                 phase="criteria_refinement",
+                workflow_id=workflow_id,
                 cache_read_tokens=cr,
                 cache_write_tokens=cw,
             )

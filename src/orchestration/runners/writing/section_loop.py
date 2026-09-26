@@ -154,6 +154,7 @@ async def run_section_writing_loop(
                         grounding=grounding,
                         citation_catalog=citation_catalog,
                         provider=provider,
+                        workflow_id=state.workflow_id,
                         on_llm_call=_on_write if rc else None,
                     )
 

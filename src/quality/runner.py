@@ -71,6 +71,7 @@ class QualityLLMRunner:
                 latency_ms=latency_ms,
             )
             cost = self._provider.estimate_cost_usd(model, tok_in, tok_out, cw, cr)
+            workflow_id = getattr(self._provider, "workflow_id", "") or ""
             await self._provider.log_cost(
                 model,
                 tok_in,
@@ -78,6 +79,7 @@ class QualityLLMRunner:
                 cost,
                 latency_ms,
                 phase=phase_name,
+                workflow_id=workflow_id,
                 cache_read_tokens=cr,
                 cache_write_tokens=cw,
             )

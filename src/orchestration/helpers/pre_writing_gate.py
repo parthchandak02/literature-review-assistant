@@ -6,6 +6,7 @@ from uuid import uuid4
 
 from src.db.repositories import WorkflowRepository
 from src.export.markdown_refs import is_extraction_failed
+from src.manuscript.review_facts import build_review_facts
 from src.models import (
     PreWritingGateCheck,
     PreWritingGateReport,
@@ -14,7 +15,6 @@ from src.models import (
 )
 from src.orchestration.phase_catalog import PRE_WRITING_PHASE_ORDER
 from src.orchestration.state import ReviewState
-from src.manuscript.review_facts import build_review_facts
 from src.rag.embedder import embedding_json_is_null
 from src.writing.orchestration import _citation_entries_from_papers
 

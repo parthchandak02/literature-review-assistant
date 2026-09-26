@@ -1085,6 +1085,7 @@ class DualReviewerScreener:
             cost_usd=cost_usd,
             latency_ms=elapsed_ms,
             phase="phase_3_screening",
+            workflow_id=workflow_id,
             cache_read_tokens=cache_read,
             cache_write_tokens=cache_write,
         )
@@ -1691,6 +1692,7 @@ class DualReviewerScreener:
             cost_usd=cost_usd,
             latency_ms=elapsed_ms,
             phase="phase_3_screening",
+            workflow_id=workflow_id,
             cache_read_tokens=cache_read,
             cache_write_tokens=cache_write,
         )

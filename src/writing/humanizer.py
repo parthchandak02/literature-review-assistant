@@ -109,6 +109,7 @@ async def humanize_async(
                 cost_usd=cost,
                 latency_ms=latency_ms,
                 phase="phase_6_humanizer",
+                workflow_id=getattr(provider, "workflow_id", "") or "",
                 cache_read_tokens=cr,
                 cache_write_tokens=cw,
             )
@@ -195,6 +196,7 @@ async def humanize_repair_async(
                 cost_usd=cost,
                 latency_ms=latency_ms,
                 phase="phase_6_humanizer",
+                workflow_id=getattr(provider, "workflow_id", "") or "",
                 cache_read_tokens=cr,
                 cache_write_tokens=cw,
             )

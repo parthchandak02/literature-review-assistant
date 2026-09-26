@@ -10,6 +10,7 @@ from src.db.repositories import WorkflowRepository
 from src.extraction.extractor import detect_scope_mismatch
 from src.extraction.inference_utils import result_not_extractable_text
 from src.manuscript.cohort import IncludedSetResolver
+from src.manuscript.review_facts import ReviewFacts
 from src.models import (
     CandidatePaper,
     ExtractionRecord,
@@ -124,11 +125,20 @@ async def test_writing_setup_reloads_included_papers_from_canonical_cohort(tmp_p
     )
 
     prisma_counts = _prisma_counts()
+    review_facts = ReviewFacts(
+        workflow_id="wf-test",
+        prisma=prisma_counts,
+        synthesis_included_count=1,
+        included_study_ids=["p1"],
+    )
     save_writing_checkpoint = AsyncMock()
     save_subphase_checkpoint = AsyncMock()
 
     with (
-        patch("src.orchestration.runners.writing.setup.build_prisma_counts", return_value=prisma_counts),
+        patch(
+            "src.orchestration.runners.writing.setup.build_review_facts",
+            new=AsyncMock(return_value=review_facts),
+        ),
         patch("src.orchestration.runners.writing.setup.render_prisma_diagram"),
         patch("src.orchestration.runners.writing.setup.render_timeline"),
         patch("src.orchestration.runners.writing.setup.render_geographic"),

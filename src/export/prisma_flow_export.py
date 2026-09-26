@@ -18,7 +18,8 @@ from src.export.reviewer_export import (
     format_information_source,
     reviewer_record_link,
 )
-from src.prisma.diagram import _EXCLUSION_REASON_LABELS, build_prisma_counts
+from src.manuscript.review_facts import build_review_facts
+from src.prisma.diagram import _EXCLUSION_REASON_LABELS
 
 _EXCLUSION_REASON_LABELS_EXPORT = dict(_EXCLUSION_REASON_LABELS)
 
@@ -332,13 +333,14 @@ async def build_prisma_flow_payload(db_path: str, workflow_id: str) -> PrismaFlo
         included_ids, _ = await repo.resolve_canonical_included_paper_ids(workflow_id)
         included_qualitative = 0
         included_quantitative = len(included_ids)
-        counts = await build_prisma_counts(
+        review_facts = await build_review_facts(
             repo,
             workflow_id,
-            dedup_count,
+            dedup_count=dedup_count,
             included_qualitative=included_qualitative,
             included_quantitative=included_quantitative,
         )
+        counts = review_facts.prisma
 
     ft_excluded_total = sum(counts.reports_excluded_with_reasons.values())
     summary_row = {

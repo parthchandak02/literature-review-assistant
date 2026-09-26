@@ -20,10 +20,10 @@ from pydantic import BaseModel, Field
 from src.db.repositories import CitationRepository, WorkflowRepository
 from src.extraction.inference_utils import _is_substantive_finding, result_not_extractable_text
 from src.manuscript.prisma_disclosure import prisma_disclosure_gaps, should_use_db_prisma_flow_checks
+from src.manuscript.review_facts import build_review_facts
 from src.manuscript.violation_policy import hard_failure, violation_category
 from src.models import ReviewConfig
 from src.models.manuscript_ir import ManuscriptCanonicalDisclosures
-from src.prisma.diagram import build_prisma_counts
 from src.writing.headings import (
     extract_markdown_heading_inventory,
     normalize_heading_for_parity,
@@ -759,19 +759,31 @@ async def run_manuscript_contracts(
     dedup_count = await repository.get_dedup_count(workflow_id)
     if dedup_count is None:
         dedup_count = 0
-    prisma_counts = await build_prisma_counts(
+    review_facts = await build_review_facts(
         repository,
         workflow_id,
-        dedup_count,
-        0,
-        len(synthesis_ids),
+        dedup_count=dedup_count,
+        included_qualitative=0,
+        included_quantitative=len(synthesis_ids),
     )
+    prisma_counts = review_facts.prisma
+    cross_artifact_issues = review_facts.validate_cross_artifact()
     use_db_prisma = should_use_db_prisma_flow_checks(prisma_counts)
     canonical_disclosures = ManuscriptCanonicalDisclosures(
         workflow_id=workflow_id,
         prisma=prisma_counts,
         use_db_flow_checks=use_db_prisma,
     )
+    for issue in cross_artifact_issues:
+        violations.append(
+            ContractViolation(
+                code="REVIEW_FACTS_CROSS_ARTIFACT",
+                severity="error",
+                message=issue,
+                expected="aligned cohort and PRISMA counts",
+                actual=issue,
+            )
+        )
 
     table_row_count = _extract_table_row_count(md_text)
     if table_row_count is not None and table_row_count != len(synthesis_ids):
