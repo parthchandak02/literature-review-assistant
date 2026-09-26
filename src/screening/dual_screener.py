@@ -1512,6 +1512,43 @@ class DualReviewerScreener:
         spec: ReviewerSpec,
         other_reviewer_decision: ScreeningDecisionType | None = None,
     ) -> ScreeningDecision:
+        jev_cfg = getattr(self.settings, "jev", None)
+        if (
+            spec.reviewer_type == ReviewerType.REVIEWER_B
+            and stage == "title_abstract"
+            and jev_cfg is not None
+            and getattr(jev_cfg, "enabled", False)
+            and getattr(jev_cfg, "screening_reviewer_b", False)
+        ):
+            from src.screening.jev_screening import jev_screen_title_abstract
+
+            jev_outcome = await jev_screen_title_abstract(
+                review=self.review,
+                paper=paper,
+                jev=jev_cfg,
+                workflow_id=workflow_id,
+                repository=self.repository,
+                provider=self.provider,
+            )
+            if jev_outcome.routed == "jev" and jev_outcome.decision is not None:
+                decision = jev_outcome.decision
+                if stage == "fulltext" and decision.decision == ScreeningDecisionType.EXCLUDE:
+                    decision = self._enforce_fulltext_exclusion_reason(decision)
+                await self.repository.save_screening_decision(
+                    workflow_id=workflow_id, stage=stage, decision=decision
+                )
+                await self.repository.append_decision_log(
+                    DecisionLogEntry(
+                        decision_type="screening_reviewer_decision",
+                        paper_id=paper.paper_id,
+                        decision=decision.decision.value,
+                        rationale=decision.reason or "Jev reviewer decision.",
+                        actor=decision.reviewer_type.value,
+                        phase="phase_3_screening",
+                    )
+                )
+                return decision
+
         if spec.reviewer_type == ReviewerType.REVIEWER_A:
             prompt = reviewer_a_prompt(self.review, paper, stage, full_text)
         else:

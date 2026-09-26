@@ -35,6 +35,7 @@ show_help() {
   echo "  --all           restart api, ui, and tunnel"
   echo "  --prod-ui       pnpm build + restart litreview-api + health check"
   echo "  --status        pm2 list only"
+  echo "  --force         allow API restart while workflows are running (dangerous)"
   echo
   echo "  Legacy aliases: --backend, --frontend, --tunnel (same as *-only)"
   echo
@@ -123,6 +124,22 @@ cmd_restart() {
   fi
 
   if [[ "${BACKEND}" == true ]]; then
+    local REGISTRY_DB="${ROOT}/runs/workflows_registry.db"
+    local FORCE_RESTART=false
+    for arg in "$@"; do
+      if [[ "${arg}" == "--force" ]]; then
+        FORCE_RESTART=true
+      fi
+    done
+    if [[ -f "${REGISTRY_DB}" ]]; then
+      local RUNNING_COUNT
+      RUNNING_COUNT="$(sqlite3 "${REGISTRY_DB}" "SELECT COUNT(*) FROM workflows_registry WHERE status='running';" 2>/dev/null || echo 0)"
+      if [[ "${RUNNING_COUNT}" =~ ^[0-9]+$ ]] && [[ "${RUNNING_COUNT}" -gt 0 ]] && [[ "${FORCE_RESTART}" != true ]]; then
+        echo "Refusing API restart: ${RUNNING_COUNT} workflow(s) still running in ${REGISTRY_DB}." >&2
+        echo "Use --force to restart anyway (will kill in-process runs until per-run workers land)." >&2
+        exit 1
+      fi
+    fi
     echo "==> pm2 restart litreview-api"
     pm2 restart litreview-api
   fi

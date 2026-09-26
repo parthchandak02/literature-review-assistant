@@ -776,6 +776,41 @@ class DualReviewConfig(BaseModel):
     )
 
 
+class JevConfig(BaseModel):
+    enabled: bool = Field(
+        default=True,
+        description="Master switch for TypeSafe Jev decision routing (fail-open to LLM when unavailable).",
+    )
+    model: str = Field(
+        default="jev-1.13.0",
+        description="Pinned Jev model id (never use jev-latest in production).",
+    )
+    route_confidence: float = Field(
+        default=0.6,
+        ge=0.0,
+        le=1.0,
+        description="Minimum confidence to accept a Jev include/uncertain decision.",
+    )
+    exclude_confidence: float = Field(
+        default=0.85,
+        ge=0.0,
+        le=1.0,
+        description="Minimum confidence to accept a Jev exclude decision (conservative).",
+    )
+    screening_reviewer_b: bool = Field(
+        default=True,
+        description="Use Jev for dual-reviewer B at title/abstract; low confidence escalates to LLM.",
+    )
+    screening_cap_when_enabled: int | None = Field(
+        default=1000,
+        ge=0,
+        description=(
+            "When Jev screening is enabled, raise max_llm_screen to this value (None = no cap override)."
+        ),
+    )
+    timeout_seconds: float = Field(default=120.0, ge=5.0, le=300.0)
+
+
 class GatesConfig(BaseModel):
     profile: str = "strict"
     search_volume_minimum: int = 50
@@ -1391,3 +1426,4 @@ class SettingsConfig(BaseModel):
     human_in_the_loop: HumanInTheLoopConfig = Field(default_factory=HumanInTheLoopConfig)
     diagram_generation: DiagramGenerationConfig = Field(default_factory=DiagramGenerationConfig)
     web: WebConfig = Field(default_factory=WebConfig)
+    jev: JevConfig = Field(default_factory=JevConfig)

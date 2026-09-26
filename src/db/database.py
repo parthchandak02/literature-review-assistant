@@ -538,6 +538,26 @@ async def run_migrations(db: aiosqlite.Connection) -> None:
           AND json_valid(data);
         """,
     )
+    # 24. Jev decision audit log (shadow + active routing).
+    await _apply(
+        24,
+        """
+        CREATE TABLE IF NOT EXISTS jev_decisions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            workflow_id TEXT NOT NULL,
+            phase TEXT NOT NULL,
+            surface TEXT NOT NULL,
+            paper_id TEXT,
+            choice TEXT,
+            confidence REAL,
+            routed TEXT NOT NULL,
+            details_json TEXT NOT NULL DEFAULT '{}',
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );
+        CREATE INDEX IF NOT EXISTS idx_jev_decisions_workflow_phase
+            ON jev_decisions(workflow_id, phase, created_at);
+        """,
+    )
     await _validate_schema_contract(db)
     await db.commit()
 

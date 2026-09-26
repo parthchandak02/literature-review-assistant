@@ -186,7 +186,13 @@ async def run_extraction_quality_node(state: ReviewState, ctx: GraphRunContext[R
 
             eq_on_waiting = _eq_on_waiting
             eq_on_resolved = _eq_on_resolved
-        provider = LLMProvider(state.settings, repository, on_waiting=eq_on_waiting, on_resolved=eq_on_resolved)
+        provider = LLMProvider(
+            state.settings,
+            repository,
+            on_waiting=eq_on_waiting,
+            on_resolved=eq_on_resolved,
+            workflow_id=state.workflow_id,
+        )
         on_classify = None
         if rc and rc.verbose:
 

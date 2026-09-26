@@ -1,17 +1,17 @@
 {
-  "workflow_id": "wf-0088",
-  "schema_version": 23,
+  "workflow_id": "wf-0001",
+  "schema_version": 24,
   "replay_profile": "local",
-  "source_run": "runs/2026-05-15/wf-0088-what-is-the-impact-of-modular-or-extendable-vehicle-frame-techno/run_01-59-24AM",
-  "generated_at": "2026-08-10T23:10:06.474398+00:00",
+  "source_run": "runs/2026-09-01/wf-0001-the-multi-dimensional-impacts-of-pickleball-participation-on-phy/run_01-28-22AM",
+  "generated_at": "2026-09-26T17:32:23.905873+00:00",
   "files": {
     "runtime_db": "runtime.db",
     "doc_manuscript_md": "doc_manuscript.md"
   },
   "profiles": {
     "default": {
-      "workflow_id": "wf-0088",
-      "source_run": "runs/2026-05-15/wf-0088-what-is-the-impact-of-modular-or-extendable-vehicle-frame-techno/run_01-59-24AM",
+      "workflow_id": "wf-0001",
+      "source_run": "runs/2026-09-01/wf-0001-the-multi-dimensional-impacts-of-pickleball-participation-on-phy/run_01-28-22AM",
       "files": {
         "runtime_db": "runtime.db",
         "doc_manuscript_md": "doc_manuscript.md"

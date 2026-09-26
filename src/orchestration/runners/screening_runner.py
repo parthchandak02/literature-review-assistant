@@ -116,7 +116,13 @@ async def run_screening_node(state: ReviewState, ctx: GraphRunContext[ReviewStat
 
             on_waiting = _on_waiting
             on_resolved = _on_resolved
-        provider = LLMProvider(state.settings, repository, on_waiting=on_waiting, on_resolved=on_resolved)
+        provider = LLMProvider(
+            state.settings,
+            repository,
+            on_waiting=on_waiting,
+            on_resolved=on_resolved,
+            workflow_id=state.workflow_id,
+        )
         on_llm_call = None
         if rc and rc.verbose:
 
@@ -236,6 +242,14 @@ async def run_screening_node(state: ReviewState, ctx: GraphRunContext[ReviewStat
 
         # --- Pre-screening: BM25 ranking (when cap is set) or keyword filter ---
         cap = state.settings.screening.max_llm_screen
+        jev_cfg = getattr(state.settings, "jev", None)
+        if (
+            jev_cfg is not None
+            and getattr(jev_cfg, "enabled", False)
+            and getattr(jev_cfg, "screening_reviewer_b", False)
+            and getattr(jev_cfg, "screening_cap_when_enabled", None) is not None
+        ):
+            cap = jev_cfg.screening_cap_when_enabled
         bm25_validation_forwarded = 0
         bm25_validation_tail_ids: set[str] = set()
         bm25_overflow_candidates: list[CandidatePaper] = []

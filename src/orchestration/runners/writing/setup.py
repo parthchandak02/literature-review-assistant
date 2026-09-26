@@ -149,7 +149,13 @@ async def run_writing_setup(
 
         wr_on_waiting = _wr_on_waiting
         wr_on_resolved = _wr_on_resolved
-    provider = LLMProvider(state.settings, repository, on_waiting=wr_on_waiting, on_resolved=wr_on_resolved)
+    provider = LLMProvider(
+        state.settings,
+        repository,
+        on_waiting=wr_on_waiting,
+        on_resolved=wr_on_resolved,
+        workflow_id=state.workflow_id,
+    )
 
     await register_citations_from_papers(citation_repo, state.included_papers)
     await register_methodology_citations(citation_repo)

@@ -614,7 +614,7 @@ async def run_post_assembly(
         _concept_style_seed = f"{state.workflow_id}|{_topic[:280]}"
         async with get_db(state.db_path) as _cd_db:
             _cd_repo = WorkflowRepository(_cd_db)
-            _cd_provider = LLMProvider(state.settings, _cd_repo)
+            _cd_provider = LLMProvider(state.settings, _cd_repo, workflow_id=state.workflow_id)
             _concept_results = await asyncio.wait_for(
                 render_concept_diagrams(
                     taxonomy_spec=_taxonomy_spec,
@@ -656,7 +656,7 @@ async def run_post_assembly(
 
         async with get_db(state.db_path) as _dg_db:
             _dg_repo = WorkflowRepository(_dg_db)
-            _dg_provider = LLMProvider(state.settings, _dg_repo)
+            _dg_provider = LLMProvider(state.settings, _dg_repo, workflow_id=state.workflow_id)
             _canonical_ids = await _dg_repo.get_synthesis_included_paper_ids(state.workflow_id)
 
             _included_rows: list[dict[str, object]] = []

@@ -188,6 +188,7 @@ async def run_synthesis_node(state: ReviewState, ctx: GraphRunContext[ReviewStat
                 _synth_repo,
                 on_waiting=_synth_on_waiting,
                 on_resolved=_synth_on_resolved,
+                workflow_id=state.workflow_id,
             )
             narrative = await build_narrative_synthesis(
                 "primary_outcome",

@@ -93,7 +93,7 @@ async def run_manuscript_audit_node(state: ReviewState, ctx: GraphRunContext[Rev
         async with get_db(state.db_path) as db:
             repository = WorkflowRepository(db)
             citation_repo = CitationRepository(db)
-            provider = LLMProvider(state.settings, repository)
+            provider = LLMProvider(state.settings, repository, workflow_id=state.workflow_id)
             contract_result = await run_manuscript_contracts(
                 repository=repository,
                 citation_repository=citation_repo,

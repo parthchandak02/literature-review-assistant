@@ -72,9 +72,11 @@ class LLMProvider:
         repository: WorkflowRepository,
         on_waiting: Callable[[str, int, int, float], None] | None = None,
         on_resolved: Callable[[str, float], None] | None = None,
+        workflow_id: str = "",
     ):
         self.settings = settings
         self.repository = repository
+        self.workflow_id = workflow_id
         self.rate_limiter = get_shared_rate_limiter(
             settings,
             on_waiting=on_waiting,
@@ -195,7 +197,7 @@ class LLMProvider:
         cache_write_tokens: int = 0,
     ) -> None:
         record = CostRecord(
-            workflow_id=workflow_id,
+            workflow_id=workflow_id or self.workflow_id,
             model=model,
             tokens_in=tokens_in,
             tokens_out=tokens_out,

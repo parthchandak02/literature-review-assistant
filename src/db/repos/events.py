@@ -106,6 +106,37 @@ class EventsRepo:
         )
         await self.db.commit()
 
+    async def save_jev_decision(
+        self,
+        *,
+        workflow_id: str,
+        phase: str,
+        surface: str,
+        paper_id: str | None,
+        choice: str,
+        confidence: float,
+        routed: str,
+        details_json: str = "{}",
+    ) -> None:
+        await self.db.execute(
+            """
+            INSERT INTO jev_decisions (
+                workflow_id, phase, surface, paper_id, choice, confidence, routed, details_json
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                workflow_id,
+                phase,
+                surface,
+                paper_id,
+                choice,
+                confidence,
+                routed,
+                details_json,
+            ),
+        )
+        await self.db.commit()
+
     async def count_fallback_events(self, workflow_id: str) -> int:
         generation = await self._get_writing_generation(workflow_id)
         cursor = await self.db.execute(

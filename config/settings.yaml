@@ -170,7 +170,16 @@ screening:
   # slot for 260s (13 tiers x 20s). Paper is marked failed-timeout and moves on.
   pdf_retrieval_per_paper_timeout: 45
   # Fixed dual-review cap for cost control.
-  max_llm_screen: 200
+  max_llm_screen: 200  # raised automatically when jev.screening_reviewer_b is enabled (see jev block)
+
+jev:
+  enabled: true
+  model: "jev-1.13.0"
+  route_confidence: 0.6
+  exclude_confidence: 0.85
+  screening_reviewer_b: true
+  screening_cap_when_enabled: 1000
+  timeout_seconds: 120
   # Recall safety slice around the cap cutoff.
   bm25_validation_tail_size: 20
   # Bounded cap safety valve: evaluate one overflow slice when validation-tail yield is high.
