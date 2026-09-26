@@ -487,7 +487,6 @@ async def _run_wrapper(record: _RunRecord, review_path: str, req: RunRequest) ->
                 workflow_id=req.workflow_id,
             )
             record.outputs = _workflow_outputs_as_dict(outputs)
-            record.done = True
 
             wf_id = str(record.outputs.get("workflow_id", ""))
             if wf_id:
@@ -510,6 +509,7 @@ async def _run_wrapper(record: _RunRecord, review_path: str, req: RunRequest) ->
 
             _done_evt: dict[str, Any] = {"type": "done", "outputs": record.outputs}
             _append_event(record, _done_evt)
+            record.done = True
         except asyncio.CancelledError:
             record.done = True
             record.error = "Cancelled"
@@ -619,7 +619,6 @@ async def _resume_wrapper(
         record.outputs = _workflow_outputs_as_dict(outputs)
         record.workflow_id = workflow_id
         record.db_path = db_path
-        record.done = True
         if record.outputs.get("status") in ("failed", "gate_blocked"):
             err_msg = record.outputs.get("error", "Workflow failed")
             record.error = err_msg
@@ -628,6 +627,7 @@ async def _resume_wrapper(
         await _apply_terminal_registry_status(run_root, workflow_id, record.outputs)
         _done_resume_evt: dict[str, Any] = {"type": "done", "outputs": record.outputs}
         _append_event(record, _done_resume_evt)
+        record.done = True
     except asyncio.CancelledError:
         record.done = True
         record.error = "Cancelled"
