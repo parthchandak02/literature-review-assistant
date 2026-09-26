@@ -59,6 +59,7 @@ async def test_post_start_reaches_terminal_done_with_workflow_row(
         json={
             "review_yaml": _minimal_review_yaml(),
             "gemini_api_key": "fake-test-key",
+            "fireworks_api_key": "fake-test-key",
             "run_root": str(run_root),
         },
     )

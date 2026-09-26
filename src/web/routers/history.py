@@ -25,6 +25,7 @@ from src.db.workflow_registry import restore_workflow as _restore_registry_workf
 from src.db.workflow_registry import run_root_from_db_path
 from src.db.workflow_registry import update_notes as _update_registry_notes
 from src.orchestration.resume import USER_RESUMABLE_PHASE_ORDER
+from src.web.path_guard import require_allowed_run_root
 from src.web.shared import (
     AttachRequest,
     HistoryEntry,
@@ -509,6 +510,7 @@ async def resume_run(req: ResumeRequest) -> RunResponse:
 @router.delete("/api/history/{workflow_id}")
 async def delete_run(workflow_id: str, run_root: str = "runs") -> dict[str, bool]:
     """Delete a run from the registry and remove its run directory."""
+    root = require_allowed_run_root(run_root)
     _lifecycle_coordinator.ensure_not_running(
         workflow_id,
         detail="Cannot delete a run that is currently in progress",
@@ -518,8 +520,10 @@ async def delete_run(workflow_id: str, run_root: str = "runs") -> dict[str, bool
     if not db_path:
         raise HTTPException(status_code=404, detail="Workflow not found in registry")
 
-    run_dir = pathlib.Path(db_path).parent
-    registry = pathlib.Path(run_root) / "workflows_registry.db"
+    run_dir = pathlib.Path(db_path).parent.resolve()
+    if run_dir == root or not run_dir.is_relative_to(root):
+        raise HTTPException(status_code=400, detail="Workflow run directory is outside run_root")
+    registry = root / "workflows_registry.db"
 
     try:
         async with _open_registry_db(str(registry)) as db:

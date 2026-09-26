@@ -21,10 +21,14 @@ const RESTART_POLICY = {
   listen_timeout: 15000,
 }
 
-// API graceful shutdown: allow in-flight HTTP and workflow teardown before SIGKILL.
+// API graceful shutdown: uvicorn waits up to API_GRACEFUL_SHUTDOWN_SECONDS for open
+// connections (SSE streams included), then the app lifespan waits up to 30s for workflow
+// tasks to checkpoint (src/web/app.py _SHUTDOWN_TASK_TIMEOUT_SECONDS). kill_timeout must
+// exceed both combined so PM2 does not SIGKILL mid-checkpoint.
+const API_GRACEFUL_SHUTDOWN_SECONDS = 30
 const API_RESTART_POLICY = {
   ...RESTART_POLICY,
-  kill_timeout: 45000,
+  kill_timeout: (API_GRACEFUL_SHUTDOWN_SECONDS + 30 + 10) * 1000,
 }
 
 module.exports = {
@@ -32,7 +36,7 @@ module.exports = {
     {
       name: 'litreview-api',
       script: `${PROJECT_DIR}/.venv/bin/uvicorn`,
-      args: 'src.web.app:app --host 127.0.0.1 --port 8001',
+      args: `src.web.app:app --host 127.0.0.1 --port 8001 --timeout-graceful-shutdown ${API_GRACEFUL_SHUTDOWN_SECONDS}`,
       cwd: PROJECT_DIR,
       interpreter: 'none',
       exec_mode: 'fork',

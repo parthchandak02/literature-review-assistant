@@ -1335,6 +1335,7 @@ async def test_start_run_valid_payload_accepted(client: httpx.AsyncClient) -> No
     req = {
         "review_yaml": yaml.safe_dump(review_payload),
         "gemini_api_key": "fake-key-for-test",
+        "fireworks_api_key": "fake-key-for-test",
         "run_root": "/tmp/litreview_test_runs",
     }
     response = await client.post("/api/run", json=req)
@@ -1377,6 +1378,7 @@ async def test_start_run_with_masterlist_valid_payload_accepted(client: httpx.As
         data={
             "review_yaml": yaml.safe_dump(review_payload),
             "gemini_api_key": "fake-key-for-test",
+            "fireworks_api_key": "fake-key-for-test",
             "run_root": "/tmp/litreview_test_runs",
         },
         files={"csv_file": ("master.csv", csv_content.encode("utf-8"), "text/csv")},
@@ -1394,6 +1396,7 @@ async def test_start_run_with_masterlist_rejects_invalid_csv(client: httpx.Async
         data={
             "review_yaml": "research_question: test\n",
             "gemini_api_key": "fake-key-for-test",
+            "fireworks_api_key": "fake-key-for-test",
             "run_root": "/tmp/litreview_test_runs",
         },
         files={"csv_file": ("master.csv", b"Authors,Year\nA,2024\n", "text/csv")},
@@ -1409,6 +1412,7 @@ async def test_start_run_with_masterlist_rejects_empty_file(client: httpx.AsyncC
         data={
             "review_yaml": "research_question: test\n",
             "gemini_api_key": "fake-key-for-test",
+            "fireworks_api_key": "fake-key-for-test",
             "run_root": "/tmp/litreview_test_runs",
         },
         files={"csv_file": ("master.csv", b"", "text/csv")},
@@ -1448,6 +1452,7 @@ async def test_start_run_with_supplementary_csv_valid_payload_accepted(client: h
         data={
             "review_yaml": yaml.safe_dump(review_payload),
             "gemini_api_key": "fake-key-for-test",
+            "fireworks_api_key": "fake-key-for-test",
             "run_root": "/tmp/litreview_test_runs",
         },
         files={"csv_file": ("supplementary.csv", csv_content.encode("utf-8"), "text/csv")},
@@ -1516,6 +1521,7 @@ async def test_start_run_with_supplementary_csv_drops_old_staged_paths(client: h
         data={
             "review_yaml": yaml.safe_dump(review_payload),
             "gemini_api_key": "fake-key-for-test",
+            "fireworks_api_key": "fake-key-for-test",
             "run_root": "/tmp/litreview_test_runs",
         },
         files={"csv_file": ("supplementary.csv", csv_content.encode("utf-8"), "text/csv")},
@@ -2256,7 +2262,7 @@ async def test_generate_config_stream_includes_topic_routing_metadata(
 
     resp = await client.post(
         "/api/config/generate/stream",
-        json={"research_question": "test question", "gemini_api_key": "test-key"},
+        json={"research_question": "test question", "fireworks_api_key": "test-key"},
     )
     assert resp.status_code == 200
     payloads: list[dict[str, object]] = []
@@ -2339,7 +2345,7 @@ search_overrides:
 
     resp = await client.post(
         "/api/config/generate/stream",
-        json={"research_question": "test question", "gemini_api_key": "test-key"},
+        json={"research_question": "test question", "fireworks_api_key": "test-key"},
     )
     assert resp.status_code == 200
     payloads: list[dict[str, object]] = []
@@ -2389,7 +2395,7 @@ async def test_generate_config_stream_passes_health_sdg_profile(
         "/api/config/generate/stream",
         json={
             "research_question": "test question",
-            "gemini_api_key": "test-key",
+            "fireworks_api_key": "test-key",
             "generation_profile": "health_sdg",
         },
     )

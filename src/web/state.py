@@ -150,6 +150,7 @@ def _announce_workflow_active_run(workflow_id: str, run_id: str, topic: str) -> 
         },
     )
 
+
 _RUN_TTL_SECONDS = _web_cfg.run_ttl_seconds
 _STALE_THRESHOLD_SECONDS = 2 * 60
 _STALE_GRACE_SECONDS = 2 * 60
@@ -227,7 +228,7 @@ async def _refresh_allowed_roots() -> None:
                 run_root = run_root_from_db_path(str(db_path))
                 roots.add(str(pathlib.Path(run_root).resolve()))
         except Exception:
-            pass
+            _logger.exception("Failed to load allowed download roots from %s", registry)
     _allowed_roots.update(roots)
 
 
@@ -258,6 +259,7 @@ async def _repair_registry_statuses_from_runtime(run_root: str = "runs") -> None
             ) as cur:
                 rows = await cur.fetchall()
     except Exception:
+        _logger.exception("Lifecycle startup repair: failed to read registry %s", registry)
         return
     repaired = 0
     for row in rows:
@@ -275,6 +277,7 @@ async def _repair_registry_statuses_from_runtime(run_root: str = "runs") -> None
                 await _update_registry_status(run_root, str(row["workflow_id"]), str(terminal))
                 repaired += 1
             except Exception:
+                _logger.exception("Lifecycle startup repair: failed to update workflow %s", row["workflow_id"])
                 continue
     if repaired > 0:
         _logger.info("Lifecycle startup repair: updated %d registry rows using durable terminal evidence", repaired)

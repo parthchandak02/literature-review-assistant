@@ -27,6 +27,7 @@ from src.db.workflow_registry import (
     run_root_from_db_path,
     try_claim_for_resume,
 )
+from src.web.path_guard import configured_runs_roots, is_under_any
 from src.web.shared import (
     AttachRequest,
     ResumeRequest,
@@ -258,28 +259,31 @@ class RunLifecycleCoordinator:
         resume_wrapper: Any,
     ) -> tuple[str, Any]:
         """Claim workflow and register an in-memory resume task."""
-        from src.web.state import _RunRecord
-
-        resolved = await self.claim_for_resume(req.workflow_id, req.db_path)
-        from src.web.routers.history import clear_registry_stats
-
-        registry_path = str(pathlib.Path(resolved.run_root) / "workflows_registry.db")
-        await clear_registry_stats(registry_path, req.workflow_id)
-        run_id = str(uuid.uuid4())[:8]
-        record = _RunRecord(run_id=run_id, topic=req.topic)
-        record.db_path = resolved.db_path
-        record.workflow_id = req.workflow_id
-        record.run_root = resolved.run_root
-        self.set(run_id, record)
         import asyncio
 
-        from src.web.run_concurrency import acquire_run_slot_or_raise
+        from src.web.routers.history import clear_registry_stats
+        from src.web.run_concurrency import acquire_run_slot_or_raise, release_run_slot
+        from src.web.state import _RunRecord
 
+        self.ensure_not_running(req.workflow_id)
         await acquire_run_slot_or_raise()
-        task = asyncio.create_task(
-            resume_wrapper(record, req.workflow_id, resolved.db_path, req.from_phase, req.verbose, req.debug)
-        )
-        record.task = task
+        run_id = str(uuid.uuid4())[:8]
+        try:
+            resolved = await self.claim_for_resume(req.workflow_id, req.db_path)
+            registry_path = str(pathlib.Path(resolved.run_root) / "workflows_registry.db")
+            await clear_registry_stats(registry_path, req.workflow_id)
+            record = _RunRecord(run_id=run_id, topic=req.topic)
+            record.db_path = resolved.db_path
+            record.workflow_id = req.workflow_id
+            record.run_root = resolved.run_root
+            self.set(run_id, record)
+            record.task = asyncio.create_task(
+                resume_wrapper(record, req.workflow_id, resolved.db_path, req.from_phase, req.verbose, req.debug)
+            )
+        except BaseException:
+            self.pop(run_id, None)
+            release_run_slot()
+            raise
         self.notify_workflow_active_run(req.workflow_id, run_id, record.topic)
         return run_id, record
 
@@ -291,6 +295,8 @@ class RunLifecycleCoordinator:
             _RunRecord,
         )
 
+        if not is_under_any(pathlib.Path(req.db_path), _attachable_roots()):
+            raise HTTPException(status_code=400, detail="Invalid database path")
         _validate_db_path(req.db_path)
         resolved = await self.resolve_workflow(req.workflow_id, db_path_hint=req.db_path)
 
@@ -362,6 +368,15 @@ class RunLifecycleCoordinator:
         self.set(run_id, record)
         schedule_runtime_db_manuscript_backfill(resolved.db_path)
         return run_id, record
+
+
+def _attachable_roots() -> list[pathlib.Path]:
+    from src.web.state import _allowed_roots
+
+    roots = configured_runs_roots()
+    roots.extend(pathlib.Path(root) for root in candidate_run_roots("runs", anchor_file=__file__))
+    roots.extend(pathlib.Path(root) for root in _allowed_roots)
+    return roots
 
 
 _default_coordinator: RunLifecycleCoordinator | None = None

@@ -59,26 +59,15 @@ async def get_review_config() -> dict[str, str]:
 
 @router.get("/env-keys")
 async def get_env_keys() -> dict[str, str]:
-    return {
-        "gemini": os.environ.get("GEMINI_API_KEY", ""),
-        "fireworks": os.environ.get("FIREWORKS_API_KEY", ""),
-        "deepseek": os.environ.get("DEEPSEEK_API_KEY", ""),
-        "openrouter": os.environ.get("OPENROUTER_API_KEY", ""),
-        "openai": os.environ.get("OPENAI_API_KEY", ""),
-        "anthropic": os.environ.get("ANTHROPIC_API_KEY", ""),
-        "groq": os.environ.get("GROQ_API_KEY", ""),
-        "mistral": os.environ.get("MISTRAL_API_KEY", ""),
-        "cohere": os.environ.get("CO_API_KEY", ""),
-        "openalex": os.environ.get("OPENALEX_API_KEY", ""),
-        "ieee": os.environ.get("IEEE_API_KEY", ""),
-        "pubmedEmail": os.environ.get("PUBMED_EMAIL", "") or os.environ.get("NCBI_EMAIL", ""),
-        "pubmedApiKey": os.environ.get("PUBMED_API_KEY", ""),
-        "perplexity": os.environ.get("PERPLEXITY_SEARCH_API_KEY", ""),
-        "semanticScholar": os.environ.get("SEMANTIC_SCHOLAR_API_KEY", ""),
-        "crossrefEmail": os.environ.get("CROSSREF_EMAIL", ""),
-        "wos": os.environ.get("WOS_API_KEY", ""),
-        "scopus": os.environ.get("SCOPUS_API_KEY", ""),
-    }
+    """Return server env values for non-secret fields only; secret keys are always blank.
+
+    Runs submitted with blank keys fall back to server env via ``get_env``. Use
+    ``/env-keys/status`` for masked configured/required state.
+    """
+    values: dict[str, str] = {ui_key: "" for ui_key in _UI_KEY_TO_ENV}
+    values["pubmedEmail"] = os.environ.get("PUBMED_EMAIL", "") or os.environ.get("NCBI_EMAIL", "")
+    values["crossrefEmail"] = os.environ.get("CROSSREF_EMAIL", "")
+    return values
 
 
 @router.get("/env-keys/required")

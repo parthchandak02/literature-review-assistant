@@ -24,9 +24,9 @@ import aiosqlite
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
-from fastapi.staticfiles import StaticFiles
 
 from src.db.workflow_registry import _open_registry as _open_registry_db
+from src.web.path_guard import is_sensitive_file
 from src.web.routers import (
     advanced_router,
     artifacts_router,
@@ -84,8 +84,11 @@ async def lifespan(_app: FastAPI) -> AsyncGenerator[None, None]:
                 )
                 await _reg_db.commit()
     except Exception:
-        pass
-    await _repair_registry_statuses_from_runtime("runs")
+        _logger.exception("Startup registry repair failed: could not mark running workflows interrupted")
+    try:
+        await _repair_registry_statuses_from_runtime("runs")
+    except Exception:
+        _logger.exception("Startup registry repair from runtime evidence failed")
     eviction = asyncio.create_task(_eviction_loop())
     yield
     eviction.cancel()
@@ -166,7 +169,17 @@ app.add_middleware(
 
 _runs_dir = pathlib.Path("runs")
 _runs_dir.mkdir(parents=True, exist_ok=True)
-app.mount("/runs", StaticFiles(directory=str(_runs_dir)), name="runs")
+_runs_dir_resolved = _runs_dir.resolve()
+
+
+@app.api_route("/runs/{file_path:path}", methods=["GET", "HEAD"], include_in_schema=False)
+async def serve_run_artifact(file_path: str) -> FileResponse:
+    """Serve run artifacts under runs/, refusing databases, env files, and anything outside runs/."""
+    candidate = (_runs_dir_resolved / file_path).resolve()
+    if not candidate.is_relative_to(_runs_dir_resolved) or is_sensitive_file(candidate) or not candidate.is_file():
+        raise HTTPException(status_code=404, detail="Not found")
+    return FileResponse(str(candidate))
+
 
 _static_dir = pathlib.Path(__file__).parent.parent.parent / "frontend" / "dist"
 

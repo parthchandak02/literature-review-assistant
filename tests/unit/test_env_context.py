@@ -79,8 +79,17 @@ def test_missing_required_env_keys_uses_request_overrides_without_os_mutation() 
 
 
 @pytest.mark.asyncio
-async def test_start_run_does_not_write_request_keys_to_process_environ() -> None:
+async def test_start_run_does_not_write_request_keys_to_process_environ(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     import yaml
+
+    from src.config.loader import get_required_env_keys
+
+    _, settings = load_configs(settings_path="config/settings.yaml")
+    for key in get_required_env_keys(settings):
+        if key != "FIREWORKS_API_KEY":
+            monkeypatch.setenv(key, "fake-test-key")
     from httpx import ASGITransport, AsyncClient
 
     from src.web.app import app

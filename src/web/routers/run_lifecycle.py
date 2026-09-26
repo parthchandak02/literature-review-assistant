@@ -20,7 +20,8 @@ from src.config.env_context import async_env_override_context, get_env, missing_
 from src.config.loader import load_configs as _load_configs
 from src.llm.registry import env_key_for_model as _env_key_for_model
 from src.search.csv_import import validate_csv_file
-from src.web.run_concurrency import acquire_run_slot_or_raise
+from src.web.path_guard import configured_runs_roots, is_sensitive_file, require_allowed_run_root
+from src.web.run_concurrency import acquire_run_slot_or_raise, release_run_slot
 from src.web.shared import (
     RunRequest,
     RunResponse,
@@ -134,6 +135,32 @@ def _inject_csv_paths_into_yaml(
     return yaml.dump(config_data, default_flow_style=False, allow_unicode=True)
 
 
+async def launch_new_run(run_id: str, topic: str, review_yaml: str, req: RunRequest) -> _RunRecord:
+    """Acquire a run slot, then register the in-memory record and start the workflow task.
+
+    The slot is acquired first so a 429 never leaves an orphan not-done record behind.
+    """
+    await acquire_run_slot_or_raise()
+    try:
+        tmp = tempfile.NamedTemporaryFile(
+            mode="w",
+            suffix=".yaml",
+            prefix=f"review_{run_id}_",
+            delete=False,
+        )
+        with tmp:
+            tmp.write(review_yaml)
+        record = _RunRecord(run_id=run_id, topic=topic)
+        record.review_yaml = review_yaml
+        _lifecycle_coordinator.set(run_id, record)
+        record.task = asyncio.create_task(_run_wrapper(record, tmp.name, req))
+    except BaseException:
+        _lifecycle_coordinator.pop(run_id, None)
+        release_run_slot()
+        raise
+    return record
+
+
 # ---------------------------------------------------------------------------
 # Endpoints
 # ---------------------------------------------------------------------------
@@ -141,6 +168,7 @@ def _inject_csv_paths_into_yaml(
 
 @router.post("/api/run", response_model=RunResponse)
 async def start_run(req: RunRequest) -> RunResponse:
+    require_allowed_run_root(req.run_root)
     env_overrides = req.resolved_env_overrides()
     missing_keys = _missing_required_llm_keys(env_overrides)
     if missing_keys:
@@ -153,24 +181,7 @@ async def start_run(req: RunRequest) -> RunResponse:
     topic = _extract_topic(req.review_yaml)
     run_id = str(uuid.uuid4())[:8]
 
-    tmp = tempfile.NamedTemporaryFile(
-        mode="w",
-        suffix=".yaml",
-        prefix=f"review_{run_id}_",
-        delete=False,
-    )
-    tmp.write(req.review_yaml)
-    tmp.flush()
-    tmp.close()
-
-    record = _RunRecord(run_id=run_id, topic=topic)
-    record.review_yaml = req.review_yaml
-    _lifecycle_coordinator.set(run_id, record)
-
-    await acquire_run_slot_or_raise()
-    task = asyncio.create_task(_run_wrapper(record, tmp.name, req))
-    record.task = task
-
+    await launch_new_run(run_id, topic, req.review_yaml, req)
     return RunResponse(run_id=run_id, topic=topic)
 
 
@@ -198,6 +209,7 @@ async def start_run_with_masterlist(
     run_root: str = Form(default="runs"),
 ) -> RunResponse:
     """Start a review run using a pre-assembled master list CSV instead of running connectors."""
+    require_allowed_run_root(run_root)
     run_id = str(uuid.uuid4())[:8]
     staging_dir = pathlib.Path(run_root) / "staging" / run_id
     staging_dir.mkdir(parents=True, exist_ok=True)
@@ -248,24 +260,7 @@ async def start_run_with_masterlist(
 
     topic = _extract_topic(modified_yaml)
 
-    tmp = tempfile.NamedTemporaryFile(
-        mode="w",
-        suffix=".yaml",
-        prefix=f"review_{run_id}_",
-        delete=False,
-    )
-    tmp.write(modified_yaml)
-    tmp.flush()
-    tmp.close()
-
-    record = _RunRecord(run_id=run_id, topic=topic)
-    record.review_yaml = modified_yaml
-    _lifecycle_coordinator.set(run_id, record)
-
-    await acquire_run_slot_or_raise()
-    task = asyncio.create_task(_run_wrapper(record, tmp.name, req))
-    record.task = task
-
+    await launch_new_run(run_id, topic, modified_yaml, req)
     return RunResponse(run_id=run_id, topic=topic)
 
 
@@ -293,6 +288,7 @@ async def start_run_with_supplementary_csv(
     run_root: str = Form(default="runs"),
 ) -> RunResponse:
     """Start a review run using connectors plus one supplementary CSV import."""
+    require_allowed_run_root(run_root)
     run_id = str(uuid.uuid4())[:8]
     staging_dir = pathlib.Path(run_root) / "staging" / run_id
     staging_dir.mkdir(parents=True, exist_ok=True)
@@ -345,24 +341,7 @@ async def start_run_with_supplementary_csv(
 
     topic = _extract_topic(modified_yaml)
 
-    tmp = tempfile.NamedTemporaryFile(
-        mode="w",
-        suffix=".yaml",
-        prefix=f"review_{run_id}_",
-        delete=False,
-    )
-    tmp.write(modified_yaml)
-    tmp.flush()
-    tmp.close()
-
-    record = _RunRecord(run_id=run_id, topic=topic)
-    record.review_yaml = modified_yaml
-    _lifecycle_coordinator.set(run_id, record)
-
-    await acquire_run_slot_or_raise()
-    task = asyncio.create_task(_run_wrapper(record, tmp.name, req))
-    record.task = task
-
+    await launch_new_run(run_id, topic, modified_yaml, req)
     return RunResponse(run_id=run_id, topic=topic)
 
 
@@ -387,6 +366,8 @@ async def stream_run(run_id: str, request: Request) -> EventSourceResponse:
             replay_index += 1
 
         while True:
+            if await request.is_disconnected():
+                return
             while replay_index < len(record.event_log):
                 event = record.event_log[replay_index]
                 yield {"id": str(replay_index), "data": _json_safe(event)}
@@ -456,12 +437,12 @@ async def cancel_run(run_id: str) -> dict[str, str]:
 @router.get("/api/download")
 async def download_file(path: str) -> FileResponse:
     resolved = pathlib.Path(path).resolve()
-    resolved_str = str(resolved)
-    if not any(resolved_str.startswith(root) for root in _allowed_roots):
+    roots = [pathlib.Path(root) for root in _allowed_roots] + configured_runs_roots()
+    if not any(resolved.is_relative_to(root.resolve()) for root in roots) or is_sensitive_file(resolved):
         raise HTTPException(status_code=403, detail="Access denied")
-    if not resolved.exists():
+    if not resolved.is_file():
         raise HTTPException(status_code=404, detail="File not found")
-    return FileResponse(path=resolved_str, filename=resolved.name)
+    return FileResponse(path=str(resolved), filename=resolved.name)
 
 
 @router.post("/api/config/generate/stream")

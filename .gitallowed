@@ -40,3 +40,12 @@ Server \.[e]nv is active
 Keys in <code
 configured on the server
 "source": "env"
+# Security code/tests that name dotenv files to deny them (not credentials)
+refusing databases, env files
+^src/web/path_guard\.py:[0-9]+:\s+"\.[e]nv",$
+name == "\.[e]nv" or name\.startswith\("\.[e]nv\."\)
+Loads \.[e]nv for non-secret settings
+cannot re-populate them from \.[e]nv\.
+\("\.[e]nv(\.local)?", True\)
+"x\.sqlite", "\.[e]nv"\)
+source: "env"

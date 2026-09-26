@@ -2,11 +2,9 @@
 
 from __future__ import annotations
 
-import asyncio
 import json as _json
 import os
 import pathlib
-import tempfile
 import uuid
 from collections.abc import AsyncGenerator
 
@@ -17,7 +15,6 @@ from fastapi.responses import FileResponse, StreamingResponse
 from sse_starlette.sse import EventSourceResponse
 
 from src.export.prisma_flow_export import build_prisma_flow_zip_bytes
-from src.web.run_concurrency import acquire_run_slot_or_raise
 from src.web.run_resolver import resolve_runtime_db
 from src.web.shared import (
     RunRequest,
@@ -28,8 +25,6 @@ from src.web.shared import (
 )
 from src.web.state import (
     _lifecycle_coordinator,
-    _run_wrapper,
-    _RunRecord,
 )
 
 router = APIRouter(tags=["advanced"])
@@ -399,18 +394,9 @@ async def living_refresh(run_id: str) -> RunResponse:
     new_run_id = str(uuid.uuid4())[:8]
     topic = _extract_topic(new_yaml)
 
-    tmp = tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", prefix=f"review_{new_run_id}_", delete=False)
-    tmp.write(new_yaml)
-    tmp.flush()
-    tmp.close()
+    from src.web.routers.run_lifecycle import launch_new_run
 
-    new_record = _RunRecord(run_id=new_run_id, topic=topic)
-    new_record.review_yaml = new_yaml
-    _lifecycle_coordinator.set(new_run_id, new_record)
-
-    await acquire_run_slot_or_raise()
-    task = asyncio.create_task(_run_wrapper(new_record, tmp.name, req))
-    new_record.task = task
+    await launch_new_run(new_run_id, topic, new_yaml, req)
 
     return RunResponse(run_id=new_run_id, topic=f"[Living refresh] {topic}")
 
