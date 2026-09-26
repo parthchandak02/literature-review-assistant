@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+from dataclasses import dataclass
 from pathlib import Path
 
 from pydantic_graph import End, GraphRunContext
@@ -74,6 +75,101 @@ def _rc_print(rc, message: object) -> None:
 
 def _llm_available(settings=None, settings_cfg=None):
     return helper_llm_available(settings=settings, settings_cfg=settings_cfg)
+
+
+@dataclass(frozen=True)
+class _QualityOutcome:
+    """Result of routing one record through its quality-assessment tool."""
+
+    rob_judgment: str
+    rob_assessment: object | None = None
+    mmat_result: object | None = None
+
+
+async def _save_quality_fallback(
+    repository: WorkflowRepository,
+    workflow_id: str,
+    paper_id: str,
+    module: str,
+    assessment: object,
+    reason_attr: str,
+) -> None:
+    if not getattr(assessment, "fallback_used", False):
+        return
+    await repository.save_fallback_event(
+        FallbackEventRecord(
+            workflow_id=workflow_id,
+            phase="phase_4_extraction_quality",
+            module=module,
+            fallback_type="heuristic_assessment",
+            reason=getattr(assessment, reason_attr, "heuristic fallback"),
+            paper_id=paper_id,
+        )
+    )
+
+
+async def _log_quality_completed(
+    repository: WorkflowRepository,
+    decision_type: str,
+    paper_id: str,
+    rationale: str,
+) -> None:
+    await repository.append_decision_log(
+        DecisionLogEntry(
+            decision_type=decision_type,
+            paper_id=paper_id,
+            decision="completed",
+            rationale=rationale,
+            actor="quality_assessment",
+            phase="phase_4_extraction_quality",
+        )
+    )
+
+
+async def _assess_and_persist_quality(
+    tool: str,
+    record: ExtractionRecord,
+    full_text: str,
+    *,
+    repository: WorkflowRepository,
+    workflow_id: str,
+    rob2: Rob2Assessor,
+    robins_i: RobinsIAssessor,
+    casp: CaspAssessor,
+    mmat: MmatAssessor,
+) -> _QualityOutcome | None:
+    """Run the routed RoB2/ROBINS-I/CASP/MMAT tool and persist assessment, fallback, and decision rows.
+
+    Returns None when ``tool`` has no assessor (not applicable).
+    """
+    paper_id = record.paper_id
+    if tool == "rob2":
+        assessment = await rob2.assess(record, full_text=full_text)
+        await repository.save_rob2_assessment(workflow_id, assessment)
+        await _save_quality_fallback(repository, workflow_id, paper_id, "quality.rob2", assessment, "overall_rationale")
+        judgment = assessment.overall_judgment.value if hasattr(assessment, "overall_judgment") else "unknown"
+        return _QualityOutcome(rob_judgment=judgment, rob_assessment=assessment)
+    if tool == "robins_i":
+        assessment = await robins_i.assess(record, full_text=full_text)
+        await repository.save_robins_i_assessment(workflow_id, assessment)
+        await _save_quality_fallback(
+            repository, workflow_id, paper_id, "quality.robins_i", assessment, "overall_rationale"
+        )
+        judgment = assessment.overall_judgment.value if hasattr(assessment, "overall_judgment") else "unknown"
+        return _QualityOutcome(rob_judgment=judgment, rob_assessment=assessment)
+    if tool == "casp":
+        assessment = await casp.assess(record, full_text=full_text)
+        await repository.save_casp_assessment(workflow_id, paper_id, assessment)
+        await _save_quality_fallback(repository, workflow_id, paper_id, "quality.casp", assessment, "overall_summary")
+        await _log_quality_completed(repository, "casp_assessment", paper_id, assessment.overall_summary)
+        return _QualityOutcome(rob_judgment=getattr(assessment, "overall_summary", "completed")[:80])
+    if tool == "mmat":
+        mmat_result = await mmat.assess(record, full_text=full_text)
+        await repository.save_mmat_assessment(workflow_id, paper_id, mmat_result)
+        await _save_quality_fallback(repository, workflow_id, paper_id, "quality.mmat", mmat_result, "overall_summary")
+        await _log_quality_completed(repository, "mmat_assessment", paper_id, mmat_result.overall_summary)
+        return _QualityOutcome(rob_judgment=f"MMAT score {mmat_result.overall_score}/5", mmat_result=mmat_result)
+    return None
 
 
 async def _journal_step_start(
@@ -335,82 +431,19 @@ async def run_extraction_quality_node(state: ReviewState, ctx: GraphRunContext[R
                     return
                 try:
                     tool = router.route_tool(qr)
-                    if tool == "rob2":
-                        assessment = await rob2.assess(qr, full_text=full_text)
-                        await repository.save_rob2_assessment(state.workflow_id, assessment)
-                        if getattr(assessment, "fallback_used", False):
-                            await repository.save_fallback_event(
-                                FallbackEventRecord(
-                                    workflow_id=state.workflow_id,
-                                    phase="phase_4_extraction_quality",
-                                    module="quality.rob2",
-                                    fallback_type="heuristic_assessment",
-                                    reason=getattr(assessment, "overall_rationale", "heuristic fallback"),
-                                    paper_id=qr.paper_id,
-                                )
-                            )
-                    elif tool == "robins_i":
-                        assessment = await robins_i.assess(qr, full_text=full_text)
-                        await repository.save_robins_i_assessment(state.workflow_id, assessment)
-                        if getattr(assessment, "fallback_used", False):
-                            await repository.save_fallback_event(
-                                FallbackEventRecord(
-                                    workflow_id=state.workflow_id,
-                                    phase="phase_4_extraction_quality",
-                                    module="quality.robins_i",
-                                    fallback_type="heuristic_assessment",
-                                    reason=getattr(assessment, "overall_rationale", "heuristic fallback"),
-                                    paper_id=qr.paper_id,
-                                )
-                            )
-                    elif tool == "casp":
-                        assessment = await casp.assess(qr, full_text=full_text)
-                        await repository.save_casp_assessment(state.workflow_id, qr.paper_id, assessment)
-                        if getattr(assessment, "fallback_used", False):
-                            await repository.save_fallback_event(
-                                FallbackEventRecord(
-                                    workflow_id=state.workflow_id,
-                                    phase="phase_4_extraction_quality",
-                                    module="quality.casp",
-                                    fallback_type="heuristic_assessment",
-                                    reason=getattr(assessment, "overall_summary", "heuristic fallback"),
-                                    paper_id=qr.paper_id,
-                                )
-                            )
-                        await repository.append_decision_log(
-                            DecisionLogEntry(
-                                decision_type="casp_assessment",
-                                paper_id=qr.paper_id,
-                                decision="completed",
-                                rationale=assessment.overall_summary,
-                                actor="quality_assessment",
-                                phase="phase_4_extraction_quality",
-                            )
-                        )
-                    elif tool == "mmat":
-                        mmat_result = await mmat.assess(qr, full_text=full_text)
-                        await repository.save_mmat_assessment(state.workflow_id, qr.paper_id, mmat_result)
-                        if getattr(mmat_result, "fallback_used", False):
-                            await repository.save_fallback_event(
-                                FallbackEventRecord(
-                                    workflow_id=state.workflow_id,
-                                    phase="phase_4_extraction_quality",
-                                    module="quality.mmat",
-                                    fallback_type="heuristic_assessment",
-                                    reason=getattr(mmat_result, "overall_summary", "heuristic fallback"),
-                                    paper_id=qr.paper_id,
-                                )
-                            )
-                        await repository.append_decision_log(
-                            DecisionLogEntry(
-                                decision_type="mmat_assessment",
-                                paper_id=qr.paper_id,
-                                decision="completed",
-                                rationale=mmat_result.overall_summary,
-                                actor="quality_assessment",
-                                phase="phase_4_extraction_quality",
-                            )
-                        )
+                    quality = await _assess_and_persist_quality(
+                        tool,
+                        qr,
+                        full_text,
+                        repository=repository,
+                        workflow_id=state.workflow_id,
+                        rob2=rob2,
+                        robins_i=robins_i,
+                        casp=casp,
+                        mmat=mmat,
+                    )
+                    if quality is not None and quality.mmat_result is not None:
+                        mmat_result = quality.mmat_result
                         if _should_exclude_low_quality_record(
                             qr,
                             mmat_score=int(getattr(mmat_result, "overall_score", 0) or 0),
@@ -440,7 +473,7 @@ async def run_extraction_quality_node(state: ReviewState, ctx: GraphRunContext[R
                                 )
                             )
                             return
-                    else:
+                    if quality is None:
                         not_applicable_paper_ids.append(qr.paper_id)
                     _qr_outcomes = [
                         o.name.strip()
@@ -742,92 +775,22 @@ async def run_extraction_quality_node(state: ReviewState, ctx: GraphRunContext[R
                     tool = router.route_tool(record)
                     rob_judgment = "not_applicable"
                     rob_assessment_obj = None
-                    if tool == "rob2":
-                        assessment = await rob2.assess(record, full_text=full_text)
-                        await repository.save_rob2_assessment(state.workflow_id, assessment)
-                        if getattr(assessment, "fallback_used", False):
-                            await repository.save_fallback_event(
-                                FallbackEventRecord(
-                                    workflow_id=state.workflow_id,
-                                    phase="phase_4_extraction_quality",
-                                    module="quality.rob2",
-                                    fallback_type="heuristic_assessment",
-                                    reason=getattr(assessment, "overall_rationale", "heuristic fallback"),
-                                    paper_id=record.paper_id,
-                                )
-                            )
-                        rob_assessment_obj = assessment
-                        rob_judgment = (
-                            assessment.overall_judgment.value if hasattr(assessment, "overall_judgment") else "unknown"
-                        )
-                    elif tool == "robins_i":
-                        assessment = await robins_i.assess(record, full_text=full_text)
-                        await repository.save_robins_i_assessment(state.workflow_id, assessment)
-                        if getattr(assessment, "fallback_used", False):
-                            await repository.save_fallback_event(
-                                FallbackEventRecord(
-                                    workflow_id=state.workflow_id,
-                                    phase="phase_4_extraction_quality",
-                                    module="quality.robins_i",
-                                    fallback_type="heuristic_assessment",
-                                    reason=getattr(assessment, "overall_rationale", "heuristic fallback"),
-                                    paper_id=record.paper_id,
-                                )
-                            )
-                        rob_assessment_obj = assessment
-                        rob_judgment = (
-                            assessment.overall_judgment.value if hasattr(assessment, "overall_judgment") else "unknown"
-                        )
-                    elif tool == "casp":
-                        assessment = await casp.assess(record, full_text=full_text)
-                        rob_judgment = getattr(assessment, "overall_summary", "completed")[:80]
-                        await repository.save_casp_assessment(state.workflow_id, record.paper_id, assessment)
-                        if getattr(assessment, "fallback_used", False):
-                            await repository.save_fallback_event(
-                                FallbackEventRecord(
-                                    workflow_id=state.workflow_id,
-                                    phase="phase_4_extraction_quality",
-                                    module="quality.casp",
-                                    fallback_type="heuristic_assessment",
-                                    reason=getattr(assessment, "overall_summary", "heuristic fallback"),
-                                    paper_id=record.paper_id,
-                                )
-                            )
-                        await repository.append_decision_log(
-                            DecisionLogEntry(
-                                decision_type="casp_assessment",
-                                paper_id=record.paper_id,
-                                decision="completed",
-                                rationale=assessment.overall_summary,
-                                actor="quality_assessment",
-                                phase="phase_4_extraction_quality",
-                            )
-                        )
-                    elif tool == "mmat":
-                        mmat_result = await mmat.assess(record, full_text=full_text)
-                        rob_judgment = f"MMAT score {mmat_result.overall_score}/5"
-                        await repository.save_mmat_assessment(state.workflow_id, record.paper_id, mmat_result)
-                        if getattr(mmat_result, "fallback_used", False):
-                            await repository.save_fallback_event(
-                                FallbackEventRecord(
-                                    workflow_id=state.workflow_id,
-                                    phase="phase_4_extraction_quality",
-                                    module="quality.mmat",
-                                    fallback_type="heuristic_assessment",
-                                    reason=getattr(mmat_result, "overall_summary", "heuristic fallback"),
-                                    paper_id=record.paper_id,
-                                )
-                            )
-                        await repository.append_decision_log(
-                            DecisionLogEntry(
-                                decision_type="mmat_assessment",
-                                paper_id=record.paper_id,
-                                decision="completed",
-                                rationale=mmat_result.overall_summary,
-                                actor="quality_assessment",
-                                phase="phase_4_extraction_quality",
-                            )
-                        )
+                    quality = await _assess_and_persist_quality(
+                        tool,
+                        record,
+                        full_text,
+                        repository=repository,
+                        workflow_id=state.workflow_id,
+                        rob2=rob2,
+                        robins_i=robins_i,
+                        casp=casp,
+                        mmat=mmat,
+                    )
+                    if quality is not None:
+                        rob_judgment = quality.rob_judgment
+                        rob_assessment_obj = quality.rob_assessment
+                    if quality is not None and quality.mmat_result is not None:
+                        mmat_result = quality.mmat_result
                         if _should_exclude_low_quality_record(
                             record,
                             mmat_score=int(getattr(mmat_result, "overall_score", 0) or 0),
@@ -864,7 +827,7 @@ async def run_extraction_quality_node(state: ReviewState, ctx: GraphRunContext[R
                                     rob_judgment=f"excluded_low_quality_{mmat_result.overall_score}/5",
                                 )
                             return
-                    else:
+                    if quality is None:
                         not_applicable_paper_ids.append(record.paper_id)
                         await repository.append_decision_log(
                             DecisionLogEntry(

@@ -17,6 +17,7 @@ from src.models import (
     SourceCategory,
     StudyDesign,
 )
+from src.models.workflow import WorkflowRunResult, WorkflowRunStatus
 from src.orchestration.nodes.extraction_quality import ExtractionQualityNode
 from src.orchestration.nodes.pre_writing_gate import PreWritingGateNode
 from src.orchestration.nodes.prospero_gate import ProsperoGateNode
@@ -262,8 +263,25 @@ async def test_pre_writing_gate_terminal_failure_aborts_graph(
     """Missing RAG chunks with exhausted rewinds stops the graph before writing."""
     state = await _seed_pre_writing_blocked_state(tmp_workflow_db, rewinds_exhausted=True)
 
-    with pytest.raises(RuntimeError, match="pre-writing gate blocked"):
-        await RUN_GRAPH.run(PreWritingGateNode(), state=state)
+    run = await RUN_GRAPH.run(PreWritingGateNode(), state=state)
+    result = run.output
+
+    assert isinstance(result, WorkflowRunResult)
+    assert result.status == WorkflowRunStatus.GATE_BLOCKED
+    assert result.gate == "pre_writing"
+    assert result.phase == "phase_5c_pre_writing_gate"
+    assert result.error and "pre-writing gate blocked" in result.error
+    assert result.to_output_dict()["status"] == "gate_blocked"
+
+    async with get_db(str(tmp_workflow_db.db_path)) as db:
+        cur = await db.execute(
+            "SELECT status FROM workflows WHERE workflow_id = ?",
+            (tmp_workflow_db.workflow_id,),
+        )
+        row = await cur.fetchone()
+        checkpoints = await WorkflowRepository(db).get_checkpoints(tmp_workflow_db.workflow_id)
+    assert row is not None and row[0] == "failed"
+    assert checkpoints["phase_5c_pre_writing_gate"] == "blocked"
 
 
 @pytest.mark.asyncio

@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 import json
 import logging
 from pathlib import Path
@@ -11,10 +10,11 @@ import yaml
 
 from src.db.database import get_db
 from src.db.repositories import WorkflowRepository
-from src.db.workflow_registry import find_by_workflow_id, update_status
 from src.db.workflow_registry import register as register_workflow
+from src.db.workflow_registry import update_status
 from src.models.config import ReviewConfig
 from src.orchestration.helpers.runtime import hash_config as helper_hash_config
+from src.orchestration.helpers.runtime import rc_print as helper_rc_print
 from src.orchestration.state import ReviewState
 from src.protocol.generator import ProtocolGenerator
 from src.utils.logging_paths import default_run_artifacts
@@ -61,10 +61,37 @@ def _is_web_mode(state: ReviewState) -> bool:
     return rc is not None and bool(getattr(rc, "web_mode", False))
 
 
+def cli_prospero_instructions(state: ReviewState) -> str:
+    """Human-readable next steps for a CLI run parked at the PROSPERO gate."""
+    run_dir = Path(state.output_dir)
+    return "\n".join(
+        [
+            f"Workflow {state.workflow_id} is parked awaiting PROSPERO registration.",
+            f"  Draft registration form: {run_dir / 'doc_prospero_registration.docx'}",
+            "  After registering on PROSPERO, record the ID using ONE of:",
+            "    - Web UI: open the run and submit the PROSPERO ID (POST /api/run/{run_id}/submit-prospero).",
+            f"    - CLI: set protocol.registered: true, protocol.registration_number and "
+            f"protocol.registration_date in {run_dir / 'config_snapshot.yaml'}, then run",
+            f"      uv run python -m src.main resume --workflow-id {state.workflow_id} --run-root {state.run_root}",
+        ]
+    )
+
+
+def _print_cli_prospero_instructions(state: ReviewState) -> None:
+    message = cli_prospero_instructions(state)
+    logger.info("ProsperoGateNode: %s", message)
+    rc = _rc(state)
+    if rc is not None and getattr(rc, "console", None) is not None:
+        helper_rc_print(rc, f"[yellow]{message}[/]")
+    else:
+        print(message)
+
+
 async def run_prospero_gate(state: ReviewState) -> bool:
     """Generate pre-registration artifacts and wait for PROSPERO submission.
 
-    Returns True when the workflow should park in ``awaiting_prospero`` (web/API).
+    Returns True when the workflow should park in ``awaiting_prospero`` (web and CLI;
+    CLI prints resume instructions instead of blocking the process).
     Returns False when the gate is complete and search may proceed.
     """
     rc = _rc(state)
@@ -122,39 +149,15 @@ async def run_prospero_gate(state: ReviewState) -> bool:
 
     await update_status(state.run_root, state.workflow_id, "awaiting_prospero")
 
-    if _is_web_mode(state):
-        if rc:
-            rc.emit_phase_done(
-                "phase_1_prospero_gate",
-                {
-                    "paused": True,
-                    "awaiting_prospero": True,
-                    "workflow_id": state.workflow_id,
-                },
-            )
-        return True
-
-    hitl = state.settings.human_in_the_loop
-    poll_interval = max(1, int(getattr(hitl, "poll_interval_seconds", 5)))
-    while True:
-        entry = await find_by_workflow_id(state.run_root, state.workflow_id)
-        if entry and str(getattr(entry, "status", "awaiting_prospero")) == "running":
-            break
-        await asyncio.sleep(poll_interval)
-
-    _reload_review_from_run_dir(state)
-    await update_status(state.run_root, state.workflow_id, "running")
-
-    async with get_db(state.db_path) as db:
-        repository = WorkflowRepository(db)
-        await repository.save_checkpoint(state.workflow_id, "phase_1_prospero_gate", papers_processed=0)
-
     if rc:
         rc.emit_phase_done(
             "phase_1_prospero_gate",
             {
-                "registered": bool(state.review.protocol.registered),
-                "registration_number": state.review.protocol.registration_number or None,
+                "paused": True,
+                "awaiting_prospero": True,
+                "workflow_id": state.workflow_id,
             },
         )
-    return False
+    if not _is_web_mode(state):
+        _print_cli_prospero_instructions(state)
+    return True

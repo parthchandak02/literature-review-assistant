@@ -32,7 +32,7 @@ from src.db.workflow_registry import (
 from src.db.workflow_registry import update_status as update_registry_status
 from src.export import package_submission, validate_ieee, validate_prisma
 from src.models.workflow import WorkflowRunResult
-from src.orchestration import run_workflow_resume, run_workflow_sync
+from src.orchestration import regenerate_prospero_form, run_workflow_resume, run_workflow_sync
 from src.orchestration.context import RunContext, create_progress
 from src.orchestration.workflow import _hash_config
 from src.utils.structured_log import load_events_from_jsonl
@@ -57,35 +57,18 @@ async def _run_prospero(
     settings_path: str,
     run_context: RunContext,
 ) -> str:
-    """Regenerate the PROSPERO DOCX by rerunning only finalize for a workflow."""
-    # Use the run's own config snapshot when available so finalize-only
-    # regeneration reflects the original workflow inputs, not the current
-    # global config/review.yaml that may have changed since the run.
-    _entry = await find_by_workflow_id(run_root, workflow_id)
-    if _entry is None:
-        _entry = await find_by_workflow_id_fallback(run_root, workflow_id)
-    if _entry is not None:
-        _snapshot = Path(_entry.db_path).parent / "config_snapshot.yaml"
-        if _snapshot.exists():
-            review_path = str(_snapshot)
+    """Regenerate the PROSPERO DOCX from persisted run state without replaying phases.
 
-    summary = _as_summary_dict(
-        await run_workflow_resume(
-            workflow_id=workflow_id,
-            topic=None,
-            review_path=review_path,
-            settings_path=settings_path,
-            run_root=run_root,
-            run_context=run_context,
-            from_phase="finalize",
-        )
+    Works on completed runs; the run's config_snapshot.yaml (when present) takes
+    precedence over the workspace review config inside load_resume_state.
+    """
+    path = await regenerate_prospero_form(
+        workflow_id=workflow_id,
+        review_path=review_path,
+        settings_path=settings_path,
+        run_root=run_root,
+        run_context=run_context,
     )
-    artifacts = summary.get("artifacts", {})
-    path = artifacts.get("prospero_form")
-    if not path:
-        raise FileNotFoundError("PROSPERO artifact path not found in run summary")
-    if not Path(path).exists():
-        raise FileNotFoundError(f"PROSPERO artifact not found on disk: {path}")
     return str(path)
 
 

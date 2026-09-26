@@ -2,8 +2,9 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from pydantic_graph import BaseNode, GraphRunContext
+from pydantic_graph import BaseNode, End, GraphRunContext
 
+from src.models.workflow import WorkflowRunResult
 from src.orchestration.runners.pre_writing_gate_runner import run_pre_writing_gate_node
 from src.orchestration.state import ReviewState
 
@@ -18,6 +19,13 @@ class PreWritingGateNode(BaseNode[ReviewState]):
 
     async def run(
         self, ctx: GraphRunContext[ReviewState]
-    ) -> WritingNode | ExtractionQualityNode | EmbeddingNode | SynthesisNode | KnowledgeGraphNode:
+    ) -> (
+        WritingNode
+        | ExtractionQualityNode
+        | EmbeddingNode
+        | SynthesisNode
+        | KnowledgeGraphNode
+        | End[WorkflowRunResult]
+    ):
         state = ctx.state
         return await run_pre_writing_gate_node(state, ctx)

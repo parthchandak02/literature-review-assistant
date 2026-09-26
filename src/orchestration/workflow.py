@@ -113,6 +113,7 @@ from src.orchestration.nodes.search import SearchNode
 from src.orchestration.nodes.start import StartNode
 from src.orchestration.nodes.synthesis import SynthesisNode
 from src.orchestration.nodes.writing import WritingNode
+from src.orchestration.phase_catalog import PHASE_ORDER
 from src.orchestration.resume import load_resume_state
 from src.orchestration.state import ReviewState
 from src.search.base import SearchConnector
@@ -433,6 +434,37 @@ async def run_workflow_resume(
     return await run_graph_with_budget(ResumeStartNode(), state)
 
 
+async def regenerate_prospero_form(
+    workflow_id: str,
+    review_path: str = "config/review.yaml",
+    settings_path: str = "config/settings.yaml",
+    run_root: str = "runs",
+    run_context: RunContext | None = None,
+) -> Path:
+    """Rebuild the PROSPERO markdown/DOCX for an existing run without replaying any phase."""
+    from src.orchestration.runners.finalize_runner import write_prospero_artifacts
+
+    entry = await find_by_workflow_id(run_root, workflow_id)
+    if entry is None:
+        entry = await find_by_workflow_id_fallback(run_root, workflow_id)
+    if entry is None:
+        raise FileNotFoundError("Workflow not found or db file missing. It may have been deleted.")
+    state, _ = await load_resume_state(
+        db_path=entry.db_path,
+        workflow_id=entry.workflow_id,
+        review_path=review_path,
+        settings_path=settings_path,
+        run_root=run_root,
+        read_only=True,
+    )
+    state.run_context = run_context
+    state.run_id = _now_utc()
+    path = await write_prospero_artifacts(state, run_context)
+    if not path.exists():
+        raise FileNotFoundError(f"PROSPERO artifact not found on disk: {path}")
+    return path
+
+
 _WORKFLOW_ID_HEADER_RE = re.compile(r"^\s*#\s*workflow_id:\s*(\S+)\s*$", re.IGNORECASE)
 
 
@@ -469,8 +501,9 @@ async def run_workflow(
         async with get_db(entry.db_path) as db:
             repo = WorkflowRepository(db)
             checkpoints = await repo.get_checkpoints(entry.workflow_id)
-        phase_count = len(checkpoints)
-        phase_label = f"phase {phase_count}/7" if phase_count < 7 else "finalize"
+        phase_total = len(PHASE_ORDER)
+        phase_count = sum(1 for phase in PHASE_ORDER if checkpoints.get(phase) == "completed")
+        phase_label = f"{phase_count}/{phase_total} phases" if phase_count < phase_total else "all phases"
         _console = getattr(run_context, "console", None) if run_context else None
         if _console is not None:
             from rich.prompt import Confirm

@@ -3,10 +3,11 @@
 from __future__ import annotations
 
 import pytest
-from pydantic_graph import GraphRunContext
+from pydantic_graph import End, GraphRunContext
 
 from src.db.database import get_db
 from src.db.repositories import WorkflowRepository
+from src.models.workflow import WorkflowRunStatus
 from src.orchestration.embedding_node import EmbeddingNode
 from src.orchestration.nodes.pre_writing_gate import PreWritingGateNode
 from src.orchestration.state import ReviewState
@@ -35,8 +36,10 @@ async def test_persistent_gate_failure_rewinds_once_then_blocks(tmp_workflow_db:
     assert policies[0].current_rewinds == 1
 
     # Rewind target did not fix the blocking condition: the second visit must not rewind again.
-    with pytest.raises(RuntimeError, match="pre-writing gate blocked"):
-        await PreWritingGateNode().run(_ctx(state))
+    second = await PreWritingGateNode().run(_ctx(state))
+    assert isinstance(second, End)
+    assert second.data.status == WorkflowRunStatus.GATE_BLOCKED
+    assert second.data.gate == "pre_writing"
 
     async with get_db(str(tmp_workflow_db.db_path)) as db:
         repo = WorkflowRepository(db)

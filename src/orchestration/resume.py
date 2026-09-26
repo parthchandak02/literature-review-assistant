@@ -108,6 +108,8 @@ async def load_resume_state(
     settings_path: str,
     run_root: str,
     from_phase: str | None = None,
+    *,
+    read_only: bool = False,
 ) -> tuple[ReviewState, str]:
     """Load ReviewState from existing db and determine next phase to run.
 
@@ -117,8 +119,15 @@ async def load_resume_state(
     When from_phase is provided: validate it is in PHASE_ORDER, ensure all prior
     phases have checkpoints, clear checkpoints for from_phase and later, and
     return next_phase=from_phase.
+
+    When read_only is True (artifact regeneration on finished runs), resume
+    guards are skipped and no checkpoints are cleared; from_phase must be None.
     """
-    await validate_resume_allowed(db_path, workflow_id, from_phase=from_phase)
+    if read_only:
+        if from_phase is not None:
+            raise ValueError("read_only state load does not support from_phase")
+    else:
+        await validate_resume_allowed(db_path, workflow_id, from_phase=from_phase)
 
     run_dir = Path(db_path).resolve().parent
     run_dir.mkdir(parents=True, exist_ok=True)
@@ -255,7 +264,7 @@ async def load_resume_state(
             # If the file is absent, clear the stale checkpoint so WritingNode
             # re-runs and produces the manuscript; section_drafts already hold all
             # completed LLM outputs so only the assembly step is repeated.
-            if next_phase in {"phase_7_audit", "finalize"} and "phase_6_writing" in checkpoints:
+            if not read_only and next_phase in {"phase_7_audit", "finalize"} and "phase_6_writing" in checkpoints:
                 manuscript_md_path = run_dir / "doc_manuscript.md"
                 if not manuscript_md_path.exists():
                     logger.warning(

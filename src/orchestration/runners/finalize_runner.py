@@ -32,6 +32,132 @@ def _rc_print(rc, message: object) -> None:
     helper_rc_print(rc, message)
 
 
+async def write_prospero_artifacts(state: ReviewState, rc=None) -> Path:
+    """Write protocol markdown plus PROSPERO registration markdown/DOCX from persisted run state.
+
+    Pure artifact regeneration: reads the runtime DB and run directory, never replays phases.
+    Returns the DOCX path and records it under ``state.artifacts["prospero_form"]``.
+    """
+    if state.review is None or not state.output_dir:
+        raise ValueError("write_prospero_artifacts requires state.review and state.output_dir")
+    from src.export.docx_exporter import generate_docx as _generate_docx
+    from src.models import ProsperoRunData
+
+    _proto_gen = ProtocolGenerator(output_dir=state.output_dir)
+    _placeholder_fields = _proto_gen.validate_prospero_inputs(state.review)
+    if _placeholder_fields:
+        _msg = "PROSPERO preflight warning: placeholder-like values detected in " + ", ".join(
+            sorted(set(_placeholder_fields))
+        )
+        logger.warning("FinalizeNode: %s", _msg)
+        if rc and hasattr(rc, "log_status"):
+            rc.log_status(_msg)
+    _protocol_doc = _proto_gen.generate(state.workflow_id, state.review, state.settings)
+    _protocol_md = _proto_gen.render_markdown(_protocol_doc, state.review)
+    _protocol_md_path = _proto_gen.write_markdown(state.workflow_id, _protocol_md)
+    state.artifacts["protocol"] = str(_protocol_md_path)
+    _protocol = _protocol_doc
+    _synthesis_method: str = _protocol.planned_synthesis_method
+    _included_ids: set[str] = set()
+    try:
+        async with get_db(state.db_path) as _inc_db:
+            _inc_repo = WorkflowRepository(_inc_db)
+            _included_ids = await _inc_repo.get_synthesis_included_paper_ids(state.workflow_id)
+    except Exception:
+        _included_ids = set()
+    if not _included_ids:
+        _included_ids = {str(p.paper_id) for p in (state.included_papers or []) if getattr(p, "paper_id", "")}
+    _fulltext_ids: set[str] = set()
+    _manifest_path = Path(state.artifacts.get("papers_manifest", ""))
+    if _manifest_path.exists():
+        try:
+            _manifest = json.loads(_manifest_path.read_text(encoding="utf-8"))
+            for _pid, _entry in (_manifest or {}).items():
+                if (_entry or {}).get("file_path"):
+                    _fulltext_ids.add(str(_pid))
+        except Exception as _manifest_err:  # noqa: BLE001
+            logger.warning(
+                "FinalizeNode: could not derive fulltext IDs from papers manifest: %s",
+                _manifest_err,
+            )
+    _fulltext_retrieved = len(_fulltext_ids.intersection(_included_ids)) if _included_ids else 0
+    if _fulltext_retrieved <= 0:
+        if _manifest_path.exists():
+            try:
+                _manifest = json.loads(_manifest_path.read_text(encoding="utf-8"))
+                _fulltext_retrieved = sum(1 for _entry in _manifest.values() if (_entry or {}).get("file_path"))
+            except Exception as _manifest_err:  # noqa: BLE001
+                logger.warning(
+                    "FinalizeNode: could not derive fulltext count from papers manifest: %s",
+                    _manifest_err,
+                )
+        if _fulltext_retrieved <= 0:
+            _papers_dir = Path(state.output_dir) / "papers"
+            if _papers_dir.exists():
+                _fulltext_retrieved = sum(
+                    1
+                    for _pf in _papers_dir.iterdir()
+                    if _pf.stat().st_size > 0 and _pf.suffix in {".pdf", ".txt"}
+                )
+
+    _run_data = ProsperoRunData(
+        search_counts=state.search_counts,
+        search_queries=state.search_queries,
+        included_count=len(_included_ids),
+        fulltext_retrieved_count=max(0, _fulltext_retrieved),
+        run_id=state.run_id,
+        synthesis_method=_synthesis_method,
+        other_methods_searched=sorted(
+            {
+                str(name)
+                for name in (state.search_counts or {}).keys()
+                if str(name) not in {str(db) for db in state.review.resolved_target_databases()}
+            }
+        ),
+    )
+    _prospero_md_path = Path(state.output_dir) / "doc_prospero_registration.md"
+    _has_prior_registration = (
+        _prospero_md_path.exists()
+        and state.review.protocol.registered
+        and bool(str(state.review.protocol.registration_number or "").strip())
+    )
+    if _has_prior_registration:
+        supplement_lines = [
+            "",
+            "## POST-RUN SEARCH COUNTS (SUPPLEMENT)",
+            "",
+            f"Total records identified: {sum(state.search_counts.values()) if state.search_counts else 0}.",
+            f"Records after deduplication and screening: {len(_included_ids)} studies included.",
+            f"Full texts retrieved: {max(0, _fulltext_retrieved)}.",
+            "",
+        ]
+        if state.search_counts:
+            supplement_lines.extend(
+                [
+                    "### Records retrieved per database",
+                    *[f"- {db}: {state.search_counts.get(db, 0)} records" for db in state.review.target_databases],
+                    "",
+                ]
+            )
+        existing = _prospero_md_path.read_text(encoding="utf-8")
+        if "## POST-RUN SEARCH COUNTS (SUPPLEMENT)" not in existing:
+            _prospero_md_path.write_text(existing.rstrip() + "\n" + "\n".join(supplement_lines), encoding="utf-8")
+        state.artifacts["prospero_form_md"] = str(_prospero_md_path)
+        _prospero_docx_path = Path(state.output_dir) / "doc_prospero_registration.docx"
+        _generate_docx(_prospero_md_path, _prospero_docx_path)
+        state.artifacts["prospero_form"] = str(_prospero_docx_path)
+        logger.info("FinalizeNode: appended post-run PROSPERO supplement")
+    else:
+        _prospero_md = _proto_gen.render_prospero_markdown(_protocol, state.review, _run_data)
+        _prospero_md_path = _proto_gen.write_prospero_markdown(_prospero_md)
+        state.artifacts["prospero_form_md"] = str(_prospero_md_path)
+        _prospero_docx_path = Path(state.output_dir) / "doc_prospero_registration.docx"
+        _generate_docx(_prospero_md_path, _prospero_docx_path)
+        state.artifacts["prospero_form"] = str(_prospero_docx_path)
+        logger.info("FinalizeNode: wrote doc_prospero_registration.md and .docx")
+    return Path(state.artifacts["prospero_form"])
+
+
 async def run_finalize_node(state: ReviewState, ctx: GraphRunContext[ReviewState]) -> dict:
     """Generate run summary, LaTeX, PROSPERO docx, and submission package.
 
@@ -76,121 +202,7 @@ async def run_finalize_node(state: ReviewState, ctx: GraphRunContext[ReviewState
 
     if state.review and state.output_dir:
         try:
-            from src.export.docx_exporter import generate_docx as _generate_docx
-            from src.models import ProsperoRunData
-
-            _proto_gen = ProtocolGenerator(output_dir=state.output_dir)
-            _placeholder_fields = _proto_gen.validate_prospero_inputs(state.review)
-            if _placeholder_fields:
-                _msg = "PROSPERO preflight warning: placeholder-like values detected in " + ", ".join(
-                    sorted(set(_placeholder_fields))
-                )
-                logger.warning("FinalizeNode: %s", _msg)
-                if rc and hasattr(rc, "log_status"):
-                    rc.log_status(_msg)
-            _protocol_doc = _proto_gen.generate(state.workflow_id, state.review, state.settings)
-            _protocol_md = _proto_gen.render_markdown(_protocol_doc, state.review)
-            _protocol_md_path = _proto_gen.write_markdown(state.workflow_id, _protocol_md)
-            state.artifacts["protocol"] = str(_protocol_md_path)
-            _protocol = _protocol_doc
-            _synthesis_method: str = _protocol.planned_synthesis_method
-            _included_ids: set[str] = set()
-            try:
-                async with get_db(state.db_path) as _inc_db:
-                    _inc_repo = WorkflowRepository(_inc_db)
-                    _included_ids = await _inc_repo.get_synthesis_included_paper_ids(state.workflow_id)
-            except Exception:
-                _included_ids = set()
-            if not _included_ids:
-                _included_ids = {str(p.paper_id) for p in (state.included_papers or []) if getattr(p, "paper_id", "")}
-            _fulltext_ids: set[str] = set()
-            _manifest_path = Path(state.artifacts.get("papers_manifest", ""))
-            if _manifest_path.exists():
-                try:
-                    _manifest = json.loads(_manifest_path.read_text(encoding="utf-8"))
-                    for _pid, _entry in (_manifest or {}).items():
-                        if (_entry or {}).get("file_path"):
-                            _fulltext_ids.add(str(_pid))
-                except Exception as _manifest_err:  # noqa: BLE001
-                    logger.warning(
-                        "FinalizeNode: could not derive fulltext IDs from papers manifest: %s",
-                        _manifest_err,
-                    )
-            _fulltext_retrieved = len(_fulltext_ids.intersection(_included_ids)) if _included_ids else 0
-            if _fulltext_retrieved <= 0:
-                if _manifest_path.exists():
-                    try:
-                        _manifest = json.loads(_manifest_path.read_text(encoding="utf-8"))
-                        _fulltext_retrieved = sum(1 for _entry in _manifest.values() if (_entry or {}).get("file_path"))
-                    except Exception as _manifest_err:  # noqa: BLE001
-                        logger.warning(
-                            "FinalizeNode: could not derive fulltext count from papers manifest: %s",
-                            _manifest_err,
-                        )
-                if _fulltext_retrieved <= 0:
-                    _papers_dir = Path(state.output_dir) / "papers"
-                    if _papers_dir.exists():
-                        _fulltext_retrieved = sum(
-                            1
-                            for _pf in _papers_dir.iterdir()
-                            if _pf.stat().st_size > 0 and _pf.suffix in {".pdf", ".txt"}
-                        )
-
-            _run_data = ProsperoRunData(
-                search_counts=state.search_counts,
-                search_queries=state.search_queries,
-                included_count=len(_included_ids),
-                fulltext_retrieved_count=max(0, _fulltext_retrieved),
-                run_id=state.run_id,
-                synthesis_method=_synthesis_method,
-                other_methods_searched=sorted(
-                    {
-                        str(name)
-                        for name in (state.search_counts or {}).keys()
-                        if str(name) not in {str(db) for db in state.review.resolved_target_databases()}
-                    }
-                ),
-            )
-            _prospero_md_path = Path(state.output_dir) / "doc_prospero_registration.md"
-            _has_prior_registration = (
-                _prospero_md_path.exists()
-                and state.review.protocol.registered
-                and bool(str(state.review.protocol.registration_number or "").strip())
-            )
-            if _has_prior_registration:
-                supplement_lines = [
-                    "",
-                    "## POST-RUN SEARCH COUNTS (SUPPLEMENT)",
-                    "",
-                    f"Total records identified: {sum(state.search_counts.values()) if state.search_counts else 0}.",
-                    f"Records after deduplication and screening: {len(_included_ids)} studies included.",
-                    f"Full texts retrieved: {max(0, _fulltext_retrieved)}.",
-                    "",
-                ]
-                if state.search_counts:
-                    supplement_lines.extend(
-                        [
-                            "### Records retrieved per database",
-                            *[f"- {db}: {state.search_counts.get(db, 0)} records" for db in state.review.target_databases],
-                            "",
-                        ]
-                    )
-                existing = _prospero_md_path.read_text(encoding="utf-8")
-                if "## POST-RUN SEARCH COUNTS (SUPPLEMENT)" not in existing:
-                    _prospero_md_path.write_text(existing.rstrip() + "\n" + "\n".join(supplement_lines), encoding="utf-8")
-                state.artifacts["prospero_form_md"] = str(_prospero_md_path)
-                _prospero_docx_path = Path(state.output_dir) / "doc_prospero_registration.docx"
-                _generate_docx(_prospero_md_path, _prospero_docx_path)
-                state.artifacts["prospero_form"] = str(_prospero_docx_path)
-                logger.info("FinalizeNode: appended post-run PROSPERO supplement")
-            else:
-                _prospero_md = _proto_gen.render_prospero_markdown(_protocol, state.review, _run_data)
-                _prospero_md_path = _proto_gen.write_prospero_markdown(_prospero_md)
-                state.artifacts["prospero_form_md"] = str(_prospero_md_path)
-                _prospero_docx_path = Path(state.output_dir) / "doc_prospero_registration.docx"
-                _generate_docx(_prospero_md_path, _prospero_docx_path)
-                state.artifacts["prospero_form"] = str(_prospero_docx_path)
-                logger.info("FinalizeNode: wrote doc_prospero_registration.md and .docx")
+            await write_prospero_artifacts(state, rc)
         except Exception as _pros_err:  # noqa: BLE001
             logger.warning("FinalizeNode: PROSPERO DOCX generation failed (non-fatal): %s", _pros_err)
 

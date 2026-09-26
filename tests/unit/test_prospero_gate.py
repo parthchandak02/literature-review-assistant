@@ -114,11 +114,6 @@ async def test_run_prospero_gate_parks_in_web_mode(tmp_path: Path) -> None:
         patch("src.orchestration.runners.prospero_gate_runner.register_workflow", new_callable=AsyncMock),
         patch("src.orchestration.runners.prospero_gate_runner.update_status", new_callable=AsyncMock) as mock_update,
         patch(
-            "src.orchestration.runners.prospero_gate_runner.find_by_workflow_id",
-            new_callable=AsyncMock,
-            return_value=MagicMock(status="running"),
-        ),
-        patch(
             "src.protocol.generator.ProtocolGenerator.generate_pre_registration_artifacts",
             return_value={
                 "protocol": run_dir / "doc_protocol.md",
@@ -126,7 +121,6 @@ async def test_run_prospero_gate_parks_in_web_mode(tmp_path: Path) -> None:
                 "prospero_docx": run_dir / "doc_prospero_registration.docx",
             },
         ),
-        patch("src.orchestration.runners.prospero_gate_runner.asyncio.sleep", new_callable=AsyncMock) as mock_sleep,
     ):
         mock_db = AsyncMock()
         mock_get_db.return_value.__aenter__.return_value = mock_db
@@ -135,14 +129,16 @@ async def test_run_prospero_gate_parks_in_web_mode(tmp_path: Path) -> None:
         paused = await run_prospero_gate(state)
 
     assert paused is True
-    mock_sleep.assert_not_awaited()
     update_calls = [call.args for call in mock_update.await_args_list]
     assert any(call[2] == "awaiting_prospero" for call in update_calls)
     assert not any(call[2] == "running" for call in update_calls)
 
 
 @pytest.mark.asyncio
-async def test_run_prospero_gate_polls_until_running(tmp_path: Path) -> None:
+async def test_run_prospero_gate_parks_in_cli_mode_with_instructions(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """CLI runs park (no infinite poll) and print how to submit + resume."""
     run_dir = tmp_path / "wf-0001" / "run_20260101"
     run_dir.mkdir(parents=True)
     db_path = run_dir / "runtime.db"
@@ -177,18 +173,11 @@ async def test_run_prospero_gate_polls_until_running(tmp_path: Path) -> None:
     state.artifacts["prospero_form_md"] = str(run_dir / "doc_prospero_registration.md")
     state.artifacts["prospero_form"] = str(run_dir / "doc_prospero_registration.docx")
 
-    statuses = iter(["awaiting_prospero", "running"])
-
-    async def _fake_find(_run_root: str, _workflow_id: str):
-        status = next(statuses, "running")
-        return MagicMock(status=status)
-
     with (
         patch("src.orchestration.runners.prospero_gate_runner.get_db") as mock_get_db,
         patch("src.orchestration.runners.prospero_gate_runner.WorkflowRepository") as mock_repo_cls,
         patch("src.orchestration.runners.prospero_gate_runner.register_workflow", new_callable=AsyncMock),
         patch("src.orchestration.runners.prospero_gate_runner.update_status", new_callable=AsyncMock) as mock_update,
-        patch("src.orchestration.runners.prospero_gate_runner.find_by_workflow_id", side_effect=_fake_find),
         patch(
             "src.protocol.generator.ProtocolGenerator.generate_pre_registration_artifacts",
             return_value={
@@ -205,11 +194,15 @@ async def test_run_prospero_gate_polls_until_running(tmp_path: Path) -> None:
 
         paused = await run_prospero_gate(state)
 
-    assert paused is False
-    mock_repo.save_checkpoint.assert_awaited_once_with("wf-0001", "phase_1_prospero_gate", papers_processed=0)
+    assert paused is True
+    mock_repo.save_checkpoint.assert_not_awaited()
     update_calls = [call.args for call in mock_update.await_args_list]
     assert any(call[2] == "awaiting_prospero" for call in update_calls)
-    assert any(call[2] == "running" for call in update_calls)
+    assert not any(call[2] == "running" for call in update_calls)
+    out = capsys.readouterr().out
+    assert "awaiting PROSPERO registration" in out
+    assert "resume --workflow-id wf-0001" in out
+    assert "config_snapshot.yaml" in out
 
 
 @pytest.mark.asyncio
@@ -256,11 +249,6 @@ async def test_run_prospero_gate_skips_poll_when_already_registered(tmp_path: Pa
         patch("src.orchestration.runners.prospero_gate_runner.register_workflow", new_callable=AsyncMock),
         patch("src.orchestration.runners.prospero_gate_runner.update_status", new_callable=AsyncMock),
         patch(
-            "src.orchestration.runners.prospero_gate_runner.find_by_workflow_id",
-            new_callable=AsyncMock,
-            return_value=MagicMock(status="running"),
-        ),
-        patch(
             "src.protocol.generator.ProtocolGenerator.generate_pre_registration_artifacts",
             return_value={
                 "protocol": run_dir / "doc_protocol.md",
@@ -268,7 +256,6 @@ async def test_run_prospero_gate_skips_poll_when_already_registered(tmp_path: Pa
                 "prospero_docx": run_dir / "doc_prospero_registration.docx",
             },
         ),
-        patch("src.orchestration.runners.prospero_gate_runner.asyncio.sleep", new_callable=AsyncMock) as mock_sleep,
     ):
         mock_db = AsyncMock()
         mock_get_db.return_value.__aenter__.return_value = mock_db
@@ -277,4 +264,3 @@ async def test_run_prospero_gate_skips_poll_when_already_registered(tmp_path: Pa
         paused = await run_prospero_gate(state)
 
     assert paused is False
-    mock_sleep.assert_not_awaited()

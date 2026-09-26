@@ -2,13 +2,17 @@
 
 from __future__ import annotations
 
+import json
 import logging
+from pathlib import Path
 
-from pydantic_graph import GraphRunContext
+from pydantic_graph import End, GraphRunContext
 
 from src.db.database import get_db
 from src.db.repositories import WorkflowRepository
+from src.db.workflow_registry import update_status as update_registry_status
 from src.models import FailureCategory, RecoveryAction, StepStatus
+from src.models.workflow import WorkflowRunResult
 from src.orchestration.helpers.pre_writing_gate import (
     compute_pre_writing_gate_report,
     count_prior_pre_writing_failures,
@@ -30,7 +34,9 @@ async def run_pre_writing_gate_node(state: ReviewState, ctx: GraphRunContext[Rev
     """Validate canonical prerequisites before writing and rewind automatically when safe.
 
     Returns the next node instance (WritingNode, ExtractionQualityNode,
-    EmbeddingNode, SynthesisNode, or KnowledgeGraphNode), or raises RuntimeError.
+    EmbeddingNode, SynthesisNode, or KnowledgeGraphNode). When blocking checks remain
+    and rewinds are exhausted, marks the workflow failed and returns ``End`` with a
+    GATE_BLOCKED ``WorkflowRunResult`` (gate ``pre_writing``).
     """
     rc = _rc(state)
     if rc:
@@ -143,6 +149,7 @@ async def run_pre_writing_gate_node(state: ReviewState, ctx: GraphRunContext[Rev
 
             return KnowledgeGraphNode()
 
+        error_message = "pre-writing gate blocked manuscript generation: " + "; ".join(report.blocking_reasons)
         await journal_step_complete(
             repository,
             gate_step,
@@ -151,8 +158,34 @@ async def run_pre_writing_gate_node(state: ReviewState, ctx: GraphRunContext[Rev
             failure_category=FailureCategory.TERMINAL,
             recovery_action=RecoveryAction.ABORT,
         )
+        await repository.update_workflow_status(state.workflow_id, "failed")
+
+    await update_registry_status(state.run_root, state.workflow_id, "failed")
+    logger.error("PreWritingGateNode: %s", error_message)
+
+    summary = {
+        "workflow_id": state.workflow_id,
+        "status": "failed",
+        "gate_blocked": True,
+        "error": error_message,
+        "gate": "pre_writing",
+        "phase": "phase_5c_pre_writing_gate",
+        "db_path": state.db_path,
+        "output_dir": state.output_dir or None,
+        "blocking_reasons": list(report.blocking_reasons),
+        "rewind_phase": report.rewind_phase,
+        "attempt": report.attempt_number,
+        "rewinds_exhausted": True,
+    }
+    summary_path = state.artifacts.get("run_summary")
+    if summary_path:
+        try:
+            Path(summary_path).write_text(json.dumps(summary, indent=2, default=str), encoding="utf-8")
+        except OSError as exc:
+            logger.warning("PreWritingGateNode: could not write run summary: %s", exc)
 
     if rc:
+        rc.log_status(error_message)
         rc.emit_phase_done(
             "phase_5c_pre_writing_gate",
             {
@@ -160,6 +193,7 @@ async def run_pre_writing_gate_node(state: ReviewState, ctx: GraphRunContext[Rev
                 "rewind_phase": report.rewind_phase,
                 "attempt": report.attempt_number,
                 "blocked": True,
+                "error": error_message,
             },
         )
-    raise RuntimeError("pre-writing gate blocked manuscript generation: " + "; ".join(report.blocking_reasons))
+    return End(WorkflowRunResult.from_summary(summary))
