@@ -2,15 +2,20 @@
 
 from __future__ import annotations
 
+import logging
 from pathlib import Path
+from typing import Any
 
 import yaml
 from dotenv import load_dotenv
+from pydantic import BaseModel
 
 from src.config.env_context import get_env
 from src.config.execution_profiles import apply_execution_profile
 from src.llm.registry import required_env_keys_from_settings
 from src.models import ReviewConfig, SettingsConfig
+
+logger = logging.getLogger(__name__)
 
 
 def _read_yaml(path: str) -> dict:
@@ -22,6 +27,26 @@ def _read_yaml(path: str) -> dict:
     if not isinstance(loaded, dict):
         raise ValueError(f"Expected object at root of YAML file: {path}")
     return loaded
+
+
+def find_unknown_settings_keys(raw: Any, model: type[BaseModel], prefix: str = "") -> list[str]:
+    """Return dotted paths of YAML keys that the settings model would silently drop."""
+    if not isinstance(raw, dict) or model.model_config.get("extra") == "allow":
+        return []
+    unknown: list[str] = []
+    fields = model.model_fields
+    aliases = {f.alias: name for name, f in fields.items() if f.alias}
+    for key, value in raw.items():
+        name = aliases.get(key, key)
+        path = f"{prefix}{key}"
+        field = fields.get(name)
+        if field is None:
+            unknown.append(path)
+            continue
+        annotation = field.annotation
+        if isinstance(annotation, type) and issubclass(annotation, BaseModel):
+            unknown.extend(find_unknown_settings_keys(value, annotation, f"{path}."))
+    return unknown
 
 
 def get_required_env_keys(settings: SettingsConfig) -> list[str]:
@@ -79,6 +104,9 @@ def load_configs(
     review = ReviewConfig.model_validate(_read_yaml(review_path))
     raw_settings = _read_yaml(settings_path)
     settings = SettingsConfig.model_validate(raw_settings)
+    unknown = find_unknown_settings_keys(raw_settings, SettingsConfig)
+    if unknown:
+        logger.warning("settings.yaml keys ignored (not in SettingsConfig): %s", ", ".join(unknown))
     apply_execution_profile(review, settings)
     _validate_model_configuration(settings, raw_settings)
     return review, settings

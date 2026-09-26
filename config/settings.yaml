@@ -171,18 +171,6 @@ screening:
   pdf_retrieval_per_paper_timeout: 45
   # Fixed dual-review cap for cost control.
   max_llm_screen: 200  # raised automatically when jev.screening_reviewer_b is enabled (see jev block)
-
-jev:
-  enabled: true
-  model: "jev-1.13.0"
-  route_confidence: 0.6
-  exclude_confidence: 0.85
-  screening_reviewer_b: true
-  rag_rerank: true
-  batch_pre_rank: true
-  study_design: true
-  screening_cap_when_enabled: 1000
-  timeout_seconds: 120
   # Recall safety slice around the cap cutoff.
   bm25_validation_tail_size: 20
   # Bounded cap safety valve: evaluate one overflow slice when validation-tail yield is high.
@@ -223,6 +211,18 @@ jev:
   # Recall-first baseline: exclude decisions at title/abstract require dual review.
   # Controlled cost rollout: switch to false only after DB replay comparison.
   exclude_fast_path_requires_dual: true
+
+jev:
+  enabled: true
+  model: "jev-1.13.0"
+  route_confidence: 0.6
+  exclude_confidence: 0.85
+  screening_reviewer_b: true
+  rag_rerank: true
+  batch_pre_rank: true
+  study_design: true
+  screening_cap_when_enabled: 1000
+  timeout_seconds: 120
 
 dual_review:
   enabled: true
