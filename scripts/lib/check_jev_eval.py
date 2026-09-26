@@ -504,9 +504,22 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--settings", default="config/settings.yaml", help="Settings YAML for live sample")
     parser.add_argument("--concurrency", type=int, default=4, help="Max in-flight calls per provider in live sample")
     parser.add_argument("--out", default="", help="Also write the JSON report to this path")
-    parser.add_argument("--route-confidence", type=float, default=0.6, help="Offline: include/uncertain threshold")
-    parser.add_argument("--exclude-confidence", type=float, default=0.85, help="Offline: exclude threshold")
+    parser.add_argument(
+        "--route-confidence", type=float, default=None, help="Offline include/uncertain threshold (default: settings)"
+    )
+    parser.add_argument(
+        "--exclude-confidence", type=float, default=None, help="Offline exclude threshold (default: settings)"
+    )
     return parser
+
+
+def _settings_thresholds(settings_path: Path) -> tuple[float, float]:
+    import yaml
+
+    jev: dict[str, Any] = {}
+    if settings_path.exists():
+        jev = (yaml.safe_load(settings_path.read_text(encoding="utf-8")) or {}).get("jev") or {}
+    return float(jev.get("route_confidence", 0.6)), float(jev.get("exclude_confidence", 0.85))
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -534,8 +547,11 @@ def main(argv: list[str] | None = None) -> int:
             )
         )
     else:
+        route_confidence, exclude_confidence = _settings_thresholds(Path(args.settings))
         report = evaluate_db(
-            db_path, route_confidence=args.route_confidence, exclude_confidence=args.exclude_confidence
+            db_path,
+            route_confidence=args.route_confidence if args.route_confidence is not None else route_confidence,
+            exclude_confidence=args.exclude_confidence if args.exclude_confidence is not None else exclude_confidence,
         )
     if args.out:
         Path(args.out).write_text(json.dumps(report, indent=2, sort_keys=True, default=str), encoding="utf-8")

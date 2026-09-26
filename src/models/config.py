@@ -931,6 +931,7 @@ class GatesConfig(BaseModel):
         description=(
             "Workflow outcome behavior when the manuscript audit reports blocking findings: "
             "advisory completes the workflow and preserves the audit report, "
+            "needs_revision completes with status needs_revision so the UI flags it, "
             "strict marks the workflow failed."
         ),
     )

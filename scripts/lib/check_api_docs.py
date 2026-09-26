@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Check endpoint parity between API endpoint docs and src/web/app.py.
+"""Check endpoint parity between API endpoint docs and FastAPI routes (src/web/app.py + src/web/routers/*.py).
 
 This script enforces a bidirectional contract lock for the parity scope:
 - Every documented endpoint in the Section 10.1 table must exist in FastAPI code.
@@ -285,7 +285,7 @@ def run_parity_check(endpoints_doc_path: Path, app_path: Path) -> int:
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Check endpoint parity between docs/API.md#rest-endpoints and src/web/app.py decorators."
+        description="Check endpoint parity between docs/API.md#rest-endpoints and FastAPI route decorators (app + routers)."
     )
     parser.add_argument(
         "--endpoints-doc-path",

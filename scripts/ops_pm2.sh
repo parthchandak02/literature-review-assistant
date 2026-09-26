@@ -307,7 +307,7 @@ NODE
   if [[ "${PATCH_RESULT}" == "MANUAL" ]]; then
     echo "Could not auto-merge API_RESTART_POLICY into ${ECOSYSTEM_LIVE}." >&2
     echo "Manual steps:" >&2
-    echo "  1. Copy API_RESTART_POLICY from ecosystem.config.example.js (kill_timeout: 45000)." >&2
+    echo "  1. Copy API_RESTART_POLICY from ecosystem.config.example.js (kill_timeout: 70000) and the uvicorn --timeout-graceful-shutdown arg." >&2
     echo "  2. On the litreview-api app, spread ...API_RESTART_POLICY instead of ...RESTART_POLICY." >&2
     echo "  3. pm2 startOrReload ecosystem.config.js --update-env && pm2 save --force" >&2
     echo "  4. Verify: pm2 jlist | python3 -c \"import json,sys; ...\" or pm2 show litreview-api" >&2
