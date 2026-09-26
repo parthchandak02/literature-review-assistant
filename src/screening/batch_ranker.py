@@ -23,6 +23,7 @@ import time
 from collections.abc import Callable
 from typing import Protocol, runtime_checkable
 
+from src.llm.jev_client import jev_key_available, jev_mode
 from src.llm.provider import LLMProvider
 from src.models.config import ScreeningConfig
 from src.models.enums import ExclusionReason, ReviewerType, ScreeningDecisionType
@@ -235,29 +236,52 @@ class BatchLLMRanker:
         On any parse failure, returns all papers at score 1.0 (safe fallback:
         all go to dual-review rather than silently discarding them).
         """
+        mode = "off"
         if self._provider is not None and self._workflow_id:
-            jev_cfg = getattr(self._provider.settings, "jev", None)
-            if (
-                jev_cfg is not None
-                and getattr(jev_cfg, "enabled", False)
-                and getattr(jev_cfg, "batch_pre_rank", False)
-            ):
-                from src.screening.jev_batch_ranker import jev_batch_relevance_scores
+            mode = jev_mode(self._provider.settings, "batch_pre_rank")
+            if mode == "shadow" and not jev_key_available():
+                mode = "off"
+        if mode == "off":
+            return await self._score_batch_llm(batch)
 
-                jev_scores = await jev_batch_relevance_scores(
-                    papers=batch,
-                    research_question=self._research_question,
-                    population=self._population,
-                    intervention=self._intervention,
-                    outcome=self._outcome,
-                    jev=jev_cfg,
-                    workflow_id=self._workflow_id,
-                    repository=getattr(self._provider, "repository", None),
-                    provider=self._provider,
-                )
-                if jev_scores is not None:
-                    return jev_scores
+        from src.screening.jev_batch_ranker import (
+            jev_batch_relevance_scores,
+            jev_score_papers,
+            record_batch_rank_shadow,
+        )
 
+        assert self._provider is not None
+        jev_cfg = self._provider.settings.jev
+        repository = getattr(self._provider, "repository", None)
+        jev_kwargs = {
+            "papers": batch,
+            "research_question": self._research_question,
+            "population": self._population,
+            "intervention": self._intervention,
+            "outcome": self._outcome,
+            "jev": jev_cfg,
+        }
+
+        if mode == "live":
+            jev_scores = await jev_batch_relevance_scores(
+                **jev_kwargs, workflow_id=self._workflow_id, repository=repository, provider=self._provider
+            )
+            if jev_scores is not None:
+                return jev_scores
+            return await self._score_batch_llm(batch)
+
+        llm_scores, shadow = await asyncio.gather(self._score_batch_llm(batch), jev_score_papers(**jev_kwargs))
+        await record_batch_rank_shadow(
+            repository,
+            jev=jev_cfg,
+            workflow_id=self._workflow_id,
+            shadow=shadow,
+            llm_scores=llm_scores,
+            threshold=float(getattr(self._screening, "batch_screen_threshold", 0.3)),
+        )
+        return llm_scores
+
+    async def _score_batch_llm(self, batch: list[CandidatePaper]) -> dict[str, float]:
         paper_list = _build_paper_list(batch)
         prompt = (
             _SYSTEM_PROMPT

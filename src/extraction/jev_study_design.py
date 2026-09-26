@@ -2,11 +2,19 @@
 
 from __future__ import annotations
 
-import json
+import asyncio
 import logging
+from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
-from src.llm.jev_client import JevQuestionChoice, ask_jev
+from src.llm.jev_client import (
+    JevAskResult,
+    JevQuestionChoice,
+    ask_jev,
+    jev_cost_phase,
+    log_jev_cost,
+    record_jev_decision,
+)
 from src.llm.provider import LLMProvider
 from src.models import CandidatePaper, ReviewConfig, StudyDesign
 from src.models.config import JevConfig
@@ -15,6 +23,9 @@ if TYPE_CHECKING:
     from src.db.repositories import WorkflowRepository
 
 logger = logging.getLogger(__name__)
+
+_PHASE = "phase_4_extraction_quality"
+SURFACE = "study_design_classifier"
 
 _DESIGN_CRITERIA: dict[str, str] = {
     "rct": "Randomized controlled trial",
@@ -43,16 +54,17 @@ def _map_design(choice: str) -> StudyDesign | None:
         return None
 
 
-async def jev_classify_study_design(
-    *,
-    review: ReviewConfig,
-    paper: CandidatePaper,
-    jev: JevConfig,
-    workflow_id: str,
-    repository: WorkflowRepository | None,
-    provider: LLMProvider | None,
-) -> StudyDesign | None:
-    """Return a study design when Jev is confident; None escalates to LLM."""
+@dataclass(frozen=True)
+class JevDesignCall:
+    choice: str = ""
+    confidence: float = 0.0
+    design: StudyDesign | None = None
+    result: JevAskResult | None = None
+    error: str | None = None
+
+
+async def jev_study_design_call(*, review: ReviewConfig, paper: CandidatePaper, jev: JevConfig) -> JevDesignCall:
+    """One Jev study-design call. Never raises."""
     state = {
         "research_question": review.research_question[:400],
         "topic": review.expert_topic()[:200],
@@ -69,46 +81,102 @@ async def jev_classify_study_design(
         criteria=_DESIGN_CRITERIA,
     )
     try:
-        result = await ask_jev(model=jev.model, state=state, questions={"design": question}, timeout_seconds=jev.timeout_seconds)
+        result = await asyncio.wait_for(
+            ask_jev(model=jev.model, state=state, questions={"design": question}, timeout_seconds=jev.timeout_seconds),
+            timeout=jev.timeout_seconds + 5.0,
+        )
     except Exception as exc:
-        logger.warning("jev study design failed for %s: %s", paper.paper_id[:12], exc)
-        return None
-
+        return JevDesignCall(error=f"{type(exc).__name__}: {str(exc)[:200]}")
     answer = result.answers.get("design") or {}
     choice = str(answer.get("choice") or "")
-    confidence = float(answer.get("confidence") or 0.0)
-    if confidence < jev.route_confidence:
-        routed = "escalate"
-        design = None
-    else:
-        design = _map_design(choice)
-        routed = "jev" if design is not None else "escalate"
+    try:
+        confidence = float(answer.get("confidence") or 0.0)
+    except (TypeError, ValueError):
+        confidence = 0.0
+    return JevDesignCall(choice=choice, confidence=confidence, design=_map_design(choice), result=result)
 
-    if repository and workflow_id:
-        try:
-            await repository.save_jev_decision(
-                workflow_id=workflow_id,
-                phase="phase_4_extraction_quality",
-                surface="study_design_classifier",
-                paper_id=paper.paper_id,
-                choice=choice,
-                confidence=confidence,
-                routed=routed,
-                details_json=json.dumps({"mapped": design.value if design else None}, sort_keys=True),
-            )
-        except Exception:
-            logger.debug("jev study design log skipped", exc_info=True)
 
-    if provider is not None and routed == "jev":
-        tok_in = int(result.usage.get("input_tokens", 0))
-        tok_out = int(result.usage.get("output_tokens", 0))
-        await provider.log_cost(
-            model=result.model or jev.model,
-            tokens_in=tok_in,
-            tokens_out=tok_out,
-            cost_usd=provider.estimate_cost(result.model or jev.model, tok_in, tok_out),
-            latency_ms=result.latency_ms,
-            phase="phase_4_extraction_quality_jev",
-            workflow_id=workflow_id,
+def _would_route(call: JevDesignCall, jev: JevConfig) -> str:
+    if call.error is not None or call.design is None or call.confidence < jev.route_confidence:
+        return "escalate"
+    return "jev"
+
+
+async def jev_classify_study_design(
+    *,
+    review: ReviewConfig,
+    paper: CandidatePaper,
+    jev: JevConfig,
+    workflow_id: str,
+    repository: WorkflowRepository | None,
+    provider: LLMProvider | None,
+) -> StudyDesign | None:
+    """Live path: return a study design when Jev is confident; None escalates to LLM."""
+    _ = provider
+    call = await jev_study_design_call(review=review, paper=paper, jev=jev)
+    routed = _would_route(call, jev)
+    cost: float | None = None
+    if call.result is not None:
+        cost = await log_jev_cost(
+            repository, jev=jev, result=call.result, phase=jev_cost_phase(_PHASE, "live"), workflow_id=workflow_id
         )
-    return design
+    else:
+        logger.warning("jev study design failed for %s: %s", paper.paper_id[:12], call.error)
+    await record_jev_decision(
+        repository,
+        workflow_id=workflow_id,
+        phase=_PHASE,
+        surface=SURFACE,
+        paper_id=paper.paper_id,
+        choice=call.choice,
+        confidence=call.confidence,
+        routed=routed if call.error is None else "error",
+        mode="live",
+        result=call.result,
+        cost_usd=cost,
+        details={"mapped": call.design.value if call.design else None, "error": call.error},
+    )
+    return call.design if routed == "jev" else None
+
+
+async def record_study_design_shadow(
+    repository: WorkflowRepository | None,
+    *,
+    jev: JevConfig,
+    workflow_id: str,
+    paper_id: str,
+    call: JevDesignCall,
+    llm_design: StudyDesign,
+    llm_predicted: str,
+    llm_confidence: float,
+) -> None:
+    """Persist the shadow Jev answer next to the LLM classifier result. Never raises."""
+    try:
+        cost: float | None = None
+        if call.result is not None:
+            cost = await log_jev_cost(
+                repository, jev=jev, result=call.result, phase=jev_cost_phase(_PHASE, "shadow"), workflow_id=workflow_id
+            )
+        await record_jev_decision(
+            repository,
+            workflow_id=workflow_id,
+            phase=_PHASE,
+            surface=SURFACE,
+            paper_id=paper_id,
+            choice=call.choice,
+            confidence=call.confidence,
+            routed="shadow" if call.error is None else "shadow_error",
+            mode="shadow",
+            result=call.result,
+            cost_usd=cost,
+            details={
+                "mapped": call.design.value if call.design else None,
+                "would_route": _would_route(call, jev),
+                "error": call.error,
+                "llm_decision": llm_design.value,
+                "llm_predicted": llm_predicted,
+                "llm_confidence": llm_confidence,
+            },
+        )
+    except Exception:
+        logger.debug("jev study design shadow record skipped", exc_info=True)

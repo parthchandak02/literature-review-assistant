@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import re
 import uuid
-from typing import Any, Literal
+from typing import Any, ClassVar, Literal
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
@@ -776,10 +776,15 @@ class DualReviewConfig(BaseModel):
     )
 
 
+JevMode = Literal["off", "shadow", "live"]
+
+
 class JevConfig(BaseModel):
+    SURFACES: ClassVar[tuple[str, ...]] = ("screening_reviewer_b", "batch_pre_rank", "study_design", "rag_rerank")
+
     enabled: bool = Field(
         default=True,
-        description="Master switch for TypeSafe Jev decision routing (fail-open to LLM when unavailable).",
+        description="Master switch. False forces every surface to off regardless of its mode.",
     )
     model: str = Field(
         default="jev-1.13.0",
@@ -797,30 +802,83 @@ class JevConfig(BaseModel):
         le=1.0,
         description="Minimum confidence to accept a Jev exclude decision (conservative).",
     )
-    screening_reviewer_b: bool = Field(
-        default=True,
-        description="Use Jev for dual-reviewer B at title/abstract; low confidence escalates to LLM.",
+    screening_reviewer_b: JevMode = Field(
+        default="off",
+        description="Jev as title/abstract reviewer B. live: Jev decides, low confidence escalates to LLM.",
     )
-    rag_rerank: bool = Field(
-        default=True,
-        description="Use Jev to score RAG chunks before falling back to the listwise LLM reranker.",
+    rag_rerank: JevMode = Field(
+        default="off",
+        description="Jev chunk scoring for RAG rerank. live: Jev order used, LLM reranker on failure.",
     )
-    batch_pre_rank: bool = Field(
-        default=True,
-        description="Use Jev for batch LLM pre-ranker scoring when enabled.",
+    batch_pre_rank: JevMode = Field(
+        default="off",
+        description="Jev relevance scores for the batch pre-ranker. live: Jev scores used, LLM on failure.",
     )
-    study_design: bool = Field(
-        default=True,
-        description="Use Jev for study-design classification before Pro-tier LLM.",
+    study_design: JevMode = Field(
+        default="off",
+        description="Jev study-design classification. live: confident Jev answer skips the LLM classifier.",
     )
     screening_cap_when_enabled: int | None = Field(
         default=1000,
         ge=0,
-        description=(
-            "When Jev screening is enabled, raise max_llm_screen to this value (None = no cap override)."
-        ),
+        description="Raise max_llm_screen to this value only when screening_reviewer_b is live (None = no override).",
     )
     timeout_seconds: float = Field(default=120.0, ge=5.0, le=300.0)
+    shadow_concurrency: int = Field(
+        default=8,
+        ge=1,
+        le=64,
+        description="Max concurrent Jev calls issued by shadow (and live batch) paths.",
+    )
+    price_per_call_usd: float = Field(
+        default=0.0,
+        ge=0.0,
+        description="Flat USD per Jev request. Must be set from the TypeSafe price sheet; 0.0 logs $0.",
+    )
+    price_input_per_mtok: float = Field(
+        default=0.0,
+        ge=0.0,
+        description="USD per 1M Jev input tokens. Must be set from the TypeSafe price sheet.",
+    )
+    price_output_per_mtok: float = Field(
+        default=0.0,
+        ge=0.0,
+        description="USD per 1M Jev output tokens. Must be set from the TypeSafe price sheet.",
+    )
+
+    @field_validator("screening_reviewer_b", "rag_rerank", "batch_pre_rank", "study_design", mode="before")
+    @classmethod
+    def _normalize_mode(cls, value: Any) -> Any:
+        if value is None or value is False:
+            return "off"
+        if value is True:
+            return "live"
+        if isinstance(value, str):
+            normalized = value.strip().lower()
+            if normalized in {"on", "true", "yes"}:
+                return "live"
+            if normalized in {"false", "no", ""}:
+                return "off"
+            return normalized
+        return value
+
+    def mode_for(self, surface: str) -> JevMode:
+        if not self.enabled or surface not in self.SURFACES:
+            return "off"
+        return getattr(self, surface)
+
+    def is_live(self, surface: str) -> bool:
+        return self.mode_for(surface) == "live"
+
+    def is_shadow(self, surface: str) -> bool:
+        return self.mode_for(surface) == "shadow"
+
+    def cost_usd(self, tokens_in: int, tokens_out: int, calls: int = 1) -> float:
+        return (
+            self.price_per_call_usd * calls
+            + tokens_in * self.price_input_per_mtok / 1_000_000
+            + tokens_out * self.price_output_per_mtok / 1_000_000
+        )
 
 
 class GatesConfig(BaseModel):

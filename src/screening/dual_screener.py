@@ -16,6 +16,7 @@ _log = logging.getLogger(__name__)
 from pydantic import ValidationError
 
 from src.db.repositories import WorkflowRepository
+from src.llm.jev_client import jev_key_available, jev_mode
 from src.llm.provider import LLMProvider
 from src.models import (
     BatchScreeningItemPayload,
@@ -1333,6 +1334,7 @@ class DualReviewerScreener:
         # Phase 3: Reviewer B -- batched for uncertain papers only
         # ------------------------------------------------------------------
         reviewer_b_map: dict[str, ScreeningDecision] = {}
+        jev_b_mode = self._jev_reviewer_b_mode(stage)
         if uncertain_papers:
             b_chunks = [uncertain_papers[i : i + batch_size] for i in range(0, len(uncertain_papers), batch_size)]
             n_b_chunks = len(b_chunks)
@@ -1348,10 +1350,20 @@ class DualReviewerScreener:
                         f"phase elapsed {int(time.perf_counter() - phase_started)}s)"
                     )
                 b_batch_start = time.perf_counter()
-                batch_result = await self._batch_run_reviewer(workflow_id, chunk, stage, ft, spec_b)
+                llm_chunk = chunk
+                if jev_b_mode == "live":
+                    llm_chunk = await self._jev_live_reviewer_b_chunk(workflow_id, chunk, stage, reviewer_b_map)
+                shadow_calls: dict = {}
+                if jev_b_mode == "shadow":
+                    batch_result, shadow_calls = await asyncio.gather(
+                        self._batch_run_reviewer(workflow_id, llm_chunk, stage, ft, spec_b),
+                        self._jev_shadow_calls(chunk),
+                    )
+                else:
+                    batch_result = await self._batch_run_reviewer(workflow_id, llm_chunk, stage, ft, spec_b)
                 b_batch_elapsed_ms = int((time.perf_counter() - b_batch_start) * 1000)
                 reviewer_b_map.update(batch_result)
-                for paper in chunk:
+                for paper in llm_chunk:
                     if paper.paper_id not in reviewer_b_map:
                         self.batch_missing_fallback_count += 1
                         _log.warning("Batch B missing paper %s -- falling back to individual call", paper.paper_id)
@@ -1364,8 +1376,11 @@ class DualReviewerScreener:
                             ft.get(paper.paper_id),
                             spec_b,
                             other_reviewer_decision=uncertain_reviewer_a[paper.paper_id].decision,
+                            allow_jev=False,
                         )
                         reviewer_b_map[paper.paper_id] = d
+                if shadow_calls:
+                    await self._record_jev_shadow(workflow_id, stage, shadow_calls, reviewer_b_map)
                 if self.on_status:
                     self.on_status(
                         f"Reviewer B: batch {b_idx + 1}/{n_b_chunks} done in {b_batch_elapsed_ms}ms "
@@ -1504,6 +1519,78 @@ class DualReviewerScreener:
 
         return final_decisions
 
+    def _jev_reviewer_b_mode(self, stage: str) -> str:
+        if stage != "title_abstract":
+            return "off"
+        mode = jev_mode(self.settings, "screening_reviewer_b")
+        if mode == "shadow" and not jev_key_available():
+            return "off"
+        return mode
+
+    async def _persist_reviewer_decision(
+        self, workflow_id: str, stage: str, decision: ScreeningDecision, default_rationale: str
+    ) -> None:
+        await self.repository.save_screening_decision(workflow_id=workflow_id, stage=stage, decision=decision)
+        await self.repository.append_decision_log(
+            DecisionLogEntry(
+                decision_type="screening_reviewer_decision",
+                paper_id=decision.paper_id,
+                decision=decision.decision.value,
+                rationale=decision.reason or default_rationale,
+                actor=decision.reviewer_type.value,
+                phase="phase_3_screening",
+            )
+        )
+
+    async def _jev_live_reviewer_b_chunk(
+        self,
+        workflow_id: str,
+        chunk: list[CandidatePaper],
+        stage: str,
+        reviewer_b_map: dict[str, ScreeningDecision],
+    ) -> list[CandidatePaper]:
+        """Live Jev reviewer B for a chunk; returns the papers that escalate to the LLM."""
+        from src.screening.jev_screening import jev_live_screen_papers
+
+        outcomes = await jev_live_screen_papers(
+            review=self.review, papers=chunk, jev=self.settings.jev, workflow_id=workflow_id, repository=self.repository
+        )
+        escalated: list[CandidatePaper] = []
+        for paper in chunk:
+            outcome = outcomes.get(paper.paper_id)
+            if outcome is not None and outcome.routed == "jev" and outcome.decision is not None:
+                await self._persist_reviewer_decision(workflow_id, stage, outcome.decision, "Jev reviewer decision.")
+                reviewer_b_map[paper.paper_id] = outcome.decision
+            else:
+                escalated.append(paper)
+        return escalated
+
+    async def _jev_shadow_calls(self, papers: list[CandidatePaper]) -> dict:
+        from src.screening.jev_screening import jev_shadow_screen_papers
+
+        try:
+            return await jev_shadow_screen_papers(review=self.review, papers=papers, jev=self.settings.jev)
+        except Exception:
+            _log.debug("Jev shadow screening skipped", exc_info=True)
+            return {}
+
+    async def _record_jev_shadow(
+        self, workflow_id: str, stage: str, calls: dict, llm_decisions: dict[str, ScreeningDecision]
+    ) -> None:
+        from src.screening.jev_screening import record_screening_shadow
+
+        try:
+            await record_screening_shadow(
+                self.repository,
+                jev=self.settings.jev,
+                workflow_id=workflow_id,
+                stage=stage,
+                calls=calls,
+                llm_decisions=llm_decisions,
+            )
+        except Exception:
+            _log.debug("Jev shadow record skipped", exc_info=True)
+
     async def _run_reviewer(
         self,
         workflow_id: str,
@@ -1512,68 +1599,49 @@ class DualReviewerScreener:
         full_text: str | None,
         spec: ReviewerSpec,
         other_reviewer_decision: ScreeningDecisionType | None = None,
+        allow_jev: bool = True,
     ) -> ScreeningDecision:
-        jev_cfg = getattr(self.settings, "jev", None)
-        if (
-            spec.reviewer_type == ReviewerType.REVIEWER_B
-            and stage == "title_abstract"
-            and jev_cfg is not None
-            and getattr(jev_cfg, "enabled", False)
-            and getattr(jev_cfg, "screening_reviewer_b", False)
-        ):
+        jev_b_mode = (
+            self._jev_reviewer_b_mode(stage) if allow_jev and spec.reviewer_type == ReviewerType.REVIEWER_B else "off"
+        )
+        if jev_b_mode == "live":
             from src.screening.jev_screening import jev_screen_title_abstract
 
             jev_outcome = await jev_screen_title_abstract(
                 review=self.review,
                 paper=paper,
-                jev=jev_cfg,
+                jev=self.settings.jev,
                 workflow_id=workflow_id,
                 repository=self.repository,
                 provider=self.provider,
             )
             if jev_outcome.routed == "jev" and jev_outcome.decision is not None:
-                decision = jev_outcome.decision
-                if stage == "fulltext" and decision.decision == ScreeningDecisionType.EXCLUDE:
-                    decision = self._enforce_fulltext_exclusion_reason(decision)
-                await self.repository.save_screening_decision(
-                    workflow_id=workflow_id, stage=stage, decision=decision
-                )
-                await self.repository.append_decision_log(
-                    DecisionLogEntry(
-                        decision_type="screening_reviewer_decision",
-                        paper_id=paper.paper_id,
-                        decision=decision.decision.value,
-                        rationale=decision.reason or "Jev reviewer decision.",
-                        actor=decision.reviewer_type.value,
-                        phase="phase_3_screening",
-                    )
-                )
-                return decision
+                await self._persist_reviewer_decision(workflow_id, stage, jev_outcome.decision, "Jev reviewer decision.")
+                return jev_outcome.decision
+
+        shadow_task = asyncio.create_task(self._jev_shadow_calls([paper])) if jev_b_mode == "shadow" else None
 
         if spec.reviewer_type == ReviewerType.REVIEWER_A:
             prompt = reviewer_a_prompt(self.review, paper, stage, full_text)
         else:
             prompt = reviewer_b_prompt(self.review, paper, stage, full_text)
-        decision = await self._request_decision(
-            prompt=prompt,
-            spec=spec,
-            workflow_id=workflow_id,
-            paper_id=paper.paper_id,
-            other_reviewer_decision=other_reviewer_decision,
-        )
+        try:
+            decision = await self._request_decision(
+                prompt=prompt,
+                spec=spec,
+                workflow_id=workflow_id,
+                paper_id=paper.paper_id,
+                other_reviewer_decision=other_reviewer_decision,
+            )
+        except BaseException:
+            if shadow_task is not None:
+                shadow_task.cancel()
+            raise
         if stage == "fulltext" and decision.decision == ScreeningDecisionType.EXCLUDE:
             decision = self._enforce_fulltext_exclusion_reason(decision)
-        await self.repository.save_screening_decision(workflow_id=workflow_id, stage=stage, decision=decision)
-        await self.repository.append_decision_log(
-            DecisionLogEntry(
-                decision_type="screening_reviewer_decision",
-                paper_id=paper.paper_id,
-                decision=decision.decision.value,
-                rationale=decision.reason or "Reviewer decision generated.",
-                actor=decision.reviewer_type.value,
-                phase="phase_3_screening",
-            )
-        )
+        await self._persist_reviewer_decision(workflow_id, stage, decision, "Reviewer decision generated.")
+        if shadow_task is not None:
+            await self._record_jev_shadow(workflow_id, stage, await shadow_task, {paper.paper_id: decision})
         return decision
 
     async def _run_adjudicator(

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import time
 from collections.abc import Callable
@@ -11,6 +12,7 @@ from pydantic import BaseModel, Field, ValidationError
 
 from src.db.repositories import WorkflowRepository
 from src.llm.factory import get_chat_client
+from src.llm.jev_client import jev_key_available, jev_mode
 from src.llm.provider import LLMProvider
 from src.models import CandidatePaper, DecisionLogEntry, ReviewConfig, StudyDesign
 
@@ -263,18 +265,14 @@ class StudyClassifier:
             )
             return StudyDesign.NARRATIVE_REVIEW
 
-        jev_cfg = getattr(self.provider.settings, "jev", None)
-        if (
-            jev_cfg is not None
-            and getattr(jev_cfg, "enabled", False)
-            and getattr(jev_cfg, "study_design", False)
-        ):
+        jev_design_mode = jev_mode(self.provider.settings, "study_design")
+        if jev_design_mode == "live":
             from src.extraction.jev_study_design import jev_classify_study_design
 
             jev_design = await jev_classify_study_design(
                 review=self.review,
                 paper=paper,
-                jev=jev_cfg,
+                jev=self.provider.settings.jev,
                 workflow_id=workflow_id,
                 repository=self.repository,
                 provider=self.provider,
@@ -291,6 +289,13 @@ class StudyClassifier:
                     )
                 )
                 return jev_design
+        jev_shadow_task = None
+        if jev_design_mode == "shadow" and jev_key_available():
+            from src.extraction.jev_study_design import jev_study_design_call
+
+            jev_shadow_task = asyncio.create_task(
+                jev_study_design_call(review=self.review, paper=paper, jev=self.provider.settings.jev)
+            )
 
         prompt = self._build_prompt(paper, abstract_only=abstract_only)
         runtime = await self.provider.reserve_call_slot(self.agent_name)
@@ -387,4 +392,17 @@ class StudyClassifier:
                 phase="phase_4_extraction_quality",
             )
         )
+        if jev_shadow_task is not None:
+            from src.extraction.jev_study_design import record_study_design_shadow
+
+            await record_study_design_shadow(
+                self.repository,
+                jev=self.provider.settings.jev,
+                workflow_id=workflow_id,
+                paper_id=paper.paper_id,
+                call=await jev_shadow_task,
+                llm_design=final_design,
+                llm_predicted=predicted,
+                llm_confidence=confidence,
+            )
         return final_design

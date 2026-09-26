@@ -170,7 +170,7 @@ screening:
   # slot for 260s (13 tiers x 20s). Paper is marked failed-timeout and moves on.
   pdf_retrieval_per_paper_timeout: 45
   # Fixed dual-review cap for cost control.
-  max_llm_screen: 200  # raised automatically when jev.screening_reviewer_b is enabled (see jev block)
+  max_llm_screen: 200  # raised to jev.screening_cap_when_enabled only when jev.screening_reviewer_b is live
   # Recall safety slice around the cap cutoff.
   bm25_validation_tail_size: 20
   # Bounded cap safety valve: evaluate one overflow slice when validation-tail yield is high.
@@ -212,17 +212,31 @@ screening:
   # Controlled cost rollout: switch to false only after DB replay comparison.
   exclude_fast_path_requires_dual: true
 
+# TypeSafe Jev typed-decision API (TYPESAFE_API_KEY). Per-surface mode:
+#   off    - Jev never called.
+#   shadow - LLM decides exactly as if Jev were off; Jev runs alongside (fail-open,
+#            bounded by shadow_concurrency + timeout_seconds) and its answer, confidence,
+#            latency and the LLM decision are written to jev_decisions. Cost phase: jev_shadow_*.
+#   live   - Jev decides when confident (route/exclude thresholds); otherwise the LLM path runs.
+#            Cost phase: *_jev. Legacy booleans still parse: true = live, false = off.
+# Compare modes offline: uv run python scripts/check.py jev-eval --db <runtime.db>
 jev:
   enabled: true
   model: "jev-1.13.0"
   route_confidence: 0.6
   exclude_confidence: 0.85
-  screening_reviewer_b: true
-  rag_rerank: true
-  batch_pre_rank: true
-  study_design: true
+  screening_reviewer_b: shadow
+  rag_rerank: shadow
+  batch_pre_rank: shadow
+  study_design: shadow
+  # Applies only when screening_reviewer_b is live; shadow keeps screening.max_llm_screen.
   screening_cap_when_enabled: 1000
   timeout_seconds: 120
+  shadow_concurrency: 8
+  # Must be set from the TypeSafe price sheet; 0.0 logs Jev calls at $0.
+  price_per_call_usd: 0.0
+  price_input_per_mtok: 0.0
+  price_output_per_mtok: 0.0
 
 dual_review:
   enabled: true

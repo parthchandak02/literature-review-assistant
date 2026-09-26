@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Run individual quality checks (API docs, replay fixture, workflow replay)."""
+"""Run individual quality checks (API docs, replay fixture, workflow replay, Jev eval)."""
 
 from __future__ import annotations
 
@@ -60,6 +60,11 @@ def _build_parser() -> argparse.ArgumentParser:
         default="tests/fixtures/scoping/review_scoping_smoke.yaml",
         help="Path to review YAML (default: scoping smoke fixture)",
     )
+    subparsers.add_parser(
+        "jev-eval",
+        help="Compare Jev vs LLM reviewer B vs final decisions from a runtime.db (offline by default)",
+        add_help=False,
+    )
     return parser
 
 
@@ -92,6 +97,12 @@ def _run_subcommand_main(module_main, script_name: str, argv: list[str] | None =
 
 
 def main(argv: list[str] | None = None) -> int:
+    raw_argv = list(argv) if argv is not None else sys.argv[1:]
+    if raw_argv and raw_argv[0] == "jev-eval":
+        from scripts.lib.check_jev_eval import main as jev_eval_main
+
+        return jev_eval_main(raw_argv[1:])
+
     parser = _build_parser()
     args = parser.parse_args(argv)
 

@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
-import json
+import asyncio
 import logging
+from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
-from src.llm.jev_client import ask_jev
+from src.llm.jev_client import JevAskResult, ask_jev, jev_cost_phase, log_jev_cost, record_jev_decision
 from src.llm.provider import LLMProvider
 from src.models.config import JevConfig
 
@@ -17,6 +18,8 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 _MAX_CHUNKS_PER_CALL = 20
+_PHASE = "phase_6_rerank"
+SURFACE = "rag_rerank"
 
 _SCORE_CRITERIA = [
     "Completely irrelevant to the query",
@@ -25,6 +28,14 @@ _SCORE_CRITERIA = [
     "Clearly relevant to the query",
     "Directly supports or answers the query",
 ]
+
+
+@dataclass(frozen=True)
+class JevChunkScores:
+    chunk_ids: list[str]
+    scores: list[float]
+    result: JevAskResult | None = None
+    error: str | None = None
 
 
 def _order_by_scores(chunks: list[RetrievedChunk], scores: list[float], top_k: int) -> list[RetrievedChunk]:
@@ -37,21 +48,15 @@ def _order_by_scores(chunks: list[RetrievedChunk], scores: list[float], top_k: i
     return result
 
 
-async def jev_rerank_chunks(
-    query: str,
-    chunks: list[RetrievedChunk],
-    *,
-    top_k: int,
-    jev: JevConfig,
-    workflow_id: str,
-    repository: WorkflowRepository | None,
-    provider: LLMProvider | None,
-) -> list[RetrievedChunk] | None:
-    """Score chunks with one Jev fan-out call. Returns None on failure (caller uses LLM)."""
-    if not chunks or len(chunks) <= 1:
-        return chunks[:top_k]
+def _top_ids(chunk_ids: list[str], scores: list[float], top_k: int) -> list[str]:
+    ranked = sorted(range(len(chunk_ids)), key=lambda i: scores[i], reverse=True)
+    return [chunk_ids[i] for i in ranked[:top_k]]
 
+
+async def jev_score_chunks(query: str, chunks: list[RetrievedChunk], *, jev: JevConfig) -> JevChunkScores:
+    """Score up to _MAX_CHUNKS_PER_CALL chunks in one fan-out. Never raises; never mutates chunks."""
     subset = chunks[:_MAX_CHUNKS_PER_CALL]
+    ids = [c.chunk_id for c in subset]
     state = {
         "query": query[:500],
         "chunks": [c.content[:400].replace("\n", " ") for c in subset],
@@ -68,11 +73,12 @@ async def jev_rerank_chunks(
         for i in range(len(subset))
     }
     try:
-        result = await ask_jev(model=jev.model, state=state, questions=questions, timeout_seconds=jev.timeout_seconds)
+        result = await asyncio.wait_for(
+            ask_jev(model=jev.model, state=state, questions=questions, timeout_seconds=jev.timeout_seconds),
+            timeout=jev.timeout_seconds + 5.0,
+        )
     except Exception as exc:
-        logger.warning("[jev_rerank] failed: %s", exc)
-        return None
-
+        return JevChunkScores(chunk_ids=ids, scores=[], error=f"{type(exc).__name__}: {str(exc)[:200]}")
     scores: list[float] = []
     for i in range(len(subset)):
         answer = result.answers.get(f"c_{i}") or {}
@@ -80,37 +86,94 @@ async def jev_rerank_chunks(
             scores.append(float(answer.get("score", 0)))
         except (TypeError, ValueError):
             scores.append(0.0)
+    return JevChunkScores(chunk_ids=ids, scores=scores, result=result)
 
-    if repository and workflow_id:
-        try:
-            await repository.save_jev_decision(
-                workflow_id=workflow_id,
-                phase="phase_6_rerank",
-                surface="rag_rerank",
-                paper_id=None,
-                choice="score_rank",
-                confidence=1.0,
-                routed="jev",
-                details_json=json.dumps({"n_chunks": len(subset), "top_k": top_k}, sort_keys=True),
-            )
-        except Exception:
-            logger.debug("jev_rerank decision log skipped", exc_info=True)
 
-    if provider is not None:
-        tok_in = int(result.usage.get("input_tokens", 0))
-        tok_out = int(result.usage.get("output_tokens", 0))
-        cost = provider.estimate_cost(result.model or jev.model, tok_in, tok_out)
-        await provider.log_cost(
-            model=result.model or jev.model,
-            tokens_in=tok_in,
-            tokens_out=tok_out,
-            cost_usd=cost,
-            latency_ms=result.latency_ms,
-            phase="phase_6_rerank_jev",
-            workflow_id=workflow_id,
+async def jev_rerank_chunks(
+    query: str,
+    chunks: list[RetrievedChunk],
+    *,
+    top_k: int,
+    jev: JevConfig,
+    workflow_id: str,
+    repository: WorkflowRepository | None,
+    provider: LLMProvider | None,
+) -> list[RetrievedChunk] | None:
+    """Live path: score chunks with one Jev fan-out call. Returns None on failure (caller uses LLM)."""
+    _ = provider
+    if not chunks or len(chunks) <= 1:
+        return chunks[:top_k]
+
+    scored = await jev_score_chunks(query, chunks, jev=jev)
+    cost: float | None = None
+    if scored.result is not None:
+        cost = await log_jev_cost(
+            repository, jev=jev, result=scored.result, phase=jev_cost_phase(_PHASE, "live"), workflow_id=workflow_id
         )
+    await record_jev_decision(
+        repository,
+        workflow_id=workflow_id,
+        phase=_PHASE,
+        surface=SURFACE,
+        paper_id=None,
+        choice="score_rank",
+        confidence=1.0,
+        routed="jev" if scored.result is not None else "error",
+        mode="live",
+        result=scored.result,
+        cost_usd=cost,
+        details={"n_chunks": len(scored.chunk_ids), "top_k": top_k, "error": scored.error},
+    )
+    if scored.result is None:
+        logger.warning("[jev_rerank] failed: %s", scored.error)
+        return None
 
-    ordered = _order_by_scores(subset, scores, top_k)
+    subset = chunks[:_MAX_CHUNKS_PER_CALL]
+    ordered = _order_by_scores(subset, scored.scores, top_k)
     if len(chunks) > len(subset):
         return ordered + chunks[len(subset) : len(subset) + max(0, top_k - len(ordered))]
     return ordered
+
+
+async def record_rerank_shadow(
+    repository: WorkflowRepository | None,
+    *,
+    jev: JevConfig,
+    workflow_id: str,
+    shadow: JevChunkScores,
+    input_ids: list[str],
+    llm_top_ids: list[str],
+    top_k: int,
+) -> None:
+    """Persist the shadow Jev order next to the LLM order. Never raises."""
+    try:
+        cost: float | None = None
+        if shadow.result is not None:
+            cost = await log_jev_cost(
+                repository, jev=jev, result=shadow.result, phase=jev_cost_phase(_PHASE, "shadow"), workflow_id=workflow_id
+            )
+        jev_top = _top_ids(shadow.chunk_ids, shadow.scores, top_k) if shadow.scores else []
+        overlap = len(set(jev_top) & set(llm_top_ids)) / max(1, min(top_k, len(llm_top_ids))) if jev_top else None
+        await record_jev_decision(
+            repository,
+            workflow_id=workflow_id,
+            phase=_PHASE,
+            surface=SURFACE,
+            paper_id=None,
+            choice="score_rank",
+            confidence=1.0,
+            routed="shadow" if shadow.result is not None else "shadow_error",
+            mode="shadow",
+            result=shadow.result,
+            cost_usd=cost,
+            details={
+                "top_k": top_k,
+                "error": shadow.error,
+                "input_ids": input_ids,
+                "jev_top_ids": jev_top,
+                "llm_top_ids": llm_top_ids,
+                "overlap_at_k": overlap,
+            },
+        )
+    except Exception:
+        logger.debug("jev_rerank shadow record skipped", exc_info=True)

@@ -14,6 +14,7 @@ from src.db.repositories import WorkflowRepository
 from src.db.workflow_registry import (
     update_status as update_registry_status,
 )
+from src.llm.jev_client import jev_mode
 from src.llm.provider import LLMProvider
 from src.manuscript.cohort import IncludedSetResolver
 from src.models import (
@@ -244,9 +245,7 @@ async def run_screening_node(state: ReviewState, ctx: GraphRunContext[ReviewStat
         cap = state.settings.screening.max_llm_screen
         jev_cfg = getattr(state.settings, "jev", None)
         if (
-            jev_cfg is not None
-            and getattr(jev_cfg, "enabled", False)
-            and getattr(jev_cfg, "screening_reviewer_b", False)
+            jev_mode(state.settings, "screening_reviewer_b") == "live"
             and getattr(jev_cfg, "screening_cap_when_enabled", None) is not None
         ):
             cap = jev_cfg.screening_cap_when_enabled

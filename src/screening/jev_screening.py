@@ -2,12 +2,21 @@
 
 from __future__ import annotations
 
-import json
+import asyncio
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from typing import Any
 
 from src.db.repositories import WorkflowRepository
-from src.llm.jev_client import JevQuestionChoice, ask_jev
+from src.llm.jev_client import (
+    JevAskResult,
+    JevQuestionChoice,
+    ask_jev,
+    bounded_gather,
+    jev_cost_phase,
+    log_jev_cost,
+    record_jev_decision,
+)
 from src.llm.provider import LLMProvider
 from src.models import (
     CandidatePaper,
@@ -22,6 +31,8 @@ from src.models.config import JevConfig
 logger = logging.getLogger(__name__)
 
 _SCREENING_CHOICE = ("INCLUDE", "EXCLUDE", "UNCERTAIN")
+_PHASE = "phase_3_screening"
+SURFACE = "screening_reviewer_b"
 
 
 @dataclass(frozen=True)
@@ -30,6 +41,16 @@ class JevScreeningOutcome:
     decision: ScreeningDecision | None = None
     confidence: float | None = None
     choice: str | None = None
+
+
+@dataclass(frozen=True)
+class JevScreeningCall:
+    paper_id: str
+    choice: str = ""
+    confidence: float = 0.0
+    probabilities: dict[str, Any] = field(default_factory=dict)
+    result: JevAskResult | None = None
+    error: str | None = None
 
 
 def _build_state(review: ReviewConfig, paper: CandidatePaper) -> dict[str, object]:
@@ -83,6 +104,47 @@ def _confidence_threshold_for(decision: ScreeningDecisionType, cfg: JevConfig) -
     return cfg.route_confidence
 
 
+def route_screening_call(call: JevScreeningCall, jev: JevConfig) -> tuple[str, str]:
+    """Return (routed, reason) the live path would take for this Jev answer."""
+    if call.error is not None:
+        return "escalate", f"error:{call.error}"
+    if call.choice not in _SCREENING_CHOICE:
+        return "escalate", "invalid_jev_choice"
+    threshold = _confidence_threshold_for(_map_choice(call.choice), jev)
+    if call.confidence < threshold:
+        return "escalate", f"below_threshold_{threshold}"
+    return "jev", "accepted"
+
+
+async def call_jev_screening(*, review: ReviewConfig, paper: CandidatePaper, jev: JevConfig) -> JevScreeningCall:
+    """One Jev title/abstract call. Never raises; errors land in ``error``."""
+    try:
+        result = await asyncio.wait_for(
+            ask_jev(
+                model=jev.model,
+                state=_build_state(review, paper),
+                questions={"screen": _choice_question()},
+                timeout_seconds=jev.timeout_seconds,
+            ),
+            timeout=jev.timeout_seconds + 5.0,
+        )
+    except Exception as exc:
+        return JevScreeningCall(paper_id=paper.paper_id, error=type(exc).__name__ + ": " + str(exc)[:200])
+    answer = result.answers.get("screen") or {}
+    probabilities = answer.get("probabilities") if isinstance(answer.get("probabilities"), dict) else {}
+    try:
+        confidence = float(answer.get("confidence") or 0.0)
+    except (TypeError, ValueError):
+        confidence = 0.0
+    return JevScreeningCall(
+        paper_id=paper.paper_id,
+        choice=str(answer.get("choice") or "").strip().upper(),
+        confidence=confidence,
+        probabilities=probabilities,
+        result=result,
+    )
+
+
 async def jev_screen_title_abstract(
     *,
     review: ReviewConfig,
@@ -92,108 +154,117 @@ async def jev_screen_title_abstract(
     repository: WorkflowRepository,
     provider: LLMProvider | None,
 ) -> JevScreeningOutcome:
-    """Run Jev for reviewer B. Fail-open: returns escalate on any error."""
-    try:
-        result = await ask_jev(
-            model=jev.model,
-            state=_build_state(review, paper),
-            questions={"screen": _choice_question()},
-            timeout_seconds=jev.timeout_seconds,
+    """Live reviewer-B path. Fail-open: returns escalate on any error."""
+    _ = provider
+    call = await call_jev_screening(review=review, paper=paper, jev=jev)
+    routed, reason = route_screening_call(call, jev)
+    cost: float | None = None
+    if call.result is not None:
+        cost = await log_jev_cost(
+            repository, jev=jev, result=call.result, phase=jev_cost_phase(_PHASE, "live"), workflow_id=workflow_id
         )
-        answer = result.answers.get("screen") or {}
-        choice = str(answer.get("choice") or "").strip().upper()
-        confidence = float(answer.get("confidence") or 0.0)
-        if choice not in _SCREENING_CHOICE:
-            await _persist_decision_log(
-                repository,
-                workflow_id,
-                paper.paper_id,
-                routed="escalate",
-                choice=choice,
-                confidence=confidence,
-                reason="invalid_jev_choice",
-            )
-            return JevScreeningOutcome(routed="escalate", confidence=confidence, choice=choice)
+    await record_jev_decision(
+        repository,
+        workflow_id=workflow_id,
+        phase=_PHASE,
+        surface=SURFACE,
+        paper_id=paper.paper_id,
+        choice=call.choice,
+        confidence=call.confidence,
+        routed=routed if call.error is None else "error",
+        mode="live",
+        result=call.result,
+        cost_usd=cost,
+        details={"reason": reason, "probabilities": call.probabilities, "stage": "title_abstract"},
+    )
+    if routed != "jev":
+        if call.error is not None:
+            logger.warning("Jev screening failed for %s (%s); escalating to LLM.", paper.paper_id[:12], call.error)
+        return JevScreeningOutcome(routed="escalate", confidence=call.confidence, choice=call.choice)
 
-        decision_type = _map_choice(choice)
-        threshold = _confidence_threshold_for(decision_type, jev)
-        if confidence < threshold:
-            await _persist_decision_log(
-                repository,
-                workflow_id,
-                paper.paper_id,
-                routed="escalate",
-                choice=choice,
-                confidence=confidence,
-                reason=f"below_threshold_{threshold}",
-            )
-            return JevScreeningOutcome(
-                routed="escalate",
-                confidence=confidence,
-                choice=choice,
-            )
+    decision_type = _map_choice(call.choice)
+    decision = ScreeningDecision(
+        paper_id=paper.paper_id,
+        decision=decision_type,
+        reason=f"Jev screening ({call.choice}, conf={call.confidence:.2f})",
+        exclusion_reason=ExclusionReason.OTHER if decision_type == ScreeningDecisionType.EXCLUDE else None,
+        reviewer_type=ReviewerType.REVIEWER_B,
+        confidence=call.confidence,
+    )
+    return JevScreeningOutcome(routed="jev", decision=decision, confidence=call.confidence, choice=call.choice)
 
-        decision = ScreeningDecision(
-            paper_id=paper.paper_id,
-            decision=decision_type,
-            reason=f"Jev screening ({choice}, conf={confidence:.2f})",
-            exclusion_reason=ExclusionReason.OTHER if decision_type == ScreeningDecisionType.EXCLUDE else None,
-            reviewer_type=ReviewerType.REVIEWER_B,
-            confidence=confidence,
-        )
-        await _persist_decision_log(
-            repository,
-            workflow_id,
-            paper.paper_id,
-            routed="jev",
-            choice=choice,
-            confidence=confidence,
-            reason="accepted",
-        )
-        if provider is not None:
-            tok_in = int(result.usage.get("input_tokens", 0))
-            tok_out = int(result.usage.get("output_tokens", 0))
-            cost = provider.estimate_cost(result.model or jev.model, tok_in, tok_out)
-            await provider.log_cost(
-                model=result.model or jev.model,
-                tokens_in=tok_in,
-                tokens_out=tok_out,
-                cost_usd=cost,
-                latency_ms=result.latency_ms,
-                phase="phase_3_screening_jev",
+
+async def jev_live_screen_papers(
+    *,
+    review: ReviewConfig,
+    papers: list[CandidatePaper],
+    jev: JevConfig,
+    workflow_id: str,
+    repository: WorkflowRepository,
+) -> dict[str, JevScreeningOutcome]:
+    """Live reviewer-B over a chunk with bounded concurrency."""
+    outcomes = await bounded_gather(
+        (
+            jev_screen_title_abstract(
+                review=review, paper=p, jev=jev, workflow_id=workflow_id, repository=repository, provider=None
+            )
+            for p in papers
+        ),
+        jev.shadow_concurrency,
+    )
+    return {p.paper_id: o for p, o in zip(papers, outcomes, strict=True)}
+
+
+async def jev_shadow_screen_papers(
+    *, review: ReviewConfig, papers: list[CandidatePaper], jev: JevConfig
+) -> dict[str, JevScreeningCall]:
+    """Shadow Jev calls for a chunk (bounded, fail-open). Persist via record_screening_shadow."""
+    calls = await bounded_gather(
+        (call_jev_screening(review=review, paper=p, jev=jev) for p in papers), jev.shadow_concurrency
+    )
+    return {c.paper_id: c for c in calls}
+
+
+async def record_screening_shadow(
+    repository: WorkflowRepository | None,
+    *,
+    jev: JevConfig,
+    workflow_id: str,
+    stage: str,
+    calls: dict[str, JevScreeningCall],
+    llm_decisions: dict[str, ScreeningDecision],
+) -> None:
+    """Persist shadow Jev answers next to the LLM reviewer-B decision. Never raises."""
+    for paper_id, call in calls.items():
+        would_route, reason = route_screening_call(call, jev)
+        cost: float | None = None
+        if call.result is not None:
+            cost = await log_jev_cost(
+                repository,
+                jev=jev,
+                result=call.result,
+                phase=jev_cost_phase(_PHASE, "shadow"),
                 workflow_id=workflow_id,
             )
-        return JevScreeningOutcome(
-            routed="jev",
-            decision=decision,
-            confidence=confidence,
-            choice=choice,
-        )
-    except Exception as exc:
-        logger.warning("Jev screening failed for %s (%s); escalating to LLM.", paper.paper_id[:12], exc)
-        return JevScreeningOutcome(routed="escalate")
-
-
-async def _persist_decision_log(
-    repository: WorkflowRepository,
-    workflow_id: str,
-    paper_id: str,
-    *,
-    routed: str,
-    choice: str,
-    confidence: float,
-    reason: str,
-) -> None:
-    try:
-        await repository.save_jev_decision(
+        llm = llm_decisions.get(paper_id)
+        await record_jev_decision(
+            repository,
             workflow_id=workflow_id,
-            phase="phase_3_screening",
-            surface="screening_reviewer_b",
+            phase=_PHASE,
+            surface=SURFACE,
             paper_id=paper_id,
-            choice=choice,
-            confidence=confidence,
-            routed=routed,
-            details_json=json.dumps({"reason": reason}, sort_keys=True),
+            choice=call.choice,
+            confidence=call.confidence,
+            routed="shadow" if call.error is None else "shadow_error",
+            mode="shadow",
+            result=call.result,
+            cost_usd=cost,
+            details={
+                "stage": stage,
+                "would_route": would_route,
+                "reason": reason,
+                "probabilities": call.probabilities,
+                "llm_decision": llm.decision.value if llm is not None else None,
+                "llm_confidence": llm.confidence if llm is not None else None,
+            },
         )
-    except Exception:
-        logger.debug("jev_decisions persist skipped", exc_info=True)

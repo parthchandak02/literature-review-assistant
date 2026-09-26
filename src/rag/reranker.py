@@ -13,6 +13,7 @@ accurate than pointwise (per-chunk scores) and cheaper than pairwise.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import time
@@ -21,6 +22,7 @@ from typing import TYPE_CHECKING
 from pydantic import BaseModel
 
 from src.llm.factory import get_chat_client
+from src.llm.jev_client import jev_key_available, jev_mode
 from src.llm.provider import LLMProvider
 from src.models.additional import CostRecord
 
@@ -92,34 +94,69 @@ async def rerank_chunks(
     if not chunks or len(chunks) <= 1:
         return chunks[:top_k]
 
+    mode = "off"
+    jev_cfg = None
     if workflow_id and repository is not None:
         try:
             from src.config.loader import load_configs
 
             _, settings = load_configs(settings_path="config/settings.yaml")
-            jev_cfg = getattr(settings, "jev", None)
-            if (
-                jev_cfg is not None
-                and getattr(jev_cfg, "enabled", False)
-                and getattr(jev_cfg, "rag_rerank", False)
-            ):
-                from src.rag.jev_rerank import jev_rerank_chunks
+            jev_cfg = settings.jev
+            mode = jev_mode(settings, "rag_rerank")
+            if mode == "shadow" and not jev_key_available():
+                mode = "off"
+        except Exception as exc:
+            logger.warning("[reranker] Jev settings unavailable (%s); using LLM reranker", exc)
+            mode = "off"
 
-                provider = LLMProvider(settings=settings, repository=repository, workflow_id=workflow_id)
-                jev_ordered = await jev_rerank_chunks(
-                    query,
-                    chunks,
-                    top_k=top_k,
-                    jev=jev_cfg,
-                    workflow_id=workflow_id,
-                    repository=repository,
-                    provider=provider,
-                )
-                if jev_ordered is not None:
-                    return jev_ordered
+    if mode == "live" and jev_cfg is not None:
+        try:
+            from src.rag.jev_rerank import jev_rerank_chunks
+
+            jev_ordered = await jev_rerank_chunks(
+                query,
+                chunks,
+                top_k=top_k,
+                jev=jev_cfg,
+                workflow_id=workflow_id,
+                repository=repository,
+                provider=None,
+            )
+            if jev_ordered is not None:
+                return jev_ordered
         except Exception as exc:
             logger.warning("[reranker] Jev path failed (%s); falling back to LLM reranker", exc)
 
+    if mode == "shadow" and jev_cfg is not None:
+        from src.rag.jev_rerank import jev_score_chunks, record_rerank_shadow
+
+        input_ids = [c.chunk_id for c in chunks]
+        llm_ordered, shadow = await asyncio.gather(
+            _llm_rerank(query, chunks, top_k, model, repository, workflow_id),
+            jev_score_chunks(query, chunks, jev=jev_cfg),
+        )
+        await record_rerank_shadow(
+            repository,
+            jev=jev_cfg,
+            workflow_id=workflow_id,
+            shadow=shadow,
+            input_ids=input_ids,
+            llm_top_ids=[c.chunk_id for c in llm_ordered],
+            top_k=top_k,
+        )
+        return llm_ordered
+
+    return await _llm_rerank(query, chunks, top_k, model, repository, workflow_id)
+
+
+async def _llm_rerank(
+    query: str,
+    chunks: list[RetrievedChunk],
+    top_k: int,
+    model: str,
+    repository: WorkflowRepository | None,
+    workflow_id: str,
+) -> list[RetrievedChunk]:
     # Truncate each chunk to 400 chars so the prompt stays within token budget.
     chunk_lines = "\n".join(f"[{i}] {c.content[:400].replace(chr(10), ' ')}" for i, c in enumerate(chunks))
     prompt = _RERANK_PROMPT.format(
