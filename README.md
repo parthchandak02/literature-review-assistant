@@ -271,7 +271,7 @@ Two config files control behavior:
 - `gates.manuscript_contract_mode` -- contract enforcement (`observe` / `soft` / `strict`, default is `strict`)
 - `gates.manuscript_audit_mode` -- manuscript-audit verdict mode (`observe` / `soft` / `strict`) used to classify audit runs as passed or failed
 - `gates.audit_gate_mode` -- workflow behavior for blocking contract/audit findings (`advisory` completes the run and keeps the audit report; `needs_revision` (repo default) produces all artifacts and ends with status `needs_revision`; `strict` marks the run failed)
-- `jev.*` -- Jev (TypeSafe) decision surfaces `screening_reviewer_b`, `batch_pre_rank`, `study_design`, `rag_rerank`, each `off` / `shadow` / `live` (repo default `shadow`: LLM decides, Jev is logged to `jev_decisions` for comparison via `scripts/check.py jev-eval`). See `docs/ARCHITECTURE.md#jev-decision-layer`
+- `jev.*` -- Jev (TypeSafe) decision surfaces `screening_reviewer_b`, `batch_pre_rank`, `study_design`, `rag_rerank`, each `off` / `shadow` / `live` (repo: `screening_reviewer_b: off` after the 2026-09-26 eval, others `shadow`: LLM decides, Jev is logged to `jev_decisions` for comparison via `scripts/check.py jev-eval`). See `docs/ARCHITECTURE.md#jev-decision-layer`
 - Unknown keys in `settings.yaml` are ignored by the model; the loader logs a warning listing them
 - `writing.ratchet_*` -- optional section rewrite loop controls (`ratchet_max_iterations`, `ratchet_cost_cap_per_section`, `ratchet_outline_enabled`) for outline-guided writing quality refinement
 - `manuscript_audit.*` -- profile activation and `cost_cap_usd` for manuscript-audit calls

@@ -238,7 +238,10 @@ jev:
   model: "jev-1.13.0"
   route_confidence: 0.6
   exclude_confidence: 0.85
-  screening_reviewer_b: shadow
+  # off after 2026-09-26 live eval on wf-0001 (100 papers): Jev include recall 0.40
+  # vs LLM reviewer B 0.69 against final title/abstract decisions; no exclude
+  # threshold below 0.99 avoided false excludes. Re-run jev-eval before changing.
+  screening_reviewer_b: off
   rag_rerank: shadow
   batch_pre_rank: shadow
   study_design: shadow

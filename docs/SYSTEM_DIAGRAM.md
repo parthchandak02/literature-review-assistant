@@ -212,7 +212,7 @@ Fulltext retrieval (`src/fulltext/retrieval.py`) races Unpaywall, publisher PDFs
 
 Every orchestration LLM call logs to `cost_records` via `LLMProvider.log_cost()` (except pre-run `config_generator.py`).
 
-Jev surfaces run `off` / `shadow` / `live` (repo default `shadow`: LLM decides, Jev recorded in `jev_decisions`). See [ARCHITECTURE.md#jev-decision-layer](./ARCHITECTURE.md#jev-decision-layer).
+Jev surfaces run `off` / `shadow` / `live` (repo: reviewer B `off`, others `shadow`: LLM decides, Jev recorded in `jev_decisions`). See [ARCHITECTURE.md#jev-decision-layer](./ARCHITECTURE.md#jev-decision-layer).
 
 `ReviewFacts` (`src/manuscript/review_facts.py`) is the single source for PRISMA counts, included cohort, and kappa across pre-writing gate, writing setup, audit, contracts, readiness, and PRISMA flow export.
 

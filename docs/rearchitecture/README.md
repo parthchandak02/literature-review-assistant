@@ -100,7 +100,7 @@ Control plane (FastAPI)  --enqueue-->  runs queue (SQLite)  <--lease--  Worker p
 | P2 | Partial: `ReviewFacts` in `src/manuscript/review_facts.py` feeds pre-writing gate, writing setup, audit, contracts, readiness, PRISMA flow export; `grounding_patches.py` and humanizer regex/blocklists not yet removed |
 | P3 | Not started |
 | P4 | Stage 0 done: `ops_pm2.sh restart` refuses while runs are live (`--force` overrides); uvicorn `--timeout-graceful-shutdown 30`, PM2 `kill_timeout` 70000 in `ecosystem.config.example.js`. Stages 1-2 not started |
-| P5 | Partial: four surfaces (`screening_reviewer_b`, `batch_pre_rank`, `study_design`, `rag_rerank`) with `off\|shadow\|live` (repo default `shadow`), `jev_decisions`, Jev cost pricing; eval shipped as `scripts/check.py jev-eval` (not `jev-calibration`). Not started: CASP/MMAT, RoB signalling, GRADE domains, effect direction, citation-support surfaces. No surface flipped to `live` |
+| P5 | Partial: four surfaces (`screening_reviewer_b`, `batch_pre_rank`, `study_design`, `rag_rerank`) with `off\|shadow\|live` (repo: `screening_reviewer_b: off`, other three `shadow`), `jev_decisions`, Jev cost pricing; eval shipped as `scripts/check.py jev-eval` (not `jev-calibration`). Not started: CASP/MMAT, RoB signalling, GRADE domains, effect direction, citation-support surfaces. No surface flipped to `live`. Live eval 2026-09-26 (wf-0001, 100 papers): Jev include recall 0.40 vs LLM reviewer B 0.69 vs final T/A (kappa 0.46 vs 0.70); only `exclude_confidence >= 0.99` had zero false excludes (54% coverage), so reviewer B stays LLM |
 | P6-P7 | Not started |
 | P8 | Partial: shared rate limiter keyed on actual provider key env vars |
 

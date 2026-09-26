@@ -175,7 +175,7 @@ TypeSafe Jev typed-decision API via `src/llm/jev_client.py` (`TYPESAFE_API_KEY`,
 | `study_design` | `src/extraction/jev_study_design.py` | Confident Jev answer skips the LLM classifier |
 | `rag_rerank` | `src/rag/jev_rerank.py` | Jev chunk order; LLM reranker on failure |
 
-- Modes: `off` | `shadow` | `live` (bools accepted: `true`→`live`, `false`→`off`). `jev.enabled: false` forces all off. Repo default: all `shadow`.
+- Modes: `off` | `shadow` | `live` (bools accepted: `true`→`live`, `false`→`off`). `jev.enabled: false` forces all off. Repo: `screening_reviewer_b: off` (2026-09-26 live eval: Jev include recall 0.40 vs LLM 0.69), other surfaces `shadow`.
 - `shadow`: LLM decision is used; Jev runs side-by-side (bounded by `shadow_concurrency`) and is recorded in `jev_decisions`.
 - Thresholds: `route_confidence` (include/uncertain), `exclude_confidence` (exclude, conservative).
 - Cost: `price_per_call_usd`, `price_input_per_mtok`, `price_output_per_mtok` (0.0 logs $0; set from the TypeSafe price sheet).
