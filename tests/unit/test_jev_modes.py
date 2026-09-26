@@ -37,12 +37,14 @@ def test_invalid_mode_rejected() -> None:
         JevConfig(screening_reviewer_b="sometimes")
 
 
-def test_default_model_is_off_and_repo_settings_are_shadow() -> None:
+def test_default_model_is_off_and_repo_settings_are_eval_backed() -> None:
     assert all(JevConfig().mode_for(s) == "off" for s in JevConfig.SURFACES)
     with open("config/settings.yaml", encoding="utf-8") as fh:
         raw = yaml.safe_load(fh)
     settings = SettingsConfig.model_validate(raw)
-    assert {jev_mode(settings, s) for s in JevConfig.SURFACES} == {"shadow"}
+    modes = {s: jev_mode(settings, s) for s in JevConfig.SURFACES}
+    assert modes.pop("screening_reviewer_b") == "off"
+    assert set(modes.values()) == {"shadow"}
 
 
 def test_cost_and_phase_labels() -> None:
