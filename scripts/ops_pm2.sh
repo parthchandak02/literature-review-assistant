@@ -52,6 +52,7 @@ cmd_restart() {
   local ALL=false
   local STATUS_ONLY=false
   local EXPLICIT=false
+  local FORCE_RESTART=false
 
   for arg in "$@"; do
     case "${arg}" in
@@ -61,6 +62,7 @@ cmd_restart() {
       --prod-ui) PROD_UI=true ;;
       --all) ALL=true ;;
       --status) STATUS_ONLY=true ;;
+      --force) FORCE_RESTART=true ;;
       -h|--help)
         show_help
         exit 0
@@ -125,12 +127,6 @@ cmd_restart() {
 
   if [[ "${BACKEND}" == true ]]; then
     local REGISTRY_DB="${ROOT}/runs/workflows_registry.db"
-    local FORCE_RESTART=false
-    for arg in "$@"; do
-      if [[ "${arg}" == "--force" ]]; then
-        FORCE_RESTART=true
-      fi
-    done
     if [[ -f "${REGISTRY_DB}" ]]; then
       local RUNNING_COUNT
       RUNNING_COUNT="$(sqlite3 "${REGISTRY_DB}" "SELECT COUNT(*) FROM workflows_registry WHERE status='running';" 2>/dev/null || echo 0)"
