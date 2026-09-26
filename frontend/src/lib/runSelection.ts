@@ -44,5 +44,5 @@ export function shouldShowHistoricalLoading(
 
 export function isTerminalHistoricalStatus(status: string | null | undefined): boolean {
   const normalized = (status ?? "").toLowerCase()
-  return ["cancelled", "done", "completed", "interrupted", "stale", "failed", "error"].includes(normalized)
+  return ["cancelled", "done", "completed", "needs_revision", "interrupted", "stale", "failed", "error"].includes(normalized)
 }

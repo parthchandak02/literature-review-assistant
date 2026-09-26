@@ -1,73 +1,48 @@
-import { useState, useEffect, useCallback } from "react"
+import { useState } from "react"
+import { AlertTriangle } from "lucide-react"
+import { toast } from "sonner"
 import { Spinner, FetchError } from "@/components/ui/feedback"
 import { ScreeningApprovalBar } from "@/components/screening/ScreeningApprovalBar"
 import { ScreeningFiltersBar, type ScreeningFilter } from "@/components/screening/ScreeningFiltersBar"
 import { ScreeningPaperList } from "@/components/screening/ScreeningPaperList"
 import { ScreeningSummaryHeader } from "@/components/screening/ScreeningSummaryHeader"
-import { fetchScreeningSummary } from "@/lib/api"
-import type { ScreeningSummary, ScreeningOverride } from "@/lib/api"
+import { useScreeningOverrides, useScreeningSummary } from "@/hooks/useScreeningReview"
+import type { ScreeningOverride } from "@/lib/api"
 
 interface ScreeningReviewViewProps {
   runId: string
+  workflowId?: string | null
   onApproveAndResume?: (overrides: ScreeningOverride[]) => Promise<void>
 }
 
-export function ScreeningReviewView({ runId, onApproveAndResume }: ScreeningReviewViewProps) {
-  const [summary, setSummary] = useState<ScreeningSummary | null>(null)
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
+export function ScreeningReviewView({ runId, workflowId, onApproveAndResume }: ScreeningReviewViewProps) {
+  const summaryQuery = useScreeningSummary(runId)
+  const { overrides, setOverride, clearOverrides } = useScreeningOverrides(workflowId || runId)
   const [approving, setApproving] = useState(false)
   const [approved, setApproved] = useState(false)
+  const [approveError, setApproveError] = useState<string | null>(null)
   const [filter, setFilter] = useState<ScreeningFilter>("all")
-  const [overrides, setOverrides] = useState<Map<string, ScreeningOverride>>(new Map())
-
-  const load = useCallback(async () => {
-    try {
-      setLoading(true)
-      setError(null)
-      const data = await fetchScreeningSummary(runId)
-      setSummary(data)
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err))
-    } finally {
-      setLoading(false)
-    }
-  }, [runId])
-
-  useEffect(() => {
-    setOverrides(new Map())
-    void load()
-  }, [load])
-
-  const handleOverride = (paperId: string, override: ScreeningOverride | null) => {
-    setOverrides((prev) => {
-      const next = new Map(prev)
-      if (override === null) {
-        next.delete(paperId)
-      } else {
-        next.set(paperId, override)
-      }
-      return next
-    })
-  }
 
   const handleApprove = async () => {
     if (approving || approved) return
     setApproving(true)
+    setApproveError(null)
     try {
-      const overrideList = Array.from(overrides.values())
       if (onApproveAndResume) {
-        await onApproveAndResume(overrideList)
+        await onApproveAndResume(Array.from(overrides.values()))
       }
+      clearOverrides()
       setApproved(true)
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err))
+      const message = err instanceof Error ? err.message : String(err)
+      setApproveError(message || "Failed to approve screening")
+      toast.error(message || "Failed to approve screening", { id: "screening-approve-error" })
     } finally {
       setApproving(false)
     }
   }
 
-  if (loading) {
+  if (summaryQuery.isPending) {
     return (
       <div className="flex items-center justify-center h-48">
         <Spinner size="md" />
@@ -75,20 +50,22 @@ export function ScreeningReviewView({ runId, onApproveAndResume }: ScreeningRevi
     )
   }
 
-  if (error) {
+  if (summaryQuery.isError) {
+    const err = summaryQuery.error
     return (
       <div className="py-8">
-        <FetchError message={error} onRetry={() => void load()} />
+        <FetchError
+          message={err instanceof Error ? err.message : String(err)}
+          onRetry={() => void summaryQuery.refetch()}
+        />
       </div>
     )
   }
 
-  if (!summary) return null
-
+  const summary = summaryQuery.data
   const filtered = summary.papers.filter(
     (p) => filter === "all" || p.decision === filter,
   )
-
   const includedCount = summary.papers.filter((p) => p.decision === "include").length
   const uncertainCount = summary.papers.filter((p) => p.decision === "uncertain").length
 
@@ -103,6 +80,18 @@ export function ScreeningReviewView({ runId, onApproveAndResume }: ScreeningRevi
         onApprove={() => void handleApprove()}
       />
 
+      {approveError && (
+        <div
+          role="alert"
+          className="flex items-start gap-2 p-3 rounded-lg bg-intent-danger-subtle border border-intent-danger-border text-sm text-intent-danger"
+        >
+          <AlertTriangle className="h-4 w-4 mt-0.5 shrink-0" />
+          <span>
+            Approval failed: {approveError}. Your overrides are kept; try again.
+          </span>
+        </div>
+      )}
+
       <ScreeningFiltersBar
         filter={filter}
         total={summary.total}
@@ -114,7 +103,7 @@ export function ScreeningReviewView({ runId, onApproveAndResume }: ScreeningRevi
       <ScreeningPaperList
         papers={filtered}
         overrides={overrides}
-        onOverride={handleOverride}
+        onOverride={setOverride}
       />
     </div>
   )

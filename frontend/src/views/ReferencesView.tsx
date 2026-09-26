@@ -14,8 +14,6 @@ interface ReferencesViewProps {
   /** workflow_id (e.g. wf-0007) for 404 retry when runId evicted from _active_runs */
   workflowId?: string | null
   isDone: boolean
-  /** Skip outer card chrome when embedded in Results panel. */
-  embedded?: boolean
 }
 
 function SourceBadge({ source }: { source: string }) {
@@ -74,7 +72,6 @@ export function ReferencesView({
   runId,
   workflowId,
   isDone,
-  embedded = false,
 }: ReferencesViewProps) {
   const queryClient = useQueryClient()
   const [fetching, setFetching] = useState(false)
@@ -206,7 +203,7 @@ export function ReferencesView({
 
   const headerToolbar = (
     <ViewToolbar
-      className={embedded ? "!h-auto py-3 items-start border-b border-border/70" : "!h-auto py-3 items-start"}
+      className="!h-auto py-3 items-start border-b border-border/70"
       title={
         <div className="min-w-0">
           <h2 className="text-base font-semibold text-foreground">Included Studies</h2>
@@ -262,7 +259,7 @@ export function ReferencesView({
 
   return (
     <div className="flex flex-col gap-4">
-      <div className={embedded ? "overflow-hidden" : "card-surface overflow-hidden"}>
+      <div className="overflow-hidden">
         {headerToolbar}
         {fetchMetaPanel}
       </div>

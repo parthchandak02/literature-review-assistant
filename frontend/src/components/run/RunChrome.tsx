@@ -1,10 +1,12 @@
 import { useState } from "react"
-import { ClipboardCheck } from "lucide-react"
+import { AlertTriangle, ClipboardCheck } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { formatRunDate, formatWorkflowId } from "@/lib/format"
 import { LiveStreamStatus } from "@/components/run-status"
 import { GlassTabs } from "@/components/ui/glass-tabs"
 import { ViewToolbar } from "@/components/ui/view-toolbar"
+import { SubmissionPackageButton } from "@/components/results/SubmissionPackageButton"
+import { NEEDS_REVISION_EXPLANATION } from "@/lib/constants"
 import type { RunChromeVM } from "@/hooks/useRunChrome"
 import type { RunTab, SelectedRun } from "@/context/runSessionTypes"
 
@@ -51,8 +53,11 @@ export function RunChrome({
     fallbackIncluded,
     displayCost,
     isRunning,
+    isDone,
     isAwaitingReview,
+    isNeedsRevision,
   } = chrome
+  const canDownloadPackage = isDone && !isRunning && Boolean(run.runId) && run.runId !== "draft"
 
   return (
     <ViewToolbar
@@ -62,9 +67,25 @@ export function RunChrome({
     >
       <div className="flex items-center justify-between gap-3 px-6 py-2 text-meta w-full min-w-0">
         <div className="flex items-center gap-2 min-w-0 overflow-x-auto scrollbar-none">
-          <span className={cn("font-semibold shrink-0", statusClass)}>
+          <span
+            className={cn("font-semibold shrink-0", statusClass)}
+            aria-live="polite"
+            aria-atomic="true"
+            title={isNeedsRevision ? NEEDS_REVISION_EXPLANATION : undefined}
+          >
             {statusLabel}
           </span>
+          {isNeedsRevision && (
+            <button
+              type="button"
+              onClick={() => onTabChange("results")}
+              className="inline-flex items-center gap-1 shrink-0 text-intent-warning hover:underline"
+              title={NEEDS_REVISION_EXPLANATION}
+            >
+              <AlertTriangle className="h-3 w-3" aria-hidden />
+              Review audit findings
+            </button>
+          )}
           {(run.workflowId ?? run.runId) && (
             <>
               <InfoPill dim>|</InfoPill>
@@ -153,6 +174,11 @@ export function RunChrome({
         {isViewingLiveRun && isRunning && (
           <div className="flex items-center gap-2 shrink-0">
             <LiveStreamStatus mode={status === "connecting" ? "connecting" : "streaming"} />
+          </div>
+        )}
+        {canDownloadPackage && (
+          <div className="flex items-center gap-2 shrink-0">
+            <SubmissionPackageButton runId={run.runId} />
           </div>
         )}
       </div>

@@ -27,6 +27,7 @@ interface QuestionStageProps {
   initialFireworksKey: string
   initialCsvFile: File | null
   initialCsvMode: CsvMode
+  disabled?: boolean
 }
 
 export function QuestionStage({
@@ -43,6 +44,7 @@ export function QuestionStage({
   initialFireworksKey,
   initialCsvFile,
   initialCsvMode,
+  disabled = false,
 }: QuestionStageProps) {
   const [question, setQuestion] = useState(initialQuestion)
   const [envStatus, setEnvStatus] = useState<EnvKeysStatus | null>(null)
@@ -95,7 +97,7 @@ export function QuestionStage({
   }, [showHistory])
 
   async function handleGenerate() {
-    if (!question.trim()) return
+    if (disabled || !question.trim()) return
     if (!hasRequiredCredentials()) {
       setSubmitError("Add at least one LLM API key in Settings before generating a config.")
       return
@@ -114,7 +116,7 @@ export function QuestionStage({
   }
 
   const completedRuns = history.filter((h) => h.status === "completed").slice(0, 10)
-  const canGenerate = !!question.trim()
+  const canGenerate = !disabled && !!question.trim()
   const heroCopy =
     reviewType === "scoping"
       ? "Describe your scoping question to generate PCC, search keywords, and screening criteria."
@@ -216,7 +218,7 @@ export function QuestionStage({
             <button
               type="button"
               onClick={() => setShowHistory((v) => !v)}
-              disabled={!!loadingHistoryId}
+              disabled={disabled || !!loadingHistoryId}
               className="flex items-center gap-1.5 text-xs text-muted hover:text-foreground transition-colors"
             >
               {loadingHistoryId ? (
@@ -258,7 +260,8 @@ export function QuestionStage({
         <button
           type="button"
           onClick={onPasteYaml}
-          className="flex items-center gap-1.5 text-xs text-muted hover:text-foreground transition-colors"
+          disabled={disabled}
+          className="disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-1.5 text-xs text-muted hover:text-foreground transition-colors"
         >
           <FileCode2 className="h-3.5 w-3.5" />
           Paste YAML

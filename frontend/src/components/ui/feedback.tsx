@@ -9,6 +9,7 @@
 import { AlertTriangle, Loader } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import type { LucideIcon } from "lucide-react"
+import type { ReactNode } from "react"
 import { cn } from "@/lib/utils"
 
 // ---------------------------------------------------------------------------
@@ -49,6 +50,7 @@ interface EmptyStateProps {
   className?: string
   /** compact reduces vertical padding for dense data views */
   density?: "default" | "compact"
+  action?: ReactNode
 }
 
 export function EmptyState({
@@ -57,6 +59,7 @@ export function EmptyState({
   sub,
   className,
   density = "default",
+  action,
 }: EmptyStateProps) {
   return (
     <div
@@ -71,6 +74,7 @@ export function EmptyState({
       {sub && (
         <p className="text-muted text-xs max-w-xs leading-relaxed">{sub}</p>
       )}
+      {action}
     </div>
   )
 }

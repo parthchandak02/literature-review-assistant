@@ -3,6 +3,7 @@ import { useCallback, useEffect, useRef, useState } from "react"
 export interface BackendHealth {
   isOnline: boolean
   checking: boolean
+  retry: () => Promise<void>
 }
 
 interface BackendHealthOptions {
@@ -65,5 +66,5 @@ export function useBackendHealth(
     }
   }, [check, intervalMs])
 
-  return { isOnline, checking }
+  return { isOnline, checking, retry: check }
 }

@@ -34,14 +34,18 @@ const ScreeningReviewView = lazy(() =>
   import("@/views/ScreeningReviewView").then((m) => ({ default: m.ScreeningReviewView })),
 )
 
-/** Tab order follows the review workflow: Config (YAML) -> Activity -> Data -> Cost -> Results */
 const TAB_ITEMS: { id: RunTab; label: string; icon: React.ElementType }[] = [
-  { id: "config", label: "Config", icon: FileCode2 },
   { id: "activity", label: "Activity", icon: Activity },
-  { id: "database", label: "Data", icon: Database },
-  { id: "cost", label: "Cost", icon: BarChart3 },
   { id: "results", label: "Results", icon: FileText },
+  { id: "database", label: "Data", icon: Database },
+  { id: "config", label: "Config", icon: FileCode2 },
+  { id: "cost", label: "Cost", icon: BarChart3 },
 ]
+
+function gateFailureReasons(outputs: Record<string, unknown>): string[] {
+  const raw = outputs.gate_failure_reasons
+  return Array.isArray(raw) ? raw.filter((r): r is string => typeof r === "string") : []
+}
 
 function ViewLoader() {
   return (
@@ -149,6 +153,7 @@ export function RunView({
   const {
     isDone,
     isAwaitingProspero,
+    isNeedsRevision,
   } = chrome
 
   useEffect(() => {
@@ -169,7 +174,13 @@ export function RunView({
       />
 
       {/* Tab content -- pb accounts for iOS/Chrome bottom safe area (home bar, bottom nav) */}
-      <div className="flex-1 overflow-y-auto overscroll-none p-6" style={{ paddingBottom: 'max(1.5rem, env(safe-area-inset-bottom))' }}>
+      <div
+        className="flex-1 overflow-y-auto overscroll-none p-6"
+        style={{ paddingBottom: 'max(1.5rem, env(safe-area-inset-bottom))' }}
+        role="tabpanel"
+        id={`tabpanel-${activeTab}`}
+        aria-labelledby={`tab-${activeTab}`}
+      >
         <ViewBoundary label={activeTab} resetKey={activeTab}>
           <Suspense fallback={<ViewLoader />}>
           {activeTab === "activity" && (
@@ -197,6 +208,9 @@ export function RunView({
               exportRunId={isDone ? run.runId : null}
               submissionFocusTarget={submissionFocusTarget}
               submissionFocusToken={submissionFocusToken}
+              needsRevision={isNeedsRevision}
+              gateFailureReasons={gateFailureReasons(liveOutputs)}
+              onOpenActivity={() => onTabChange("activity")}
             />
           )}
 
@@ -240,7 +254,9 @@ export function RunView({
 
           {activeTab === "review-screening" && (
             <ScreeningReviewView
+              key={run.workflowId ?? run.runId}
               runId={run.runId}
+              workflowId={run.workflowId}
               onApproveAndResume={onApproveScreeningAndResume}
             />
           )}

@@ -1,14 +1,4 @@
-import { useState } from "react"
-import { Spinner } from "@/components/ui/feedback"
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog"
-import { Button } from "@/components/ui/button"
+import { ConfirmDialog } from "@/components/ConfirmDialog"
 
 export interface DeleteConfirmDialogProps {
   open: boolean
@@ -23,59 +13,17 @@ export function DeleteConfirmDialog({
   workflowId,
   onConfirm,
 }: DeleteConfirmDialogProps) {
-  const [deleting, setDeleting] = useState(false)
-
-  async function handleConfirm() {
-    if (!workflowId || deleting) return
-    setDeleting(true)
-    try {
-      await onConfirm(workflowId)
-      onOpenChange(false)
-    } finally {
-      setDeleting(false)
-    }
-  }
-
-  function handleCancel() {
-    if (!deleting) onOpenChange(false)
-  }
-
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-md">
-        <DialogHeader>
-          <DialogTitle>Delete review</DialogTitle>
-          <DialogDescription>
-            Delete this review and all its data? This cannot be undone.
-          </DialogDescription>
-        </DialogHeader>
-
-        <DialogFooter className="gap-2 sm:gap-0">
-          <Button
-            type="button"
-            variant="outline"
-            onClick={handleCancel}
-            disabled={deleting}
-          >
-            Cancel
-          </Button>
-          <Button
-            type="button"
-            variant="destructive"
-            onClick={() => void handleConfirm()}
-            disabled={deleting}
-          >
-            {deleting ? (
-              <>
-                <Spinner size="sm" className="mr-2" />
-                Deleting...
-              </>
-            ) : (
-              "Delete"
-            )}
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+    <ConfirmDialog
+      open={open}
+      onOpenChange={onOpenChange}
+      title="Delete review"
+      description="Delete this review and all its data? This cannot be undone."
+      confirmLabel="Delete"
+      pendingLabel="Deleting..."
+      onConfirm={async () => {
+        if (workflowId) await onConfirm(workflowId)
+      }}
+    />
   )
 }

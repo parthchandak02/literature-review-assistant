@@ -82,16 +82,6 @@ export function ManuscriptActions({
     }
   }, [completeSubmission, exportState, onExportReadyChange])
 
-  // Auto-trigger export once when the run is ready and packaging has not been attempted.
-  // Skip when submission/ exists but is incomplete (a failed package leaves partial files
-  // and would fail the same way on every mount until the user clicks Retry).
-  useEffect(() => {
-    if (canExport && exportState === "idle" && !completeSubmission && !partialSubmission) {
-      // eslint-disable-next-line react-hooks/set-state-in-effect
-      void handleExport()
-    }
-  }, [canExport, completeSubmission, partialSubmission, exportState, handleExport])
-
   // After export, merge the generated file paths into the outputs map
   const mergedOutputs = useMemo<Record<string, unknown>>(() => {
     if (exportFiles.length === 0) return allOutputs
@@ -126,24 +116,29 @@ export function ManuscriptActions({
 
   return (
     <div className="flex items-center gap-1.5">
-      {/* Packaging spinner shown while auto-export is in flight */}
       {exportState === "loading" && (
-        <span className="flex items-center gap-1 text-xs text-muted">
-          <Spinner size="sm" />
-          Packaging...
-        </span>
-      )}
-
-      {exportState === "idle" && packagingIncomplete && (
         <Button
           size="sm"
           variant="outline"
-          onClick={() => void handleExport(true)}
+          disabled
+          aria-busy
+          className={sharedCls}
+        >
+          <Spinner size="sm" />
+          Packaging...
+        </Button>
+      )}
+
+      {exportState === "idle" && canExport && !completeSubmission && (
+        <Button
+          size="sm"
+          variant="outline"
+          onClick={() => void handleExport(packagingIncomplete)}
           className={sharedCls}
           title="Build IEEE submission package (.tex, .docx, study PDFs)"
         >
           <Download className="h-3 w-3" />
-          Package manuscript
+          {packagingIncomplete ? "Rebuild package" : "Package manuscript"}
         </Button>
       )}
 

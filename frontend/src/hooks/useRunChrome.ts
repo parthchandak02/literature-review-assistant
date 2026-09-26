@@ -2,7 +2,7 @@ import { useMemo } from "react"
 import type { ReviewEvent } from "@/lib/api"
 import type { CostStats } from "@/hooks/useCostStats"
 import type { SelectedRun } from "@/context/runSessionTypes"
-import { resolveRunHeaderStatus } from "@/lib/constants"
+import { isNeedsRevisionStatus, resolveRunHeaderStatus } from "@/lib/constants"
 import { detectAwaitingProspero, detectAwaitingReview } from "@/lib/phaseProgress"
 import { computeFunnelStages, type FunnelStage } from "@/lib/funnelStages"
 
@@ -19,6 +19,7 @@ export interface RunChromeVM {
   isFailed: boolean
   isAwaitingProspero: boolean
   isAwaitingReview: boolean
+  isNeedsRevision: boolean
   isParkedGate: boolean
   liveStatus: string
 }
@@ -106,6 +107,11 @@ export function computeRunChrome(input: RunChromeInput): RunChromeVM {
     ["failed", "error"].includes((run.historicalStatus ?? "").toLowerCase()) ||
     status === "error"
 
+  const isNeedsRevision =
+    !isRunning &&
+    !isParkedGate &&
+    (isNeedsRevisionStatus(run.historicalStatus) || isNeedsRevisionStatus(String(liveOutputs?.status ?? "")))
+
   const funnelStages = computeFunnelStages(effectiveEvents)
   const canonicalIncluded =
     (isHistorical || isDone) && run.papersIncluded != null ? run.papersIncluded : null
@@ -125,6 +131,7 @@ export function computeRunChrome(input: RunChromeInput): RunChromeVM {
     isFailed,
     isAwaitingReview,
     isAwaitingProspero,
+    isNeedsRevision,
   })
 
   let liveStatus: string
@@ -163,6 +170,7 @@ export function computeRunChrome(input: RunChromeInput): RunChromeVM {
     isFailed,
     isAwaitingProspero,
     isAwaitingReview,
+    isNeedsRevision,
     isParkedGate,
     liveStatus,
   }

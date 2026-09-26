@@ -119,7 +119,7 @@ function buildInProgressCardModel(
       ? undefined
       : isLiveRow && liveRun
         ? (liveRun.phaseProgress?.value ?? (rowIsRunning ? -1 : undefined))
-        : statusKey === "done"
+        : statusKey === "done" || statusKey === "needs_revision"
           ? 1
           : entry.live_run_id || isReconnectingRow
             ? -1

@@ -129,6 +129,7 @@ function StepperStepNode({
               armed && "border-intent-warning bg-intent-warning-subtle text-intent-warning",
             )}
             title={title}
+            aria-label={title ?? label}
           >
             <StepIcon status={status} />
           </button>

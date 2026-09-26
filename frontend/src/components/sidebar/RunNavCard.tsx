@@ -13,6 +13,7 @@ import { formatRunDate } from "@/lib/format"
 import type { HistoryEntry } from "@/lib/api"
 import { RunStatusIndicator } from "@/components/run-status"
 import { Spinner } from "@/components/ui/feedback"
+import { ConfirmDialog } from "@/components/ConfirmDialog"
 import { CardProgressBar } from "@/components/sidebar/CardProgressBar"
 import { NoteField } from "@/components/sidebar/NoteField"
 import { RunCardMetrics } from "@/components/sidebar/RunCardMetrics"
@@ -32,7 +33,7 @@ export interface RunNavCardProps {
   onSelectEntry?: (entry: HistoryEntry) => void
   isMobile?: boolean
   onToggle?: () => void
-  onCancel?: () => void
+  onCancel?: () => void | Promise<void>
   onArchive?: (workflowId: string) => void | Promise<void>
   onComplete?: (workflowId: string) => void
   onResume?: (entry: HistoryEntry) => void
@@ -81,6 +82,7 @@ export function RunNavCard({
   onToggleOverflowMenu,
 }: RunNavCardProps) {
   const [localOverflowOpen, setLocalOverflowOpen] = useState(false)
+  const [stopConfirmOpen, setStopConfirmOpen] = useState(false)
   const workflowId = model.workflowId
   const isLane = model.variant === "completed" || model.variant === "archived"
   const showStop = !collapsed && model.rowIsRunning && onCancel && (model.variant === "live" || model.isLiveRow)
@@ -183,7 +185,7 @@ export function RunNavCard({
             <button
               onClick={(e) => {
                 e.stopPropagation()
-                onCancel?.()
+                setStopConfirmOpen(true)
               }}
               aria-label="Stop run"
               title="Stop run"
@@ -220,7 +222,7 @@ export function RunNavCard({
           <button
             onClick={(e) => {
               e.stopPropagation()
-              onCancel?.()
+              setStopConfirmOpen(true)
             }}
             aria-label="Stop run"
             title="Stop run"
@@ -505,6 +507,18 @@ export function RunNavCard({
           {renderInProgressActions()}
           {renderLaneActions()}
         </div>
+        {onCancel && (
+          <ConfirmDialog
+            open={stopConfirmOpen}
+            onOpenChange={setStopConfirmOpen}
+            title="Stop this run?"
+            description="The run will be interrupted. Completed phases are saved, and you can resume it later from its last checkpoint."
+            confirmLabel="Stop run"
+            pendingLabel="Stopping..."
+            cancelLabel="Keep running"
+            onConfirm={() => onCancel()}
+          />
+        )}
         {!collapsed && model.showProgressBar && (
           <CardProgressBar status={model.statusKey} progress={model.progressValue} />
         )}

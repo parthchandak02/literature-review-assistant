@@ -16,7 +16,7 @@ import {
 } from "@/components/ui/tooltip"
 import { DeleteConfirmDialog } from "@/components/DeleteConfirmDialog"
 import { SidebarTooltip } from "@/components/sidebar/SidebarTooltip"
-import { SidebarHeader } from "@/components/sidebar/SidebarHeader"
+import { SidebarHeader, SidebarSettingsButton } from "@/components/sidebar/SidebarHeader"
 import { SidebarInProgressSection } from "@/components/sidebar/SidebarInProgressSection"
 import { SidebarCompletedArchivedSection } from "@/components/sidebar/SidebarCompletedArchivedSection"
 import { useRunSessionActions, useRunSessionState } from "@/hooks/useRunSession"
@@ -29,6 +29,7 @@ interface SidebarProps {
   onWidthChange: (w: number) => void
   /** When true, renders the sidebar as a slide-in overlay drawer instead of a fixed column. */
   isMobile?: boolean
+  onOpenSettings?: () => void
 }
 
 // ---------------------------------------------------------------------------
@@ -41,6 +42,7 @@ export function Sidebar({
   width,
   onWidthChange,
   isMobile = false,
+  onOpenSettings,
 }: SidebarProps) {
   const {
     liveRunForSidebar: liveRun,
@@ -200,6 +202,7 @@ export function Sidebar({
           isMobile={isMobile}
           onGoHome={onGoHome}
           onToggle={onToggle}
+          onOpenSettings={onOpenSettings}
         />
 
         {/* New Review button */}
@@ -207,6 +210,7 @@ export function Sidebar({
           <SidebarTooltip label="New Review" collapsed={collapsed} side="right">
             <button
               onClick={() => { onNewReview(); if (isMobile) onToggle() }}
+              aria-label={collapsed ? "New Review" : undefined}
               className={cn(
                 "sidebar-new-review-button flex items-center gap-2 rounded-lg transition-colors text-sm font-medium w-full",
                 collapsed
@@ -214,7 +218,7 @@ export function Sidebar({
                   : "px-3 py-2",
               )}
             >
-              <Plus className="h-4 w-4 shrink-0" />
+              <Plus className="h-4 w-4 shrink-0" aria-hidden />
               {!collapsed && "New Review"}
             </button>
           </SidebarTooltip>
@@ -284,6 +288,12 @@ export function Sidebar({
           }
           onDelete={handleDeleteRequest}
         />
+
+        {collapsed && !isMobile && onOpenSettings && (
+          <div className="relative z-10 flex justify-center py-2 shrink-0 border-t border-border">
+            <SidebarSettingsButton onClick={onOpenSettings} />
+          </div>
+        )}
 
         {/* Collapse toggle */}
         <button

@@ -1,5 +1,7 @@
 import { Suspense, lazy, useEffect, useMemo, useState } from "react"
 import {
+  Activity,
+  AlertTriangle,
   FileText,
   BookOpen,
   Lock,
@@ -8,6 +10,8 @@ import {
   FolderOpen,
 } from "lucide-react"
 import { EmptyState, Spinner } from "@/components/ui/feedback"
+import { Button } from "@/components/ui/button"
+import { NEEDS_REVISION_EXPLANATION } from "@/lib/constants"
 import { ArtifactFileList } from "@/components/results/ArtifactFileList"
 import { collectCustomDiagramItems, customDiagramPipelineTouched } from "@/lib/customDiagrams"
 import { submissionZipUrl } from "@/lib/api"
@@ -66,6 +70,9 @@ interface ResultsViewProps {
   exportRunId?: string | null
   submissionFocusTarget?: "reference-papers" | null
   submissionFocusToken?: number
+  needsRevision?: boolean
+  gateFailureReasons?: string[]
+  onOpenActivity?: () => void
 }
 
 export function ResultsView({
@@ -77,6 +84,9 @@ export function ResultsView({
   exportRunId,
   submissionFocusTarget = null,
   submissionFocusToken = 0,
+  needsRevision = false,
+  gateFailureReasons = [],
+  onOpenActivity,
 }: ResultsViewProps) {
   const effectiveOutputs = useMemo<Record<string, unknown>>(() => {
     const base =
@@ -182,8 +192,16 @@ export function ResultsView({
       <EmptyState
         icon={Lock}
         heading="Results available once the review completes."
-        sub="Switch to the Activity tab to monitor progress."
+        sub="Monitor progress in the Activity tab."
         className="h-64"
+        action={
+          onOpenActivity ? (
+            <Button type="button" size="sm" variant="outline" onClick={onOpenActivity}>
+              <Activity className="h-3.5 w-3.5" />
+              Go to Activity
+            </Button>
+          ) : null
+        }
       />
     )
   }
@@ -200,6 +218,37 @@ export function ResultsView({
 
   return (
     <div className="flex flex-col gap-3 min-h-[520px]">
+      {needsRevision && (
+        <div
+          role="status"
+          className="flex items-start gap-2 p-3 rounded-lg bg-intent-warning-subtle border border-intent-warning-border text-sm text-intent-warning"
+        >
+          <AlertTriangle className="h-4 w-4 mt-0.5 shrink-0" aria-hidden />
+          <div className="flex-1 min-w-0 space-y-1">
+            <p className="font-medium">Needs revision</p>
+            <p className="text-xs text-foreground/80">{NEEDS_REVISION_EXPLANATION}</p>
+            {gateFailureReasons.length > 0 && (
+              <ul className="text-xs text-foreground/80 list-disc pl-4">
+                {gateFailureReasons.map((reason) => (
+                  <li key={reason}>{reason}</li>
+                ))}
+              </ul>
+            )}
+          </div>
+          {categoryIds.includes("quality") && activeCategory !== "quality" && (
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              className="h-7 text-xs shrink-0"
+              onClick={() => setCategory("quality")}
+            >
+              View Quality
+            </Button>
+          )}
+        </div>
+      )}
+
       <ResultsCategoryNav
         items={categoryItems}
         activeCategory={activeCategory}
@@ -271,7 +320,6 @@ export function ResultsView({
                 runId={runId}
                 workflowId={workflowId}
                 isDone={isDone}
-                embedded
               />
             </Suspense>
           </div>

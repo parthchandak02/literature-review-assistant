@@ -115,6 +115,7 @@ export function ActivityView({
   const completedWorkflow =
     normalizedHistoricalStatus === "completed" ||
     normalizedHistoricalStatus === "done" ||
+    normalizedHistoricalStatus === "needs_revision" ||
     status === "done"
   const isRunning = status === "streaming" || status === "connecting"
   const awaitingProspero = detectAwaitingProspero({

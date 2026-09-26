@@ -62,6 +62,16 @@ describe("partitionHistory", () => {
     ])
   })
 
+  it("groups screening-review parked runs with other runs that need user input", () => {
+    const history = [
+      historyEntry({ workflow_id: "wf-review", status: "awaiting_review" }),
+      historyEntry({ workflow_id: "wf-done", status: "completed" }),
+    ]
+    const partitions = partitionHistory(history)
+    expect(partitions.prosperoPendingHistory.map((e) => e.workflow_id)).toEqual(["wf-review"])
+    expect(partitions.inProgressHistory.map((e) => e.workflow_id)).toEqual(["wf-done"])
+  })
+
   it("treats config_ready and config_generating as prospero pending", () => {
     const history = [
       historyEntry({ workflow_id: "wf-gen", status: "config_generating" }),

@@ -3,7 +3,7 @@ import { useQueryClient } from "@tanstack/react-query"
 import type { HistoryEntry, NotesStreamEvent } from "@/lib/api"
 import { historyQueryKey } from "@/hooks/useHistory"
 import { useNotesStream } from "@/hooks/useNotesStream"
-import { isProsperoPendingStatus } from "@/lib/constants"
+import { isProsperoPendingStatus, isReviewPendingStatus } from "@/lib/constants"
 import type { LiveRun } from "@/components/sidebar/types"
 
 export interface SidebarHistoryPartitions {
@@ -14,17 +14,15 @@ export interface SidebarHistoryPartitions {
   visibleHistory: HistoryEntry[]
 }
 
-/** Partition sidebar history into in-progress, completed, archived, and PROSPERO-pending lists. */
+/** Partition sidebar history into needs-input (drafts, PROSPERO, screening review), reviews, completed shelf, and archived lists. */
 export function partitionHistory(history: HistoryEntry[]): SidebarHistoryPartitions {
   const activeHistory = history.filter((entry) => !entry.is_archived)
   const completedHistory = activeHistory.filter((entry) => Boolean(entry.is_completed_hidden))
   const visibleHistory = activeHistory.filter((entry) => !entry.is_completed_hidden)
-  const prosperoPendingHistory = visibleHistory.filter((entry) =>
-    isProsperoPendingStatus(entry.status),
-  )
-  const inProgressHistory = visibleHistory.filter(
-    (entry) => !isProsperoPendingStatus(entry.status),
-  )
+  const needsInput = (entry: HistoryEntry) =>
+    isProsperoPendingStatus(entry.status) || isReviewPendingStatus(entry.status)
+  const prosperoPendingHistory = visibleHistory.filter(needsInput)
+  const inProgressHistory = visibleHistory.filter((entry) => !needsInput(entry))
   const archivedHistory = history.filter((entry) => Boolean(entry.is_archived))
 
   return {

@@ -3,6 +3,7 @@ export interface SetupViewProps {
   onGenerateDraft: (req: ConfigGenerateRequest) => void
   onOpenDraftWithYaml: (yaml: string) => void
   disabled: boolean
+  onOpenLiveRun?: () => void
 }
 
 export type CsvMode = "supplementary" | "masterlist"

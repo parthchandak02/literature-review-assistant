@@ -10,10 +10,11 @@ export function CardProgressBar({
 }) {
   const colorClass = STATUS_PROGRESS[status] ?? "bg-surface-4"
   const isIndeterminate = progress === -1
+  const isFinished = status === "done" || status === "needs_revision"
   const showFill =
     !isIndeterminate &&
-    (status === "streaming" || status === "connecting" || status === "done")
-  const fillPercent = showFill ? (progress != null ? progress * 100 : status === "done" ? 100 : 0) : 0
+    (status === "streaming" || status === "connecting" || isFinished)
+  const fillPercent = showFill ? (progress != null ? progress * 100 : isFinished ? 100 : 0) : 0
 
   if (isIndeterminate) {
     return (

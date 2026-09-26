@@ -143,6 +143,7 @@ export type RunStatus =
   | "cancelled"
   | "stale"
   | "awaiting_review"
+  | "needs_revision"
   | "awaiting_prospero"
   | "config_generating"
   | "config_ready"
@@ -156,6 +157,7 @@ export const STATUS_LABEL: Record<RunStatus, string> = {
   cancelled: "Cancelled",
   stale: "Stale",
   awaiting_review: "Awaiting Review",
+  needs_revision: "Needs revision",
   awaiting_prospero: "PROSPERO Pending",
   config_generating: "Generating Config",
   config_ready: "Config Ready",
@@ -173,6 +175,7 @@ export const STATUS_VARIANT: Record<RunStatus, BadgeVariant> = {
   cancelled: "warning",
   stale: "warning",
   awaiting_review: "warning",
+  needs_revision: "warning",
   awaiting_prospero: "warning",
   config_generating: "active",
   config_ready: "warning",
@@ -193,6 +196,7 @@ export const STATUS_DOT: Record<RunStatus, string> = {
   cancelled: "bg-intent-warning",
   stale: "bg-intent-warning",
   awaiting_review: "bg-intent-warning",
+  needs_revision: "bg-intent-warning",
   awaiting_prospero: "bg-intent-warning",
   config_generating: "bg-intent-active",
   config_ready: "bg-intent-warning",
@@ -208,6 +212,7 @@ export const STATUS_TEXT: Record<RunStatus, string> = {
   cancelled: "text-intent-warning",
   stale: "text-intent-warning",
   awaiting_review: "text-intent-warning",
+  needs_revision: "text-intent-warning",
   awaiting_prospero: "text-intent-warning",
   config_generating: "text-intent-active",
   config_ready: "text-intent-warning",
@@ -223,6 +228,7 @@ export const STATUS_PROGRESS: Record<RunStatus, string> = {
   cancelled: "bg-intent-warning",
   stale: "bg-intent-warning",
   awaiting_review: "bg-intent-warning/60",
+  needs_revision: "bg-intent-warning",
   awaiting_prospero: "bg-intent-warning/60",
   config_generating: "bg-intent-active",
   config_ready: "bg-intent-warning/60",
@@ -282,6 +288,7 @@ export interface RunHeaderStatusInput {
   isFailed: boolean
   isAwaitingReview: boolean
   isAwaitingProspero?: boolean
+  isNeedsRevision?: boolean
 }
 
 /** Client-side PROSPERO registration number format (CRD + 9+ digits). */
@@ -294,7 +301,16 @@ export function resolveRunHeaderStatus(input: RunHeaderStatusInput): {
   label: string
   className: string
 } {
-  const { status, isDone, isRunning, isCancelled, isFailed, isAwaitingReview, isAwaitingProspero } = input
+  const {
+    status,
+    isDone,
+    isRunning,
+    isCancelled,
+    isFailed,
+    isAwaitingReview,
+    isAwaitingProspero,
+    isNeedsRevision,
+  } = input
   if (isAwaitingProspero && !isDone) {
     return { label: STATUS_LABEL.awaiting_prospero, className: STATUS_TEXT.awaiting_prospero }
   }
@@ -309,6 +325,9 @@ export function resolveRunHeaderStatus(input: RunHeaderStatusInput): {
   }
   if (isFailed) {
     return { label: STATUS_LABEL.error, className: STATUS_TEXT.error }
+  }
+  if (isNeedsRevision) {
+    return { label: STATUS_LABEL.needs_revision, className: STATUS_TEXT.needs_revision }
   }
   if (status === "done" || isDone) {
     return { label: STATUS_LABEL.done, className: STATUS_TEXT.done }
@@ -435,6 +454,15 @@ export function isReviewPendingStatus(raw: string | null | undefined): boolean {
   return (raw ?? "").toLowerCase() === "awaiting_review"
 }
 
+/** True when finalize completed but the manuscript/audit gate asked for revisions. */
+export function isNeedsRevisionStatus(raw: string | null | undefined): boolean {
+  const normalized = (raw ?? "").toLowerCase()
+  return normalized === "needs_revision" || normalized === "needs-revision"
+}
+
+export const NEEDS_REVISION_EXPLANATION =
+  "The run finished, but the manuscript audit gate flagged issues that need revision. Results are available; open Results > Quality to see the audit findings."
+
 /** True when a run is parked at an external human gate (not actively streaming). */
 export function isParkedGateStatus(raw: string | null | undefined): boolean {
   return isProsperoPendingStatus(raw) || isReviewPendingStatus(raw)
@@ -455,6 +483,7 @@ export function resolveRunStatus(raw: string | null | undefined): RunStatus {
   if (s === "cancelled" || s === "canceled" || s === "interrupted") return "cancelled"
   if (s === "stale") return "stale"
   if (s === "awaiting_review") return "awaiting_review"
+  if (s === "needs_revision" || s === "needs-revision") return "needs_revision"
   if (s === "awaiting_prospero") return "awaiting_prospero"
   if (s === "config_generating") return "config_generating"
   if (s === "config_ready") return "config_ready"

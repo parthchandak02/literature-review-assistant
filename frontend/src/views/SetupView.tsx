@@ -1,4 +1,6 @@
 import { useState } from "react"
+import { Activity } from "lucide-react"
+import { Button } from "@/components/ui/button"
 import { useQueryClient } from "@tanstack/react-query"
 import { fetchRunConfig } from "@/lib/api"
 import type { HistoryEntry } from "@/lib/api"
@@ -9,7 +11,6 @@ import { ReviewTypeDecisionStage } from "@/components/setup/ReviewTypeDecisionSt
 import type { ReviewTypeChoice, SetupViewProps } from "@/components/setup/types"
 
 export type { ConfigGenerateRequest, CsvMode, GenerationProfile, ReviewTypeChoice } from "@/components/setup/types"
-export { ConfigReviewStage } from "@/components/setup/ConfigReviewStage"
 
 type SetupStep = "review_type" | "question"
 
@@ -18,6 +19,7 @@ export function SetupView({
   onGenerateDraft,
   onOpenDraftWithYaml,
   disabled,
+  onOpenLiveRun,
 }: SetupViewProps) {
   const queryClient = useQueryClient()
   const { data: history = [], error: historyError } = useHistory()
@@ -60,7 +62,23 @@ export function SetupView({
   }
 
   return (
-    <div className="max-w-xl mx-auto pt-6 pb-16 px-4" aria-disabled={disabled}>
+    <div className="max-w-xl mx-auto pt-6 pb-16 px-4">
+      {disabled && (
+        <div
+          role="status"
+          className="mb-4 flex flex-wrap items-center gap-3 rounded-lg border border-intent-warning-border bg-intent-warning-subtle px-3 py-2.5 text-xs text-intent-warning"
+        >
+          <span className="flex-1 min-w-0">
+            A review is already running. Starting a new review is disabled until it finishes or is stopped.
+          </span>
+          {onOpenLiveRun && (
+            <Button type="button" size="sm" variant="outline" className="h-7 text-xs" onClick={onOpenLiveRun}>
+              <Activity className="h-3.5 w-3.5" />
+              Open live run
+            </Button>
+          )}
+        </div>
+      )}
       {setupStep === "review_type" ? (
         <ReviewTypeDecisionStage
           onComplete={(selectedReviewType) => {
@@ -71,6 +89,7 @@ export function SetupView({
       ) : reviewType ? (
         <QuestionStage
           reviewType={reviewType}
+          disabled={disabled}
           onBack={() => setSetupStep("review_type")}
           onGenerateRequested={(req) => {
             setResearchQuestion(req.question)

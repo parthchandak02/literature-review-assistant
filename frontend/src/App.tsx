@@ -2,7 +2,7 @@ import { useEffect, useState, Suspense, lazy, Component, useRef } from "react"
 import type { ReactNode, ErrorInfo } from "react"
 import { useNavigate } from "react-router-dom"
 import { Toaster, toast } from "sonner"
-import { AlertTriangle, Menu, Settings } from "lucide-react"
+import { AlertTriangle, Menu } from "lucide-react"
 import { Sidebar } from "@/components/Sidebar"
 import { SettingsDialog } from "@/components/SettingsDialog"
 import { RunSessionProvider } from "@/context/RunSessionProvider"
@@ -17,6 +17,7 @@ import {
   useDraftConfigFlow,
 } from "@/hooks/useDraftConfigFlow"
 import { Spinner } from "@/components/ui/feedback"
+import { Button } from "@/components/ui/button"
 import { ViewToolbar } from "@/components/ui/view-toolbar"
 import { useRunChrome } from "@/hooks/useRunChrome"
 import type { SelectedRun } from "@/context/runSessionTypes"
@@ -123,6 +124,7 @@ function AppShell() {
     handleUpdateProsperoRegistration,
     handleRegenerateProsperoDocs,
     handleApproveScreeningAndResume,
+    handleSelectLiveRun,
     openDraftRunShell,
   } = useRunSessionActions()
 
@@ -158,7 +160,7 @@ function AppShell() {
   })
   const [prosperoRegenerating, setProsperoRegenerating] = useState(false)
   const [settingsOpen, setSettingsOpen] = useState(false)
-  const { isOnline } = useBackendHealth(6000, { suppressOffline: status === "streaming" })
+  const { isOnline, checking: checkingBackend, retry: retryBackend } = useBackendHealth(6000, { suppressOffline: status === "streaming" })
   const prevOnlineRef = useRef(isOnline)
 
   const isDraftRun = deriveIsDraftRun(selectedRun, draftConfig)
@@ -281,6 +283,7 @@ function AppShell() {
             onGenerateDraft={(req) => { void handleStartDraftConfig(req) }}
             onOpenDraftWithYaml={handleOpenDraftYaml}
             disabled={isRunning}
+            onOpenLiveRun={handleSelectLiveRun}
           />
         </Suspense>
       )
@@ -289,7 +292,7 @@ function AppShell() {
     const completedHistoricalRun =
       !isDraftRun &&
       !isViewingLiveRun &&
-      ["completed", "done"].includes((selectedRun.historicalStatus ?? "").toLowerCase())
+      ["completed", "done", "needs_revision"].includes((selectedRun.historicalStatus ?? "").toLowerCase())
     const failedHistoricalRun =
       !isDraftRun &&
       !isViewingLiveRun &&
@@ -357,6 +360,7 @@ function AppShell() {
         width={sidebarWidth}
         onWidthChange={handleSidebarWidthChange}
         isMobile={isMobile}
+        onOpenSettings={handleOpenSettings}
       />
 
       <main
@@ -371,19 +375,33 @@ function AppShell() {
             background: "var(--app-ambient-gradient)",
           }}
         />
-        {/* Backend offline banner */}
         {!isOnline && (
-          <div className="flex flex-col items-start gap-1.5 bg-intent-warning-subtle border-b border-intent-warning-border px-6 py-2.5 text-xs text-intent-warning shrink-0">
+          <div
+            role="alert"
+            className="flex flex-wrap items-center gap-x-3 gap-y-1.5 bg-intent-warning-subtle border-b border-intent-warning-border px-6 py-2.5 text-xs text-intent-warning shrink-0"
+          >
             <span className="inline-flex items-center gap-2">
-              <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
-              <span className="font-medium">Cannot reach backend API.</span>
+              <AlertTriangle className="h-3.5 w-3.5 shrink-0" aria-hidden />
+              <span className="font-medium">Can&apos;t reach the server. Retrying…</span>
             </span>
-            <span className="text-intent-warning/70">
-              If this run was detached after a restart, reopen it from History. Start backend with:{" "}
-              <code className="font-mono bg-intent-warning-subtle px-1 py-0.5 rounded">
-                pm2 start ecosystem.config.js
-              </code>
-            </span>
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              className="h-6 px-2 text-[11px]"
+              onClick={() => void retryBackend()}
+              disabled={checkingBackend}
+            >
+              {checkingBackend ? "Checking…" : "Retry now"}
+            </Button>
+            <details className="text-intent-warning/70">
+              <summary className="cursor-pointer select-none">Details</summary>
+              <p className="mt-1">
+                Requests to <code className="font-mono">/api/health</code> are failing. If a run was
+                detached after a restart, reopen it from the sidebar once the server is back.
+                Operators: check that the API process is running (<code className="font-mono">pm2 status</code>).
+              </p>
+            </details>
           </div>
         )}
 
@@ -448,15 +466,6 @@ function AppShell() {
           {renderMain()}
         </div>
 
-        <button
-          type="button"
-          onClick={handleOpenSettings}
-          className="fixed bottom-4 right-4 z-40 inline-flex items-center justify-center h-10 w-10 rounded-full border border-border bg-card/95 text-muted shadow-lg hover:bg-surface-2 hover:text-foreground transition-colors"
-          aria-label="Open settings"
-          title="Settings"
-        >
-          <Settings className="h-4 w-4" />
-        </button>
         <SettingsDialog open={settingsOpen} onOpenChange={setSettingsOpen} />
       </main>
     </div>

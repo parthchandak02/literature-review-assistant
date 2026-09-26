@@ -27,7 +27,7 @@ export interface SidebarInProgressSectionProps {
   onRefresh: () => void
   onToggle: () => void
   onSelectLiveRun: () => void
-  onCancel: () => void
+  onCancel: () => void | Promise<void>
   onSelect: (entry: HistoryEntry) => void
   onResume: (entry: HistoryEntry) => void
   onArchive: (workflowId: string) => Promise<void>
@@ -115,7 +115,7 @@ export function SidebarInProgressSection({
                 <span className="flex h-3.5 w-3.5 items-center justify-center rounded-[3px] border border-intent-warning-border bg-intent-warning-subtle text-intent-warning">
                   <FileText className="h-2.5 w-2.5" />
                 </span>
-                PROSPERO Pending
+                Needs your input
               </span>
             </div>
           )}
@@ -130,7 +130,7 @@ export function SidebarInProgressSection({
             <span className="flex h-3.5 w-3.5 items-center justify-center rounded-[3px] border border-intent-primary-border bg-intent-primary-subtle text-intent-primary">
               <Clock className="h-2.5 w-2.5" />
             </span>
-            In Progress
+            Reviews
           </span>
           <button
             onClick={onRefresh}
