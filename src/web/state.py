@@ -367,7 +367,7 @@ async def _event_flusher_loop(record: _RunRecord, interval: int = 5) -> None:
 # ---------------------------------------------------------------------------
 
 
-_REGISTRY_STATS_PERSIST_STATUSES = frozenset({"completed", "failed", "interrupted"})
+_REGISTRY_STATS_PERSIST_STATUSES = frozenset({"completed", "needs_revision", "failed", "interrupted"})
 
 
 async def _maybe_persist_registry_stats(run_root: str, workflow_id: str) -> None:
@@ -413,6 +413,12 @@ async def _apply_terminal_registry_status(
             await _update_registry_status(run_root, workflow_id, registry_status)
         except Exception as exc:
             _logger.error("Failed to update registry status to awaiting_review: %s", exc)
+    elif terminal_status == "needs_revision":
+        registry_status = "needs_revision"
+        try:
+            await _update_registry_status(run_root, workflow_id, registry_status)
+        except Exception as exc:
+            _logger.error("Failed to update registry status to needs_revision: %s", exc)
     elif terminal_status == "gate_blocked":
         registry_status = "failed"
         try:

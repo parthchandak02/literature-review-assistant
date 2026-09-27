@@ -140,3 +140,24 @@ async def test_apply_terminal_registry_status_skips_stats_for_parked_states(monk
 
     await state_module._apply_terminal_registry_status("/runs", "wf-done", {"status": "completed"})
     assert "wf-done" in fetch_calls
+
+
+@pytest.mark.asyncio
+async def test_apply_terminal_registry_status_keeps_needs_revision(monkeypatch) -> None:
+    from src.web import state as state_module
+
+    status_updates: list[str] = []
+    persisted: list[str] = []
+
+    async def fake_update(_run_root: str, _workflow_id: str, status: str) -> None:
+        status_updates.append(status)
+
+    async def fake_persist(_run_root: str, workflow_id: str) -> None:
+        persisted.append(workflow_id)
+
+    monkeypatch.setattr(state_module, "_update_registry_status", fake_update)
+    monkeypatch.setattr(state_module, "_maybe_persist_registry_stats", fake_persist)
+
+    await state_module._apply_terminal_registry_status("/runs", "wf-rev", {"status": "needs_revision"})
+    assert status_updates == ["needs_revision"]
+    assert persisted == ["wf-rev"]
