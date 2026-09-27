@@ -57,7 +57,7 @@ module.exports = {
       ...RESTART_POLICY,
     },
     {
-      // Backs up runs/ into Google Drive every 6 hours (scripts/backup.sh; never deletes).
+      // Backs up runs/ into Google Drive daily at 03:00 (scripts/backup.sh; never deletes).
       // Runs under PM2 because launchd jobs lack macOS access to the external SSD and Drive.
       name: 'litreview-backup',
       script: `${PROJECT_DIR}/scripts/backup.sh`,
@@ -65,7 +65,7 @@ module.exports = {
       cwd: PROJECT_DIR,
       interpreter: '/bin/bash',
       exec_mode: 'fork',
-      cron_restart: '0 */6 * * *',
+      cron_restart: '0 3 * * *',
       autorestart: false,
       watch: false,
       out_file: `${process.env.HOME}/Library/Logs/litreview-backup.log`,

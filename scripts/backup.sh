@@ -2,7 +2,7 @@
 # Back up runs/ (every review) into Google Drive for desktop.
 #
 #   ./scripts/backup.sh run        # copy now (safe while reviews are running)
-#   ./scripts/backup.sh install    # schedule every 6 hours via launchd
+#   ./scripts/backup.sh install    # schedule daily via launchd
 #   ./scripts/backup.sh uninstall  # remove the schedule
 #   ./scripts/backup.sh status     # show destination, schedule, last run
 #   ./scripts/backup.sh restore    # print how to restore from the backup
@@ -16,7 +16,7 @@ SRC="${REPO_ROOT}/runs"
 LABEL="com.litreview.runs-backup"
 PLIST="${HOME}/Library/LaunchAgents/${LABEL}.plist"
 LOG="${HOME}/Library/Logs/litreview-backup.log"
-INTERVAL_SECONDS=21600
+INTERVAL_SECONDS=86400
 
 log() { printf '%s %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$*"; }
 

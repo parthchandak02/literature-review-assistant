@@ -30,7 +30,7 @@ Plain-language index for `scripts/`. Agents: read this before adding or invoking
 | Hermes host maintenance | `./scripts/hermes.sh maintain` |
 | Back up all reviews (`runs/`) to Google Drive now | `./scripts/backup.sh run` |
 | Show backup destination / last backup | `./scripts/backup.sh status` |
-| Schedule backups every 6h (PM2) | `pm2 start ecosystem.config.js --only litreview-backup && pm2 save` |
+| Schedule daily backups at 03:00 (PM2) | `pm2 start ecosystem.config.js --only litreview-backup && pm2 save` |
 | Restore missing reviews from the Drive backup | `./scripts/backup.sh restore` (prints the rsync command) |
 
 ## Entrypoints
