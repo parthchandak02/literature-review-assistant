@@ -359,6 +359,10 @@ class SectionWriter:
                         retries,
                     )
                 normalized = parsed.normalized()
+                if normalized.body_word_count() > max_words:
+                    before = normalized.body_word_count()
+                    normalized = normalized.fit_to_max_words(max_words)
+                    logger.info("Abstract trimmed from %d to %d words.", before, normalized.body_word_count())
                 try:
                     normalized.validate_word_band(min_words=min_words, max_words=max_words)
                 except ValueError:

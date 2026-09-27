@@ -688,7 +688,19 @@ async def write_section_with_validation(
         if iteration > 0 and best_issues:
             iter_context = effective_context + format_quality_feedback(best_issues, best_score)
 
-        candidate = await _materialize_candidate(iter_context)
+        try:
+            candidate = await _materialize_candidate(iter_context)
+        except Exception as exc:
+            if best_candidate is None:
+                raise
+            logger.warning(
+                "Section '%s' ratchet iteration %d failed (%s); keeping iteration %d.",
+                section,
+                iteration + 1,
+                exc,
+                best_iteration_index,
+            )
+            break
         structured, content, validation_retries, validation_issues, used_deterministic_fallback, metadata = candidate
         cumulative_cost_usd += float(getattr(metadata, "cost_usd", 0.0) or 0.0)
         fingerprint = _draft_fingerprint(structured)

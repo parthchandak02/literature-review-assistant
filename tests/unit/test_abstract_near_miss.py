@@ -73,3 +73,20 @@ async def test_far_off_abstract_still_fails(monkeypatch: pytest.MonkeyPatch) -> 
     _patch(monkeypatch, _abstract(per_field=2), [])
     with pytest.raises(RuntimeError, match="failed structured output validation"):
         await _writer().write_section_structured_async("abstract", "grounded context")
+
+
+def test_fit_to_max_words_trims_longest_fields() -> None:
+    long_abstract = _abstract(per_field=14)
+    assert long_abstract.body_word_count() == 420
+    fitted = long_abstract.fit_to_max_words(250)
+    assert 210 <= fitted.body_word_count() <= 250
+    assert all(getattr(fitted, f) for f in ("background", "objectives", "methods", "results", "conclusions"))
+
+
+@pytest.mark.asyncio
+async def test_overlong_abstract_is_trimmed_on_first_attempt(monkeypatch: pytest.MonkeyPatch) -> None:
+    prompts: list[str] = []
+    _patch(monkeypatch, _abstract(per_field=14), prompts)
+    structured, _ = await _writer().write_section_structured_async("abstract", "grounded context")
+    assert structured.section_key == "abstract"
+    assert len(prompts) == 1

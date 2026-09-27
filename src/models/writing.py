@@ -100,6 +100,29 @@ class StructuredAbstractOutput(BaseModel):
             keywords=deduped_keywords,
         )
 
+    def fit_to_max_words(self, max_words: int) -> StructuredAbstractOutput:
+        """Drop trailing sentences from the longest fields until the body fits ``max_words``."""
+        fields = ["background", "objectives", "methods", "results", "conclusions"]
+        values = {name: getattr(self, name) for name in fields}
+
+        def words(text: str) -> int:
+            return len(re.findall(r"\b[\w'-]+\b", text))
+
+        def total() -> int:
+            return sum(words(v) for v in values.values())
+
+        while total() > max_words:
+            candidates = []
+            for name, text in values.items():
+                sentences = re.split(r"(?<=[.!?])\s+", text.strip())
+                if len(sentences) > 1:
+                    candidates.append((words(text), name, sentences))
+            if not candidates:
+                break
+            _, name, sentences = max(candidates)
+            values[name] = " ".join(sentences[:-1])
+        return self.model_copy(update=values)
+
     def body_word_count(self) -> int:
         body = " ".join(
             [
