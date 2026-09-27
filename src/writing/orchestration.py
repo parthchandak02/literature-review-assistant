@@ -246,7 +246,9 @@ def _sanitize_section_headings(section: str, content: str) -> str:
             if spill_match and spill_match.start() > 8:
                 heading_text = title[: spill_match.start()].strip(" -:")
                 body_text = title[spill_match.start() :].strip()
-                if heading_text:
+                body_words = body_text.split()
+                looks_like_prose = len(body_words) >= 3 and any(w[:1].islower() for w in body_words[1:])
+                if heading_text and looks_like_prose:
                     out_lines.append(f"{prefix} {heading_text}")
                     out_lines.append("")
                     if body_text:
