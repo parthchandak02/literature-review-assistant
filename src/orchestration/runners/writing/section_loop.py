@@ -35,6 +35,7 @@ from src.writing.orchestration import (
 )
 from src.writing.outline_generator import build_fallback_section_outline, generate_section_outline
 from src.writing.prompts.sections import SECTIONS, get_section_context, get_section_word_limit
+from src.writing.section_fallbacks import build_empty_section_placeholder
 
 logger = logging.getLogger(__name__)
 
@@ -577,14 +578,11 @@ async def run_section_writing_loop(
 
     _abs_idx = SECTIONS.index("abstract") if "abstract" in SECTIONS else -1
     if _abs_idx >= 0 and not sections_written[_abs_idx].strip():
-        sections_written[_abs_idx] = (
-            "**Background:** This review synthesizes the available evidence for the topic. "
-            f"**Objectives:** This review evaluated {state.review.research_question}. "
-            "**Methods:** Bibliographic databases were searched using the configured protocol and settings. "
-            f"**Results:** {_prisma_sentence} "
-            "**Conclusion:** Evidence synthesis was generated from included studies. "
-            "**Keywords:** systematic review, evidence synthesis, outcomes, implementation, methodology."
-        )
+        sections_written[_abs_idx] = build_empty_section_placeholder(
+            "abstract",
+            research_question=state.review.research_question,
+            prisma_sentence=_prisma_sentence,
+        ) or ""
     _methods_idx = SECTIONS.index("methods") if "methods" in SECTIONS else -1
     if _methods_idx >= 0 and not sections_written[_methods_idx].strip():
         sections_written[_methods_idx] = (

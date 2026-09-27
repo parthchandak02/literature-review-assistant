@@ -6,7 +6,19 @@ import re
 from datetime import UTC, datetime
 from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
+
+
+def _trim_to_sentence(text: str, limit: int) -> str:
+    """Shorten text to at most ``limit`` chars, preferring the last full sentence."""
+    if len(text) <= limit:
+        return text
+    head = text[:limit]
+    cut = max(head.rfind(". "), head.rfind("! "), head.rfind("? "))
+    if cut >= int(limit * 0.6):
+        return head[: cut + 1]
+    words = head[: limit - 1].rsplit(" ", 1)[0].rstrip(" ,;:")
+    return f"{words}."
 
 
 class SectionBlock(BaseModel):
@@ -37,6 +49,21 @@ class StructuredAbstractOutput(BaseModel):
     results: str = Field(min_length=30, max_length=1400)
     conclusions: str = Field(min_length=20, max_length=1000)
     keywords: list[str] = Field(min_length=3, max_length=8)
+
+    @model_validator(mode="before")
+    @classmethod
+    def _trim_overlong_fields(cls, data: object) -> object:
+        if not isinstance(data, dict):
+            return data
+        trimmed = dict(data)
+        for name, field in cls.model_fields.items():
+            value = trimmed.get(name)
+            limit = next((getattr(m, "max_length", None) for m in field.metadata if hasattr(m, "max_length")), None)
+            if isinstance(value, str) and limit and len(value) > limit:
+                trimmed[name] = _trim_to_sentence(value.strip(), limit)
+            elif name == "keywords" and isinstance(value, list) and limit and len(value) > limit:
+                trimmed[name] = value[:limit]
+        return trimmed
 
     @staticmethod
     def _normalize_sentence(text: str) -> str:

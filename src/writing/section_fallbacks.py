@@ -464,12 +464,21 @@ def _build_selection_process_fallback_text(
 EMPTY_SECTION_PLACEHOLDER_FALLBACK_TYPE = "empty_section_placeholder"
 
 
+def _objective_sentence(research_question: str) -> str:
+    question = " ".join(str(research_question or "").split()).rstrip(" .")
+    if not question:
+        return "To synthesize the evidence addressing the review question."
+    if not question.endswith("?"):
+        question = f"{question}?"
+    return f"To answer the review question: {question}"
+
+
 def build_empty_section_placeholder(section: str, *, research_question: str, prisma_sentence: str) -> str | None:
     """Deterministic placeholder text for an empty section, or None if the section has none."""
     if section == "abstract":
         return (
-            "**Background:** This review synthesizes the available evidence for the topic. "
-            f"**Objectives:** This review evaluated {research_question}. "
+            "**Background:** This systematic review synthesizes the available evidence on the review question. "
+            f"**Objectives:** {_objective_sentence(research_question)} "
             "**Methods:** Bibliographic databases were searched using the configured protocol and settings. "
             f"**Results:** {prisma_sentence} "
             "**Conclusion:** Evidence synthesis was generated from included studies. "
