@@ -146,6 +146,12 @@ Checkpoints via `src/orchestration/resume.py`. Rewind clears downstream artifact
 
 All model IDs in `config/settings.yaml`. Default chat agents are Fireworks task tiers (`FIREWORKS_API_KEY`); `google:` models are used only for diagram image agents (`GEMINI_API_KEY`). Use `complete_validated()` for structured LLM output.
 
+Current tiers: flash `deepseek-v4p1-flash`, pro `glm-5p3`, adjudicator `gpt-oss-120b`, vision `minimax-m3`, diagram critic `google:gemini-3.5-flash`. Verify ids against the live provider API before changing them (Fireworks retired `deepseek-v4-flash-0731`/`-pro-0813` and Google retired `gemini-2.5-flash` for new keys in Sep 2026).
+
+Hidden reasoning is bounded in `src/llm/pydantic_client.py` `reasoning_extra_body()`: DeepSeek thinking is disabled for all calls and Fireworks GLM (thinking-only) runs at `reasoning_effort: medium`. At default effort GLM spent ~10x the output tokens and latency on section prompts.
+
+Section post-processing, quality scoring, and manuscript assembly run via `asyncio.to_thread` so CPU-heavy writing steps never block the web event loop (workflows share the API process).
+
 The shared rate limiter (`src/llm/shared_rate_limiter.py`) is keyed on a hash of the provider key env vars actually used by configured agents, so runs sharing provider keys share one limiter.
 
 ### Cost surfaces
