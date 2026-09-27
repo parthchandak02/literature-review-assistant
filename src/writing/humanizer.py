@@ -43,16 +43,27 @@ Return ONLY the revised section text. Do not include any commentary or explanati
 """
 
 
+def _integrity_failure_reason(before: str, after: str) -> str | None:
+    """Return why humanization altered protected artifacts, or None when it is safe."""
+    cites_before, cites_after = extract_citation_blocks(before), extract_citation_blocks(after)
+    if cites_before != cites_after:
+        return f"citations changed ({len(cites_before)} -> {len(cites_after)} blocks)"
+    nums_before, nums_after = extract_numeric_tokens(before), extract_numeric_tokens(after)
+    if nums_before != nums_after:
+        missing = sorted(set(nums_before) - set(nums_after))[:5]
+        added = sorted(set(nums_after) - set(nums_before))[:5]
+        return f"numbers changed (missing={missing}, added={added})"
+    if not before.strip():
+        return None
+    ratio = len(after) / max(len(before), 1)
+    if not 0.60 <= ratio <= 1.50:
+        return f"length ratio {ratio:.2f} outside 0.60-1.50"
+    return None
+
+
 def _passes_integrity_checks(before: str, after: str) -> bool:
     """Validate that humanization did not alter protected artifacts."""
-    if extract_citation_blocks(before) != extract_citation_blocks(after):
-        return False
-    if extract_numeric_tokens(before) != extract_numeric_tokens(after):
-        return False
-    if not before.strip():
-        return True
-    ratio = len(after) / max(len(before), 1)
-    return 0.60 <= ratio <= 1.50
+    return _integrity_failure_reason(before, after) is None
 
 
 async def humanize_async(
@@ -116,8 +127,9 @@ async def humanize_async(
         # Re-attach any text that was beyond the cut point.
         if cut < len(text):
             refined = refined + " " + text[cut:].lstrip()
-        if not _passes_integrity_checks(text, refined):
-            logger.warning("Humanizer integrity check failed; returning original text.")
+        integrity_issue = _integrity_failure_reason(text, refined)
+        if integrity_issue:
+            logger.warning("Humanizer integrity check failed (%s); returning original text.", integrity_issue)
             return text
         flags = scan_humanizer_flags(refined)
         if has_high_severity(flags):
