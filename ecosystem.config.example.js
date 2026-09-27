@@ -57,6 +57,21 @@ module.exports = {
       ...RESTART_POLICY,
     },
     {
+      // Backs up runs/ into Google Drive every 6 hours (scripts/backup.sh; never deletes).
+      // Runs under PM2 because launchd jobs lack macOS access to the external SSD and Drive.
+      name: 'litreview-backup',
+      script: `${PROJECT_DIR}/scripts/backup.sh`,
+      args: 'run',
+      cwd: PROJECT_DIR,
+      interpreter: '/bin/bash',
+      exec_mode: 'fork',
+      cron_restart: '0 */6 * * *',
+      autorestart: false,
+      watch: false,
+      out_file: `${process.env.HOME}/Library/Logs/litreview-backup.log`,
+      error_file: `${process.env.HOME}/Library/Logs/litreview-backup.log`,
+    },
+    {
       name: 'litreview-ui',
       // Dev-only Vite dev server. Omit from PM2 in production when API serves dist.
       // Use the repo-local Vite binary (not pnpm) so PM2 does not depend on a global

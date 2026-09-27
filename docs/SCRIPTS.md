@@ -28,6 +28,10 @@ Plain-language index for `scripts/`. Agents: read this before adding or invoking
 | Inject missing citations into manuscript | `uv run python scripts/repair.py inject-citations --workflow-id wf-XXXX` |
 | Rebuild `tests/fixtures/replay` after schema change | `uv run python scripts/repair.py regen-replay-fixture --workflow-id wf-XXXX` |
 | Hermes host maintenance | `./scripts/hermes.sh maintain` |
+| Back up all reviews (`runs/`) to Google Drive now | `./scripts/backup.sh run` |
+| Show backup destination / last backup | `./scripts/backup.sh status` |
+| Schedule backups every 6h (PM2) | `pm2 start ecosystem.config.js --only litreview-backup && pm2 save` |
+| Restore missing reviews from the Drive backup | `./scripts/backup.sh restore` (prints the rsync command) |
 
 ## Entrypoints
 
@@ -41,6 +45,7 @@ Only these files are user-facing CLIs. Implementation lives in `scripts/lib/`.
 | `scripts/review.py` | `start`, `watch`, `info` | Review workflow operator tools |
 | `scripts/repair.py` | `finalize`, `re-extract`, `inject-citations`, `regen-replay-fixture` | Fix old or broken runs |
 | `scripts/hermes.sh` | `maintain`, `link-skill`, `help` | Hermes operator setup (see staleness warning in script) |
+| `scripts/backup.sh` | `run`, `status`, `restore`, `install`, `uninstall` | Copy `runs/` into Google Drive for desktop (`My Drive/PROJECTS/Literature Review Assistant/runs-backup`); SQLite `.backup` snapshots; never deletes. `install` uses launchd, which needs Full Disk Access for `/bin/bash`; prefer the PM2 `litreview-backup` job |
 | `scripts/help.sh` | (no args) | Print this routing table in the terminal |
 
 ## Makefile targets

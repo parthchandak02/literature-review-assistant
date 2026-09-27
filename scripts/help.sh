@@ -58,6 +58,7 @@ Rebuild replay test fixture after schema     uv run python scripts/repair.py reg
                                                --workflow-id wf-XXXX
 
 Hermes operator setup                        ./scripts/hermes.sh maintain
+Back up reviews to Google Drive               ./scripts/backup.sh run   (status | restore)
 
 ENTRYPOINTS (user-facing — use these)
   scripts/ops_pm2.sh   servers (PM2 restart, deploy)

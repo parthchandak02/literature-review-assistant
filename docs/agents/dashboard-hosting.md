@@ -131,3 +131,13 @@ curl -sf http://127.0.0.1:8001/api/health
 ```
 
 Expected edge behavior: unauthenticated requests return HTTP 302 to `parthchandak.cloudflareaccess.com/.../login/...` with `www-authenticate: Cloudflare-Access`.
+
+## Backups (reviews in `runs/`)
+
+`runs/` is gitignored and is the only copy of every review. On 2026-08-24..09-01 the whole folder was lost with no backup, so keep the backup job running.
+
+- Destination: Google Drive for desktop, `My Drive/PROJECTS/Literature Review Assistant/runs-backup` (override with `LITREVIEW_BACKUP_DIR`).
+- `./scripts/backup.sh run` copies files with `rsync` and snapshots every SQLite DB with `.backup` (safe while runs are live). It never deletes from the backup.
+- Schedule: PM2 app `litreview-backup` (`cron_restart: 0 */6 * * *`). Start once: `pm2 start ecosystem.config.js --only litreview-backup && pm2 save`.
+- launchd is not used by default: macOS blocks launchd jobs from the external SSD and CloudStorage unless `/bin/bash` has Full Disk Access.
+- Restore: stop the API, `rsync -a --ignore-existing "<backup>/" runs/`, restart the API (`./scripts/backup.sh restore` prints the exact command).
