@@ -413,7 +413,8 @@ async def run_post_assembly(
                     _fulltext_paper_ids.add(_pf.stem)
 
     # --- First manuscript assembly ---
-    full_manuscript = assemble_submission_manuscript(
+    full_manuscript = await asyncio.to_thread(
+        assemble_submission_manuscript,
         body=body,
         manuscript_path=manuscript_path,
         artifacts=state.artifacts,
@@ -810,7 +811,8 @@ async def run_post_assembly(
 
     # --- Re-assemble manuscript with concept diagram SVGs ---
     try:
-        patched = assemble_submission_manuscript(
+        patched = await asyncio.to_thread(
+            assemble_submission_manuscript,
             body=body,
             manuscript_path=manuscript_path,
             artifacts=state.artifacts,

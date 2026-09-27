@@ -72,11 +72,13 @@ def _replace_phrase_variants_case_insensitive(text: str, variants: tuple[str, ..
         if not source:
             continue
         source_lower = source.lower()
+        start = 0
         while True:
-            idx = patched.lower().find(source_lower)
+            idx = patched.lower().find(source_lower, start)
             if idx < 0:
                 break
             patched = f"{patched[:idx]}{replacement}{patched[idx + len(source) :]}"
+            start = idx + len(replacement)
     return patched
 
 

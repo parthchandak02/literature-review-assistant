@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import json
 import logging
@@ -229,13 +230,17 @@ def _sanitize_section_headings(section: str, content: str) -> str:
             ):
                 title = re.split(r"\s+(?:was|were)\s+", title, maxsplit=1)[0]
             if title.lower() in _SECTION_NAMES:
+                i += 1
                 continue
             if title.lower().endswith((" and", " of", " for", " to", " with")):
+                i += 1
                 continue
             title = re.sub(r"\s{2,}", " ", title).strip(" -:")
             if not title:
+                i += 1
                 continue
             if title.lower() == last_heading.lower():
+                i += 1
                 continue
             spill_match = _spill_start_re.search(title)
             if spill_match and spill_match.start() > 8:
@@ -498,61 +503,11 @@ async def write_section_with_validation(
 
     must_cite = _compute_section_citation_budget(section, citation_catalog, valid_citekeys)
 
-    async def _materialize_candidate(
-        candidate_context: str,
-    ) -> tuple[StructuredSectionDraft, str, int, list[str], bool, object]:
-        validation_retries = 0
-        used_deterministic_fallback = False
-        validation_issues: list[str] = []
-        candidate_cost_usd = 0.0
-        structured, metadata, contract_issues = await _generate_structured_once(candidate_context)
-        candidate_cost_usd += float(getattr(metadata, "cost_usd", 0.0) or 0.0)
-        issues = _section_completeness_issues(section, structured, included_study_count)
-        issues.extend(contract_issues)
-        cite_issues, missing_keys = _citation_coverage_issues(section, structured, must_cite)
-        issues.extend(cite_issues)
-        if issues:
-            validation_retries += 1
-            retry_parts = [
-                "\n\nRETRY RULE: Your previous output failed completeness checks: "
-                + ", ".join(issues)
-                + ". Regenerate this section with complete subsection bodies and a fully closed final sentence.",
-            ]
-            if missing_keys:
-                sorted_missing = sorted(missing_keys)[:30]
-                retry_parts.append(
-                    "\n\nCRITICAL CITATION COVERAGE: You MUST cite the following studies that were "
-                    "omitted from your previous output. Add each study to the relevant block.citations "
-                    "array and include it in cited_keys. Do NOT place [AuthorYear] tokens in block.text:\n"
-                    + "\n".join(f"  - [{k}]" for k in sorted_missing)
-                )
-            retry_context = candidate_context + "".join(retry_parts)
-            logger.warning(
-                "Section '%s' failed IR completeness checks (%s); retrying once.", section, ", ".join(issues)
-            )
-            structured, metadata, contract_issues = await _generate_structured_once(retry_context)
-            candidate_cost_usd += float(getattr(metadata, "cost_usd", 0.0) or 0.0)
-            issues = _section_completeness_issues(section, structured, included_study_count)
-            issues.extend(contract_issues)
-            if issues:
-                validation_issues = sorted(set(issues))
-                fallback_structured = _build_deterministic_section_fallback(section, grounding, valid_citekeys)
-                if _best_effort_accept(
-                    section, structured, fallback_structured, validation_issues, included_study_count
-                ):
-                    logger.warning(
-                        "Section '%s' still failed completeness checks after retry (%s); keeping best-effort content.",
-                        section,
-                        ", ".join(validation_issues),
-                    )
-                else:
-                    logger.warning(
-                        "Section '%s' still failed completeness checks after retry (%s); using deterministic fallback.",
-                        section,
-                        ", ".join(validation_issues),
-                    )
-                    structured = fallback_structured
-                    used_deterministic_fallback = True
+    def _finalize_candidate_sync(
+        structured: StructuredSectionDraft,
+        validation_issues: list[str],
+        used_deterministic_fallback: bool,
+    ) -> tuple[StructuredSectionDraft, str, list[str], bool]:
         structured, content, floor_forced = _render_and_sanitize(
             section,
             structured,
@@ -632,6 +587,66 @@ async def write_section_with_validation(
                 )
                 if floor_forced:
                     used_deterministic_fallback = True
+        return structured, content, validation_issues, used_deterministic_fallback
+
+    async def _materialize_candidate(
+        candidate_context: str,
+    ) -> tuple[StructuredSectionDraft, str, int, list[str], bool, object]:
+        validation_retries = 0
+        used_deterministic_fallback = False
+        validation_issues: list[str] = []
+        candidate_cost_usd = 0.0
+        structured, metadata, contract_issues = await _generate_structured_once(candidate_context)
+        candidate_cost_usd += float(getattr(metadata, "cost_usd", 0.0) or 0.0)
+        issues = _section_completeness_issues(section, structured, included_study_count)
+        issues.extend(contract_issues)
+        cite_issues, missing_keys = _citation_coverage_issues(section, structured, must_cite)
+        issues.extend(cite_issues)
+        if issues:
+            validation_retries += 1
+            retry_parts = [
+                "\n\nRETRY RULE: Your previous output failed completeness checks: "
+                + ", ".join(issues)
+                + ". Regenerate this section with complete subsection bodies and a fully closed final sentence.",
+            ]
+            if missing_keys:
+                sorted_missing = sorted(missing_keys)[:30]
+                retry_parts.append(
+                    "\n\nCRITICAL CITATION COVERAGE: You MUST cite the following studies that were "
+                    "omitted from your previous output. Add each study to the relevant block.citations "
+                    "array and include it in cited_keys. Do NOT place [AuthorYear] tokens in block.text:\n"
+                    + "\n".join(f"  - [{k}]" for k in sorted_missing)
+                )
+            retry_context = candidate_context + "".join(retry_parts)
+            logger.warning(
+                "Section '%s' failed IR completeness checks (%s); retrying once.", section, ", ".join(issues)
+            )
+            structured, metadata, contract_issues = await _generate_structured_once(retry_context)
+            candidate_cost_usd += float(getattr(metadata, "cost_usd", 0.0) or 0.0)
+            issues = _section_completeness_issues(section, structured, included_study_count)
+            issues.extend(contract_issues)
+            if issues:
+                validation_issues = sorted(set(issues))
+                fallback_structured = _build_deterministic_section_fallback(section, grounding, valid_citekeys)
+                if _best_effort_accept(
+                    section, structured, fallback_structured, validation_issues, included_study_count
+                ):
+                    logger.warning(
+                        "Section '%s' still failed completeness checks after retry (%s); keeping best-effort content.",
+                        section,
+                        ", ".join(validation_issues),
+                    )
+                else:
+                    logger.warning(
+                        "Section '%s' still failed completeness checks after retry (%s); using deterministic fallback.",
+                        section,
+                        ", ".join(validation_issues),
+                    )
+                    structured = fallback_structured
+                    used_deterministic_fallback = True
+        structured, content, validation_issues, used_deterministic_fallback = await asyncio.to_thread(
+            _finalize_candidate_sync, structured, validation_issues, used_deterministic_fallback
+        )
         if hasattr(metadata, "cost_usd"):
             metadata.cost_usd = candidate_cost_usd
         return (structured, content, validation_retries, validation_issues, used_deterministic_fallback, metadata)
@@ -676,7 +691,8 @@ async def write_section_with_validation(
         cumulative_cost_usd += float(getattr(metadata, "cost_usd", 0.0) or 0.0)
         fingerprint = _draft_fingerprint(structured)
 
-        score, scored_issues = compute_section_quality_score(
+        score, scored_issues = await asyncio.to_thread(
+            compute_section_quality_score,
             section=section,
             draft=structured,
             rendered=content,

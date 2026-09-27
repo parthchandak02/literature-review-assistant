@@ -29,7 +29,8 @@ import logging
 logger = logging.getLogger(__name__)
 
 _SNAKE_CASE_RE = re.compile(r"\b[a-z][a-z0-9]+_[a-z0-9_]+\b")
-_EXCESSIVE_LIST_RE = re.compile(r"(?:,\s*[^,]{1,80}){20,}")
+_EXCESSIVE_LIST_MIN_ITEMS = 20
+_EXCESSIVE_LIST_MAX_ITEM_CHARS = 80
 _TRAILING_FRAGMENT_RE = re.compile(r"\b(and|or|with|to|for|in|of|by|vs)\s*$", flags=re.IGNORECASE)
 _INTERNAL_ID_RE = re.compile(r"\b(?:Paper_[A-Za-z0-9_-]+|p\d+|[a-f0-9]{8,}-[a-f0-9-]{3,})\b", flags=re.IGNORECASE)
 
@@ -78,11 +79,30 @@ _strip_terminal_citations = strip_terminal_citations
 _split_markdown_paragraphs = split_markdown_paragraphs
 
 
+def has_excessive_comma_list(
+    text: str,
+    min_items: int = _EXCESSIVE_LIST_MIN_ITEMS,
+    max_item_chars: int = _EXCESSIVE_LIST_MAX_ITEM_CHARS,
+) -> bool:
+    """Linear-time equivalent of ``re.search(r"(?:,\\s*[^,]{1,M}){N,}", text)``.
+
+    The regex form backtracks exponentially over the ``\\s*``/``[^,]`` overlap on
+    comma-dense prose that has just under N short items.
+    """
+    run = 0
+    for segment in str(text or "").split(",")[1:]:
+        if segment and run >= min_items - 1:
+            return True
+        stripped_len = len(segment.lstrip())
+        run = run + 1 if segment and stripped_len <= max_item_chars else 0
+    return False
+
+
 def _sanitize_ir_block_text(text: str) -> str:
     """Deterministically sanitize structured block prose before render."""
     cleaned = re.sub(r"[^\x09\x0A\x0D\x20-\x7E]", " ", str(text or ""))
     cleaned = re.sub(r"[ \t]{2,}", " ", cleaned).strip()
-    if len(cleaned) > 900 and _EXCESSIVE_LIST_RE.search(cleaned):
+    if len(cleaned) > 900 and has_excessive_comma_list(cleaned):
         parts = [p.strip() for p in cleaned.split(",") if p.strip()]
         lower_start_ratio = sum(1 for p in parts if p and p[0].islower()) / len(parts) if parts else 0.0
         punctuation_ratio = (

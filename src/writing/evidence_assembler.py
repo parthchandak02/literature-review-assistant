@@ -10,12 +10,12 @@ from pydantic import BaseModel, Field
 from src.extraction.inference_utils import _is_substantive_finding, result_not_extractable_text
 from src.models import SectionBlock, StructuredSectionDraft
 from src.writing.context_builder import StudySummary, WritingGroundingData
+from src.writing.section_validation import has_excessive_comma_list
 
 _NON_ALNUM_RE = re.compile(r"[^a-z0-9]+")
 _TERMINAL_PUNCTUATION = ".!?"
 _RESULTS_REQUIRED_SUBHEADINGS = ("Study Selection", "Study Characteristics", "Synthesis of Findings")
 _INTERNAL_ID_RE = re.compile(r"\b(?:Paper_[A-Za-z0-9_-]+|p\d+|[a-f0-9]{8,}-[a-f0-9-]{3,})\b", flags=re.IGNORECASE)
-_EXCESSIVE_LIST_RE = re.compile(r"(?:,\s*[^,]{1,80}){8,}")
 
 
 def _normalize_title(text: str) -> str:
@@ -140,7 +140,7 @@ def _is_reportable_synthesis_text(text: str) -> bool:
     low = value.lower()
     if _INTERNAL_ID_RE.search(value):
         return False
-    if _EXCESSIVE_LIST_RE.search(value):
+    if has_excessive_comma_list(value, min_items=8):
         return False
     if "key outcome themes:" in low:
         return False
@@ -154,7 +154,7 @@ def _is_reportable_theme(theme: str) -> bool:
     low = value.lower()
     if _INTERNAL_ID_RE.search(value):
         return False
-    if _EXCESSIVE_LIST_RE.search(value):
+    if has_excessive_comma_list(value, min_items=8):
         return False
     if low.startswith(("create ", "generate ", "list ", "write ")):
         return False
