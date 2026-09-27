@@ -502,17 +502,25 @@ def _build_screening_method_description(
     if batch_screen_forwarded > 0:
         # 3-stage funnel: BM25 -> batch pre-ranker -> dual reviewers
         bm25_fwd = batch_screen_forwarded + batch_screen_excluded
+        pre_excluded = max(0, int(total_screened or 0) - bm25_fwd)
         threshold_pct = int(batch_screen_threshold * 100)
         _batch_kappa = (
-            f"Inter-rater reliability was measured using Cohen's kappa on the "
-            f"{batch_screen_forwarded} records evaluated by the dual reviewers."
+            "Inter-rater reliability was measured using Cohen's kappa on the records evaluated by both reviewers."
             if _kappa_usable
             else "Inter-rater reliability was not formally computed for this run."
         )
+        _pre_screen = (
+            f"First, automated pre-screening evaluated all {total_screened} records and excluded {pre_excluded} "
+            "using deterministic eligibility filters (for example, records without an abstract or with an "
+            f"ineligible publication type) and relevance ranking, routing {bm25_fwd} records to a priority "
+            "scoring stage. "
+            if pre_excluded > 0
+            else f"First, a relevance pre-screen evaluated all records, routing {bm25_fwd} records to a "
+            "priority scoring stage. "
+        )
         return (
             "Title and abstract screening used a three-stage approach. "
-            f"First, a relevance pre-screen evaluated all records, routing "
-            f"{bm25_fwd} records to a priority scoring stage. "
+            f"{_pre_screen}"
             f"The priority scoring stage evaluated all {bm25_fwd} records and excluded "
             f"{batch_screen_excluded} records with low relevance scores (threshold < {threshold_pct}%), "
             f"forwarding {batch_screen_forwarded} records for independent dual screening. "
