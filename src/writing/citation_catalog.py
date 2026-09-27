@@ -13,6 +13,7 @@ from src.models import (
     CitationEntryRecord,
     StructuredSectionDraft,
 )
+from src.models.papers import compute_display_label
 
 logger = logging.getLogger(__name__)
 
@@ -207,8 +208,9 @@ def _make_citekey_base(paper: CandidatePaper, index: int) -> str:
     """
     year_str = str(paper.year) if paper.year else "nd"
 
-    if paper.display_label:
-        from_label = _sanitize_citekey_token(f"{paper.display_label}{year_str}")
+    label = paper.display_label or compute_display_label(paper)
+    if label:
+        from_label = _sanitize_citekey_token(f"{label}{year_str}")
         if from_label:
             return from_label[:20]
 
