@@ -338,6 +338,7 @@ class SectionWriter:
 
         client = get_chat_client(timeout_seconds=self._timeout_seconds)
         last_error: Exception | None = None
+        best_near_miss: StructuredAbstractOutput | None = None
         for attempt in range(2):
             started = time.perf_counter()
             try:
@@ -358,40 +359,84 @@ class SectionWriter:
                         retries,
                     )
                 normalized = parsed.normalized()
-                normalized.validate_word_band(min_words=min_words, max_words=max_words)
-                structured = normalized.to_section_draft()
-                cost_usd = LLMProvider.estimate_cost_usd(
+                try:
+                    normalized.validate_word_band(min_words=min_words, max_words=max_words)
+                except ValueError:
+                    words = normalized.body_word_count()
+                    if len(normalized.keywords) >= 3 and int(min_words * 0.75) <= words <= int(max_words * 1.25):
+                        best_near_miss = normalized
+                    raise
+                return self._abstract_result(
+                    normalized,
                     full_model,
                     total_tokens_in,
                     total_tokens_out,
                     total_cache_write,
                     total_cache_read,
+                    elapsed_ms,
                 )
-                metadata = SectionWriteMetadata(
-                    model=full_model,
-                    tokens_in=total_tokens_in,
-                    tokens_out=total_tokens_out,
-                    cost_usd=cost_usd,
-                    latency_ms=elapsed_ms,
-                    cache_read_tokens=total_cache_read,
-                    cache_write_tokens=total_cache_write,
-                )
-                return structured, metadata
             except Exception as exc:
                 elapsed_ms += int((time.perf_counter() - started) * 1000)
                 last_error = exc
+                logger.warning("Abstract attempt %d rejected: %s", attempt + 1, exc)
                 if attempt == 0:
                     retry_prompt = (
                         prompt
-                        + "\n\nRETRY: Previous output failed abstract word-band or schema constraints. "
-                        + f"Ensure body word count is strictly between {min_words} and {max_words}, include all fields, "
-                        + "and keep keywords concise and non-empty."
+                        + "\n\nRETRY: Previous output was rejected ("
+                        + str(exc)[:200]
+                        + f"). Ensure body word count is strictly between {min_words} and {max_words}, "
+                        + "include all fields, and keep keywords concise and non-empty."
                     )
                     continue
+                if best_near_miss is not None:
+                    logger.warning(
+                        "Abstract missed the %d-%d word band (%d words); keeping model abstract instead of template.",
+                        min_words,
+                        max_words,
+                        best_near_miss.body_word_count(),
+                    )
+                    return self._abstract_result(
+                        best_near_miss,
+                        full_model,
+                        total_tokens_in,
+                        total_tokens_out,
+                        total_cache_write,
+                        total_cache_read,
+                        elapsed_ms,
+                    )
                 raise RuntimeError(
                     "Section 'abstract' failed structured output validation after bounded retries."
                 ) from exc
         raise RuntimeError("Section 'abstract' failed structured output validation.") from last_error
+
+    @staticmethod
+    def _abstract_result(
+        normalized: StructuredAbstractOutput,
+        full_model: str,
+        total_tokens_in: int,
+        total_tokens_out: int,
+        total_cache_write: int,
+        total_cache_read: int,
+        elapsed_ms: int,
+    ) -> tuple[StructuredSectionDraft, SectionWriteMetadata]:
+        structured = normalized.to_section_draft()
+        cost_usd = LLMProvider.estimate_cost_usd(
+            full_model,
+            total_tokens_in,
+            total_tokens_out,
+            total_cache_write,
+            total_cache_read,
+        )
+        metadata = SectionWriteMetadata(
+            model=full_model,
+            tokens_in=total_tokens_in,
+            tokens_out=total_tokens_out,
+            cost_usd=cost_usd,
+            latency_ms=elapsed_ms,
+            cache_read_tokens=total_cache_read,
+            cache_write_tokens=total_cache_write,
+        )
+        return structured, metadata
 
     async def write_section_async(
         self,
