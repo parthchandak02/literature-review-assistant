@@ -43,7 +43,7 @@ def test_model_settings_disables_thinking_for_fireworks_deepseek_structured() ->
     settings = _model_settings(
         temperature=0.1,
         timeout=60.0,
-        model="fireworks:accounts/fireworks/models/deepseek-v4-flash-0731",
+        model="fireworks:accounts/fireworks/models/deepseek-v4p1-flash",
         structured=True,
     )
     assert settings.get("extra_body") == {"thinking": {"type": "disabled"}}
@@ -59,14 +59,31 @@ def test_model_settings_disables_thinking_for_deepseek_structured() -> None:
     assert settings.get("extra_body") == {"thinking": {"type": "disabled"}}
 
 
-def test_model_settings_keeps_thinking_for_deepseek_plain_text() -> None:
+def test_model_settings_disables_thinking_for_deepseek_plain_text() -> None:
     settings = _model_settings(
         temperature=0.1,
         timeout=60.0,
         model="deepseek:deepseek-v4-flash",
         structured=False,
     )
-    assert settings.get("extra_body") is None
+    assert settings.get("extra_body") == {"thinking": {"type": "disabled"}}
+
+
+def test_model_settings_bounds_reasoning_for_fireworks_glm() -> None:
+    for structured in (True, False):
+        settings = _model_settings(
+            temperature=0.2,
+            timeout=60.0,
+            model="fireworks:accounts/fireworks/models/glm-5p3",
+            structured=structured,
+        )
+        assert settings.get("extra_body") == {"reasoning_effort": "medium"}
+
+
+def test_model_settings_leaves_other_models_untouched() -> None:
+    for model in ("fireworks:accounts/fireworks/models/gpt-oss-120b", "google-gla:gemini-2.5-flash"):
+        settings = _model_settings(temperature=0.2, timeout=60.0, model=model, structured=True)
+        assert settings.get("extra_body") is None
 
 
 async def test_complete_uses_structured_dict_for_non_google(monkeypatch) -> None:

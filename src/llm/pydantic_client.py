@@ -51,6 +51,9 @@ _DEEPSEEK_PREFIX = "deepseek:"
 # DeepSeek V4 enables thinking by default; tool_choice=required (StructuredDict) fails unless disabled.
 # https://api-docs.deepseek.com/guides/thinking_mode
 _DEEPSEEK_DISABLE_THINKING_EXTRA_BODY: dict[str, object] = {"thinking": {"type": "disabled"}}
+# GLM-5.x on Fireworks is thinking-only (rejects disabling). Default effort spends ~10x the
+# output tokens and latency of "medium" on writing/extraction prompts (measured 2026-09-26).
+_GLM_REASONING_EXTRA_BODY: dict[str, object] = {"reasoning_effort": "medium"}
 
 # ---------------------------------------------------------------------------
 # Retry configuration
@@ -150,6 +153,19 @@ def _needs_thinking_disabled(model: str) -> bool:
     )
 
 
+def _is_fireworks_glm(model: str) -> bool:
+    return model.startswith("fireworks:") and "/glm-" in model.lower()
+
+
+def reasoning_extra_body(model: str) -> dict[str, object] | None:
+    """Provider request body that bounds hidden reasoning for thinking-by-default models."""
+    if _needs_thinking_disabled(model):
+        return _DEEPSEEK_DISABLE_THINKING_EXTRA_BODY
+    if _is_fireworks_glm(model):
+        return _GLM_REASONING_EXTRA_BODY
+    return None
+
+
 def _model_settings(
     *,
     temperature: float,
@@ -159,8 +175,9 @@ def _model_settings(
 ) -> ModelSettings:
     """Build per-request ModelSettings, applying provider-specific structured-output fixes."""
     settings: ModelSettings = ModelSettings(temperature=temperature, timeout=timeout)
-    if structured and _needs_thinking_disabled(model):
-        settings["extra_body"] = _DEEPSEEK_DISABLE_THINKING_EXTRA_BODY
+    extra_body = reasoning_extra_body(model)
+    if extra_body is not None:
+        settings["extra_body"] = extra_body
     return settings
 
 
