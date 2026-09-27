@@ -120,7 +120,7 @@ agents:
     model: "google:gemini-3.1-flash-image-preview"
     temperature: 0.2
   research_diagram_critic:
-    model: "google:gemini-2.5-flash"
+    model: "google:gemini-3.5-flash"
     temperature: 0.1
   narrative:
     model: "fireworks:accounts/fireworks/models/deepseek-v4p1-flash"
