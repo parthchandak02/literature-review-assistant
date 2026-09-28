@@ -6,6 +6,7 @@ import { RunView } from "./RunView"
 import type { RunTab, SelectedRun } from "@/context/runSessionTypes"
 
 vi.mock("@/views/ActivityView", () => ({ ActivityView: () => <div>activity-view</div> }))
+vi.mock("@/hooks/useScreeningReview", () => ({ useScreeningPendingCount: () => null }))
 vi.mock("@/hooks/useHistoricalEvents", () => ({
   useHistoricalEvents: () => ({ data: [], isPending: false }),
 }))

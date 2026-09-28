@@ -1,50 +1,83 @@
-import { CheckCircle } from "lucide-react"
-import { cn } from "@/lib/utils"
+import { AlertTriangle, CheckCircle } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Spinner } from "@/components/ui/feedback"
+import { pluralize } from "./screeningModel"
+
+export type ApprovalStatus =
+  | { kind: "idle" }
+  | { kind: "approving" }
+  | { kind: "resuming" }
+  | { kind: "approveFailed"; message: string }
+  | { kind: "resumeFailed"; message: string }
+  | { kind: "done" }
 
 export interface ScreeningApprovalBarProps {
-  approved: boolean
-  approving: boolean
+  status: ApprovalStatus
   overrideCount: number
   onApprove: () => void
+  onRetryResume: () => void
 }
 
-export function ScreeningApprovalBar({
-  approved,
-  approving,
-  overrideCount,
-  onApprove,
-}: ScreeningApprovalBarProps) {
-  if (approved) {
+export function ScreeningApprovalBar({ status, overrideCount, onApprove, onRetryResume }: ScreeningApprovalBarProps) {
+  if (status.kind === "done") {
     return (
-      <div className="flex items-center gap-2 p-3 rounded-lg bg-intent-success-subtle border border-intent-success-border text-sm text-intent-success">
-        <CheckCircle className="h-4 w-4" />
-        Screening approved -- workflow is resuming extraction...
+      <div role="status" className="flex items-center gap-2 text-sm text-intent-success-text">
+        <CheckCircle aria-hidden className="size-4" />
+        Screening approved. Extraction is starting.
       </div>
     )
   }
 
+  if (status.kind === "resumeFailed" || status.kind === "resuming") {
+    return (
+      <div className="flex items-center gap-3 flex-wrap">
+        {status.kind === "resumeFailed" && (
+          <div role="alert" className="flex items-start gap-2 text-sm text-intent-danger-text flex-1 min-w-0">
+            <AlertTriangle aria-hidden className="size-4 mt-0.5 shrink-0" />
+            <span>
+              Screening approved, but the run didn&apos;t resume: {status.message}
+            </span>
+          </div>
+        )}
+        <Button
+          type="button"
+          size="lg"
+          className="ml-auto"
+          disabled={status.kind === "resuming"}
+          onClick={onRetryResume}
+        >
+          {status.kind === "resuming" && <Spinner size="sm" />}
+          {status.kind === "resuming" ? "Resuming..." : "Retry resume"}
+        </Button>
+      </div>
+    )
+  }
+
+  const approving = status.kind === "approving"
   return (
     <div className="flex items-center gap-3 flex-wrap">
-      <Button
-        onClick={onApprove}
-        disabled={approving}
-        variant="warning"
-        size="lg"
-        className={cn(
-          "px-4",
-          approving && "cursor-not-allowed",
-        )}
-      >
-        {approving && <Spinner size="sm" />}
-        {approving ? "Approving..." : "Approve Screening and Resume Extraction"}
-      </Button>
-      {overrideCount > 0 && (
-        <span className="text-xs text-intent-primary font-medium">
-          {overrideCount} override{overrideCount !== 1 ? "s" : ""} will be sent for active learning
+      {status.kind === "approveFailed" ? (
+        <div role="alert" className="flex items-start gap-2 text-sm text-intent-danger-text flex-1 min-w-0">
+          <AlertTriangle aria-hidden className="size-4 mt-0.5 shrink-0" />
+          <span>Approval failed: {status.message}. Your overrides are kept.</span>
+        </div>
+      ) : (
+        <span className="text-sm text-muted flex-1 min-w-0">
+          {overrideCount > 0
+            ? `${pluralize(overrideCount, "override")} will be applied when you approve.`
+            : "No overrides. The AI decisions will be used as they are."}
         </span>
       )}
+      <Button type="button" size="lg" disabled={approving} onClick={onApprove}>
+        {approving && <Spinner size="sm" />}
+        {approving
+          ? "Approving..."
+          : status.kind === "approveFailed"
+            ? "Retry approval"
+            : overrideCount > 0
+              ? `Approve screening (${pluralize(overrideCount, "override")})`
+              : "Approve screening"}
+      </Button>
     </div>
   )
 }

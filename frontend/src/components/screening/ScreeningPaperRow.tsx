@@ -1,159 +1,205 @@
-import { useState } from "react"
-import { ChevronDown, ChevronUp } from "lucide-react"
+import { memo } from "react"
+import { ChevronDown, ChevronRight } from "lucide-react"
 import { cn } from "@/lib/utils"
-import { Badge } from "@/components/ui/badge"
+import { humanizeStage } from "@/lib/humanize"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
-import type { ScreenedPaper, ScreeningOverride } from "@/lib/api"
-import { ConfidencePill, DecisionBadge } from "./screeningBadges"
+import type { ScreeningOverride } from "@/lib/api"
+import { ConfidenceMeter, DecisionBadge, OverrideBadge } from "./screeningBadges"
+import { ROW_DATA_ATTRIBUTE } from "./screeningKeyboard"
+import {
+  effectiveDecision,
+  humanizeDecidedBy,
+  humanizeExclusionReason,
+  isHumanDecision,
+  screeningRowDomId,
+  type HumanDecision,
+  type ScreeningRowData,
+} from "./screeningModel"
 
 export interface ScreeningPaperRowProps {
-  paper: ScreenedPaper
+  row: ScreeningRowData
   override: ScreeningOverride | null
-  onOverride: (override: ScreeningOverride | null) => void
+  focused: boolean
+  expanded: boolean
+  selected: boolean
+  onDecide: (key: string, decision: HumanDecision) => void
+  onClearOverride: (key: string) => void
+  onReasonChange: (key: string, reason: string) => void
+  onToggleExpanded: (key: string) => void
+  onToggleSelected: (key: string) => void
+  onFocusRow: (key: string) => void
 }
 
-export function ScreeningPaperRow({ paper, override, onOverride }: ScreeningPaperRowProps) {
-  const [expanded, setExpanded] = useState(false)
-  const [reason, setReason] = useState("")
-
-  const handleOverride = (decision: "include" | "exclude") => {
-    if (override?.decision === decision) {
-      onOverride(null)
-    } else {
-      onOverride({ paper_id: paper.paper_id, decision, reason: reason || undefined })
-    }
-  }
-
-  const handleReasonChange = (val: string) => {
-    setReason(val)
-    if (override) {
-      onOverride({ ...override, reason: val || undefined })
-    }
-  }
+export const ScreeningPaperRow = memo(function ScreeningPaperRow({
+  row,
+  override,
+  focused,
+  expanded,
+  selected,
+  onDecide,
+  onClearOverride,
+  onReasonChange,
+  onToggleExpanded,
+  onToggleSelected,
+  onFocusRow,
+}: ScreeningPaperRowProps) {
+  const { key, paper, title, authors, abstract, reason } = row
+  const rowId = screeningRowDomId(key)
+  const detailsId = `${rowId}-details`
+  const finalDecision = effectiveDecision(paper.decision, override)
+  const innerTab = focused ? 0 : -1
+  const displayTitle = title || "(no title)"
+  const meta = [paper.year ? String(paper.year) : null, paper.source_database || null].filter(Boolean).join(" · ")
 
   return (
-    <div className={cn(
-      "border rounded-lg overflow-hidden",
-      override ? "border-intent-primary-border bg-intent-primary-subtle" : "border-border bg-card/40"
-    )}>
-      <button
-        className="w-full flex items-start gap-3 px-4 py-3 text-left row-hover"
-        onClick={() => setExpanded((v) => !v)}
-      >
-        <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-2 flex-wrap mb-1">
-            <DecisionBadge decision={paper.decision} />
-            {override && (
-              <Badge variant="primary">
-                Override: {override.decision}
-              </Badge>
-            )}
-            <ConfidencePill confidence={paper.confidence} />
-            {paper.year && (
-              <span className="text-xs text-muted font-mono">{paper.year}</span>
-            )}
-            <span className="text-xs text-muted font-mono">{paper.source_database}</span>
-          </div>
-          <p className="text-sm text-foreground font-medium leading-snug line-clamp-2">
-            {paper.title || "(no title)"}
-          </p>
-          {paper.authors && (
-            <p className="text-xs text-muted mt-0.5 line-clamp-1">{paper.authors}</p>
-          )}
-        </div>
-        <div className="shrink-0 text-muted mt-0.5">
+    <div
+      role="row"
+      id={rowId}
+      {...{ [ROW_DATA_ATTRIBUTE]: "" }}
+      tabIndex={focused ? 0 : -1}
+      aria-selected={selected}
+      aria-label={displayTitle}
+      onFocus={() => onFocusRow(key)}
+      className={cn(
+        "rounded-panel border transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+        "focus-within:border-border-strong",
+        override ? "border-intent-primary-border bg-intent-primary-subtle" : "border-border bg-card/40",
+      )}
+    >
+      <div role="gridcell" className="flex items-start gap-3 px-3 py-2.5">
+        <input
+          type="checkbox"
+          tabIndex={innerTab}
+          checked={selected}
+          onChange={() => onToggleSelected(key)}
+          aria-label={`Select ${displayTitle}`}
+          className="mt-1 size-4 shrink-0 accent-intent-primary cursor-pointer"
+        />
+        <button
+          type="button"
+          tabIndex={innerTab}
+          aria-expanded={expanded}
+          aria-controls={detailsId}
+          onClick={() => onToggleExpanded(key)}
+          className="flex-1 min-w-0 flex items-start gap-1.5 text-left rounded-control focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        >
           {expanded ? (
-            <ChevronUp className="h-4 w-4" />
+            <ChevronDown aria-hidden className="size-4 mt-0.5 shrink-0 text-muted" />
           ) : (
-            <ChevronDown className="h-4 w-4" />
+            <ChevronRight aria-hidden className="size-4 mt-0.5 shrink-0 text-muted" />
           )}
+          <span className="min-w-0">
+            <span className={cn("block text-sm font-medium text-foreground leading-snug", !expanded && "line-clamp-2")}>
+              {displayTitle}
+            </span>
+            {(meta || authors) && (
+              <span className="block text-xs text-muted mt-0.5 line-clamp-1">
+                {[meta, authors].filter(Boolean).join(" · ")}
+              </span>
+            )}
+          </span>
+        </button>
+        <div className="flex items-center gap-2 shrink-0 flex-wrap justify-end">
+          <DecisionBadge decision={paper.decision} prefix={isHumanDecision(paper) ? "Human" : "AI"} />
+          {override && <OverrideBadge decision={override.decision} />}
+          <ConfidenceMeter confidence={paper.confidence} />
+          <div className="flex items-center gap-1" role="group" aria-label="Your decision">
+            <Button
+              type="button"
+              size="xs"
+              tabIndex={innerTab}
+              variant={finalDecision === "include" ? "success" : "outline"}
+              aria-pressed={finalDecision === "include"}
+              title="Include (i)"
+              onClick={() => onDecide(key, "include")}
+            >
+              Include
+            </Button>
+            <Button
+              type="button"
+              size="xs"
+              tabIndex={innerTab}
+              variant={finalDecision === "exclude" ? "destructive" : "outline"}
+              aria-pressed={finalDecision === "exclude"}
+              title="Exclude (e)"
+              onClick={() => onDecide(key, "exclude")}
+            >
+              Exclude
+            </Button>
+          </div>
         </div>
-      </button>
+      </div>
 
       {expanded && (
-        <div className="px-4 pb-4 border-t border-border pt-3 space-y-3">
-          {paper.reason && (
-            <div>
-              <p className="text-xs font-semibold text-muted mb-1">AI Rationale</p>
-              <p className="text-sm text-foreground leading-relaxed">{paper.reason}</p>
-            </div>
+        <div role="gridcell" id={detailsId} className="px-4 pb-4 pt-3 ml-7 border-t border-border space-y-3">
+          {reason && (
+            <section>
+              <h4 className="text-xs font-semibold text-muted mb-1">AI reason</h4>
+              <p className="text-sm text-foreground leading-relaxed whitespace-pre-line">{reason}</p>
+            </section>
           )}
-          {paper.abstract && (
-            <div>
-              <p className="text-xs font-semibold text-muted mb-1">Abstract</p>
-              <p className="text-sm text-muted leading-relaxed line-clamp-6">
-                {paper.abstract}
-              </p>
-            </div>
-          )}
-          {paper.doi && (
-            <div>
-              <p className="text-xs font-semibold text-muted mb-1">DOI</p>
-              <a
-                href={`https://doi.org/${paper.doi}`}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="text-xs text-intent-primary hover:text-intent-primary font-mono"
-                onClick={(e) => e.stopPropagation()}
-              >
-                {paper.doi}
-              </a>
-            </div>
-          )}
-          <div>
-            <p className="text-xs font-semibold text-muted mb-1">Stage</p>
-            <span className="text-xs text-muted font-mono">{paper.stage}</span>
-          </div>
-
-          <div className="pt-2 border-t border-border">
-            <p className="text-xs font-semibold text-muted mb-2">Override AI Decision</p>
-            <div className="flex items-center gap-2 flex-wrap">
-              <Button
-                onClick={(e) => { e.stopPropagation(); handleOverride("include") }}
-                size="xs"
-                variant={override?.decision === "include" ? "success" : "outline"}
-                className={cn(
-                  "px-2.5",
-                  override?.decision !== "include" && "hover:border-intent-success-border"
-                )}
-              >
-                Force Include
-              </Button>
-              <Button
-                onClick={(e) => { e.stopPropagation(); handleOverride("exclude") }}
-                size="xs"
-                variant={override?.decision === "exclude" ? "destructive" : "outline"}
-                className={cn(
-                  "px-2.5",
-                  override?.decision !== "exclude" && "hover:border-intent-danger-border"
-                )}
-              >
-                Force Exclude
-              </Button>
-              {override && (
-                <Button
-                  onClick={(e) => { e.stopPropagation(); onOverride(null); setReason("") }}
-                  variant="outline"
-                  size="xs"
-                  className="px-2.5 text-muted hover:text-foreground"
-                >
-                  Clear Override
-                </Button>
-              )}
-            </div>
-            {override && (
-              <Input
-                placeholder="Reason for override (optional)..."
-                value={reason}
-                onChange={(e) => handleReasonChange(e.target.value)}
-                onClick={(e) => e.stopPropagation()}
-                className="mt-2 h-8 text-xs bg-surface-2 border-border placeholder:text-muted focus-visible:ring-intent-primary-border"
-              />
+          <section>
+            <h4 className="text-xs font-semibold text-muted mb-1">Abstract</h4>
+            <p className="text-sm text-foreground leading-relaxed whitespace-pre-line">
+              {abstract || "No abstract available."}
+            </p>
+          </section>
+          <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-xs">
+            <dt className="text-muted">Stage</dt>
+            <dd className="text-foreground">{humanizeStage(paper.stage) || "Unknown"}</dd>
+            {paper.decided_by && (
+              <>
+                <dt className="text-muted">Decided by</dt>
+                <dd className="text-foreground">{humanizeDecidedBy(paper.decided_by)}</dd>
+              </>
             )}
-          </div>
+            {paper.exclusion_reason && (
+              <>
+                <dt className="text-muted">Exclusion reason</dt>
+                <dd className="text-foreground">{humanizeExclusionReason(paper.exclusion_reason)}</dd>
+              </>
+            )}
+            {paper.doi && (
+              <>
+                <dt className="text-muted">DOI</dt>
+                <dd>
+                  <a
+                    href={`https://doi.org/${paper.doi}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    tabIndex={innerTab}
+                    className="text-intent-primary-text hover:underline font-mono"
+                  >
+                    {paper.doi}
+                  </a>
+                </dd>
+              </>
+            )}
+          </dl>
+          {override && (
+            <div className="flex items-center gap-2 pt-2 border-t border-border">
+              <Input
+                aria-label="Reason for override"
+                placeholder="Reason for override (optional)"
+                value={override.reason ?? ""}
+                tabIndex={innerTab}
+                onChange={(e) => onReasonChange(key, e.target.value)}
+                className="h-8 text-xs flex-1"
+              />
+              <Button
+                type="button"
+                variant="ghost"
+                size="xs"
+                tabIndex={innerTab}
+                onClick={() => onClearOverride(key)}
+              >
+                Clear override
+              </Button>
+            </div>
+          )}
         </div>
       )}
     </div>
   )
-}
+})

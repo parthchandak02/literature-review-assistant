@@ -114,6 +114,7 @@ export {
   type ValidationCheck,
   type ScreenedPaper,
   type ScreeningSummary,
+  type ScreeningThresholds,
   type ScreeningOverride,
   type KnowledgeGraph,
   type KnowledgeGraphNode,

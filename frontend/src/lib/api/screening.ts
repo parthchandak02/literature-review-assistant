@@ -10,15 +10,28 @@ export interface ScreenedPaper {
   doi: string | null
   abstract: string | null
   stage: string
+  /** Same as final_decision; kept for older clients. */
   decision: "include" | "uncertain" | "exclude"
+  final_decision?: "include" | "uncertain" | "exclude"
   reason: string | null
   confidence: number | null
+  exclusion_reason?: string | null
+  /** reviewer_type of the deciding row, e.g. human_override, adjudicator, screening_reviewer_a. */
+  decided_by?: string | null
+}
+
+export interface ScreeningThresholds {
+  include: number
+  exclude: number
+  source: "calibration" | "settings"
 }
 
 export interface ScreeningSummary {
   run_id: string
+  /** Number of screened papers (one row per paper). */
   total: number
   papers: ScreenedPaper[]
+  thresholds?: ScreeningThresholds | null
   instructions: string
 }
 

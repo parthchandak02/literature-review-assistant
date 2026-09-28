@@ -16,6 +16,7 @@ import type { ReviewEvent } from "@/lib/api"
 import { useHistoricalEvents } from "@/hooks/useHistoricalEvents"
 import type { CostStats } from "@/hooks/useCostStats"
 import { useRunChrome } from "@/hooks/useRunChrome"
+import { useScreeningPendingCount } from "@/hooks/useScreeningReview"
 import { activeSubStatus, buildPhaseStates, formatSubStatus } from "@/lib/activityPhaseState"
 import type { DraftConfigContext } from "@/views/ConfigView"
 import type { ProsperoRegistration, ScreeningOverride } from "@/lib/api"
@@ -176,6 +177,8 @@ export function RunView({
     return sub ? formatSubStatus(sub) : null
   }, [isViewingLiveRun, chrome.isRunning, events, nowTick])
 
+  const pendingScreeningCount = useScreeningPendingCount(run.runId, gate === "awaiting_review")
+
   const runKey = run.workflowId ?? run.runId
   const routedRef = useRef<string | null>(null)
   const suppressedRunRef = useRef<string | null>(null)
@@ -209,7 +212,12 @@ export function RunView({
         status={status}
         subStatus={subStatus}
       />
-      <RunGateBanner gate={gate} activeTab={activeTab} onTabChange={onTabChange} />
+      <RunGateBanner
+        gate={gate}
+        activeTab={activeTab}
+        onTabChange={onTabChange}
+        count={gate === "awaiting_review" ? pendingScreeningCount : null}
+      />
 
       {/* Tab content -- pb accounts for iOS/Chrome bottom safe area (home bar, bottom nav) */}
       <div

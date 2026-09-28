@@ -1,4 +1,4 @@
-import { useCallback } from "react"
+import { useCallback, useRef } from "react"
 import { useQueryClient } from "@tanstack/react-query"
 import { toast } from "sonner"
 import {
@@ -13,6 +13,20 @@ import type { ProsperoRegistration, RunResponse, ScreeningOverride } from "@/lib
 import type { SelectedRun } from "@/context/runSessionTypes"
 import { selectedRunToHistoryEntry } from "@/lib/runSessionSelection"
 import { runConfigQueryKey } from "@/hooks/useRunConfig"
+
+/** Approval was saved but the run didn't resume. Retrying must not re-post the approval. */
+export class ScreeningResumeError extends Error {
+  readonly approved = true
+
+  constructor(message: string, cause?: unknown) {
+    super(message, { cause })
+    this.name = "ScreeningResumeError"
+  }
+}
+
+export function isScreeningResumeError(error: unknown): error is ScreeningResumeError {
+  return error instanceof Error && error.name === "ScreeningResumeError"
+}
 
 export interface RunSessionGateActionDeps {
   selectedRun: SelectedRun | null
@@ -99,52 +113,67 @@ export function useRunGateActions(deps: RunSessionGateActionDeps) {
     [invalidateRegistrationQueries],
   )
 
+  const approvedScreeningRuns = useRef(new Set<string>())
+
+  const resumeAfterScreeningApproval = useCallback(async () => {
+    let entry = resolveHistoryEntry()
+    if (!entry && selectedRun?.workflowId) {
+      const history = await fetchHistory()
+      const match = history.find((item) => item.workflow_id === selectedRun.workflowId)
+      if (match) {
+        entry = {
+          ...match,
+          db_path: match.db_path || selectedRun.dbPath || "",
+        }
+      }
+    }
+
+    if (entry?.db_path) {
+      try {
+        const res = await resumeRun(entry)
+        handleResumeRun(res, entry.workflow_id)
+        void queryClient.invalidateQueries({ queryKey: ["history"] })
+        toast.success("Screening approved, resuming research")
+        return
+      } catch (error) {
+        const msg = error instanceof Error ? error.message : String(error)
+        if (!msg.includes("409")) throw error
+      }
+    }
+
+    if (entry?.workflow_id) {
+      const active = await fetchActiveRun(entry.workflow_id).catch(() => null)
+      if (active) {
+        handleResumeRun(active, entry.workflow_id)
+        void queryClient.invalidateQueries({ queryKey: ["history"] })
+        toast.success("Screening approved, resuming research")
+        return
+      }
+    }
+
+    void queryClient.invalidateQueries({ queryKey: ["history"] })
+    toast.success("Screening approved")
+  }, [handleResumeRun, queryClient, selectedRun, resolveHistoryEntry])
+
+  /**
+   * Posts the approval once per run, then resumes. A resume failure throws ScreeningResumeError;
+   * calling again skips the approval POST and retries only the resume.
+   */
   const handleApproveScreeningAndResume = useCallback(
     async (runId: string, overrides?: ScreeningOverride[]) => {
-      await approveScreening(runId, overrides)
-
-      let entry = resolveHistoryEntry()
-      if (!entry && selectedRun?.workflowId) {
-        const history = await fetchHistory()
-        const match = history.find((item) => item.workflow_id === selectedRun.workflowId)
-        if (match) {
-          entry = {
-            ...match,
-            db_path: match.db_path || selectedRun.dbPath || "",
-          }
-        }
+      if (!approvedScreeningRuns.current.has(runId)) {
+        await approveScreening(runId, overrides)
+        approvedScreeningRuns.current.add(runId)
       }
-
-      if (entry?.db_path) {
-        try {
-          const res = await resumeRun(entry)
-          handleResumeRun(res, entry.workflow_id)
-          void queryClient.invalidateQueries({ queryKey: ["history"] })
-          toast.success("Screening approved, resuming research")
-          return
-        } catch (error) {
-          const msg = error instanceof Error ? error.message : String(error)
-          if (!msg.includes("409")) {
-            toast.error(msg || "Failed to resume workflow after screening approval")
-            throw error
-          }
-        }
+      try {
+        await resumeAfterScreeningApproval()
+      } catch (error) {
+        const msg = error instanceof Error ? error.message : String(error)
+        throw new ScreeningResumeError(msg || "Failed to resume workflow after screening approval", error)
       }
-
-      if (entry?.workflow_id) {
-        const active = await fetchActiveRun(entry.workflow_id).catch(() => null)
-        if (active) {
-          handleResumeRun(active, entry.workflow_id)
-          void queryClient.invalidateQueries({ queryKey: ["history"] })
-          toast.success("Screening approved, resuming research")
-          return
-        }
-      }
-
-      void queryClient.invalidateQueries({ queryKey: ["history"] })
-      toast.success("Screening approved")
+      approvedScreeningRuns.current.delete(runId)
     },
-    [handleResumeRun, queryClient, selectedRun, resolveHistoryEntry],
+    [resumeAfterScreeningApproval],
   )
 
   return {

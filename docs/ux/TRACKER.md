@@ -16,13 +16,13 @@ Note: sidebar SHL rows run in Sprint 2 and app-shell and settings rows in Sprint
 
 | ID | Sev | Where | Issue | Fix | Sprint | Status | Commit |
 |---|---|---|---|---|---|---|---|
-| BE-01 | H | wf-0003 Activity | Error event emitted for config_ready gate status | Don't emit error event for gate statuses | 2 | todo | |
+| BE-01 | H | wf-0003 Activity | Error event emitted for config_ready gate status | Don't emit error event for gate statuses | 2 | done | fbf8640 |
 | ACT-01 | H | wf-0003 Activity | config_ready run lands on Activity, not Config | Route config_ready to Config tab | 2 | done | sprint-2 |
 | ACT-02 | H | Run chrome funnel strip | The strip reads `1,716 retrieved > 1,548 deduped > … > 6 inclu` and cuts off the **one number users care about**. It is 11px mono with seven colours and `>` separators. | Lead with the outcome: **"6 included"** from 1,716 records. Put the full funnel in a hover popover or the PRISMA figure. | 2 | done | sprint-2 |
 | SHL-01 | H | Sidebar | Completed run #1 sits under "Reviews", while the **"Completed (0)"** lane is empty. The information architecture contradicts itself. | Auto-file completed runs into Completed, or drop the lane and use a status filter. | 2 | done | sprint-2 |
 | SHL-02 | M | Sidebar cards | #2 and #3 both read "What hospital-based and…". Two truncated lines make them indistinguishable. Config-state cards show "0 found → 0 included", which is noise. | Give titles three lines or a smart abbreviation, show the full title on hover, and hide the funnel until search has run. | 2 | done | sprint-2 |
-| BE-02 | M | Data table | `students&amp;apos;` shows **undecoded HTML entities**. Country, Full-text, Primary Status ("unknown") and RoB Source are empty or "--" for nearly every row. | Decode entities at ingest. Auto-hide columns with no data and add a Columns toggle. | 2 | todo | |
-| BE-03 | M | Manuscript | Abstract template leakage (content pipeline) | Detect/replace template text in abstract writer | 2 | todo | |
+| BE-02 | M | Data table | `students&amp;apos;` shows **undecoded HTML entities**. Country, Full-text, Primary Status ("unknown") and RoB Source are empty or "--" for nearly every row. | Decode entities at ingest. Auto-hide columns with no data and add a Columns toggle. | 2 | done | fbf8640 |
+| BE-03 | M | Manuscript | Abstract template leakage (content pipeline) | Detect/replace template text in abstract writer | 2 | done | fbf8640 |
 | RES-01 | M | Manuscript | Manuscript measure ~150ch; no draft-quality chip | 68ch column; warning chip on template text | 5 | todo | |
 | CST-01 | M | Cost chart | Raw labels such as "Phase 6f Custom Diagram Drawing" wrap to four lines. The top bar is **grey** while smaller ones are orange or red, so colour emphasis is inverted. | Use short human labels, one hue, and highlight the top bar. | 4 | todo | |
 | ACT-03 | M | Run tabs | Five equal full-width tabs (about 230px each, 38px tall) create a heavy band above every view. | Use underline tabs with left-aligned, content-width items, and move the Download CTA onto the same row on the right. | 2 | done | sprint-2 |
@@ -87,16 +87,16 @@ Note: sidebar SHL rows run in Sprint 2 and app-shell and settings rows in Sprint
 | LOG-07 | L | `LogStream.tsx:163` | Routine status lines are amber italic, which causes warning fatigue. | Use muted styling, and keep amber for `warn` only. | 6 | todo | |
 | LOG-08 | L | `logLine.ts:259` | Reasons are cut at 95 characters with no ellipsis. | Add "…" and row expand. | 6 | todo | |
 | LOG-09 | L | `ActivityLogPanel.tsx:77` | An empty search result shows the "no events yet" copy, and the search box has no aria-label. | Show "No events match 'q'" with Clear. | 6 | todo | |
-| SCR-01 | H | `screening/ScreeningFiltersBar.tsx:23` | There's no Exclude filter, no search and no confidence sort, so false negatives can't be rescued. | Add Exclude, Overridden, search, and a "confidence ↑" sort. | 3 | todo | |
-| SCR-02 | H | `ScreeningPaperRow.tsx:74-133` | Each decision takes three clicks, with no keyboard shortcuts and no bulk actions. | Inline I/E toggles, j/k, i/e, u (undo), Enter (expand), and checkbox bulk actions. | 3 | todo | |
-| SCR-03 | H | `ScreeningApprovalBar.tsx:30`, `ScreeningReviewView.tsx:26` | A one-way paid gate sits at the top, styled as a warning, with no summary. It doesn't say what happens to Uncertain papers. | Use a sticky footer with a primary button and a summary confirm ("N in, M uncertain → treated as X, K overrides"). | 3 | todo | |
-| SCR-04 | M | `ScreeningPaperRow.tsx:18` | The reason field isn't seeded from the saved override, so typing overwrites it. | `useState(override?.reason ?? "")`. | 3 | todo | |
-| SCR-05 | M | `ScreeningPaperRow.tsx:58,85` | The abstract is clamped at 6 lines, so reviewers can't read the evidence. | Unclamp it when expanded. | 3 | todo | |
-| SCR-06 | M | `ScreeningPaperRow.tsx:112` | "Force Include" is offered on papers already included. | Offer only the opposite action. | 3 | todo | |
-| SCR-07 | M | `ScreeningReviewView.tsx:83`, `useRunGateActions.ts:102` | If approve succeeds and resume fails, the UI says "Approval failed" and retrying re-posts. | Separate the two states; retry calls resume only. | 3 | todo | |
-| SCR-08 | M | `screeningBadges.tsx:31` | Low confidence uses the same red as Exclude. | Show confidence as a neutral meter. | 3 | todo | |
-| SCR-09 | L | `ScreeningPaperRow.tsx:40-107`, `ScreeningApprovalBar.tsx:44` | No aria-expanded, a raw stage id, a lowercase badge, and "active learning" jargon. | Humanise these and add the ARIA attributes. | 3 | todo | |
-| SCR-10 | L | `ScreeningSummaryHeader.tsx` | Static copy with no counts or progress. | Show "12 of 480 reviewed · 5 overridden" and the thresholds. | 3 | todo | |
+| SCR-01 | H | `screening/ScreeningFiltersBar.tsx:23` | There's no Exclude filter, no search and no confidence sort, so false negatives can't be rescued. | Add Exclude, Overridden, search, and a "confidence ↑" sort. | 3 | done | sprint-3 |
+| SCR-02 | H | `ScreeningPaperRow.tsx:74-133` | Each decision takes three clicks, with no keyboard shortcuts and no bulk actions. | Inline I/E toggles, j/k, i/e, u (undo), Enter (expand), and checkbox bulk actions. | 3 | done | sprint-3 |
+| SCR-03 | H | `ScreeningApprovalBar.tsx:30`, `ScreeningReviewView.tsx:26` | A one-way paid gate sits at the top, styled as a warning, with no summary. It doesn't say what happens to Uncertain papers. | Use a sticky footer with a primary button and a summary confirm ("N in, M uncertain → treated as X, K overrides"). | 3 | done | sprint-3 |
+| SCR-04 | M | `ScreeningPaperRow.tsx:18` | The reason field isn't seeded from the saved override, so typing overwrites it. | `useState(override?.reason ?? "")`. | 3 | done | sprint-3 |
+| SCR-05 | M | `ScreeningPaperRow.tsx:58,85` | The abstract is clamped at 6 lines, so reviewers can't read the evidence. | Unclamp it when expanded. | 3 | done | sprint-3 |
+| SCR-06 | M | `ScreeningPaperRow.tsx:112` | "Force Include" is offered on papers already included. | Offer only the opposite action. | 3 | done | sprint-3 |
+| SCR-07 | M | `ScreeningReviewView.tsx:83`, `useRunGateActions.ts:102` | If approve succeeds and resume fails, the UI says "Approval failed" and retrying re-posts. | Separate the two states; retry calls resume only. | 3 | done | sprint-3 |
+| SCR-08 | M | `screeningBadges.tsx:31` | Low confidence uses the same red as Exclude. | Show confidence as a neutral meter. | 3 | done | sprint-3 |
+| SCR-09 | L | `ScreeningPaperRow.tsx:40-107`, `ScreeningApprovalBar.tsx:44` | No aria-expanded, a raw stage id, a lowercase badge, and "active learning" jargon. | Humanise these and add the ARIA attributes. | 3 | done | sprint-3 |
+| SCR-10 | L | `ScreeningSummaryHeader.tsx` | Static copy with no counts or progress. | Show "12 of 480 reviewed · 5 overridden" and the thresholds. | 3 | done | sprint-3 |
 | RES-02 | H | `constants.ts:463`, `ResultsView.tsx:238-300` | `needs_revision` says "see Results > Quality", but Quality has no audit findings, so the CTA leads nowhere. | Add an "Audit findings" block at the top of Quality and deep-link to it. | 5 | todo | |
 | RES-03 | M | `ManuscriptActions.tsx:132-200`, `SubmissionPackageButton.tsx` | Two packaging flows use five different verbs, and "Refresh" silently rebuilds. | Use one name and one state machine: "Submission package → Build / Rebuild / Download". | 5 | todo | |
 | RES-04 | M | `ResultsView.tsx:190` | The Lock says "available once complete" even while paused at screening with artefacts ready. | Show "Waiting on your screening", and show partial Files. | 5 | todo | |
@@ -222,3 +222,19 @@ _(append per sprint: landed, blocked, next)_
 **In flight**
 - BE-01..03 and the screening backend fixes (return AI excludes, fix the approval cohort data loss, idempotent overrides, thresholds) in the backend worktree.
 - Sprint 3 frontend done (branch 734ef4f), awaiting merge.
+### Sprint 3: Screening gate (2026-09-28)
+
+**Landed (SCR-01..10)**
+- Triage list with inline Include/Exclude toggles.
+- Keyboard: j/k to move, i/e to include or exclude, u for multi-level undo, x to select, ? for help.
+- Bulk actions.
+- Filters: All/Include/Exclude/Uncertain/Overridden, with search and sort by confidence ascending.
+- Full abstract, reason seeded from the saved override, and "Decided by" / exclusion reason on each paper.
+- Header shows live counts and explains the thresholds.
+- Sticky primary approval bar with a summary confirm. It states that Uncertain papers are kept in extraction.
+- Approve and resume errors are split.
+- 200-row paging.
+- The gate banner shows the pending decision count.
+- Backend (fbf8640): the summary returns AI excludes and final decisions, the cohort data-loss bug is fixed, and override writes are idempotent.
+
+**Not visually verified:** no run is currently awaiting review. Check on the next live gate.

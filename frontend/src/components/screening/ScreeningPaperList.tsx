@@ -1,29 +1,53 @@
 import { Filter } from "lucide-react"
 import { EmptyState } from "@/components/ui/feedback"
-import type { ScreenedPaper, ScreeningOverride } from "@/lib/api"
 import { ScreeningPaperRow } from "./ScreeningPaperRow"
+import type { HumanDecision, OverrideMap, ScreeningRowData } from "./screeningModel"
 
 export interface ScreeningPaperListProps {
-  papers: ScreenedPaper[]
-  overrides: Map<string, ScreeningOverride>
-  onOverride: (paperId: string, override: ScreeningOverride | null) => void
+  rows: ScreeningRowData[]
+  overrides: OverrideMap
+  focusedKey: string | null
+  expanded: ReadonlySet<string>
+  selected: ReadonlySet<string>
+  onDecide: (key: string, decision: HumanDecision) => void
+  onClearOverride: (key: string) => void
+  onReasonChange: (key: string, reason: string) => void
+  onToggleExpanded: (key: string) => void
+  onToggleSelected: (key: string) => void
+  onFocusRow: (key: string) => void
 }
 
-export function ScreeningPaperList({ papers, overrides, onOverride }: ScreeningPaperListProps) {
-  if (papers.length === 0) {
-    return (
-      <EmptyState icon={Filter} heading="No papers match this filter." className="py-8" />
-    )
+export function ScreeningPaperList({
+  rows,
+  overrides,
+  focusedKey,
+  expanded,
+  selected,
+  ...handlers
+}: ScreeningPaperListProps) {
+  if (rows.length === 0) {
+    return <EmptyState icon={Filter} heading="No papers match these filters." className="py-8" />
   }
 
+  const activeKey = focusedKey && rows.some((r) => r.key === focusedKey) ? focusedKey : rows[0].key
+
   return (
-    <div className="space-y-2">
-      {papers.map((paper) => (
+    <div
+      role="grid"
+      aria-label="Screened papers"
+      aria-multiselectable
+      aria-rowcount={rows.length}
+      className="space-y-1.5"
+    >
+      {rows.map((row) => (
         <ScreeningPaperRow
-          key={`${paper.paper_id}-${paper.stage}`}
-          paper={paper}
-          override={overrides.get(paper.paper_id) ?? null}
-          onOverride={(ov) => onOverride(paper.paper_id, ov)}
+          key={row.key}
+          row={row}
+          override={overrides.get(row.key) ?? null}
+          focused={row.key === activeKey}
+          expanded={expanded.has(row.key)}
+          selected={selected.has(row.key)}
+          {...handlers}
         />
       ))}
     </div>
