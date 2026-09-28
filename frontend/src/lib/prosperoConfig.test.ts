@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { isProsperoRegistrationComplete, parseProsperoFromYaml } from "./prosperoConfig"
+import { isProsperoRegistrationComplete, parseProsperoFromYaml, prosperoIdError } from "./prosperoConfig"
 
 const SAMPLE_YAML = `
 protocol:
@@ -25,5 +25,19 @@ describe("parseProsperoFromYaml", () => {
   it("treats missing registration as incomplete", () => {
     const parsed = parseProsperoFromYaml("protocol:\n  registered: false\n")
     expect(isProsperoRegistrationComplete(parsed)).toBe(false)
+  })
+})
+
+describe("prosperoIdError", () => {
+  it("accepts CRD42 plus digits in any case", () => {
+    expect(prosperoIdError("CRD42025678901")).toBeNull()
+    expect(prosperoIdError(" crd42025678901 ")).toBeNull()
+  })
+
+  it("explains each invalid shape", () => {
+    expect(prosperoIdError("")).toBe("Enter your PROSPERO ID.")
+    expect(prosperoIdError("42025678901")).toMatch(/start with CRD42/)
+    expect(prosperoIdError("CRD-42025678901")).toMatch(/digits only/)
+    expect(prosperoIdError("CRD4202")).toMatch(/too short/)
   })
 })

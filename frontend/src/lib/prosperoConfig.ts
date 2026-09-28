@@ -24,3 +24,19 @@ export function isProsperoRegistrationComplete(config: ParsedProsperoConfig): bo
     config.registrationDate.length > 0
   )
 }
+
+export const PROSPERO_ID_HELPER = "Format: CRD42 followed by digits, e.g. CRD42025678901."
+
+export function prosperoIdError(value: string): string | null {
+  const trimmed = value.trim()
+  if (!trimmed) return "Enter your PROSPERO ID."
+  if (!/^CRD/i.test(trimmed)) return "PROSPERO IDs start with CRD42."
+  if (!/^CRD\d+$/i.test(trimmed)) return "Use CRD followed by digits only, with no spaces or dashes."
+  if (!isProsperoRegistrationNumberValid(trimmed)) {
+    return "That ID is too short. PROSPERO IDs have at least 9 digits after CRD."
+  }
+  return null
+}
+
+/** Backend `submit-prospero` has no "unregistered" mode yet; flip once it does. */
+export const PROSPERO_SKIP_SUPPORTED = false

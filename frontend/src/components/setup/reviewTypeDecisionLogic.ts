@@ -77,3 +77,30 @@ export function nextDecisionStep(
       return { step, answers: {} }
   }
 }
+
+export interface DecisionStepPosition {
+  index: number
+  total: number
+  totalKnown: boolean
+}
+
+/** Longest path is 3 questions (broad no -> focused -> determine); broad yes ends after 2. */
+export function decisionStepPosition(step: DecisionStep): DecisionStepPosition | null {
+  switch (step) {
+    case "broad":
+      return { index: 1, total: 3, totalKnown: false }
+    case "map_evidence":
+      return { index: 2, total: 2, totalKnown: true }
+    case "focused_iedo":
+      return { index: 2, total: 3, totalKnown: true }
+    case "determine_evidence":
+      return { index: 3, total: 3, totalKnown: true }
+    default:
+      return null
+  }
+}
+
+export function formatDecisionStepPosition(position: DecisionStepPosition | null): string {
+  if (!position) return "Recommendation"
+  return `Step ${position.index} of ${position.totalKnown ? "" : "up to "}${position.total}`
+}

@@ -2,7 +2,7 @@ import { useEffect, useState, Suspense, lazy, Component, useRef } from "react"
 import type { ReactNode, ErrorInfo } from "react"
 import { useNavigate } from "react-router-dom"
 import { Toaster, toast } from "sonner"
-import { AlertTriangle, Menu } from "lucide-react"
+import { AlertTriangle, Copy, Home, Menu, RotateCw } from "lucide-react"
 import { Sidebar } from "@/components/Sidebar"
 import { MOBILE_MENU_BUTTON_ID } from "@/components/sidebar/sidebarLayout"
 import { SettingsDialog } from "@/components/SettingsDialog"
@@ -55,16 +55,40 @@ export class AppErrorBoundary extends Component<{ children: ReactNode }, ErrorBo
   render() {
     if (this.state.hasError) {
       return (
-        <div className="flex flex-col items-center justify-center h-screen bg-background text-foreground gap-4 p-8">
-          <AlertTriangle className="h-10 w-10 text-intent-danger" />
-          <h1 className="text-xl font-semibold text-intent-danger">Something went wrong</h1>
-          <p className="text-muted text-sm max-w-md text-center">{this.state.message}</p>
-          <button
-            className="mt-2 px-4 py-2 text-sm rounded bg-surface-2 hover:bg-surface-3 text-foreground transition-colors"
-            onClick={() => { this.setState({ hasError: false, message: "" }); window.location.href = "/" }}
-          >
-            Reload app
-          </button>
+        <div
+          role="alert"
+          className="flex flex-col items-center justify-center h-screen bg-background text-foreground gap-4 p-8 text-center"
+        >
+          <AlertTriangle className="h-10 w-10 text-intent-danger" aria-hidden />
+          <h1 className="text-xl font-semibold text-foreground">Something went wrong</h1>
+          <p className="text-muted text-sm max-w-md">
+            The page hit an unexpected error. Reloading usually fixes it.
+          </p>
+          <div className="flex flex-wrap items-center justify-center gap-2">
+            <Button type="button" onClick={() => window.location.reload()}>
+              <RotateCw className="h-4 w-4" aria-hidden />
+              Reload this page
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => {
+                this.setState({ hasError: false, message: "" })
+                window.location.assign("/")
+              }}
+            >
+              <Home className="h-4 w-4" aria-hidden />
+              Go home
+            </Button>
+          </div>
+          <details className="max-w-md text-left text-xs text-muted">
+            <summary className="cursor-pointer select-none rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+              Technical details
+            </summary>
+            <pre className="mt-2 whitespace-pre-wrap [overflow-wrap:anywhere] font-mono text-xs">
+              {this.state.message}
+            </pre>
+          </details>
         </div>
       )
     }
@@ -351,7 +375,7 @@ function AppShell() {
     if (!breadcrumbTopic) return
     try {
       await navigator.clipboard.writeText(breadcrumbTopic)
-      toast.success("Copied!")
+      toast.success("Question copied")
     } catch {
       toast.error("Failed to copy")
     }
@@ -359,7 +383,7 @@ function AppShell() {
 
   return (
     <div className="flex h-dvh bg-background text-foreground overflow-hidden">
-      <Toaster position="top-center" richColors closeButton />
+      <Toaster position="bottom-right" richColors closeButton />
       <Sidebar
         collapsed={sidebarCollapsed}
         onToggle={() => setSidebarCollapsed((v) => !v)}
@@ -391,14 +415,20 @@ function AppShell() {
             >
               {checkingBackend ? "Checking…" : "Retry now"}
             </Button>
-            <details className="text-intent-warning/70">
-              <summary className="cursor-pointer select-none">Details</summary>
-              <p className="mt-1">
-                Requests to <code className="font-mono">/api/health</code> are failing. If a run was
-                detached after a restart, reopen it from the sidebar once the server is back.
-                Operators: check that the API process is running (<code className="font-mono">pm2 status</code>).
-              </p>
-            </details>
+            <span className="text-intent-warning-text">
+              This page reconnects on its own. If a review stopped, reopen it from the sidebar once the server is back.
+            </span>
+            {import.meta.env.DEV && (
+              <details className="text-intent-warning-text">
+                <summary className="cursor-pointer select-none rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+                  Technical details
+                </summary>
+                <p className="mt-1">
+                  Requests to <code className="font-mono">/api/health</code> are failing. Check that the API
+                  process is running (<code className="font-mono">pm2 status</code>).
+                </p>
+              </details>
+            )}
           </div>
         )}
 
@@ -431,13 +461,9 @@ function AppShell() {
                   </span>
                   <Tooltip>
                     <TooltipTrigger asChild>
-                      <button
-                        type="button"
-                        onClick={() => void handleCopyTopic()}
-                        className="flex-1 min-w-0 text-sm text-foreground font-medium text-left truncate hover:text-foreground/90 transition-colors cursor-pointer"
-                      >
+                      <p className="flex-1 min-w-0 text-sm text-foreground font-medium truncate">
                         {breadcrumbTopic}
-                      </button>
+                      </p>
                     </TooltipTrigger>
                     <TooltipContent
                       side="bottom"
@@ -446,6 +472,17 @@ function AppShell() {
                       {breadcrumbTopic}
                     </TooltipContent>
                   </Tooltip>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon-sm"
+                    onClick={() => void handleCopyTopic()}
+                    aria-label="Copy question"
+                    title="Copy question"
+                    className="shrink-0 text-muted hover:text-foreground"
+                  >
+                    <Copy aria-hidden />
+                  </Button>
                 </div>
                 ) : !selectedRun ? (
                   <span className="text-foreground font-medium">New Review</span>

@@ -1,6 +1,15 @@
 export const CSV_REQUIRED_COLS = ["Title"]
 export const CSV_EXPECTED_COLS = ["Authors", "Year", "Source title", "DOI", "Abstract", "Link", "Author Keywords"]
 
+export function isCsvFileName(name: string): boolean {
+  return /\.csv$/i.test(name.trim())
+}
+
+export function csvTypeError(file: File): string | null {
+  if (isCsvFileName(file.name)) return null
+  return `"${file.name}" is not a CSV file. Choose a .csv export (for example from Scopus).`
+}
+
 export interface CsvAnalysis {
   rowCount: number
   headers: string[]
@@ -30,28 +39,24 @@ function parseCsvHeaderRow(line: string): string[] {
   return cols
 }
 
-function countCsvDataRows(text: string): number {
-  // Walk the text respecting quoted fields so embedded newlines don't skew the count.
-  let rows = 0
+export function countCsvDataRows(text: string): number {
+  let records = 0
   let inQuotes = false
-  let firstRow = true
+  let hasContent = false
   for (let i = 0; i < text.length; i++) {
     const ch = text[i]
     if (ch === '"') {
       inQuotes = !inQuotes
+      hasContent = true
     } else if (ch === "\n" && !inQuotes) {
-      if (firstRow) {
-        firstRow = false
-      } else {
-        // peek ahead: if the rest is only whitespace, don't count trailing blank line
-        const rest = text.slice(i + 1).trimStart()
-        if (rest.length > 0) rows++
-      }
+      if (hasContent) records++
+      hasContent = false
+    } else if (!/\s/.test(ch)) {
+      hasContent = true
     }
   }
-  // If file has no trailing newline, the last row isn't counted yet
-  if (!firstRow && text.trimEnd().length > 0 && text[text.length - 1] !== "\n") rows++
-  return rows
+  if (hasContent) records++
+  return Math.max(0, records - 1)
 }
 
 export async function analyzeCsvFile(file: File): Promise<CsvAnalysis> {

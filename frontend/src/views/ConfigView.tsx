@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react"
+import { useMemo } from "react"
 import { AlertTriangle, FileCode } from "lucide-react"
 import { Spinner } from "@/components/ui/feedback"
 import { useRunConfig } from "@/hooks/useRunConfig"
@@ -8,8 +8,11 @@ import { YamlEditor } from "@/components/YamlEditor"
 import { ViewToolbar } from "@/components/ui/view-toolbar"
 import { ProsperoGatePanel } from "@/components/config/ProsperoGatePanel"
 import { ConfigGenerationStepper, type ConfigGenStepDisplay, type ConfigGenStepStatus } from "@/components/config/ConfigGenerationStepper"
-import { GEN_STEPS } from "@/components/setup/constants"
-import { buildGenerationStepDetail } from "@/components/setup/generationHelpers"
+import { GEN_STEPS, genStepsForReviewType } from "@/components/setup/constants"
+import { buildGenerationStepDetail, getFallbackStepLabel } from "@/components/setup/generationHelpers"
+import type { ReviewTypeChoice } from "@/components/setup/types"
+import { useDraftYamlEdit } from "@/hooks/useDraftConfigFlow"
+import { reviewTypeFromYaml, validateReviewYaml } from "@/lib/reviewYaml"
 import type { ProsperoRegistration } from "@/lib/api"
 import { isProsperoRegistrationComplete, parseProsperoFromYaml } from "@/lib/prosperoConfig"
 
@@ -32,10 +35,11 @@ export interface ConfigViewProps {
   onStartResearchAfterProspero?: (registration: ProsperoRegistration) => void | Promise<void>
   onSaveProsperoRegistration?: (registration: ProsperoRegistration) => void | Promise<void>
   onRegenerateProsperoDrafts?: () => void | Promise<void>
+  onStartWithoutRegistration?: () => void | Promise<void>
 }
 
 export interface DraftConfigContext {
-  request: { question: string } | null
+  request: { question: string; reviewType?: ReviewTypeChoice } | null
   yaml: string
   isGenerating: boolean
   activeStep: string
@@ -53,12 +57,6 @@ interface ConfigGenerationSummary {
   fallbackReason: string | null
 }
 
-function getFallbackStepLabel(status: StepStatus): string {
-  if (status === "skipped") return "Web research backup skipped"
-  if (status === "degraded") return "Web search unavailable"
-  return "Web research backup (standby)"
-}
-
 export function ConfigView({
   workflowId,
   draftConfig = null,
@@ -72,11 +70,19 @@ export function ConfigView({
   onStartResearchAfterProspero,
   onSaveProsperoRegistration,
   onRegenerateProsperoDrafts,
+  onStartWithoutRegistration,
 }: ConfigViewProps) {
   const isDraft = draftConfig !== null
+  const isPastedDraft = isDraft && draftConfig.request === null
   const streamedDraftYaml = draftConfig?.yaml ?? ""
-  const [draftYamlOverride, setDraftYamlOverride] = useState<string | null>(null)
+  const [draftYamlOverride, setDraftYamlOverride] = useDraftYamlEdit()
   const draftYaml = draftYamlOverride ?? streamedDraftYaml
+  const draftDirty = draftYamlOverride !== null && draftYamlOverride !== streamedDraftYaml
+  const draftGenerating = draftConfig?.isGenerating ?? false
+  const draftYamlIssue = useMemo(
+    () => (draftGenerating || !isDraft || !draftYaml.trim() ? null : validateReviewYaml(draftYaml)),
+    [draftGenerating, draftYaml, isDraft],
+  )
   const {
     data: yamlContent = null,
     isLoading: loading,
@@ -90,13 +96,16 @@ export function ConfigView({
 
   const generationSummary = useMemo<ConfigGenerationSummary | null>(() => {
     if (isDraft && draftConfig) {
+      if (draftConfig.request === null) return null
       return { mode: draftConfig.usedWebFallback ? "model_fallback" : "web_grounded", fallbackReason: draftConfig.fallbackReason }
     }
     if (!yamlContent) return null
-    // Legacy runs may not include generation header comments yet; keep the
-    // summary panel visible with a safe default so layout remains consistent.
-    return parseConfigGenerationSummary(yamlContent) ?? { mode: "web_grounded", fallbackReason: null }
+    return parseConfigGenerationSummary(yamlContent)
   }, [draftConfig, isDraft, yamlContent])
+
+  const provenanceYaml = isDraft ? draftYaml : (yamlContent ?? "")
+  const reviewType: ReviewTypeChoice | null =
+    draftConfig?.request?.reviewType ?? reviewTypeFromYaml(provenanceYaml)
 
   const draftActiveStepIndex = useMemo(() => {
     if (!draftConfig) return -1
@@ -105,13 +114,13 @@ export function ConfigView({
 
   const generationSteps = useMemo<ConfigGenStepDisplay[] | null>(() => {
     if (!generationSummary) return null
-    return GEN_STEPS.map((step) => {
+    return genStepsForReviewType(reviewType).map((step) => {
       const status = isDraft && draftConfig
         ? getDraftGenerationStepStatus(step.key, draftConfig, draftActiveStepIndex)
         : getGenerationStepStatus(step.key, generationSummary.mode)
       const label =
         step.key === "web_research_fallback"
-          ? getFallbackStepLabel(status)
+          ? getFallbackStepLabel(status === "skipped", status === "degraded")
           : step.label
       const detail = buildGenerationStepDetail(
         step.key,
@@ -130,7 +139,7 @@ export function ConfigView({
         status,
       }
     })
-  }, [draftActiveStepIndex, draftConfig, generationSummary, isDraft])
+  }, [draftActiveStepIndex, draftConfig, generationSummary, isDraft, reviewType])
 
   const showProsperoGate = isAwaitingProspero || prosperoPrepareInProgress
   const showDraftPrepareButton = isDraft && !showProsperoGate
@@ -196,6 +205,8 @@ export function ConfigView({
               initialRegistration={registrationInitial}
               isComplete={registrationComplete}
               attention={isAwaitingProspero}
+              reviewType={reviewType}
+              onStartWithoutRegistration={onStartWithoutRegistration}
               disabled={prosperoPrepareInProgress && !isAwaitingProspero}
               isSubmitting={prosperoSubmitting}
               isRegenerating={prosperoRegenerating}
@@ -238,11 +249,15 @@ export function ConfigView({
                     onChange={setDraftYamlOverride}
                     isLoading={draftConfig?.isGenerating}
                     loadingLabel="Generating review config from your research question..."
+                    dirty={draftDirty}
+                    onReset={() => setDraftYamlOverride(null)}
+                    resetLabel={isPastedDraft ? "Reset to original" : "Reset to generated"}
+                    error={draftYamlIssue}
                   />
                   <div className="flex items-center justify-end gap-2">
-                    {draftConfig?.request === null && (
+                    {isPastedDraft && (
                       <span className="text-xs text-muted mr-auto">
-                        Launch is disabled for pasted/legacy configs started from setup.
+                        Pasted config: uses the API keys saved in Settings. CSV import is not available here.
                       </span>
                     )}
                     {showDraftPrepareButton ? (
@@ -250,7 +265,7 @@ export function ConfigView({
                         onClick={() => onPrepareProspero?.(draftYaml)}
                         disabled={
                           !onPrepareProspero ||
-                          draftConfig?.request === null ||
+                          draftYamlIssue !== null ||
                           draftConfig?.isGenerating ||
                           prosperoPrepareInProgress ||
                           !draftYaml.trim()
@@ -262,7 +277,7 @@ export function ConfigView({
                             Generating PROSPERO draft...
                           </>
                         ) : (
-                          "Generate PROSPERO Draft"
+                          "Generate PROSPERO draft"
                         )}
                       </Button>
                     ) : null}

@@ -1,5 +1,15 @@
-import { useEffect, useState } from "react"
-import { CheckCircle2, ChevronDown, Eye, EyeOff, Server, Shield } from "lucide-react"
+import { useEffect, useRef, useState } from "react"
+import {
+  AlertTriangle,
+  Check,
+  CheckCircle2,
+  ChevronDown,
+  Eye,
+  EyeOff,
+  Server,
+  Shield,
+  X,
+} from "lucide-react"
 import { Input } from "@/components/ui/input"
 import { cn } from "@/lib/utils"
 import {
@@ -11,36 +21,17 @@ import {
   saveApiKeys,
 } from "@/lib/api"
 import type { StoredApiKeys, EnvKeysStatus } from "@/lib/api"
+import {
+  KEY_USAGE,
+  LLM_FIELDS,
+  SEARCH_FIELDS,
+  validateApiKeyValue,
+  type ApiKeyField,
+  type KeyId,
+} from "@/lib/apiKeyFields"
 
-interface ApiKeyField {
-  id: keyof StoredApiKeys
-  label: string
-  placeholder: string
-  group: "llm" | "search"
-}
-
-const LLM_FIELDS: ApiKeyField[] = [
-  { id: "fireworks", label: "Fireworks AI", placeholder: "fw_...", group: "llm" },
-  { id: "gemini", label: "Gemini", placeholder: "AIza...", group: "llm" },
-  { id: "openrouter", label: "OpenRouter", placeholder: "sk-or-v1-...", group: "llm" },
-  { id: "openai", label: "OpenAI", placeholder: "sk-...", group: "llm" },
-  { id: "anthropic", label: "Anthropic", placeholder: "sk-ant-...", group: "llm" },
-  { id: "groq", label: "Groq", placeholder: "gsk_...", group: "llm" },
-  { id: "mistral", label: "Mistral", placeholder: "...", group: "llm" },
-  { id: "cohere", label: "Cohere", placeholder: "...", group: "llm" },
-  { id: "perplexity", label: "Perplexity", placeholder: "pplx-...", group: "llm" },
-]
-
-const SEARCH_FIELDS: ApiKeyField[] = [
-  { id: "scopus", label: "Scopus", placeholder: "Elsevier Scopus search key", group: "search" },
-  { id: "wos", label: "Web of Science", placeholder: "Clarivate WoS Starter API key", group: "search" },
-  { id: "openalex", label: "OpenAlex", placeholder: "register free at openalex.org/sign-up", group: "search" },
-  { id: "pubmedEmail", label: "PubMed Email", placeholder: "user@example.com", group: "search" },
-  { id: "pubmedApiKey", label: "PubMed API Key", placeholder: "increases rate limits", group: "search" },
-  { id: "ieee", label: "IEEE Xplore", placeholder: "IEEE Xplore API key", group: "search" },
-  { id: "semanticScholar", label: "Semantic Scholar", placeholder: "Semantic Scholar key", group: "search" },
-  { id: "crossrefEmail", label: "Crossref Email", placeholder: "user@example.com", group: "search" },
-]
+const SAVED_INDICATOR_DELAY_MS = 600
+const SAVED_INDICATOR_VISIBLE_MS = 2000
 
 function KeyField({
   field,
@@ -60,16 +51,24 @@ function KeyField({
   const [show, setShow] = useState(false)
   const hasValue = !!value.trim()
   const usingEnv = envConfigured && !hasValue
-  const isEmailField = field.id === "pubmedEmail" || field.id === "crossrefEmail"
+  const isEmail = !!field.email
   const inputId = `api-key-${field.id}`
-  const serverPlaceholder = `${isEmailField ? "Using server value" : "Using server key"}${envMasked ? ` (${envMasked})` : ""}`
+  const hintId = `${inputId}-hint`
+  const serverPlaceholder = `${isEmail ? "Using server value" : "Using server key"}${envMasked ? ` (${envMasked})` : ""}`
+  const error = validateApiKeyValue(field.id, value)
+  const formatHint = field.prefix ? `Starts with ${field.prefix}` : null
 
   return (
     <div className="group">
       <div className="flex items-center gap-2 mb-1.5">
         <label htmlFor={inputId} className="text-xs font-medium text-muted flex-1">
           {field.label}
-          {required && <span className="text-intent-danger ml-0.5">*</span>}
+          {required && (
+            <>
+              <span className="text-intent-danger ml-0.5" aria-hidden>*</span>
+              <span className="sr-only"> (required)</span>
+            </>
+          )}
         </label>
         {envConfigured && (
           <span
@@ -93,25 +92,81 @@ function KeyField({
       <div className="relative">
         <Input
           id={inputId}
-          type={show ? "text" : "password"}
+          type={isEmail ? "email" : show ? "text" : "password"}
           value={value}
           onChange={(e) => onChange(e.target.value)}
           placeholder={usingEnv ? serverPlaceholder : field.placeholder}
           autoComplete="off"
-          className="pr-9 h-9 text-xs bg-background border-border/80 text-foreground placeholder:text-muted focus-visible:ring-intent-primary"
+          spellCheck={false}
+          aria-invalid={error ? true : undefined}
+          aria-describedby={error || formatHint ? hintId : undefined}
+          className={cn(
+            "h-9 text-xs bg-background border-border/80 text-foreground placeholder:text-muted focus-visible:ring-intent-primary",
+            isEmail ? (hasValue ? "pr-9" : "") : hasValue ? "pr-16" : "pr-9",
+            error && "border-intent-warning-border",
+          )}
         />
-        <button
-          type="button"
-          onClick={() => setShow((v) => !v)}
-          aria-label={show ? `Hide ${field.label}` : `Show ${field.label}`}
-          aria-pressed={show}
-          className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted hover:text-foreground transition-colors"
-        >
-          {show ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
-        </button>
+        <div className="absolute right-1.5 top-1/2 -translate-y-1/2 flex items-center gap-0.5">
+          {hasValue && (
+            <button
+              type="button"
+              onClick={() => onChange("")}
+              aria-label={`Clear ${field.label}`}
+              title="Clear"
+              className="rounded p-1 text-muted hover:text-foreground transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            >
+              <X className="h-3.5 w-3.5" aria-hidden />
+            </button>
+          )}
+          {!isEmail && (
+            <button
+              type="button"
+              onClick={() => setShow((v) => !v)}
+              aria-label={show ? `Hide ${field.label}` : `Show ${field.label}`}
+              aria-pressed={show}
+              className="rounded p-1 text-muted hover:text-foreground transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            >
+              {show ? <EyeOff className="h-3.5 w-3.5" aria-hidden /> : <Eye className="h-3.5 w-3.5" aria-hidden />}
+            </button>
+          )}
+        </div>
       </div>
+      {(error || formatHint) && (
+        <p
+          id={hintId}
+          className={cn("mt-1 text-2xs", error ? "text-intent-warning-text" : "text-muted")}
+        >
+          {error ?? formatHint}
+        </p>
+      )}
     </div>
   )
+}
+
+function useSavedIndicator(): [boolean, () => void] {
+  const [visible, setVisible] = useState(false)
+  const showTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const hideTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  useEffect(
+    () => () => {
+      if (showTimer.current) clearTimeout(showTimer.current)
+      if (hideTimer.current) clearTimeout(hideTimer.current)
+    },
+    [],
+  )
+
+  function trigger() {
+    setVisible(false)
+    if (showTimer.current) clearTimeout(showTimer.current)
+    if (hideTimer.current) clearTimeout(hideTimer.current)
+    showTimer.current = setTimeout(() => {
+      setVisible(true)
+      hideTimer.current = setTimeout(() => setVisible(false), SAVED_INDICATOR_VISIBLE_MS)
+    }, SAVED_INDICATOR_DELAY_MS)
+  }
+
+  return [visible, trigger]
 }
 
 export function ApiKeysPanel({ onValidityChange }: { onValidityChange?: (valid: boolean) => void }) {
@@ -121,46 +176,53 @@ export function ApiKeysPanel({ onValidityChange }: { onValidityChange?: (valid: 
   })
   const [envStatus, setEnvStatus] = useState<EnvKeysStatus | null>(null)
   const [requiredKeys, setRequiredKeys] = useState<string[]>(["fireworks"])
-  const [showSearch, setShowSearch] = useState(false)
+  const [showOptional, setShowOptional] = useState(false)
+  const [savedVisible, markSaved] = useSavedIndicator()
 
   useEffect(() => {
     fetchEnvKeysStatus().then(setEnvStatus)
     fetchRequiredLlmUiKeys().then((k) => { if (k.length) setRequiredKeys(k) })
   }, [])
 
-  function handleChange(id: keyof StoredApiKeys, value: string) {
+  function handleChange(id: KeyId, value: string) {
     const next = { ...keys, [id]: value }
     setKeys(next)
     saveApiKeys(next)
+    markSaved()
   }
 
   const keysByName = keys as unknown as Record<string, string>
-  const missingRequired = requiredKeys.filter((key) => {
-    const browserVal = String(keysByName[key] ?? "").trim()
-    const envConfigured = envStatus?.providers[key]?.configured ?? false
-    return !browserVal && !envConfigured
-  })
+  const isConfigured = (id: string) =>
+    !!String(keysByName[id] ?? "").trim() || (envStatus?.providers[id]?.configured ?? false)
+  const missingRequired = requiredKeys.filter((key) => !isConfigured(key))
   const allValid = missingRequired.length === 0
 
   useEffect(() => {
     onValidityChange?.(allValid)
   }, [allValid, onValidityChange])
 
-  const configuredLlmCount = LLM_FIELDS.filter((f) => {
-    const browserVal = String(keys[f.id] ?? "").trim()
-    const envConfigured = envStatus?.providers[f.id]?.configured ?? false
-    return !!browserVal || envConfigured
-  }).length
+  const requiredFields = LLM_FIELDS.filter((f) => requiredKeys.includes(f.id))
+  const optionalLlm = LLM_FIELDS.filter((f) => !requiredKeys.includes(f.id))
+  const optionalCount = optionalLlm.length + SEARCH_FIELDS.length
+  const optionalConfigured = [...optionalLlm, ...SEARCH_FIELDS].filter((f) => isConfigured(f.id)).length
 
-  const configuredSearchCount = SEARCH_FIELDS.filter((f) => {
-    const browserVal = String(keys[f.id] ?? "").trim()
-    const envConfigured = envStatus?.providers[f.id]?.configured ?? false
-    return !!browserVal || envConfigured
-  }).length
+  function renderField(field: ApiKeyField) {
+    const provider = envStatus?.providers[field.id]
+    return (
+      <KeyField
+        key={field.id}
+        field={field}
+        value={keys[field.id]}
+        envConfigured={provider?.configured ?? false}
+        envMasked={provider?.masked ?? ""}
+        required={requiredKeys.includes(field.id)}
+        onChange={(v) => handleChange(field.id, v)}
+      />
+    )
+  }
 
   return (
     <div className="space-y-5">
-      {/* Status summary */}
       {allValid ? (
         <div className="flex items-center gap-2.5 px-3 py-2.5 rounded-panel bg-intent-success-subtle border border-intent-success-border text-xs text-intent-success">
           <CheckCircle2 className="h-3.5 w-3.5 shrink-0" aria-hidden />
@@ -170,78 +232,91 @@ export function ApiKeysPanel({ onValidityChange }: { onValidityChange?: (valid: 
           </span>
         </div>
       ) : (
-        <div className="flex items-center gap-2.5 px-3 py-2.5 rounded-panel bg-intent-warning-subtle border border-intent-warning-border text-xs text-intent-warning">
-          <span>
-            Missing required key{missingRequired.length > 1 ? "s" : ""}:{" "}
-            {missingRequired.map((k) => llmProviderLabel(k)).join(", ")}
-          </span>
+        <div
+          role="alert"
+          className="flex items-start gap-2.5 px-3 py-2.5 rounded-panel bg-intent-warning-subtle border border-intent-warning-border text-xs text-intent-warning-text"
+        >
+          <AlertTriangle className="h-3.5 w-3.5 mt-0.5 shrink-0" aria-hidden />
+          <div className="space-y-0.5">
+            <p className="font-medium">
+              Missing required key{missingRequired.length > 1 ? "s" : ""}:{" "}
+              {missingRequired.map((k) => llmProviderLabel(k)).join(", ")}
+            </p>
+            {missingRequired.map((k) => (
+              <p key={k}>
+                New reviews can't start without {llmProviderLabel(k)}. It's used for{" "}
+                {KEY_USAGE[k] ?? "the model steps configured on the server"}.
+              </p>
+            ))}
+          </div>
         </div>
       )}
 
-      {/* LLM Providers */}
-      <div>
+      <section aria-labelledby="api-keys-required-heading">
         <div className="flex items-center gap-2 mb-3">
-          <h4 className="text-xs font-semibold text-foreground uppercase tracking-wide">
-            LLM Providers
+          <h4 id="api-keys-required-heading" className="text-xs font-semibold text-foreground uppercase tracking-wide">
+            Required
           </h4>
-          <span className="text-2xs text-muted">
-            {configuredLlmCount}/{LLM_FIELDS.length} configured
+          <span
+            role="status"
+            className={cn(
+              "ml-auto inline-flex items-center gap-1 text-2xs font-medium text-intent-success transition-opacity motion-reduce:transition-none",
+              savedVisible ? "opacity-100" : "opacity-0",
+            )}
+          >
+            {savedVisible && (
+              <>
+                <Check className="h-3 w-3" aria-hidden />
+                Saved
+              </>
+            )}
           </span>
         </div>
-        <div className="space-y-3">
-          {LLM_FIELDS.map((field) => {
-            const provider = envStatus?.providers[field.id]
-            return (
-              <KeyField
-                key={field.id}
-                field={field}
-                value={keys[field.id]}
-                envConfigured={provider?.configured ?? false}
-                envMasked={provider?.masked ?? ""}
-                required={requiredKeys.includes(field.id)}
-                onChange={(v) => handleChange(field.id, v)}
-              />
-            )
-          })}
-        </div>
-      </div>
+        <div className="space-y-3">{requiredFields.map(renderField)}</div>
+      </section>
 
-      {/* Search / Data Sources */}
-      <div>
+      <section>
         <button
           type="button"
-          onClick={() => setShowSearch((v) => !v)}
-          aria-expanded={showSearch}
-          className="flex items-center gap-2 mb-3 group cursor-pointer"
+          onClick={() => setShowOptional((v) => !v)}
+          aria-expanded={showOptional}
+          aria-controls="api-keys-optional"
+          className="flex items-center gap-2 mb-3 cursor-pointer rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
         >
-          <h4 className="text-xs font-semibold text-foreground uppercase tracking-wide group-hover:text-foreground transition-colors">
-            Search &amp; Data Sources
+          <h4 className="text-xs font-semibold text-foreground uppercase tracking-wide">
+            Optional providers
           </h4>
           <span className="text-2xs text-muted">
-            {configuredSearchCount}/{SEARCH_FIELDS.length} configured
+            {optionalConfigured}/{optionalCount} configured
           </span>
-          <ChevronDown className={`h-3 w-3 text-muted transition-transform ${showSearch ? "rotate-180" : ""}`} />
+          <ChevronDown
+            className={cn(
+              "h-3 w-3 text-muted transition-transform motion-reduce:transition-none",
+              showOptional && "rotate-180",
+            )}
+            aria-hidden
+          />
         </button>
 
-        {showSearch && (
-          <div className="space-y-3">
-            {SEARCH_FIELDS.map((field) => {
-              const provider = envStatus?.providers[field.id]
-              return (
-                <KeyField
-                  key={field.id}
-                  field={field}
-                  value={keys[field.id]}
-                  envConfigured={provider?.configured ?? false}
-                  envMasked={provider?.masked ?? ""}
-                  required={false}
-                  onChange={(v) => handleChange(field.id, v)}
-                />
-              )
-            })}
+        {showOptional && (
+          <div id="api-keys-optional" className="space-y-5">
+            {optionalLlm.length > 0 && (
+              <div>
+                <h5 className="mb-2 text-2xs font-semibold uppercase tracking-wide text-muted">
+                  Other LLM providers
+                </h5>
+                <div className="space-y-3">{optionalLlm.map(renderField)}</div>
+              </div>
+            )}
+            <div>
+              <h5 className="mb-2 text-2xs font-semibold uppercase tracking-wide text-muted">
+                Search &amp; data sources
+              </h5>
+              <div className="space-y-3">{SEARCH_FIELDS.map(renderField)}</div>
+            </div>
           </div>
         )}
-      </div>
+      </section>
 
       <p className="text-2xs text-muted leading-relaxed">
         Keys configured on the server are used automatically and are never sent to the browser.

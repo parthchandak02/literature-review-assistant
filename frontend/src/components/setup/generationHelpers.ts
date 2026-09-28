@@ -6,13 +6,13 @@ export function buildTopicRoutingText(stepMetadata: Record<string, unknown>): st
   const policy = typeof stepMetadata.policy === "string" ? stepMetadata.policy : null
   if (!domain && !policy && confidence === null) return null
   const confidenceTxt = confidence === null ? "n/a" : confidence.toFixed(2)
-  return `Domain=${domain ?? "unknown"}, confidence=${confidenceTxt}, policy=${policy ?? "unknown"}`
+  return `Field: ${domain ?? "unknown"} (confidence ${confidenceTxt}), database set: ${policy ?? "unknown"}`
 }
 
 export function getFallbackStepLabel(fallbackSkipped: boolean, fallbackDegraded: boolean): string {
-  if (fallbackSkipped) return "Web research backup skipped"
-  if (fallbackDegraded) return "Web search unavailable"
-  return "Web research backup (standby)"
+  if (fallbackSkipped) return "Fallback not needed"
+  if (fallbackDegraded) return "Web search unavailable, used model knowledge"
+  return "Fallback (standby)"
 }
 
 function metadataDetail(stepMetadata: Record<string, unknown>): string | null {

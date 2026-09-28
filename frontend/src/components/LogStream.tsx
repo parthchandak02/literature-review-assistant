@@ -1,5 +1,19 @@
-import { forwardRef, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react"
+import { forwardRef, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState } from "react"
+import { useVirtualizer } from "@tanstack/react-virtual"
+import { ArrowDown, ChevronDown } from "lucide-react"
+import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
+import { humanizeLogTag } from "@/lib/humanize"
+import {
+  announcementFor,
+  countNewEvents,
+  newEventsLabel,
+  nextFollowState,
+  pauseFollow,
+  resumeFollow,
+  type AnnounceSource,
+  type FollowState,
+} from "@/lib/logFollow"
 import { milestoneForPhase, PHASE_MILESTONES, type PhaseMilestone } from "@/lib/constants"
 import type { ReviewEvent } from "@/lib/api"
 import { eventToLogEntry } from "@/lib/logLine"
@@ -156,46 +170,134 @@ export function buildRenderItems(events: ReviewEvent[]): RenderItem[] {
 
 function levelClass(level: LogLevel): string {
   switch (level) {
-    case "error":             return "text-intent-danger"
-    case "warn":              return "text-intent-warning"
-    case "info":              return "text-foreground"
-    case "dim":               return "text-muted"
-    case "status":            return "text-intent-warning/70 italic"
-    // include/exclude/exclude-heuristic handled separately as bordered cards
-    default:                  return "text-muted"
+    case "error":
+      return "text-intent-danger"
+    case "warn":
+      return "text-intent-warning"
+    case "info":
+      return "text-foreground"
+    default:
+      return "text-muted"
   }
 }
 
-function screeningCardClass(level: LogLevel): {
-  borderClass: string
-  badgeClass: string
-  textClass: string
-} {
+function decisionStyle(level: LogLevel): { rowClass: string; tagClass: string; textClass: string } {
   if (level === "include") {
     return {
-      borderClass: "border-intent-success bg-intent-success-subtle",
-      badgeClass: "text-intent-success",
+      rowClass: "border-intent-success bg-intent-success-subtle",
+      tagClass: "text-intent-success font-semibold",
       textClass: "text-intent-success",
     }
   }
   if (level === "exclude-heuristic") {
     return {
-      borderClass: "border-intent-warning-border bg-intent-warning-subtle",
-      badgeClass: "text-intent-warning",
+      rowClass: "border-intent-warning-border bg-intent-warning-subtle",
+      tagClass: "text-intent-warning font-semibold",
       textClass: "text-intent-warning",
     }
   }
   return {
-    borderClass: "border-border bg-surface-2/20",
-    badgeClass: "text-muted",
+    rowClass: "border-border bg-surface-2/20",
+    tagClass: "text-muted font-semibold",
     textClass: "text-foreground",
   }
 }
 
-function splitTerminalColumns(text: string): { ts: string | null; tag: string | null; message: string } {
-  const m = text.match(/^\[(\d{2}:\d{2}:\d{2})\]\s+([A-Z.]+)\s+(.*)$/)
-  if (!m) return { ts: null, tag: null, message: text }
-  return { ts: m[1], tag: m[2], message: m[3] }
+const EXPAND_THRESHOLD = 240
+const END_THRESHOLD_PX = 24
+const ROW_GRID =
+  "grid grid-cols-1 gap-x-2 @md:grid-cols-[4.75rem_8.5rem_minmax(0,1fr)] items-start"
+const FOCUS_RING =
+  "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 focus-visible:ring-offset-background"
+
+function isDecision(level: LogLevel): boolean {
+  return level === "include" || level === "exclude" || level === "exclude-heuristic"
+}
+
+function LogRow({
+  entry,
+  traceback,
+  expanded,
+  onToggle,
+}: {
+  entry: LogRenderEntry
+  traceback?: string
+  expanded: boolean
+  onToggle: () => void
+}) {
+  const tagInfo = humanizeLogTag(entry.tag)
+  const decision = isDecision(entry.level)
+  const style = decision ? decisionStyle(entry.level) : null
+  const long = entry.message.length > EXPAND_THRESHOLD
+  const canExpand = long || !!entry.detail
+  const message = long && !expanded ? `${entry.message.slice(0, EXPAND_THRESHOLD).trimEnd()}…` : entry.message
+  const subTag = entry.subTag === "AUTO" ? humanizeLogTag("AUTO") : null
+
+  return (
+    <div className={cn("py-px", decision && ["-ml-2.5 pl-2 border-l-2 rounded-r", style?.rowClass])}>
+      <div className={cn(ROW_GRID, decision ? style?.textClass : levelClass(entry.level))}>
+        <div className="flex items-baseline gap-2 min-w-0 @md:contents">
+          <span className="text-muted tabular-nums">{entry.ts ? `[${entry.ts}]` : ""}</span>
+          <span
+            className={cn("truncate", decision ? style?.tagClass : "text-muted")}
+            title={tagInfo.description || undefined}
+          >
+            {tagInfo.label}
+          </span>
+        </div>
+        <div className="min-w-0 whitespace-pre-wrap [overflow-wrap:anywhere]">
+          {subTag && (
+            <span
+              className="mr-1.5 rounded border border-current/30 px-1 font-sans text-xs font-medium"
+              title={subTag.description}
+            >
+              {subTag.label}
+            </span>
+          )}
+          <span title={!expanded && entry.detail ? entry.detail : undefined}>{message}</span>
+          {canExpand && (
+            <>
+              {" "}
+              <button
+                type="button"
+                onClick={onToggle}
+                aria-expanded={expanded}
+                aria-label={expanded ? "Show less" : "Show more"}
+                title={expanded ? "Show less" : "Show more"}
+                className={cn(
+                  "inline-flex align-middle rounded text-muted/70 hover:text-foreground transition-colors motion-reduce:transition-none",
+                  FOCUS_RING,
+                )}
+              >
+                <ChevronDown aria-hidden className={cn("h-3.5 w-3.5 transition-transform motion-reduce:transition-none", expanded && "rotate-180")} />
+              </button>
+            </>
+          )}
+          {expanded && entry.detail && <div className="mt-0.5 text-muted">{entry.detail}</div>}
+        </div>
+      </div>
+      {traceback && (
+        <pre className="text-xs text-muted whitespace-pre-wrap [overflow-wrap:anywhere] font-mono pl-4 border-l-2 border-intent-danger-border mt-1">
+          {traceback}
+        </pre>
+      )}
+    </div>
+  )
+}
+
+function PhaseSeparator({ label, description }: { label: string; description?: string }) {
+  return (
+    <div className="flex flex-col gap-0.5 pt-3 pb-1">
+      <div className="flex items-center gap-2">
+        <div className="h-px flex-1 bg-border" aria-hidden />
+        <span className="text-xs font-semibold tracking-widest uppercase text-intent-primary shrink-0 px-1">
+          {label}
+        </span>
+        <div className="h-px flex-1 bg-border" aria-hidden />
+      </div>
+      {description ? <div className="text-xs text-muted pl-0.5 pr-1">{description}</div> : null}
+    </div>
+  )
 }
 
 // ---------------------------------------------------------------------------
@@ -212,107 +314,99 @@ interface LogStreamProps {
   autoScroll?: boolean
 }
 
+function toAnnounceSource(item: RenderItem): AnnounceSource {
+  if (item.kind === "phase-sep") return { kind: "phase-sep", label: item.label }
+  if (item.ev.type !== "error" && item.ev.type !== "api_call") return { kind: "event" }
+  const entry = eventToLogEntry(item.ev)
+  return { kind: "event", isError: entry.severity === "error", message: entry.message }
+}
+
 export const LogStream = forwardRef<LogStreamHandle, LogStreamProps>(function LogStream(
   { events, autoScroll = true },
   ref,
 ) {
-  const scrollContainerRef = useRef<HTMLDivElement>(null)
-  const bottomRef = useRef<HTMLDivElement>(null)
-  const userScrolledUp = useRef(false)
-  const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set())
-  const [scrollTop, setScrollTop] = useState(0)
-  const [viewportHeight, setViewportHeight] = useState(0)
-  const [viewportWidth, setViewportWidth] = useState(0)
-  const rowEstimate = 24
-  const DEV_PERF_LOG = import.meta.env.DEV
-
+  const scrollRef = useRef<HTMLDivElement>(null)
+  const lastOffsetRef = useRef(0)
   const renderItems = useMemo(() => buildRenderItems(events), [events])
+  const [expandedRows, setExpandedRows] = useState<Set<string>>(() => new Set())
+  const [follow, setFollow] = useState<FollowState>(() => resumeFollow(renderItems.length))
+  const [announcement, setAnnouncement] = useState("")
+  const [prevItems, setPrevItems] = useState(renderItems)
+  const [prevAutoScroll, setPrevAutoScroll] = useState(autoScroll)
 
-  const scrollToItemIndex = (index: number) => {
-    const container = scrollContainerRef.current
-    if (!container) return
-    container.scrollTo({
-      top: Math.max(0, index * rowEstimate - 8),
-      behavior: "smooth",
+  if (prevItems !== renderItems) {
+    setPrevItems(renderItems)
+    const prevLen = prevItems.length
+    const appended =
+      prevLen > 0 &&
+      renderItems.length > prevLen &&
+      renderItems[prevLen - 1]?.key === prevItems[prevLen - 1]?.key
+    if (appended) {
+      const text = announcementFor(renderItems.slice(prevLen).map(toAnnounceSource))
+      if (text) setAnnouncement(text)
+    }
+  }
+
+  if (prevAutoScroll !== autoScroll) {
+    setPrevAutoScroll(autoScroll)
+    if (autoScroll) setFollow(resumeFollow(renderItems.length))
+  }
+
+  const followActive = autoScroll && follow.following
+
+  const phaseSepIndex = useMemo(() => {
+    const out = new Array<number>(renderItems.length)
+    let current = -1
+    renderItems.forEach((item, i) => {
+      if (item.kind === "phase-sep") current = i
+      out[i] = current
     })
+    return out
+  }, [renderItems])
+
+  // eslint-disable-next-line react-hooks/incompatible-library -- no React Compiler in this app; virtualizer re-renders via onChange
+  const virtualizer = useVirtualizer({
+    count: renderItems.length,
+    getScrollElement: () => scrollRef.current,
+    estimateSize: (i) => (renderItems[i]?.kind === "phase-sep" ? 36 : 22),
+    getItemKey: (i) => renderItems[i]?.key ?? i,
+    overscan: 12,
+    paddingStart: 4,
+    paddingEnd: 16,
+    anchorTo: "end",
+    followOnAppend: followActive,
+    scrollEndThreshold: END_THRESHOLD_PX,
+    initialRect: { width: 800, height: 480 },
+    onChange: (instance) => {
+      const offset = instance.scrollOffset ?? 0
+      const scrolledBackward = offset < lastOffsetRef.current - 1
+      lastOffsetRef.current = offset
+      const atEnd = instance.isAtEnd(END_THRESHOLD_PX)
+      const count = instance.options.count
+      setFollow((prev) => nextFollowState(prev, { atEnd, scrolledBackward, count }))
+    },
+  })
+
+  useLayoutEffect(() => {
+    if (!autoScroll) return
+    const count = virtualizer.options.count
+    if (count > 0) virtualizer.scrollToIndex(count - 1, { align: "end" })
+  }, [autoScroll, virtualizer])
+
+  const jumpToLatest = () => {
+    const count = renderItems.length
+    setFollow(resumeFollow(count))
+    if (count > 0) virtualizer.scrollToIndex(count - 1, { align: "end" })
   }
 
   useImperativeHandle(ref, () => ({
     scrollToPhase: (phase: string) => {
-      const container = scrollContainerRef.current
-      const el = container?.querySelector<HTMLElement>(`[data-phase="${phase}"]`)
-      if (!container) return
-      if (!el) {
-        const fallbackIdx = renderItems.findIndex((item) => item.kind === "phase-sep" && item.phase === phase)
-        if (fallbackIdx >= 0) {
-          scrollToItemIndex(fallbackIdx)
-        }
-        return
-      }
-      // getBoundingClientRect gives viewport-relative coords, which correctly
-      // accounts for any ancestor transforms/positions. offsetTop would be
-      // relative to the nearest positioned ancestor, which may not be the
-      // scroll container, producing a wrong offset.
-      const elTop = el.getBoundingClientRect().top
-      const containerTop = container.getBoundingClientRect().top
-      container.scrollTo({
-        top: container.scrollTop + (elTop - containerTop) - 8,
-        behavior: "smooth",
-      })
+      const idx = renderItems.findIndex((item) => item.kind === "phase-sep" && item.phase === phase)
+      if (idx < 0) return
+      setFollow(pauseFollow(renderItems.length))
+      virtualizer.scrollToIndex(idx, { align: "start" })
     },
   }))
-
-  // Watch the sentinel element with an IntersectionObserver so we know whether
-  // the user has scrolled away from the bottom.
-  useEffect(() => {
-    const sentinel = bottomRef.current
-    const container = scrollContainerRef.current
-    if (!sentinel || !container) return
-    const observer = new IntersectionObserver(
-      ([entry]) => {
-        userScrolledUp.current = !entry.isIntersecting
-      },
-      { root: container, threshold: 0 },
-    )
-    observer.observe(sentinel)
-    return () => observer.disconnect()
-  }, [])
-
-  useEffect(() => {
-    const container = scrollContainerRef.current
-    if (!container) return
-    setViewportHeight(container.clientHeight)
-    setViewportWidth(container.clientWidth)
-    const onScroll = () => setScrollTop(container.scrollTop)
-    container.addEventListener("scroll", onScroll, { passive: true })
-    const onResize = () => {
-      setViewportHeight(container.clientHeight)
-      setViewportWidth(container.clientWidth)
-    }
-    window.addEventListener("resize", onResize)
-    return () => {
-      container.removeEventListener("scroll", onScroll)
-      window.removeEventListener("resize", onResize)
-    }
-  }, [])
-
-  // Scroll to bottom on new events only when the user hasn't scrolled up.
-  useEffect(() => {
-    if (!autoScroll || userScrolledUp.current) return
-    const container = scrollContainerRef.current
-    if (!container) return
-    container.scrollTo({ top: container.scrollHeight, behavior: "auto" })
-  }, [renderItems.length, autoScroll])
-
-  // If auto-scroll was disabled (for search/filter) and gets re-enabled, snap to latest.
-  useEffect(() => {
-    if (autoScroll && !userScrolledUp.current) {
-      const container = scrollContainerRef.current
-      if (container) {
-        container.scrollTo({ top: container.scrollHeight, behavior: "auto" })
-      }
-    }
-  }, [autoScroll])
 
   const toggleExpanded = (rowKey: string) => {
     setExpandedRows((prev) => {
@@ -323,33 +417,6 @@ export const LogStream = forwardRef<LogStreamHandle, LogStreamProps>(function Lo
     })
   }
 
-  // Enable virtualization based on row count regardless of viewport width.
-  // This prevents full DOM mounts during large replay bursts on narrower layouts.
-  const virtualEnabled =
-    renderItems.length > 350 &&
-    expandedRows.size === 0
-  const overscan = 40
-  const start = virtualEnabled
-    ? Math.max(0, Math.floor(scrollTop / rowEstimate) - overscan)
-    : 0
-  const end = virtualEnabled
-    ? Math.min(renderItems.length, Math.ceil((scrollTop + viewportHeight) / rowEstimate) + overscan)
-    : renderItems.length
-  const visibleItems = renderItems.slice(start, end)
-  const topPad = virtualEnabled ? start * rowEstimate : 0
-  const bottomPad = virtualEnabled ? (renderItems.length - end) * rowEstimate : 0
-
-  useEffect(() => {
-    if (!DEV_PERF_LOG) return
-    console.debug("[LogStream render]", {
-      events: events.length,
-      renderItems: renderItems.length,
-      virtualEnabled,
-      viewportWidth,
-      viewportHeight,
-    })
-  }, [events.length, renderItems.length, virtualEnabled, viewportWidth, viewportHeight, DEV_PERF_LOG])
-
   if (events.length === 0) {
     return (
       <div className="h-64 flex items-center justify-center text-sm text-muted bg-card border border-border rounded-panel">
@@ -358,115 +425,90 @@ export const LogStream = forwardRef<LogStreamHandle, LogStreamProps>(function Lo
     )
   }
 
+  const virtualItems = virtualizer.getVirtualItems()
+  const offset = virtualizer.scrollOffset ?? 0
+  const firstVisible = virtualItems.find((v) => v.end > offset) ?? virtualItems[0]
+  const headerIndex = firstVisible ? phaseSepIndex[firstVisible.index] : -1
+  const headerItem = headerIndex >= 0 ? renderItems[headerIndex] : null
+  const headerVirtual = virtualItems.find((v) => v.index === headerIndex)
+  const headerLabel =
+    headerItem?.kind === "phase-sep" && (!headerVirtual || headerVirtual.start + 12 < offset)
+      ? headerItem.label
+      : null
+  const newCount = countNewEvents(renderItems, follow)
+  const showPill = autoScroll && !follow.following
+
   return (
-    <div
-      ref={scrollContainerRef}
-      className="h-[clamp(22rem,calc(100dvh-20rem),40rem)] w-full rounded-panel border border-border bg-background overflow-y-auto"
-      role="log"
-      aria-live="polite"
-      aria-label="Event log"
-      aria-atomic="false"
-    >
-      <div className="font-mono text-2xs flex flex-col p-4 gap-px leading-5">
-        {topPad > 0 && <div style={{ height: topPad }} />}
-        {visibleItems.map((item) => {
-          if (item.kind === "phase-sep") {
-            return (
-              <div
-                key={item.key}
-                data-phase={item.phase}
-                className={cn(
-                  "flex flex-col gap-0.5 mt-3 mb-1 first:mt-0 bg-background/95",
-                  virtualEnabled ? "" : "sticky top-0 z-10 backdrop-blur-sm",
-                )}
-              >
-                <div className="flex items-center gap-2">
-                  <div className="h-px flex-1 bg-border" />
-                  <span className="text-2xs font-semibold tracking-widest uppercase text-intent-primary/80 shrink-0 px-1">
-                    {item.label}
-                  </span>
-                  <div className="h-px flex-1 bg-border" />
-                </div>
-                {item.description ? (
-                  <div className="text-2xs text-muted pl-0.5 pr-1 leading-snug">{item.description}</div>
-                ) : null}
-              </div>
-            )
-          }
+    <div className="relative">
+      {headerLabel && (
+        <div
+          data-testid="log-current-phase"
+          className="pointer-events-none absolute inset-x-px top-px z-10 rounded-t-panel border-b border-border bg-surface-1 shadow-sm px-4 py-1 font-mono text-xs"
+        >
+          <span className="sr-only">Current phase: </span>
+          <span className="font-semibold tracking-widest uppercase text-intent-primary">{headerLabel}</span>
+        </div>
+      )}
 
-          const { text, level }: LogRenderEntry = eventToLogEntry(item.ev)
-          const errorEv = item.kind === "event" && item.ev.type === "error" ? (item.ev as { traceback?: string }) : null
-
-          // Screening decisions get a colored left-border card treatment.
-          if (level === "include" || level === "exclude" || level === "exclude-heuristic") {
-            const isInclude = level === "include"
-            const style = screeningCardClass(level)
-            return (
-              <div key={item.key} className="flex flex-col gap-0.5">
+      <div
+        ref={scrollRef}
+        className={cn(
+          "@container h-[clamp(22rem,calc(100dvh-20rem),40rem)] w-full rounded-panel border border-border bg-background overflow-y-auto",
+          FOCUS_RING,
+        )}
+        role="log"
+        aria-live="off"
+        aria-label="Event log"
+        tabIndex={0}
+      >
+        <div className="relative w-full" style={{ height: virtualizer.getTotalSize() }}>
+          <div
+            className="absolute left-0 top-0 w-full px-4 font-mono text-xs leading-5"
+            style={{ transform: `translateY(${virtualItems[0]?.start ?? 0}px)` }}
+          >
+            {virtualItems.map((v) => {
+              const item = renderItems[v.index]
+              if (!item) return null
+              return (
                 <div
-                  className={cn(
-                    "flex items-baseline gap-2 pl-2 border-l-2 rounded-r py-0.5",
-                    style.borderClass,
-                  )}
+                  key={v.key}
+                  data-index={v.index}
+                  ref={virtualizer.measureElement}
+                  data-phase={item.kind === "phase-sep" ? item.phase : undefined}
                 >
-                  {/* Colored INCLUDE / EXCLUDE badge */}
-                  <span className={cn(
-                    "shrink-0 font-bold text-2xs tracking-wider uppercase select-none",
-                    style.badgeClass,
-                  )}>
-                    {isInclude ? "INCLUDE" : "EXCLUDE"}
-                  </span>
-                  {/* Full log line (timestamp + label + conf + reason) */}
-                  <span className={cn(
-                    "whitespace-pre-wrap break-all min-w-0",
-                    style.textClass,
-                  )}>
-                    {/* Strip the leading "[HH:MM:SS] INCLUDE/EXCLUDE " prefix since the badge shows it */}
-                    {text.replace(/^\[\d{2}:\d{2}:\d{2}\] (?:INCLUDE|EXCLUDE)\s+/, "")}
-                  </span>
-                </div>
-              </div>
-            )
-          }
-
-          // All other event types -- plain text with level-based color
-          const cols = splitTerminalColumns(text)
-          const canExpand = text.length > 240
-          const isExpanded = expandedRows.has(item.key)
-          const displayMessage = canExpand && !isExpanded ? `${cols.message.slice(0, 240)}...` : cols.message
-          return (
-            <div key={item.key} className="flex flex-col gap-1">
-              <div className={cn("grid grid-cols-[74px_62px_1fr] items-start gap-x-2", levelClass(level))}>
-                <span className="text-muted tabular-nums">{cols.ts ? `[${cols.ts}]` : ""}</span>
-                <span className="text-muted">{cols.tag ?? ""}</span>
-                <span className="whitespace-pre-wrap break-all min-w-0">
-                  {displayMessage}
-                  {canExpand && (
-                    <>
-                      {" "}
-                      <button
-                        type="button"
-                        onClick={() => toggleExpanded(item.key)}
-                        className="text-muted hover:text-foreground underline underline-offset-2 transition-colors"
-                        title="Toggle full row"
-                      >
-                        {isExpanded ? "less" : "more"}
-                      </button>
-                    </>
+                  {item.kind === "phase-sep" ? (
+                    <PhaseSeparator label={item.label} description={item.description} />
+                  ) : (
+                    <LogRow
+                      entry={eventToLogEntry(item.ev)}
+                      traceback={item.ev.type === "error" ? item.ev.traceback : undefined}
+                      expanded={expandedRows.has(item.key)}
+                      onToggle={() => toggleExpanded(item.key)}
+                    />
                   )}
-                </span>
-              </div>
-              {errorEv?.traceback && (
-                <pre className="text-2xs text-muted whitespace-pre-wrap break-all font-mono pl-4 border-l-2 border-intent-danger-border mt-1">
-                  {errorEv.traceback}
-                </pre>
-              )}
-            </div>
-          )
-        })}
-        {bottomPad > 0 && <div style={{ height: bottomPad }} />}
-        <div ref={bottomRef} />
+                </div>
+              )
+            })}
+          </div>
+        </div>
+      </div>
+
+      {showPill && (
+        <Button
+          type="button"
+          size="xs"
+          onClick={jumpToLatest}
+          className="absolute bottom-3 left-1/2 z-20 -translate-x-1/2 rounded-full shadow-md"
+        >
+          <ArrowDown aria-hidden />
+          {newCount > 0 ? newEventsLabel(newCount) : "Jump to latest"}
+        </Button>
+      )}
+
+      <div className="sr-only" role="status" aria-live="polite" aria-atomic="true">
+        {announcement}
       </div>
     </div>
   )
 })
+

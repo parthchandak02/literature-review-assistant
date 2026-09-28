@@ -27,22 +27,22 @@ Note: sidebar SHL rows run in Sprint 2 and app-shell and settings rows in Sprint
 | CST-01 | M | Cost chart | Raw labels such as "Phase 6f Custom Diagram Drawing" wrap to four lines. The top bar is **grey** while smaller ones are orange or red, so colour emphasis is inverted. | Use short human labels, one hue, and highlight the top bar. | 4 | done | sprint-4 |
 | ACT-03 | M | Run tabs | Five equal full-width tabs (about 230px each, 38px tall) create a heavy band above every view. | Use underline tabs with left-aligned, content-width items, and move the Download CTA onto the same row on the right. | 2 | done | sprint-2 |
 | ACT-04 | L | Stepper | The connectors are tiny "–" glyphs, not lines. All-complete and all-pending states look alike in weight. | Use 2px connector lines filled with progress colour, and the sub-status text from S1. | 2 | done | sprint-2 |
-| SET-01 | L | Setup | A 3-button quiz floats in empty space. There's no title, and the research-question input is hidden behind the quiz. | Put an h1 and a big question textarea first. Offer review type as two cards, with "Help me decide" as a link. | 6 | todo | |
-| SET-02 | H | `views/ConfigView.tsx:243-256`, `setup/QuestionStage.tsx:260-268` | "Paste YAML" is offered, but launch is then disabled for pasted configs, so the path is a dead end. | Support launching pasted YAML, or relabel the action "View YAML (no launch)". | 6 | todo | |
-| SET-03 | H | `config/ProsperoGatePanel.tsx:184-199` | There's no path forward without a PROSPERO CRD, and scoping reviews are forced through the same gate. | Add "Start without registration". Skip or relabel the gate for scoping reviews (OSF). | 6 | todo | |
-| SET-04 | H | `setup/ReviewTypeDecisionStage.tsx:84-118` | Experts must take the quiz. The step count isn't shown, and there's no Back. | Show two type cards plus a "Help me decide" link, "Step n of 4", and Back. | 6 | todo | |
-| SET-05 | M | `ReviewTypeDecisionStage.tsx:105` | Uses the jargon "IEDO". | Use plain words. | 6 | todo | |
-| SET-06 | M | `QuestionStage.tsx:149-162` | The textarea has no label, and the page has no h1. | Add a visible "Research question" label and an h1. | 6 | todo | |
-| SET-07 | M | `QuestionStage.tsx:99-104,176` | Missing-key errors appear only after submit, and there's no link to Settings. | Check up front, name the provider, and add an "Open Settings → Keys" link. | 6 | todo | |
-| SET-08 | M | `QuestionStage.tsx:167-172` | The "Retry" button only dismisses the error. | Label it "Dismiss" or make it actually retry. | 6 | todo | |
-| SET-09 | M | `QuestionStage.tsx:185-211` | Options sit below the primary CTA. | Move options above the CTA. | 6 | todo | |
-| SET-10 | L | `QuestionStage.tsx:216-257` | "Reuse past config" menu: no Esc, no aria-expanded, capped at 10 runs, and invisible when empty. | Use Radix Popover with search, and add an empty hint. | 6 | todo | |
-| SET-11 | M | `setup/CsvDropZone.tsx:136-146` | The drop zone can't be reached by keyboard. | Use a `<label htmlFor>` or a button. | 6 | todo | |
-| SET-12 | M | `CsvDropZone.tsx:27-38` | `.CSV` files are silently rejected and parse errors are swallowed. | Match case-insensitively and show an inline error. | 6 | todo | |
-| SET-13 | M | `CsvDropZone.tsx:80-132` | The major consequence of "master list" (it skips search) is explained only in a tooltip. | Show the consequence text inline, and use RadioGroup. | 6 | todo | |
-| SET-14 | M | `ConfigView.tsx:95-111`, `setup/constants.ts` | The stepper shows made-up history, "PICO" appears for scoping reviews, and labels like "Routing" and "Backup" are unclear. | Hide the stepper when provenance is unknown, use PCC for scoping reviews, and use plain labels. | 6 | todo | |
-| SET-15 | M | `ConfigView.tsx:78,236`, `YamlEditor.tsx` | YAML edits are lost when switching tabs, there's no dirty flag, reset or parse validation, and the editor has a fixed 400px height. | Lift state up, add a dirty dot, Reset, inline YAML errors and a viewport height. | 6 | todo | |
-| SET-16 | L | `ProsperoGatePanel.tsx:81-137` | An invalid CRD just disables the button without saying why. | Add helper text ("CRD42 + digits") and an error on blur. | 6 | todo | |
+| SET-01 | L | Setup | A 3-button quiz floats in empty space. There's no title, and the research-question input is hidden behind the quiz. | Put an h1 and a big question textarea first. Offer review type as two cards, with "Help me decide" as a link. | 6 | done | sprint-6 |
+| SET-02 | H | `views/ConfigView.tsx:243-256`, `setup/QuestionStage.tsx:260-268` | "Paste YAML" is offered, but launch is then disabled for pasted configs, so the path is a dead end. | Support launching pasted YAML, or relabel the action "View YAML (no launch)". | 6 | done | sprint-6 |
+| SET-03 | H | `config/ProsperoGatePanel.tsx:184-199` | There's no path forward without a PROSPERO CRD, and scoping reviews are forced through the same gate. | Add "Start without registration". Skip or relabel the gate for scoping reviews (OSF). | 6 | done | sprint-6 |
+| SET-04 | H | `setup/ReviewTypeDecisionStage.tsx:84-118` | Experts must take the quiz. The step count isn't shown, and there's no Back. | Show two type cards plus a "Help me decide" link, "Step n of 4", and Back. | 6 | done | sprint-6 |
+| SET-05 | M | `ReviewTypeDecisionStage.tsx:105` | Uses the jargon "IEDO". | Use plain words. | 6 | done | sprint-6 |
+| SET-06 | M | `QuestionStage.tsx:149-162` | The textarea has no label, and the page has no h1. | Add a visible "Research question" label and an h1. | 6 | done | sprint-6 |
+| SET-07 | M | `QuestionStage.tsx:99-104,176` | Missing-key errors appear only after submit, and there's no link to Settings. | Check up front, name the provider, and add an "Open Settings → Keys" link. | 6 | done | sprint-6 |
+| SET-08 | M | `QuestionStage.tsx:167-172` | The "Retry" button only dismisses the error. | Label it "Dismiss" or make it actually retry. | 6 | done | sprint-6 |
+| SET-09 | M | `QuestionStage.tsx:185-211` | Options sit below the primary CTA. | Move options above the CTA. | 6 | done | sprint-6 |
+| SET-10 | L | `QuestionStage.tsx:216-257` | "Reuse past config" menu: no Esc, no aria-expanded, capped at 10 runs, and invisible when empty. | Use Radix Popover with search, and add an empty hint. | 6 | done | sprint-6 |
+| SET-11 | M | `setup/CsvDropZone.tsx:136-146` | The drop zone can't be reached by keyboard. | Use a `<label htmlFor>` or a button. | 6 | done | sprint-6 |
+| SET-12 | M | `CsvDropZone.tsx:27-38` | `.CSV` files are silently rejected and parse errors are swallowed. | Match case-insensitively and show an inline error. | 6 | done | sprint-6 |
+| SET-13 | M | `CsvDropZone.tsx:80-132` | The major consequence of "master list" (it skips search) is explained only in a tooltip. | Show the consequence text inline, and use RadioGroup. | 6 | done | sprint-6 |
+| SET-14 | M | `ConfigView.tsx:95-111`, `setup/constants.ts` | The stepper shows made-up history, "PICO" appears for scoping reviews, and labels like "Routing" and "Backup" are unclear. | Hide the stepper when provenance is unknown, use PCC for scoping reviews, and use plain labels. | 6 | done | sprint-6 |
+| SET-15 | M | `ConfigView.tsx:78,236`, `YamlEditor.tsx` | YAML edits are lost when switching tabs, there's no dirty flag, reset or parse validation, and the editor has a fixed 400px height. | Lift state up, add a dirty dot, Reset, inline YAML errors and a viewport height. | 6 | done | sprint-6 |
+| SET-16 | L | `ProsperoGatePanel.tsx:81-137` | An invalid CRD just disables the button without saying why. | Add helper text ("CRD42 + digits") and an error on blur. | 6 | done | sprint-6 |
 | SHL-03 | H | `App.tsx:131`, `Sidebar.tsx:167-190` | The mobile drawer has no focus trap, no Esc and no dialog role. | Use the Sheet primitive. | 2 | done | sprint-2 |
 | SHL-04 | H | `sidebar/RunNavCard.tsx:450-481`, `RunCardMetrics.tsx` | Buttons are nested inside the card `<button>`, and Space triggers both. | Build the card with an overlay link and sibling actions. | 2 | done | sprint-2 |
 | SHL-05 | H | `RunNavCard.tsx:255-368` | Archive and Complete fire instantly on 28px icons that sit next to Resume. | Show a toast with Undo, and move these actions into the overflow menu. | 2 | done | sprint-2 |
@@ -58,17 +58,17 @@ Note: sidebar SHL rows run in Sprint 2 and app-shell and settings rows in Sprint
 | SHL-15 | L | `Sidebar.tsx:314` | The resize handle works only with a mouse. | Add `role=separator`, arrow keys, and double-click to reset. | 2 | done | sprint-2 |
 | SHL-16 | L | `SidebarHeader.tsx:72` | Settings and theme move or vanish when the sidebar collapses. | Keep one fixed location. | 2 | done | sprint-2 |
 | SHL-17 | L | `RunNavCard.tsx:488` | "RECONNECTING" is hard-coded in caps. | Use `statusLabel` with the caps style applied in CSS. | 2 | done | sprint-2 |
-| SHL-18 | M | `App.tsx:432-441` | Clicking the title silently copies it. | Add an explicit copy icon and make the title plain text. | 6 | todo | |
-| SHL-19 | M | `App.tsx:397-404` | The offline banner tells users about `pm2 status`. | Keep a user message and put operator hints behind a dev flag. | 6 | todo | |
-| SHL-20 | M | `App.tsx:55-66` | The error boundary shows a raw message, and "Reload" goes to `/` and loses context. | Offer "Reload this page" and "Go home", with collapsible details. | 6 | todo | |
-| SHL-21 | L | `App.tsx:204` | Cmd+B fires inside textareas and isn't discoverable. | Ignore it in editable fields and show it in the tooltip. | 6 | wip (Cmd+B guard done in S2) | |
-| SHL-22 | L | `App.tsx:356` | Toasts at top-center cover the breadcrumb. | Move them to bottom-right. | 6 | todo | |
-| SHL-23 | M | `SettingsDialog.tsx:47-67` | Tabs have no ARIA roles and the `initialTab` prop is ignored. | Reuse GlassTabs and reset on open. | 6 | todo | |
-| SHL-24 | M | `SettingsDialog.tsx:31` | The dialog is always 1280px wide, so key inputs stretch. | Use a width per tab. | 6 | todo | |
-| SHL-25 | M | `ApiKeysSection.tsx:22-135` | Saving on every keystroke gives no feedback, there's no clear button or format check, and nine providers are listed flat. | List required providers first, collapse "Optional", add format hints, a Saved tick and a Clear button. | 6 | todo | |
-| SHL-26 | L | `ApiKeysSection.tsx:96,172` | Email fields are masked as passwords, and the warning has no icon. | Use `type=email` and add an alert icon. | 6 | todo | |
-| SHL-27 | L | `GlobalCostOpsDialog.tsx` | Dead code, and "Workflows" wording; the layout jumps on reload. | Delete it, and keep stale data dimmed while refreshing. | 6 | todo | |
-| SHL-28 | L | `ViewBoundary.tsx:46` | "Try again" remounts into the same crash. | Add "Reload page" and "Copy details". | 6 | todo | |
+| SHL-18 | M | `App.tsx:432-441` | Clicking the title silently copies it. | Add an explicit copy icon and make the title plain text. | 6 | done | sprint-6 |
+| SHL-19 | M | `App.tsx:397-404` | The offline banner tells users about `pm2 status`. | Keep a user message and put operator hints behind a dev flag. | 6 | done | sprint-6 |
+| SHL-20 | M | `App.tsx:55-66` | The error boundary shows a raw message, and "Reload" goes to `/` and loses context. | Offer "Reload this page" and "Go home", with collapsible details. | 6 | done | sprint-6 |
+| SHL-21 | L | `App.tsx:204` | Cmd+B fires inside textareas and isn't discoverable. | Ignore it in editable fields and show it in the tooltip. | 6 | done | sprint-6 |
+| SHL-22 | L | `App.tsx:356` | Toasts at top-center cover the breadcrumb. | Move them to bottom-right. | 6 | done | sprint-6 |
+| SHL-23 | M | `SettingsDialog.tsx:47-67` | Tabs have no ARIA roles and the `initialTab` prop is ignored. | Reuse GlassTabs and reset on open. | 6 | done | sprint-6 |
+| SHL-24 | M | `SettingsDialog.tsx:31` | The dialog is always 1280px wide, so key inputs stretch. | Use a width per tab. | 6 | done | sprint-6 |
+| SHL-25 | M | `ApiKeysSection.tsx:22-135` | Saving on every keystroke gives no feedback, there's no clear button or format check, and nine providers are listed flat. | List required providers first, collapse "Optional", add format hints, a Saved tick and a Clear button. | 6 | done | sprint-6 |
+| SHL-26 | L | `ApiKeysSection.tsx:96,172` | Email fields are masked as passwords, and the warning has no icon. | Use `type=email` and add an alert icon. | 6 | done | sprint-6 |
+| SHL-27 | L | `GlobalCostOpsDialog.tsx` | Dead code, and "Workflows" wording; the layout jumps on reload. | Delete it, and keep stale data dimmed while refreshing. | 6 | done | sprint-6 |
+| SHL-28 | L | `ViewBoundary.tsx:46` | "Try again" remounts into the same crash. | Add "Reload page" and "Copy details". | 6 | done | sprint-6 |
 | ACT-05 | H | `activity/PhaseTimeline.tsx:67`, `ui/HorizontalStepper.tsx:119` | Seven milestones only, with sub-phase, progress and elapsed time never shown. | Show "Full-text retrieval · 34/120 · 6m" under the active step and mirror it in the chrome. | 2 | done | sprint-2 |
 | ACT-06 | H | `ActivityView.tsx:192-208` | Resume is a hidden double-tap that silently disarms after 8s and re-runs paid phases. | Add an explicit "Resume from…" menu and a confirm listing the phases and prior cost. | 2 | done | sprint-2 |
 | ACT-07 | H | `RunView.tsx:159`, `RunChrome.tsx:190` | `awaiting_review` gets no redirect or banner, and its tab sits last. | Show a "Paused: 312 decisions need you → Review" banner on every tab and put the tab second. | 2 | done | sprint-2 |
@@ -78,15 +78,15 @@ Note: sidebar SHL rows run in Sprint 2 and app-shell and settings rows in Sprint
 | ACT-11 | M | `HorizontalStepper.tsx:95-139` | State is conveyed by colour and icon only, with no `aria-current` and no `<ol>`. | Add sr-only status text. | 2 | done | sprint-2 |
 | ACT-12 | L | `ActivityView.tsx:57,90` | "Start the server" is developer copy. | "Can't reach the server. Retry". | 2 | done | sprint-2 |
 | ACT-13 | L | `RunChrome.tsx:91-125` | Literal ` | ` and `>` separators are read aloud, "Copied" isn't announced, and cost is styled as a warning. | 2 | done | sprint-2 |
-| LOG-01 | H | `LogStream.tsx:328-380` | Virtualisation assumes 24px rows, but rows wrap, which breaks scroll and sticky phase headers above 350 rows. | Use `@tanstack/react-virtual` with measured rows and a sticky phase header outside the list. | 6 | todo | |
-| LOG-02 | H | `LogStream.tsx:299`, `ActivityLogPanel.tsx` | Follow stops silently, and there's no severity filter. | Add a "↓ 14 new" pill and chips: All, Warnings+, Errors, Decisions. | 6 | todo | |
-| LOG-03 | M | `LogStream.tsx:365` | `aria-live` on a firehose floods screen readers. | Announce only phase changes and errors. | 6 | todo | |
-| LOG-04 | M | `LogStream.tsx:370-442` | Text is 10–11px with `break-all`, which splits DOIs mid-word. | Use a 12px floor, `overflow-wrap:anywhere` and `leading-5`. | 6 | todo | |
-| LOG-05 | M | `LogStream.tsx:425` | Decision cards drop their timestamp and break the grid. | Keep them in the 3-column grid. | 6 | todo | |
-| LOG-06 | M | `lib/logLine.ts` (8 sites) | Jargon: `PROG phase_2_search`, `SRCHOV`, `rob=`, raw `ev.type`, and full model paths (`accounts/fireworks/models/…`). | Use human tags, `PHASE_LABELS`, "risk of bias" and short model names. Move full detail into row expand. | 6 | todo | |
-| LOG-07 | L | `LogStream.tsx:163` | Routine status lines are amber italic, which causes warning fatigue. | Use muted styling, and keep amber for `warn` only. | 6 | todo | |
-| LOG-08 | L | `logLine.ts:259` | Reasons are cut at 95 characters with no ellipsis. | Add "…" and row expand. | 6 | todo | |
-| LOG-09 | L | `ActivityLogPanel.tsx:77` | An empty search result shows the "no events yet" copy, and the search box has no aria-label. | Show "No events match 'q'" with Clear. | 6 | todo | |
+| LOG-01 | H | `LogStream.tsx:328-380` | Virtualisation assumes 24px rows, but rows wrap, which breaks scroll and sticky phase headers above 350 rows. | Use `@tanstack/react-virtual` with measured rows and a sticky phase header outside the list. | 6 | done | sprint-6 |
+| LOG-02 | H | `LogStream.tsx:299`, `ActivityLogPanel.tsx` | Follow stops silently, and there's no severity filter. | Add a "↓ 14 new" pill and chips: All, Warnings+, Errors, Decisions. | 6 | done | sprint-6 |
+| LOG-03 | M | `LogStream.tsx:365` | `aria-live` on a firehose floods screen readers. | Announce only phase changes and errors. | 6 | done | sprint-6 |
+| LOG-04 | M | `LogStream.tsx:370-442` | Text is 10–11px with `break-all`, which splits DOIs mid-word. | Use a 12px floor, `overflow-wrap:anywhere` and `leading-5`. | 6 | done | sprint-6 |
+| LOG-05 | M | `LogStream.tsx:425` | Decision cards drop their timestamp and break the grid. | Keep them in the 3-column grid. | 6 | done | sprint-6 |
+| LOG-06 | M | `lib/logLine.ts` (8 sites) | Jargon: `PROG phase_2_search`, `SRCHOV`, `rob=`, raw `ev.type`, and full model paths (`accounts/fireworks/models/…`). | Use human tags, `PHASE_LABELS`, "risk of bias" and short model names. Move full detail into row expand. | 6 | done | sprint-6 |
+| LOG-07 | L | `LogStream.tsx:163` | Routine status lines are amber italic, which causes warning fatigue. | Use muted styling, and keep amber for `warn` only. | 6 | done | sprint-6 |
+| LOG-08 | L | `logLine.ts:259` | Reasons are cut at 95 characters with no ellipsis. | Add "…" and row expand. | 6 | done | sprint-6 |
+| LOG-09 | L | `ActivityLogPanel.tsx:77` | An empty search result shows the "no events yet" copy, and the search box has no aria-label. | Show "No events match 'q'" with Clear. | 6 | done | sprint-6 |
 | SCR-01 | H | `screening/ScreeningFiltersBar.tsx:23` | There's no Exclude filter, no search and no confidence sort, so false negatives can't be rescued. | Add Exclude, Overridden, search, and a "confidence ↑" sort. | 3 | done | sprint-3 |
 | SCR-02 | H | `ScreeningPaperRow.tsx:74-133` | Each decision takes three clicks, with no keyboard shortcuts and no bulk actions. | Inline I/E toggles, j/k, i/e, u (undo), Enter (expand), and checkbox bulk actions. | 3 | done | sprint-3 |
 | SCR-03 | H | `ScreeningApprovalBar.tsx:30`, `ScreeningReviewView.tsx:26` | A one-way paid gate sits at the top, styled as a warning, with no summary. It doesn't say what happens to Uncertain papers. | Use a sticky footer with a primary button and a summary confirm ("N in, M uncertain → treated as X, K overrides"). | 3 | done | sprint-3 |
@@ -279,3 +279,41 @@ _(append per sprint: landed, blocked, next)_
 - Humanize source names (openalex_content, semantic_scholar) in References and Data.
 - Warn on package build when the draft-quality check flags template text.
 - Evidence network SVG export should always use light-theme colours.
+### Sprint 6: Setup, shell, log (2026-09-28)
+
+**Landed**
+- **SET-01..16**
+  - Setup page: h1, research question first, review-type cards with "Help me decide", a quiz with a step counter and Back.
+  - Up-front API key check, with a link that opens Settings on the Keys tab.
+  - Accessible CSV drop zone.
+  - Reuse-config picker.
+  - Pasted YAML can now launch.
+  - YAML editor: dirty state, reset and inline validation (new dependency: `yaml`).
+  - Config stepper uses real provenance only, with PCC labels for scoping reviews.
+  - CRD format hint.
+- **SHL-18..28**
+  - Copy-question button, a user-facing offline banner, and error-boundary actions.
+  - Toasts moved to bottom-right.
+  - Settings uses GlassTabs with a width per tab.
+  - API keys: required providers listed first, format hints, Clear and a Saved state.
+  - CostsPanel extracted and the dead dialog removed.
+- **LOG-01..09**
+  - Measured virtualisation (new dependency: `@tanstack/react-virtual`) and a sticky phase header.
+  - "N new events" pill.
+  - Severity chips.
+  - Only milestones are announced to screen readers.
+  - 12px text floor and readable tags.
+  - Short model names, with details behind a chevron expand.
+  - Decoded titles.
+  - Muted status lines.
+  - Search empty state.
+  - Narrow-width stacking.
+
+**Decision (user):** PROSPERO registration stays mandatory for every run, scoping reviews included. The skip button stays hidden behind `PROSPERO_SKIP_SUPPORTED = false`, and the copy says registration is required.
+
+**Follow-ups**
+- `FetchError` still labels its dismiss action "Retry" app-wide.
+- A settings context would let other views open Settings → Keys without rendering their own dialog.
+- Decide on an "AI reviewer" method chip for screening-decision log rows.
+- The top bar says "New Review" and the h1 says "New review", so the heading is duplicated.
+- Key-prefix hints and the "where each key is used" copy are hard-coded.

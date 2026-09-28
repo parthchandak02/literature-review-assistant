@@ -103,7 +103,21 @@ The chrome "Download submission package" runs `ensureSubmissionPackage`: Build, 
 
 - API keys panel never receives server secrets; server-set keys show "Configured on server" (from `/api/config/env-keys/status`)
 - Screening overrides persist per workflow in `sessionStorage` (`hooks/useScreeningReview.ts`)
-- Offline banner ("Can't reach the server", Retry now) in `App.tsx`; suppressed while streaming
+- Offline banner ("Can't reach the server", Retry now) in `App.tsx`; suppressed while streaming. Operator hints (`/api/health`, `pm2 status`) render only in dev builds
+- App bar question title is plain text (full text in a tooltip) with a separate "Copy question" icon button. Toasts sit bottom-right
+- `AppErrorBoundary` offers "Reload this page" and "Go home", with the raw message under "Technical details". `ViewBoundary` offers "Try again", "Reload page" and "Copy details"
+- Settings dialog uses `GlassTabs`, resets to `initialTab` on every open, and sizes per tab (about 560px for API keys, wide for Global costs)
+- API keys: required providers first, the rest under a collapsed "Optional providers". Known prefixes get a format hint and a soft warning (`lib/apiKeyFields.ts`). Each key has Clear; a debounced "Saved" tick confirms the browser save. Email fields are `type=email` with no reveal toggle
+- Global costs (`CostsPanel.tsx`) keep the previous data dimmed while refreshing; counts use "Reviews"
+
+## Activity log
+
+- `LogStream.tsx` virtualises with `@tanstack/react-virtual` (measured rows, `anchorTo: "end"`). A "current phase" header sits outside the list once its separator scrolls away
+- Follow mode pauses when the user scrolls up; a "N new events" pill jumps to the latest and resumes follow (`lib/logFollow.ts`)
+- Severity chips in `ActivityLogPanel.tsx`: All, Warnings+, Errors, Decisions (`filterEventsBySeverity` in `lib/logLine.ts`; `phase_start` is kept for grouping)
+- The log region is `aria-live="off"`; a separate polite region announces only phase changes and errors
+- Rows use `text-xs leading-5` and `[overflow-wrap:anywhere]`. Tags show `humanizeLogTag(tag).label` with the glossary description as `title`. Rows stack timestamp and tag above the message below the `@md` container width
+- `eventToLogEntry` returns `ts`, `tag`, `message` and optional `detail` (full reason, full model path, full title) shown on row expand. Routine status lines are muted; amber is for `warn`
 
 ## Phase alignment
 

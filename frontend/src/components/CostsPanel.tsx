@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
-import { CalendarDays, X } from "lucide-react"
 import {
   fetchHistoryCostAggregates,
   getHistoryCostExportUrl,
@@ -7,14 +6,6 @@ import {
 import type {
   HistoryCostAggregatesResponse,
 } from "@/lib/api"
-import { Button } from "@/components/ui/button"
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog"
 import {
   type CostOpsPresetKey,
   formatInteger,
@@ -37,15 +28,6 @@ import {
 
 type PresetKey = CostOpsPresetKey
 
-interface GlobalCostOpsDialogProps {
-  open: boolean
-  onOpenChange: (open: boolean) => void
-}
-
-/**
- * Standalone costs content panel -- can be rendered inside any container
- * (the SettingsDialog embeds it in its "Costs" tab).
- */
 export function CostsPanel() {
   const [preset, setPreset] = useState<PresetKey>("all")
   const [startDate, setStartDate] = useState("")
@@ -144,10 +126,16 @@ export function CostsPanel() {
         </div>
       )}
 
-      {loading ? (
+      {loading && !data ? (
         <CostsLoadingState />
       ) : (
-        <>
+        <div
+          aria-busy={loading}
+          className={cn(
+            "space-y-2.5 transition-opacity motion-reduce:transition-none",
+            loading && "opacity-60",
+          )}
+        >
           <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
             <div className={cn(statCardClass, "min-w-0")}>
               <div className="text-2xs uppercase tracking-wide text-muted">Total cost</div>
@@ -168,7 +156,7 @@ export function CostsPanel() {
               </div>
             </div>
             <div className={cn(statCardClass, "min-w-0")}>
-              <div className="text-2xs uppercase tracking-wide text-muted">Workflows</div>
+              <div className="text-2xs uppercase tracking-wide text-muted">Reviews</div>
               <div className="mt-0.5 text-sm font-semibold text-foreground tabular-nums truncate">
                 {data ? formatInteger(data.workflow_count) : "--"}
               </div>
@@ -183,52 +171,13 @@ export function CostsPanel() {
               viewMode={chartTableMode}
             />
             <div className={costOpsGridClass}>
-              <CostOpsGroupSection title="Top workflows" rows={data?.by_workflow ?? []} viewMode={chartTableMode} />
+              <CostOpsGroupSection title="Top reviews" rows={data?.by_workflow ?? []} viewMode={chartTableMode} />
               <CostOpsPhaseSection title="Top phases" rows={data?.by_phase ?? []} viewMode={chartTableMode} />
               <CostOpsGroupSection title="Top models" rows={data?.by_model ?? []} viewMode={chartTableMode} />
             </div>
           </div>
-        </>
+        </div>
       )}
     </div>
-  )
-}
-
-export function GlobalCostOpsDialog({ open, onOpenChange }: GlobalCostOpsDialogProps) {
-  return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-6xl border-border bg-surface-2 p-0 text-foreground">
-        <DialogHeader className="border-b border-border px-6 py-5">
-          <div className="flex items-start justify-between gap-4">
-            <div>
-              <DialogTitle className="flex items-center gap-2 text-foreground">
-                <CalendarDays className="h-5 w-5 text-intent-primary" />
-                Costs
-              </DialogTitle>
-              <DialogDescription className="mt-1 text-muted">
-                Real LLM spend over time from `cost_records` across all registry-linked run databases.
-              </DialogDescription>
-            </div>
-            <div className="flex items-center gap-2">
-              <Button
-                type="button"
-                variant="ghost"
-                size="icon"
-                onClick={() => onOpenChange(false)}
-                className="rounded-xl border border-transparent text-muted hover:border-border hover:bg-surface-3/70 hover:text-foreground"
-                aria-label="Close costs modal"
-                title="Close"
-              >
-                <X className="h-4 w-4" />
-              </Button>
-            </div>
-          </div>
-        </DialogHeader>
-
-        <div className="space-y-5 px-6 py-5">
-          <CostsPanel />
-        </div>
-      </DialogContent>
-    </Dialog>
   )
 }

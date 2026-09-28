@@ -1,4 +1,4 @@
-import { useState } from "react"
+import { useId, useState } from "react"
 import { Download, ExternalLink, FileCode, FileType, RefreshCw, ShieldCheck } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { DateInput } from "@/components/ui/date-input"
@@ -9,6 +9,8 @@ import { Spinner } from "@/components/ui/feedback"
 import { prosperoFormDocxUrl, prosperoFormMarkdownUrl } from "@/lib/api"
 import type { ProsperoRegistration } from "@/lib/api"
 import { isProsperoRegistrationNumberValid } from "@/lib/constants"
+import { PROSPERO_ID_HELPER, PROSPERO_SKIP_SUPPORTED, prosperoIdError } from "@/lib/prosperoConfig"
+import type { ReviewTypeChoice } from "@/components/setup/types"
 import { cn } from "@/lib/utils"
 
 export interface ProsperoGatePanelProps {
@@ -24,6 +26,9 @@ export interface ProsperoGatePanelProps {
   onStartResearch?: (registration: ProsperoRegistration) => void | Promise<void>
   onSaveRegistration?: (registration: ProsperoRegistration) => void | Promise<void>
   onRegenerateDrafts?: () => void | Promise<void>
+  reviewType?: ReviewTypeChoice | null
+  /** Rendered only when the backend supports unregistered runs (PROSPERO_SKIP_SUPPORTED). */
+  onStartWithoutRegistration?: () => void | Promise<void>
 }
 
 export function ProsperoGatePanel({
@@ -39,6 +44,8 @@ export function ProsperoGatePanel({
   onStartResearch,
   onSaveRegistration,
   onRegenerateDrafts,
+  reviewType = null,
+  onStartWithoutRegistration,
 }: ProsperoGatePanelProps) {
   const registrationSeed = `${initialRegistration?.registration_number ?? ""}|${initialRegistration?.registration_date ?? ""}`
 
@@ -57,6 +64,8 @@ export function ProsperoGatePanel({
       onStartResearch={onStartResearch}
       onSaveRegistration={onSaveRegistration}
       onRegenerateDrafts={onRegenerateDrafts}
+      reviewType={reviewType}
+      onStartWithoutRegistration={onStartWithoutRegistration}
     />
   )
 }
@@ -74,7 +83,11 @@ function ProsperoGatePanelBody({
   onStartResearch,
   onSaveRegistration,
   onRegenerateDrafts,
+  reviewType = null,
+  onStartWithoutRegistration,
 }: ProsperoGatePanelProps) {
+  const numberHelpId = useId()
+  const [numberTouched, setNumberTouched] = useState(false)
   const [registrationNumber, setRegistrationNumber] = useState(initialRegistration?.registration_number ?? "")
   const [registrationDate, setRegistrationDate] = useState(initialRegistration?.registration_date ?? "")
 
@@ -85,6 +98,14 @@ function ProsperoGatePanelBody({
   const artifactId = workflowId ?? runId
   const isGateMode = mode === "gate"
   const controlsDisabled = disabled || isSubmitting || isRegenerating
+  const numberError = numberTouched ? prosperoIdError(registrationNumber) : null
+  const isScoping = reviewType === "scoping"
+  const canSkip = isGateMode && PROSPERO_SKIP_SUPPORTED && Boolean(onStartWithoutRegistration)
+  const missingHint = !numberValid
+    ? "Add a valid PROSPERO ID to continue."
+    : !dateValid
+      ? "Add the registration date to continue."
+      : null
 
   function buildRegistration(): ProsperoRegistration {
     return {
@@ -97,7 +118,7 @@ function ProsperoGatePanelBody({
     <div className={cn(attention && "prospero-attention-border")}>
       <PageSection
         icon={ShieldCheck}
-        title="PROSPERO Registration"
+        title="PROSPERO registration"
         action={
           isComplete ? (
             <Badge variant="success" size="sm">
@@ -105,12 +126,20 @@ function ProsperoGatePanelBody({
             </Badge>
           ) : attention ? (
             <Badge variant="warning" size="sm">
-              Required
+              {isScoping && canSkip ? "Optional" : "Needed to continue"}
             </Badge>
           ) : null
         }
         contentClassName="space-y-4"
       >
+        {isScoping && (
+          <p className="text-xs text-muted leading-relaxed">
+            Registration is required before search starts, including for scoping reviews.
+            {canSkip
+              ? " You can start without registering."
+              : " Enter a PROSPERO-format ID (CRD42 followed by digits)."}
+          </p>
+        )}
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <div className="space-y-1.5">
             <div className="flex items-center justify-between gap-2">
@@ -131,10 +160,20 @@ function ProsperoGatePanelBody({
               id="prospero-id"
               value={registrationNumber}
               onChange={(e) => setRegistrationNumber(e.target.value)}
+              onBlur={() => setNumberTouched(registrationNumber.trim().length > 0)}
               placeholder="CRD42025678901"
               autoComplete="off"
               disabled={controlsDisabled}
+              aria-invalid={numberError ? true : undefined}
+              aria-describedby={numberHelpId}
             />
+            <p
+              id={numberHelpId}
+              className={cn("text-2xs", numberError ? "text-intent-danger-text" : "text-muted")}
+              role={numberError ? "alert" : undefined}
+            >
+              {numberError ?? PROSPERO_ID_HELPER}
+            </p>
           </div>
           <label className="space-y-1.5">
             <span className="text-xs font-medium text-foreground">Registration date</span>
@@ -181,6 +220,20 @@ function ProsperoGatePanelBody({
               </span>
             )}
           </div>
+          {isGateMode && missingHint && !controlsDisabled && (
+            <span className="hidden text-2xs text-muted sm:inline">{missingHint}</span>
+          )}
+          {canSkip && (
+            <Button
+              size="sm"
+              variant="outline"
+              className="shrink-0"
+              onClick={() => onStartWithoutRegistration && void onStartWithoutRegistration()}
+              disabled={controlsDisabled}
+            >
+              Start without registration
+            </Button>
+          )}
           {isGateMode ? (
             <Button
               size="sm"
@@ -194,7 +247,7 @@ function ProsperoGatePanelBody({
                   Starting...
                 </>
               ) : (
-                "Start Research"
+                "Start research"
               )}
             </Button>
           ) : (

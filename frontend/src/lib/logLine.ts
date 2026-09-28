@@ -1,5 +1,6 @@
 import type { ReviewEvent } from "@/lib/api"
-import { PHASE_LABELS, humanizeReason } from "@/lib/constants"
+import { PHASE_LABELS, humanizeReason, phaseLabel } from "@/lib/constants"
+import { decodeHtmlEntities, humanizeSnake, shortModelName } from "@/lib/humanize"
 
 // ---------------------------------------------------------------------------
 // Timestamp helpers
@@ -67,7 +68,18 @@ export type LogRowKind =
   | "other"
 
 export interface LogRenderEntry {
+  /** Full searchable line: `[HH:MM:SS] TAG message`. */
   text: string
+  /** Local HH:MM:SS, or "" when the event has no timestamp. */
+  ts: string
+  /** Raw tag (see LOG_TAG_GLOSSARY); humanize with humanizeLogTag for display. */
+  tag: string
+  /** Secondary tag, e.g. `AUTO` for rule-based screening decisions. */
+  subTag?: string
+  /** Human-readable message shown in the row. */
+  message: string
+  /** Full detail shown when the row is expanded (untruncated reason, full model path). */
+  detail?: string
   level: LogLevel
   severity: LogSeverity
   kind: LogRowKind
@@ -98,24 +110,42 @@ function asPercentLabel(threshold: number | null | undefined): string {
   return `${Math.round(threshold * 100)}%`
 }
 
+const REASON_MAX_CHARS = 95
+
+export function truncateWithEllipsis(text: string, max: number): string {
+  if (text.length <= max) return text
+  return `${text.slice(0, max - 1).trimEnd()}…`
+}
+
 // ---------------------------------------------------------------------------
 // Event -> log line conversion
 // ---------------------------------------------------------------------------
 
 export function eventToLogEntry(ev: ReviewEvent): LogRenderEntry {
   const finalize = (
-    data: Omit<LogRenderEntry, "eventType">,
-  ): LogRenderEntry => ({
-    ...data,
-    text: normalizeDoiText(data.text),
-    eventType: ev.type,
-  })
+    data: Omit<LogRenderEntry, "eventType" | "text" | "ts"> & { tsRaw: string | null | undefined },
+  ): LogRenderEntry => {
+    const { tsRaw, ...rest } = data
+    const ts = tsRaw ? fmtTs(tsRaw) : ""
+    const message = normalizeDoiText(rest.message)
+    const tagText = rest.subTag ? `${rest.tag} [${rest.subTag}]` : rest.tag
+    return {
+      ...rest,
+      ts,
+      message,
+      detail: rest.detail ? normalizeDoiText(rest.detail) : undefined,
+      text: `[${ts || "--:--:--"}] ${tagText} ${message}`,
+      eventType: ev.type,
+    }
+  }
 
   switch (ev.type) {
     case "phase_start": {
       const label = PHASE_LABELS[ev.phase as string] ?? ev.phase
       return finalize({
-        text: `[${fmtTs(ev.ts)}] PHASE  ${label}${ev.description ? "  " + ev.description : ""}`,
+        tsRaw: ev.ts,
+        tag: "PHASE",
+        message: `${label}${ev.description ? "  " + ev.description : ""}`,
         level: "info",
         severity: "info",
         kind: "phase",
@@ -144,7 +174,7 @@ export function eventToLogEntry(ev: ReviewEvent): LogRenderEntry {
         const reasons = (s?.reason_breakdown as Record<string, number> | undefined) ?? {}
         const reasonText = topReasonSummary(reasons)
         detail = `  ${s.included} included of ${s.screened} papers${excluded}${kappaStr}`
-        if (reasonText) detail += `  top_reasons: ${reasonText}`
+        if (reasonText) detail += `  top reasons: ${reasonText}`
       }
       else if (s?.new_papers != null)
         detail = `  ${Number(s.new_papers) > 0 ? s.new_papers + " new papers found" : "no new papers"}`
@@ -154,9 +184,11 @@ export function eventToLogEntry(ev: ReviewEvent): LogRenderEntry {
         detail = `  ${s.records} records`
       else if (s?.papers != null)
         detail = `  ${s.papers} papers`
-      const phaseLabel = PHASE_LABELS[ev.phase as string] ?? ev.phase
+      const label = PHASE_LABELS[ev.phase as string] ?? ev.phase
       return finalize({
-        text: `[${fmtTs(ev.ts)}] DONE   ${phaseLabel}${detail}`,
+        tsRaw: ev.ts,
+        tag: "DONE",
+        message: `${label}${detail}`,
         level: "info",
         severity: "info",
         kind: "done",
@@ -170,7 +202,9 @@ export function eventToLogEntry(ev: ReviewEvent): LogRenderEntry {
 
     case "progress":
       return finalize({
-        text: `[${fmtTs(ev.ts)}] PROG   ${ev.phase}: ${ev.current}/${ev.total}`,
+        tsRaw: ev.ts,
+        tag: "PROG",
+        message: `${phaseLabel(ev.phase, "short")}: ${ev.current}/${ev.total}`,
         level: "dim",
         severity: "progress",
         kind: "progress",
@@ -186,7 +220,9 @@ export function eventToLogEntry(ev: ReviewEvent): LogRenderEntry {
       const isTimer = msg.includes("done in") || msg.includes("elapsed") || msg.includes("starting (")
       const resumeMessage = msg.trim().toLowerCase() === "resume"
       return finalize({
-        text: `[${fmtTs(ev.ts)}] ${isTimer ? "TIMER  " : "...    "} ${msg}`,
+        tsRaw: ev.ts,
+        tag: isTimer ? "TIMER" : "...",
+        message: msg,
         level: isTimer ? "dim" : "status",
         severity: isTimer ? "dim" : "status",
         kind: "status",
@@ -199,7 +235,9 @@ export function eventToLogEntry(ev: ReviewEvent): LogRenderEntry {
 
     case "warn":
       return finalize({
-        text: `[${fmtTs(ev.ts)}] WARN    ${ev.message ?? ""}`,
+        tsRaw: ev.ts,
+        tag: "WARN",
+        message: ev.message ?? "",
         level: "warn",
         severity: "warn",
         kind: "status",
@@ -213,7 +251,9 @@ export function eventToLogEntry(ev: ReviewEvent): LogRenderEntry {
       const inc = Math.round(ev.include_threshold * 100)
       const exc = Math.round(ev.exclude_threshold * 100)
       return finalize({
-        text: `[${fmtTs(ev.ts)}] CALIB  include>=${inc}%  exclude<=${exc}%  kappa=${ev.kappa.toFixed(2)}  n=${ev.sample_size}`,
+        tsRaw: ev.ts,
+        tag: "CALIB",
+        message: `include >= ${inc}%  exclude <= ${exc}%  kappa ${ev.kappa.toFixed(2)}  sample ${ev.sample_size}`,
         level: "info",
         severity: "info",
         kind: "status",
@@ -228,10 +268,14 @@ export function eventToLogEntry(ev: ReviewEvent): LogRenderEntry {
     case "api_call": {
       const tokStr =
         ev.tokens_in != null && ev.tokens_in > 0
-          ? ` | ${ev.tokens_in}in/${ev.tokens_out ?? 0}out tok`
+          ? ` | ${ev.tokens_in} in / ${ev.tokens_out ?? 0} out tokens`
           : ""
+      const model = ev.model ? shortModelName(ev.model).name : ""
       return finalize({
-        text: `[${fmtTs(ev.ts)}] LLM    ${ev.status.toUpperCase().padEnd(7)} ${ev.source} | ${ev.call_type}${ev.model ? " | " + ev.model.split(":").pop() : ""}${ev.section_name ? " | section=" + ev.section_name : ""}${ev.latency_ms != null ? " | " + ev.latency_ms + "ms" : ""}${tokStr}${ev.cost_usd != null && ev.cost_usd > 0 ? " | $" + ev.cost_usd.toFixed(4) : ""}`,
+        tsRaw: ev.ts,
+        tag: "LLM",
+        message: `${ev.status.toUpperCase()} ${ev.source} | ${ev.call_type}${model ? " | " + model : ""}${ev.section_name ? " | section " + ev.section_name : ""}${ev.latency_ms != null ? " | " + ev.latency_ms + "ms" : ""}${tokStr}${ev.cost_usd != null && ev.cost_usd > 0 ? " | $" + ev.cost_usd.toFixed(4) : ""}`,
+        detail: ev.model ? `Model: ${ev.model}` : undefined,
         level: ev.status === "success" ? "dim" : "error",
         severity: ev.status === "success" ? "dim" : "error",
         kind: "llm",
@@ -246,7 +290,9 @@ export function eventToLogEntry(ev: ReviewEvent): LogRenderEntry {
     case "connector_result": {
       const queryStr = ev.query ? `  |  query: ${ev.query}` : ""
       return finalize({
-        text: `[${fmtTs(ev.ts)}] SEARCH ${ev.status === "success" ? "OK     " : "FAIL   "} ${ev.name}: ${ev.status === "success" ? ev.records + " records" : (ev.error ?? "unknown error")}${queryStr}`,
+        tsRaw: ev.ts,
+        tag: "SEARCH",
+        message: `${ev.status === "success" ? "OK" : "FAIL"} ${ev.name}: ${ev.status === "success" ? ev.records + " records" : (ev.error ?? "unknown error")}${queryStr}`,
         level: ev.status === "success" ? "info" : "warn",
         severity: ev.status === "success" ? "info" : "warn",
         kind: "search",
@@ -260,20 +306,24 @@ export function eventToLogEntry(ev: ReviewEvent): LogRenderEntry {
 
     case "screening_decision": {
       const conf = ev.confidence != null ? ` ${Math.round(ev.confidence * 100)}%` : ""
-      const label = ev.title ?? ev.paper_id?.slice(0, 32) ?? ""
+      const label = decodeHtmlEntities(ev.title ?? ev.paper_id?.slice(0, 32) ?? "")
       const rawReason = ev.reason ?? ev.reason_code ?? ""
       // Support extended reasons like "insufficient_content_heuristic|3w" that encode
       // the abstract word count after a pipe delimiter for auditability.
       const pipeIdx = rawReason.indexOf("|")
       const baseReason = pipeIdx >= 0 ? rawReason.slice(0, pipeIdx) : rawReason
       const wcSuffix = pipeIdx >= 0 ? ` (${rawReason.slice(pipeIdx + 1)})` : ""
-      const baseLabel = ev.reason_label ?? humanizeReason(baseReason)
-      const displayReason = rawReason ? (baseLabel + wcSuffix).slice(0, 95) : ""
+      const fullReason = rawReason
+        ? decodeHtmlEntities((ev.reason_label ?? humanizeReason(baseReason)) + wcSuffix)
+        : ""
+      const displayReason = truncateWithEllipsis(fullReason, REASON_MAX_CHARS)
       const reasonText = displayReason ? `  -- ${displayReason}` : ""
-      const methodBadge = ev.method === "heuristic" ? "[AUTO]  " : "[LLM]   "
-      const verb = ev.decision === "include" ? "INCLUDE" : "EXCLUDE"
       return finalize({
-        text: `[${fmtTs(ev.ts)}] ${verb.padEnd(7)} ${methodBadge}${label}${conf}${reasonText}`,
+        tsRaw: ev.ts,
+        tag: ev.decision === "include" ? "INCLUDE" : "EXCLUDE",
+        subTag: ev.method === "heuristic" ? "AUTO" : "LLM",
+        message: `${label}${conf}${reasonText}`,
+        detail: displayReason !== fullReason ? `Reason: ${fullReason}` : undefined,
         level: ev.decision === "include" ? "include" : ev.method === "heuristic" ? "exclude-heuristic" : "exclude",
         severity: "decision",
         kind: "decision",
@@ -287,10 +337,14 @@ export function eventToLogEntry(ev: ReviewEvent): LogRenderEntry {
 
     case "pdf_result": {
       const tier = ev.source && ev.source !== "abstract" ? ev.source : "no-pdf"
-      const label = ev.title ? ev.title.slice(0, 60) : ev.paper_id?.slice(0, 16) ?? ""
+      const title = decodeHtmlEntities(ev.title)
+      const label = title ? truncateWithEllipsis(title, 60) : ev.paper_id?.slice(0, 16) ?? ""
       const reasonText = ev.reason_label ?? humanizeReason(ev.reason_code)
       return finalize({
-        text: `[${fmtTs(ev.ts)}] PDF    ${ev.success ? "OK  " : "FAIL"}  ${label}  (${tier}) -- ${reasonText}`,
+        tsRaw: ev.ts,
+        tag: "PDF",
+        message: `${ev.success ? "OK" : "FAIL"}  ${label}  (${tier}) -- ${reasonText}`,
+        detail: title && label !== title ? `Title: ${title}` : undefined,
         level: ev.success ? "dim" : "warn",
         severity: ev.success ? "dim" : "warn",
         kind: "pdf",
@@ -304,7 +358,9 @@ export function eventToLogEntry(ev: ReviewEvent): LogRenderEntry {
 
     case "extraction_paper":
       return finalize({
-        text: `[${fmtTs(ev.ts)}] EXTRACT ${ev.paper_id?.slice(0, 16) ?? ""}  design=${ev.design}  rob=${ev.rob_judgment}`,
+        tsRaw: ev.ts,
+        tag: "EXTRACT",
+        message: `${ev.paper_id?.slice(0, 16) ?? ""}  design: ${humanizeSnake(ev.design)}  risk of bias: ${humanizeSnake(ev.rob_judgment)}`,
         level: "dim",
         severity: "dim",
         kind: "extract",
@@ -317,7 +373,9 @@ export function eventToLogEntry(ev: ReviewEvent): LogRenderEntry {
 
     case "synthesis":
       return finalize({
-        text: `[${fmtTs(ev.ts)}] SYNTH  feasible=${ev.feasible}  groups=${ev.groups}  n=${ev.n_studies}`,
+        tsRaw: ev.ts,
+        tag: "SYNTH",
+        message: `${ev.feasible ? "pooling feasible" : "pooling not feasible"}  groups ${ev.groups}  studies ${ev.n_studies}`,
         level: "info",
         severity: "info",
         kind: "synth",
@@ -329,10 +387,12 @@ export function eventToLogEntry(ev: ReviewEvent): LogRenderEntry {
       })
 
     case "search_override_status": {
-      const badge = ev.status === "applied" ? "APPLY " : ev.status === "miss" ? "MISS  " : "ABSENT"
+      const badge = ev.status === "applied" ? "applied" : ev.status === "miss" ? "missed" : "absent"
       const lvl: LogLevel = ev.status === "applied" ? "info" : "warn"
       return finalize({
-        text: `[${fmtTs(ev.ts)}] SRCHOV ${badge} ${ev.database}: ${ev.detail}`,
+        tsRaw: ev.ts,
+        tag: "SRCHOV",
+        message: `${ev.database}: ${badge} -- ${ev.detail}`,
         level: lvl,
         severity: lvl === "warn" ? "warn" : "info",
         kind: "search",
@@ -347,7 +407,9 @@ export function eventToLogEntry(ev: ReviewEvent): LogRenderEntry {
     case "rate_limit_wait": {
       const waitedStr = ev.waited_seconds != null ? ` (${ev.waited_seconds.toFixed(1)}s)` : ""
       return finalize({
-        text: `[${fmtTs(ev.ts)}] RATELIMIT  ${ev.tier}: ${ev.slots_used}/${ev.limit} slots -- waiting${waitedStr}`,
+        tsRaw: ev.ts,
+        tag: "RATELIMIT",
+        message: `${ev.tier}: ${ev.slots_used}/${ev.limit} slots -- waiting${waitedStr}`,
         level: "warn",
         severity: "warn",
         kind: "ratelimit",
@@ -360,7 +422,9 @@ export function eventToLogEntry(ev: ReviewEvent): LogRenderEntry {
 
     case "rate_limit_resolved":
       return finalize({
-        text: `[${fmtTs(ev.ts)}] RATELIMIT  ${ev.tier}: cleared after ${ev.waited_seconds.toFixed(1)}s`,
+        tsRaw: ev.ts,
+        tag: "RATELIMIT",
+        message: `${ev.tier}: cleared after ${ev.waited_seconds.toFixed(1)}s`,
         level: "info",
         severity: "info",
         kind: "ratelimit",
@@ -372,7 +436,9 @@ export function eventToLogEntry(ev: ReviewEvent): LogRenderEntry {
 
     case "db_ready":
       return finalize({
-        text: `[${fmtTs(ev.ts)}] DB     ready  database explorer unlocked`,
+        tsRaw: ev.ts,
+        tag: "DB",
+        message: "Ready. Database explorer unlocked.",
         level: "dim",
         severity: "dim",
         kind: "db",
@@ -391,7 +457,9 @@ export function eventToLogEntry(ev: ReviewEvent): LogRenderEntry {
             ? "Paused for human screening review."
             : "Review complete."
       return finalize({
-        text: `[${fmtTs(eventTs(ev))}] DONE   ${doneText}`,
+        tsRaw: eventTs(ev),
+        tag: "DONE",
+        message: doneText,
         level: "info",
         severity: "info",
         kind: "done",
@@ -404,7 +472,9 @@ export function eventToLogEntry(ev: ReviewEvent): LogRenderEntry {
 
     case "error":
       return finalize({
-        text: `[${fmtTs(eventTs(ev))}] ERROR  ${ev.msg}`,
+        tsRaw: eventTs(ev),
+        tag: "ERROR",
+        message: ev.msg,
         level: "error",
         severity: "error",
         kind: "other",
@@ -416,7 +486,9 @@ export function eventToLogEntry(ev: ReviewEvent): LogRenderEntry {
 
     case "cancelled":
       return finalize({
-        text: `[${fmtTs(eventTs(ev))}] CANCEL Review cancelled.`,
+        tsRaw: eventTs(ev),
+        tag: "CANCEL",
+        message: "Review cancelled.",
         level: "warn",
         severity: "warn",
         kind: "other",
@@ -437,10 +509,12 @@ export function eventToLogEntry(ev: ReviewEvent): LogRenderEntry {
       const emptyRescued = pf.empty_abstract_rescued ?? 0
       const reasons = ((ev as unknown as { reason_breakdown?: Record<string, number> }).reason_breakdown) ?? {}
       const reasonText = topReasonSummary(reasons)
-      const capText = cap !== null ? ` cap=${cap}` : ""
+      const capText = cap !== null ? `, cap ${cap}` : ""
       const rescueText = emptyRescued > 0 ? `, ${emptyRescued} empty-abstract rescues` : ""
       return finalize({
-        text: `[${fmtTs(ev.ts)}] FUNNEL ${deduped} deduped -> ${afterMetadata} after metadata -> ${toLlm} to LLM (${autoExcl} auto-excluded${capText}${rescueText})${reasonText ? ` [${reasonText}]` : ""}`,
+        tsRaw: ev.ts,
+        tag: "FUNNEL",
+        message: `${deduped} deduped -> ${afterMetadata} after metadata -> ${toLlm} to AI review (${autoExcl} auto-excluded${capText}${rescueText})${reasonText ? ` [${reasonText}]` : ""}`,
         level: "info",
         severity: "info",
         kind: "funnel",
@@ -457,7 +531,9 @@ export function eventToLogEntry(ev: ReviewEvent): LogRenderEntry {
       const sample = qa.sample_size ?? 0
       const pool = qa.pool_size ?? 0
       return finalize({
-        text: `[${fmtTs(ev.ts)}] QA     Deterministic-exclude sample prepared: ${sample}/${pool} records for manual review`,
+        tsRaw: ev.ts,
+        tag: "QA",
+        message: `Rule-based exclusion sample prepared: ${sample}/${pool} records for manual review`,
         level: "status",
         severity: "status",
         kind: "status",
@@ -475,9 +551,11 @@ export function eventToLogEntry(ev: ReviewEvent): LogRenderEntry {
       const forwarded = bs.forwarded ?? 0
       const excluded = bs.excluded ?? 0
       const thresholdLabel = asPercentLabel(typeof bs.threshold === "number" ? bs.threshold : null)
-      const skipNote = bs.skipped_resume ? ` (${bs.skipped_resume} skipped-resume)` : ""
+      const skipNote = bs.skipped_resume ? ` (${bs.skipped_resume} skipped on resume)` : ""
       return finalize({
-        text: `[${fmtTs(ev.ts)}] BATCH  ${scored} batch-ranked -> ${forwarded} to dual-reviewer, ${excluded} auto-excluded (score < ${thresholdLabel})${skipNote}`,
+        tsRaw: ev.ts,
+        tag: "BATCH",
+        message: `${scored} ranked -> ${forwarded} to dual review, ${excluded} auto-excluded (score < ${thresholdLabel})${skipNote}`,
         level: "info",
         severity: "info",
         kind: "batch",
@@ -494,7 +572,9 @@ export function eventToLogEntry(ev: ReviewEvent): LogRenderEntry {
       const rate = typeof ov.validation_tail_forward_rate === "number" ? `${(ov.validation_tail_forward_rate * 100).toFixed(1)}%` : "--"
       const trigger = typeof ov.trigger_threshold === "number" ? `${(ov.trigger_threshold * 100).toFixed(1)}%` : "--"
       return finalize({
-        text: `[${fmtTs(ev.ts)}] CAP    Safety valve: tail yield ${rate} (trigger ${trigger}) -> +${ov.overflow_forwarded ?? 0} forwarded from ${ov.overflow_evaluated ?? 0} overflow candidates`,
+        tsRaw: ev.ts,
+        tag: "CAP",
+        message: `Tail yield ${rate} (trigger ${trigger}) -> +${ov.overflow_forwarded ?? 0} forwarded from ${ov.overflow_evaluated ?? 0} overflow candidates`,
         level: "status",
         severity: "status",
         kind: "status",
@@ -508,7 +588,9 @@ export function eventToLogEntry(ev: ReviewEvent): LogRenderEntry {
 
     default:
       return finalize({
-        text: `[${fmtTs(eventTs(ev))}] ${ev.type}`,
+        tsRaw: eventTs(ev),
+        tag: "...",
+        message: humanizeSnake(ev.type),
         level: "dim",
         severity: "dim",
         kind: "other",
@@ -523,4 +605,34 @@ export function eventToLogEntry(ev: ReviewEvent): LogRenderEntry {
 export function eventToLogLine(ev: ReviewEvent): { text: string; level: LogLevel } {
   const entry = eventToLogEntry(ev)
   return { text: entry.text, level: entry.level }
+}
+
+export type LogSeverityFilter = "all" | "warnings" | "errors" | "decisions"
+
+export const LOG_SEVERITY_FILTERS: { id: LogSeverityFilter; label: string }[] = [
+  { id: "all", label: "All" },
+  { id: "warnings", label: "Warnings+" },
+  { id: "errors", label: "Errors" },
+  { id: "decisions", label: "Decisions" },
+]
+
+export function matchesSeverityFilter(severity: LogSeverity, filter: LogSeverityFilter): boolean {
+  switch (filter) {
+    case "all":
+      return true
+    case "warnings":
+      return severity === "warn" || severity === "error"
+    case "errors":
+      return severity === "error"
+    case "decisions":
+      return severity === "decision"
+  }
+}
+
+/** Keeps phase_start events so filtered rows still group under the right phase header. */
+export function filterEventsBySeverity(events: ReviewEvent[], filter: LogSeverityFilter): ReviewEvent[] {
+  if (filter === "all") return events
+  return events.filter(
+    (ev) => ev.type === "phase_start" || matchesSeverityFilter(eventToLogEntry(ev).severity, filter),
+  )
 }

@@ -1,4 +1,4 @@
-import { useState } from "react"
+import { useState, useSyncExternalStore } from "react"
 import type { NavigateFunction } from "react-router-dom"
 import { toast } from "sonner"
 import { queryClient } from "@/lib/queryClient"
@@ -60,6 +60,37 @@ export function deriveResolvedHistoricalStatus(
   return resolveRunStatus(selectedRun.historicalStatus ?? "completed")
 }
 
+let draftYamlEdit: string | null = null
+const draftYamlListeners = new Set<() => void>()
+
+export function setDraftYamlEdit(value: string | null) {
+  if (draftYamlEdit === value) return
+  draftYamlEdit = value
+  draftYamlListeners.forEach((listener) => listener())
+}
+
+function subscribeDraftYamlEdit(listener: () => void) {
+  draftYamlListeners.add(listener)
+  return () => {
+    draftYamlListeners.delete(listener)
+  }
+}
+
+/** Unsaved YAML edits for the open draft; lives outside the Config tab so tab switches keep it. */
+export function useDraftYamlEdit(): [string | null, (value: string | null) => void] {
+  const value = useSyncExternalStore(subscribeDraftYamlEdit, () => draftYamlEdit, () => null)
+  return [value, setDraftYamlEdit]
+}
+
+function draftRunRequest(yaml: string, request: ConfigGenerateRequest | null, workflowId?: string) {
+  return buildRunRequest(
+    yaml,
+    resolveStoredApiKeys(request ? { fireworks: request.fireworksKey } : undefined),
+    undefined,
+    workflowId,
+  )
+}
+
 interface RunStartOptions {
   tab?: RunTab
 }
@@ -105,6 +136,7 @@ export function useDraftConfigFlow(deps: UseDraftConfigFlowDeps) {
   const visibleProsperoSubmitting = selectedRun === null ? false : prosperoSubmitting
 
   async function handleStartDraftConfig(req: ConfigGenerateRequest) {
+    setDraftYamlEdit(null)
     setDraftConfig({
       request: req,
       yaml: "",
@@ -181,6 +213,7 @@ export function useDraftConfigFlow(deps: UseDraftConfigFlowDeps) {
 
   function handleOpenDraftYaml(yaml: string) {
     openDraftRunShell("Draft config")
+    setDraftYamlEdit(null)
     setDraftConfig({
       request: null,
       yaml,
@@ -199,27 +232,23 @@ export function useDraftConfigFlow(deps: UseDraftConfigFlowDeps) {
   }
 
   async function handlePrepareProsperoConfig(yaml: string) {
-    if (!draftConfig?.request) return
+    if (!draftConfig) return
     const reservedWorkflowId =
       selectedRun?.workflowId && selectedRun.workflowId !== "draft"
         ? selectedRun.workflowId
         : undefined
-    const req = buildRunRequest(
-      yaml,
-      resolveStoredApiKeys({ fireworks: draftConfig.request.fireworksKey }),
-      undefined,
-      reservedWorkflowId,
-    )
     const prepareRequest = draftConfig.request
+    const req = draftRunRequest(yaml, prepareRequest, reservedWorkflowId)
     setProsperoPrepareInProgress(true)
     try {
-      if (prepareRequest.csvFile && prepareRequest.csvMode === "masterlist") {
+      if (prepareRequest?.csvFile && prepareRequest.csvMode === "masterlist") {
         await handleStartWithMasterlistCsv(prepareRequest.csvFile, req, { tab: "config" })
-      } else if (prepareRequest.csvFile) {
+      } else if (prepareRequest?.csvFile) {
         await handleStartWithSupplementaryCsv(prepareRequest.csvFile, req, { tab: "config" })
       } else {
         await handleStart(req, { tab: "config" })
       }
+      setDraftYamlEdit(null)
       setDraftConfig((prev) => (prev ? { ...prev, yaml, isGenerating: false } : prev))
       setActiveRunTab("config")
     } catch (error) {
@@ -230,18 +259,17 @@ export function useDraftConfigFlow(deps: UseDraftConfigFlowDeps) {
   }
 
   async function handleLaunchDraftConfig(yaml: string) {
-    if (!draftConfig?.request) return
-    const req = buildRunRequest(
-      yaml,
-      resolveStoredApiKeys({ fireworks: draftConfig.request.fireworksKey }),
-    )
+    if (!draftConfig) return
+    const request = draftConfig.request
+    const req = draftRunRequest(yaml, request)
+    setDraftYamlEdit(null)
     setDraftConfig(null)
-    if (draftConfig.request.csvFile && draftConfig.request.csvMode === "masterlist") {
-      await handleStartWithMasterlistCsv(draftConfig.request.csvFile, req)
+    if (request?.csvFile && request.csvMode === "masterlist") {
+      await handleStartWithMasterlistCsv(request.csvFile, req)
       return
     }
-    if (draftConfig.request.csvFile) {
-      await handleStartWithSupplementaryCsv(draftConfig.request.csvFile, req)
+    if (request?.csvFile) {
+      await handleStartWithSupplementaryCsv(request.csvFile, req)
       return
     }
     await handleStart(req)

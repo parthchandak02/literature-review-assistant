@@ -7,12 +7,9 @@ import type { HistoryEntry } from "@/lib/api"
 import { useHistory } from "@/hooks/useHistory"
 import { runConfigQueryKey } from "@/hooks/useRunConfig"
 import { QuestionStage } from "@/components/setup/QuestionStage"
-import { ReviewTypeDecisionStage } from "@/components/setup/ReviewTypeDecisionStage"
-import type { ReviewTypeChoice, SetupViewProps } from "@/components/setup/types"
+import type { SetupViewProps } from "@/components/setup/types"
 
 export type { ConfigGenerateRequest, CsvMode, GenerationProfile, ReviewTypeChoice } from "@/components/setup/types"
-
-type SetupStep = "review_type" | "question"
 
 export function SetupView({
   defaultReviewYaml,
@@ -23,21 +20,12 @@ export function SetupView({
 }: SetupViewProps) {
   const queryClient = useQueryClient()
   const { data: history = [], error: historyError } = useHistory()
-  const [setupStep, setSetupStep] = useState<SetupStep>("review_type")
-  const [reviewType, setReviewType] = useState<ReviewTypeChoice | null>(null)
-  const [researchQuestion, setResearchQuestion] = useState("")
-  const [pendingFireworksKey, setPendingFireworksKey] = useState("")
-  const [pendingCsvFile, setPendingCsvFile] = useState<File | null>(null)
-  const [pendingCsvMode, setPendingCsvMode] = useState<"supplementary" | "masterlist">("supplementary")
   const [loadingHistoryId, setLoadingHistoryId] = useState<string | null>(null)
   const [loadError, setLoadError] = useState<string | null>(null)
-  const historyLoadError = historyError
+  const [historyErrorDismissed, setHistoryErrorDismissed] = useState(false)
+  const historyLoadError = historyError && !historyErrorDismissed
     ? (historyError instanceof Error ? historyError.message : "Failed to load review history.")
     : null
-
-  function handlePasteYaml() {
-    onOpenDraftWithYaml(defaultReviewYaml)
-  }
 
   async function handleLoadFromHistory(entry: HistoryEntry) {
     setLoadError(null)
@@ -48,14 +36,12 @@ export function SetupView({
         queryFn: () => fetchRunConfig(entry.workflow_id),
       })
       if (!yaml) {
-        setLoadError(
-          "Config not saved for that run. Only runs started recently can be reloaded.",
-        )
+        setLoadError("No saved config for that review. Older runs may not have one.")
         return
       }
       onOpenDraftWithYaml(yaml)
     } catch {
-      setLoadError("Failed to load config for that run.")
+      setLoadError("Failed to load config for that review.")
     } finally {
       setLoadingHistoryId(null)
     }
@@ -63,6 +49,7 @@ export function SetupView({
 
   return (
     <div className="max-w-xl mx-auto pt-6 pb-16 px-4">
+      <h1 className="mb-6 text-lg font-semibold text-foreground">New review</h1>
       {disabled && (
         <div
           role="status"
@@ -79,37 +66,19 @@ export function SetupView({
           )}
         </div>
       )}
-      {setupStep === "review_type" ? (
-        <ReviewTypeDecisionStage
-          onComplete={(selectedReviewType) => {
-            setReviewType(selectedReviewType)
-            setSetupStep("question")
-          }}
-        />
-      ) : reviewType ? (
-        <QuestionStage
-          reviewType={reviewType}
-          disabled={disabled}
-          onBack={() => setSetupStep("review_type")}
-          onGenerateRequested={(req) => {
-            setResearchQuestion(req.question)
-            setPendingFireworksKey(req.fireworksKey)
-            setPendingCsvFile(req.csvFile ?? null)
-            setPendingCsvMode(req.csvMode)
-            onGenerateDraft(req)
-          }}
-          onPasteYaml={handlePasteYaml}
-          history={history}
-          onLoadFromHistory={(entry) => void handleLoadFromHistory(entry)}
-          loadingHistoryId={loadingHistoryId}
-          loadError={loadError ?? historyLoadError}
-          onClearError={() => setLoadError(null)}
-          initialQuestion={researchQuestion}
-          initialFireworksKey={pendingFireworksKey}
-          initialCsvFile={pendingCsvFile}
-          initialCsvMode={pendingCsvMode}
-        />
-      ) : null}
+      <QuestionStage
+        disabled={disabled}
+        onGenerateRequested={onGenerateDraft}
+        onPasteYaml={() => onOpenDraftWithYaml(defaultReviewYaml)}
+        history={history}
+        onLoadFromHistory={(entry) => void handleLoadFromHistory(entry)}
+        loadingHistoryId={loadingHistoryId}
+        loadError={loadError ?? historyLoadError}
+        onClearError={() => {
+          setLoadError(null)
+          setHistoryErrorDismissed(true)
+        }}
+      />
     </div>
   )
 }

@@ -1,273 +1,250 @@
-import { useEffect, useRef, useState } from "react"
-import { ChevronDown, Clock, FileCode2, HeartPulse, ArrowLeft, RotateCcw, Sparkles } from "lucide-react"
+import { useEffect, useId, useState } from "react"
+import { AlertTriangle, FileCode2, HeartPulse, KeyRound, Sparkles, X } from "lucide-react"
 import { Button } from "@/components/ui/button"
-import { Spinner, FetchError } from "@/components/ui/feedback"
 import { Textarea } from "@/components/ui/textarea"
-import { formatShortDate } from "@/lib/format"
-import { fetchEnvKeysStatus, fetchRequiredLlmUiKeys, loadApiKeys } from "@/lib/api"
+import { SettingsDialog } from "@/components/SettingsDialog"
+import { fetchEnvKeysStatus, fetchRequiredLlmUiKeys, llmProviderLabel, loadApiKeys } from "@/lib/api"
 import type { EnvKeysStatus, HistoryEntry } from "@/lib/api"
-import type { ConfigGenerateRequest, CsvMode, GenerationProfile, ReviewTypeChoice } from "./types"
+import type { ConfigGenerateRequest, CsvMode, ReviewTypeChoice } from "./types"
 import { CsvDropZone } from "./CsvDropZone"
+import { ReviewTypeCards } from "./ReviewTypeCards"
+import { ReviewTypeDecisionStage } from "./ReviewTypeDecisionStage"
+import { ReuseConfigPopover } from "./ReuseConfigPopover"
 
 function questionFrameworkForReviewType(reviewType: ReviewTypeChoice): "PICO" | "PCC" {
   return reviewType === "scoping" ? "PCC" : "PICO"
 }
 
+function missingProviderKeys(requiredUiKeys: string[], envStatus: EnvKeysStatus | null): string[] {
+  const saved = (loadApiKeys() ?? {}) as Record<string, string>
+  const required = requiredUiKeys.length > 0 ? requiredUiKeys : ["fireworks"]
+  return required.filter((key) => {
+    const browserVal = String(saved[key] ?? "").trim()
+    const envConfigured = envStatus?.providers[key]?.configured ?? false
+    return !browserVal && !envConfigured
+  })
+}
+
 interface QuestionStageProps {
-  reviewType: ReviewTypeChoice
   onGenerateRequested: (req: ConfigGenerateRequest) => void
   onPasteYaml: () => void
-  onBack?: () => void
   history: HistoryEntry[]
   onLoadFromHistory: (entry: HistoryEntry) => void
   loadingHistoryId: string | null
   loadError: string | null
   onClearError: () => void
-  initialQuestion: string
-  initialFireworksKey: string
-  initialCsvFile: File | null
-  initialCsvMode: CsvMode
   disabled?: boolean
 }
 
 export function QuestionStage({
-  reviewType,
   onGenerateRequested,
   onPasteYaml,
-  onBack,
   history,
   onLoadFromHistory,
   loadingHistoryId,
   loadError,
   onClearError,
-  initialQuestion,
-  initialFireworksKey,
-  initialCsvFile,
-  initialCsvMode,
   disabled = false,
 }: QuestionStageProps) {
-  const [question, setQuestion] = useState(initialQuestion)
+  const questionId = useId()
+  const questionHintId = useId()
+  const reviewTypeLabelId = useId()
+  const [question, setQuestion] = useState("")
+  const [reviewType, setReviewType] = useState<ReviewTypeChoice | null>(null)
+  const [quizOpen, setQuizOpen] = useState(false)
   const [envStatus, setEnvStatus] = useState<EnvKeysStatus | null>(null)
+  const [keysChecked, setKeysChecked] = useState(false)
   const [requiredUiKeys, setRequiredUiKeys] = useState<string[]>(["fireworks"])
-  const [submitError, setSubmitError] = useState<string | null>(null)
-
-  useEffect(() => {
-    fetchEnvKeysStatus().then((status) => {
-      if (!status) return
-      setEnvStatus(status)
-    })
-    fetchRequiredLlmUiKeys().then((keys) => {
-      if (keys.length > 0) {
-        setRequiredUiKeys(keys)
-      }
-    })
-  }, [])
-
-  function hasRequiredCredentials(): boolean {
-    const saved = loadApiKeys()
-    const savedByName = (saved ?? {}) as Record<string, string>
-    const required = requiredUiKeys.length > 0 ? requiredUiKeys : ["fireworks"]
-    return required.every((key) => {
-      const browserVal = String(savedByName[key] ?? "").trim()
-      const envConfigured = envStatus?.providers[key]?.configured ?? false
-      const initialVal = key === "fireworks" ? initialFireworksKey?.trim() ?? "" : ""
-      return !!browserVal || envConfigured || !!initialVal
-    })
-  }
-
-  const hasCredentials = hasRequiredCredentials()
-  const visibleSubmitError = hasCredentials ? null : submitError
-
-  const [showHistory, setShowHistory] = useState(false)
+  const [settingsOpen, setSettingsOpen] = useState(false)
+  const [keysVersion, setKeysVersion] = useState(0)
   const [healthSdgEnabled, setHealthSdgEnabled] = useState(false)
-  const [csvFile, setCsvFile] = useState<File | null>(initialCsvFile)
-  const [csvMode, setCsvMode] = useState<CsvMode>(initialCsvMode)
-  const dropdownRef = useRef<HTMLDivElement>(null)
-
-  const activeProfile: GenerationProfile = healthSdgEnabled ? "health_sdg" : "standard"
+  const [csvFile, setCsvFile] = useState<File | null>(null)
+  const [csvMode, setCsvMode] = useState<CsvMode>("supplementary")
 
   useEffect(() => {
-    function handler(e: MouseEvent) {
-      if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
-        setShowHistory(false)
-      }
+    let cancelled = false
+    void Promise.all([fetchEnvKeysStatus(), fetchRequiredLlmUiKeys()]).then(([status, keys]) => {
+      if (cancelled) return
+      if (status) setEnvStatus(status)
+      if (keys.length > 0) setRequiredUiKeys(keys)
+      setKeysChecked(true)
+    })
+    return () => {
+      cancelled = true
     }
-    if (showHistory) document.addEventListener("mousedown", handler)
-    return () => document.removeEventListener("mousedown", handler)
-  }, [showHistory])
+  }, [keysVersion])
 
-  async function handleGenerate() {
-    if (disabled || !question.trim()) return
-    if (!hasRequiredCredentials()) {
-      setSubmitError("Add at least one LLM API key in Settings before generating a config.")
-      return
-    }
-    setSubmitError(null)
-    const savedKey = loadApiKeys()?.fireworks ?? ""
+  const missingKeys = keysChecked && !envStatus?.server_ready ? missingProviderKeys(requiredUiKeys, envStatus) : []
+  const trimmedQuestion = question.trim()
+  const canGenerate = !disabled && !!trimmedQuestion && reviewType !== null && missingKeys.length === 0
+  const blockingHint = disabled
+    ? null
+    : !trimmedQuestion
+      ? "Enter a research question to continue."
+      : reviewType === null
+        ? "Choose a review type to continue."
+        : null
+
+  function handleGenerate() {
+    if (!canGenerate || reviewType === null) return
     onGenerateRequested({
-      question: question.trim(),
-      fireworksKey: envStatus?.server_ready ? "" : (initialFireworksKey || savedKey).trim(),
+      question: trimmedQuestion,
+      fireworksKey: envStatus?.server_ready ? "" : (loadApiKeys()?.fireworks ?? "").trim(),
       csvFile: csvFile ?? undefined,
       csvMode,
-      generationProfile: activeProfile,
+      generationProfile: healthSdgEnabled ? "health_sdg" : "standard",
       reviewType,
       questionFramework: questionFrameworkForReviewType(reviewType),
     })
   }
 
-  const completedRuns = history.filter((h) => h.status === "completed").slice(0, 10)
-  const canGenerate = !disabled && !!question.trim()
-  const heroCopy =
-    reviewType === "scoping"
-      ? "Describe your scoping question to generate PCC, search keywords, and screening criteria."
-      : "Describe your review question to generate PICO, search keywords, and screening criteria."
   const questionPlaceholder =
     reviewType === "scoping"
       ? "What is known about [concept] in [population] in [context]?"
       : "What is the effect of [intervention] on [outcome] in [population]?"
+  const questionHint =
+    reviewType === "scoping"
+      ? "We turn it into PCC (population, concept, context), search keywords, and screening criteria."
+      : "We turn it into PICO, search keywords, and screening criteria. Press Cmd/Ctrl+Enter to generate."
 
   return (
     <div className="flex flex-col gap-6">
-      {onBack && (
-        <button
-          type="button"
-          onClick={onBack}
-          className="flex items-center gap-1.5 text-xs text-muted hover:text-foreground transition-colors self-start"
-        >
-          <ArrowLeft className="h-3.5 w-3.5" />
-          Change review type
-        </button>
-      )}
-
-      {/* Hero */}
-      <div className="text-center pt-4 pb-1">
-        <p className="text-sm text-muted max-w-sm mx-auto leading-relaxed">{heroCopy}</p>
-      </div>
-
-      {/* Research question */}
-      <div>
+      <section className="space-y-1.5">
+        <label htmlFor={questionId} className="text-sm font-medium text-foreground">
+          Research question
+        </label>
         <Textarea
+          id={questionId}
           value={question}
-          onChange={(e) => {
-            setQuestion(e.target.value)
-            if (submitError) setSubmitError(null)
-          }}
-          rows={3}
+          onChange={(e) => setQuestion(e.target.value)}
+          rows={4}
           placeholder={questionPlaceholder}
-          className="resize-none text-sm bg-card border-border text-foreground placeholder:text-muted focus-visible:ring-intent-primary-border leading-relaxed"
+          aria-describedby={questionHintId}
+          className="resize-y text-sm bg-card border-border text-foreground placeholder:text-muted focus-visible:ring-intent-primary-border leading-relaxed"
           onKeyDown={(e) => {
-            if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) void handleGenerate()
+            if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) handleGenerate()
           }}
         />
-        <p className="text-xs text-muted mt-1.5">Press Cmd/Ctrl+Enter to generate config.</p>
-      </div>
+        <p id={questionHintId} className="text-xs text-muted">{questionHint}</p>
+      </section>
 
-      <CsvDropZone file={csvFile} onFile={setCsvFile} mode={csvMode} onModeChange={setCsvMode} />
+      <section className="space-y-2">
+        <div className="flex items-baseline justify-between gap-2">
+          <h2 id={reviewTypeLabelId} className="text-sm font-medium text-foreground">Review type</h2>
+          {!quizOpen && (
+            <button
+              type="button"
+              onClick={() => setQuizOpen(true)}
+              className="rounded-sm text-xs text-intent-primary-text underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            >
+              Help me decide
+            </button>
+          )}
+        </div>
+        {quizOpen ? (
+          <ReviewTypeDecisionStage
+            onCancel={() => setQuizOpen(false)}
+            onComplete={(type) => {
+              setReviewType(type)
+              setQuizOpen(false)
+            }}
+          />
+        ) : (
+          <ReviewTypeCards value={reviewType} onChange={setReviewType} disabled={disabled} labelledBy={reviewTypeLabelId} />
+        )}
+      </section>
 
-      {loadError && (
-        <FetchError message={loadError} onRetry={onClearError} />
-      )}
-      {visibleSubmitError && (
-        <FetchError message={visibleSubmitError} onRetry={() => setSubmitError(null)} />
-      )}
-
-      {/* CTA */}
-      <div className="space-y-3">
-        <Button
-          type="button"
-          onClick={() => void handleGenerate()}
-          disabled={!canGenerate}
-          size="lg"
-          className="w-full disabled:opacity-40 font-semibold gap-2 transition-colors"
-        >
-          <Sparkles className="h-4 w-4" />
-          Generate Config
-        </Button>
-        <button
-          type="button"
-          role="checkbox"
-          aria-checked={healthSdgEnabled}
-          onClick={() => setHealthSdgEnabled((v) => !v)}
-          className="flex w-full items-start gap-2.5 rounded-lg border border-border bg-surface-2/50 px-3 py-2.5 text-left transition-colors hover:bg-surface-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-intent-primary-border"
-        >
-          <span
-            className={`mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded border transition-colors ${
-              healthSdgEnabled
-                ? "border-intent-primary-border bg-intent-primary-subtle text-foreground"
-                : "border-border bg-card text-transparent"
-            }`}
-            aria-hidden
-          >
-            <span className="text-2xs font-bold leading-none">✓</span>
-          </span>
+      <section className="space-y-3" aria-label="Options">
+        <label className="flex w-full cursor-pointer items-start gap-2.5 rounded-lg border border-border bg-surface-2/50 px-3 py-2.5 transition-colors hover:bg-surface-2 has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-ring">
+          <input
+            type="checkbox"
+            checked={healthSdgEnabled}
+            onChange={(e) => setHealthSdgEnabled(e.target.checked)}
+            className="mt-0.5 h-4 w-4 shrink-0 accent-intent-primary"
+          />
           <span className="min-w-0 flex-1">
             <span className="flex items-center gap-1.5 text-xs font-medium text-foreground">
-              <HeartPulse className="h-3.5 w-3.5 text-intent-success shrink-0" />
+              <HeartPulse className="h-3.5 w-3.5 text-intent-success shrink-0" aria-hidden />
               Health + SDG alignment
             </span>
             <span className="mt-0.5 block text-2xs text-muted leading-relaxed">
               Adds health-impact pathways and UN SDG alignment to the generated config.
             </span>
           </span>
-        </button>
+        </label>
+
+        <CsvDropZone file={csvFile} onFile={setCsvFile} mode={csvMode} onModeChange={setCsvMode} />
+
+        <div className="flex flex-wrap items-center gap-2">
+          <ReuseConfigPopover
+            history={history}
+            onSelect={onLoadFromHistory}
+            loadingHistoryId={loadingHistoryId}
+            disabled={disabled}
+          />
+          <span className="text-xs text-muted">Start from a config you used before.</span>
+        </div>
+      </section>
+
+      {loadError && (
+        <div role="alert" className="flex items-start gap-2 rounded-lg border border-intent-danger-border bg-intent-danger-subtle px-3 py-2.5 text-xs text-intent-danger-text">
+          <AlertTriangle className="h-3.5 w-3.5 mt-0.5 shrink-0" aria-hidden />
+          <span className="flex-1">{loadError}</span>
+          <Button type="button" size="xs" variant="ghost" onClick={onClearError} className="shrink-0 text-intent-danger-text">
+            <X />
+            Dismiss
+          </Button>
+        </div>
+      )}
+
+      {missingKeys.length > 0 && (
+        <div role="alert" className="flex flex-wrap items-center gap-2 rounded-lg border border-intent-warning-border bg-intent-warning-subtle px-3 py-2.5 text-xs text-intent-warning-text">
+          <KeyRound className="h-3.5 w-3.5 shrink-0" aria-hidden />
+          <span className="flex-1 min-w-0">
+            Missing API key: {missingKeys.map(llmProviderLabel).join(", ")}. Add it before generating a config.
+          </span>
+          <Button type="button" size="xs" variant="outline" onClick={() => setSettingsOpen(true)}>
+            Open Settings → Keys
+          </Button>
+        </div>
+      )}
+
+      <div className="space-y-2">
+        <Button
+          type="button"
+          onClick={handleGenerate}
+          disabled={!canGenerate}
+          size="lg"
+          className="w-full font-semibold"
+        >
+          <Sparkles />
+          Generate config
+        </Button>
+        {blockingHint && <p className="text-center text-xs text-muted">{blockingHint}</p>}
       </div>
 
-      {/* Secondary actions */}
-      <div className="flex items-center justify-between pt-1">
-        <div className="relative" ref={dropdownRef}>
-          {completedRuns.length > 0 && (
-            <button
-              type="button"
-              onClick={() => setShowHistory((v) => !v)}
-              disabled={disabled || !!loadingHistoryId}
-              className="flex items-center gap-1.5 text-xs text-muted hover:text-foreground transition-colors"
-            >
-              {loadingHistoryId ? (
-                <Spinner size="sm" />
-              ) : (
-                <RotateCcw className="h-3.5 w-3.5" />
-              )}
-              {loadingHistoryId ? "Loading..." : "Reuse past config"}
-              <ChevronDown className={`h-3 w-3 transition-transform ${showHistory ? "rotate-180" : ""}`} />
-            </button>
-          )}
-
-          {showHistory && (
-            <div className="absolute left-0 top-full mt-1.5 z-20 w-[min(400px,calc(100vw-2rem))] max-h-[280px] overflow-y-auto glass-panel border border-border/80 rounded-panel shadow-xl">
-              <div className="px-3 py-2 border-b border-border">
-                <p className="text-xs text-muted">Select a completed run to reuse its config</p>
-              </div>
-              {completedRuns.map((entry) => (
-                <button
-                  key={entry.workflow_id}
-                  type="button"
-                  onClick={() => {
-                    setShowHistory(false)
-                    onLoadFromHistory(entry)
-                  }}
-                  className="w-full flex items-start gap-2.5 px-3 py-2.5 hover:bg-surface-2/60 transition-colors text-left border-b border-border/50 last:border-0"
-                >
-                  <Clock className="h-3.5 w-3.5 text-muted mt-0.5 flex-shrink-0" />
-                  <div className="flex-1 min-w-0">
-                    <p className="text-xs text-foreground truncate leading-snug">{entry.topic}</p>
-                    <p className="text-xs text-muted mt-0.5">{formatShortDate(entry.created_at)}</p>
-                  </div>
-                </button>
-              ))}
-            </div>
-          )}
-        </div>
-
-        <button
+      <div className="flex justify-center">
+        <Button
           type="button"
+          variant="ghost"
+          size="xs"
           onClick={onPasteYaml}
           disabled={disabled}
-          className="disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-1.5 text-xs text-muted hover:text-foreground transition-colors"
+          className="text-muted hover:text-foreground"
         >
-          <FileCode2 className="h-3.5 w-3.5" />
-          Paste YAML
-        </button>
+          <FileCode2 />
+          Paste YAML instead
+        </Button>
       </div>
+
+      <SettingsDialog
+        open={settingsOpen}
+        initialTab="keys"
+        onOpenChange={(open) => {
+          setSettingsOpen(open)
+          if (!open) setKeysVersion((v) => v + 1)
+        }}
+      />
     </div>
   )
 }
