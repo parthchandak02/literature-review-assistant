@@ -97,3 +97,4 @@ reference/
 
 # One-off revision workflow snapshots (use runs/*/config_snapshot.yaml to replay)
 config/review_wf*_revision.yaml
+tmp/
