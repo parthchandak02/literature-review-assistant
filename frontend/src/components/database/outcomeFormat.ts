@@ -28,3 +28,9 @@ export function formatCi(lower: unknown, upper: unknown): string {
   if (lower == null || upper == null || lower === "" || upper === "") return "–"
   return `${formatStat(lower)} to ${formatStat(upper)}`
 }
+
+export function outcomesCaption(filteredPaperCount: number | null): string {
+  if (filteredPaperCount == null) return "Quantitative results from every extracted study."
+  const noun = filteredPaperCount === 1 ? "paper" : "papers"
+  return `Outcomes for ${filteredPaperCount.toLocaleString()} filtered ${noun}.`
+}

@@ -3,6 +3,7 @@ import type { HistoryEntry } from "@/lib/api"
 import {
   computeShouldShowStandaloneLiveCard,
   laneOf,
+  laneOverrideOf,
   partitionHistory,
 } from "./useSidebarRuns"
 import type { LiveRun } from "@/components/sidebar/types"
@@ -87,16 +88,36 @@ describe("partitionHistory", () => {
     ])
   })
 
-  it("keeps a finished run in In progress when the user moved it back", () => {
-    const history = [historyEntry({ workflow_id: "wf-done", status: "completed" })]
-    const partitions = partitionHistory(history, new Set(["wf-done"]))
+  it("keeps a finished run in In progress when the server pin says so", () => {
+    const history = [
+      historyEntry({ workflow_id: "wf-done", status: "completed", lane_override: "in_progress" }),
+    ]
+    const partitions = partitionHistory(history)
     expect(partitions.completedHistory).toHaveLength(0)
     expect(partitions.inProgressHistory.map((e) => e.workflow_id)).toEqual(["wf-done"])
   })
 
-  it("lets the persisted Completed flag win over a stale pin", () => {
-    const entry = historyEntry({ workflow_id: "wf-x", status: "failed", is_completed_hidden: true })
-    expect(laneOf(entry, new Set(["wf-x"]))).toBe("completed")
+  it("files an unfinished run into Completed when pinned there", () => {
+    const entry = historyEntry({ workflow_id: "wf-x", status: "failed" })
+    expect(laneOf(entry)).toBe("in-progress")
+    expect(laneOf({ ...entry, lane_override: "completed" })).toBe("completed")
+    expect(laneOf({ ...entry, is_completed_hidden: true })).toBe("completed")
+  })
+
+  it("lets the legacy Completed flag win over an In progress pin", () => {
+    const entry = historyEntry({
+      workflow_id: "wf-x",
+      status: "failed",
+      is_completed_hidden: true,
+      lane_override: "in_progress",
+    })
+    expect(laneOverrideOf(entry)).toBe("completed")
+    expect(laneOf(entry)).toBe("completed")
+  })
+
+  it("keeps an archived row archived whatever its lane pin", () => {
+    const entry = historyEntry({ workflow_id: "wf-a", is_archived: true, lane_override: "in_progress" })
+    expect(laneOf(entry)).toBe("archived")
   })
 
   it("treats config_ready and config_generating as prospero pending", () => {

@@ -1,8 +1,9 @@
 import { useEffect, useId, useState } from "react"
-import { AlertTriangle, FileCode2, HeartPulse, KeyRound, Sparkles, X } from "lucide-react"
+import { FileCode2, HeartPulse, KeyRound, Sparkles } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Textarea } from "@/components/ui/textarea"
-import { SettingsDialog } from "@/components/SettingsDialog"
+import { FetchError } from "@/components/ui/feedback"
+import { useSettings } from "@/context/SettingsContext"
 import { fetchEnvKeysStatus, fetchRequiredLlmUiKeys, llmProviderLabel, loadApiKeys } from "@/lib/api"
 import type { EnvKeysStatus, HistoryEntry } from "@/lib/api"
 import type { ConfigGenerateRequest, CsvMode, ReviewTypeChoice } from "./types"
@@ -55,8 +56,7 @@ export function QuestionStage({
   const [envStatus, setEnvStatus] = useState<EnvKeysStatus | null>(null)
   const [keysChecked, setKeysChecked] = useState(false)
   const [requiredUiKeys, setRequiredUiKeys] = useState<string[]>(["fireworks"])
-  const [settingsOpen, setSettingsOpen] = useState(false)
-  const [keysVersion, setKeysVersion] = useState(0)
+  const { openSettings, closedVersion: settingsClosedVersion } = useSettings()
   const [healthSdgEnabled, setHealthSdgEnabled] = useState(false)
   const [csvFile, setCsvFile] = useState<File | null>(null)
   const [csvMode, setCsvMode] = useState<CsvMode>("supplementary")
@@ -72,7 +72,7 @@ export function QuestionStage({
     return () => {
       cancelled = true
     }
-  }, [keysVersion])
+  }, [settingsClosedVersion])
 
   const missingKeys = keysChecked && !envStatus?.server_ready ? missingProviderKeys(requiredUiKeys, envStatus) : []
   const trimmedQuestion = question.trim()
@@ -186,16 +186,7 @@ export function QuestionStage({
         </div>
       </section>
 
-      {loadError && (
-        <div role="alert" className="flex items-start gap-2 rounded-lg border border-intent-danger-border bg-intent-danger-subtle px-3 py-2.5 text-xs text-intent-danger-text">
-          <AlertTriangle className="h-3.5 w-3.5 mt-0.5 shrink-0" aria-hidden />
-          <span className="flex-1">{loadError}</span>
-          <Button type="button" size="xs" variant="ghost" onClick={onClearError} className="shrink-0 text-intent-danger-text">
-            <X />
-            Dismiss
-          </Button>
-        </div>
-      )}
+      {loadError && <FetchError message={loadError} onDismiss={onClearError} />}
 
       {missingKeys.length > 0 && (
         <div role="alert" className="flex flex-wrap items-center gap-2 rounded-lg border border-intent-warning-border bg-intent-warning-subtle px-3 py-2.5 text-xs text-intent-warning-text">
@@ -203,7 +194,7 @@ export function QuestionStage({
           <span className="flex-1 min-w-0">
             Missing API key: {missingKeys.map(llmProviderLabel).join(", ")}. Add it before generating a config.
           </span>
-          <Button type="button" size="xs" variant="outline" onClick={() => setSettingsOpen(true)}>
+          <Button type="button" size="xs" variant="outline" onClick={() => openSettings("keys")}>
             Open Settings → Keys
           </Button>
         </div>
@@ -236,15 +227,6 @@ export function QuestionStage({
           Paste YAML instead
         </Button>
       </div>
-
-      <SettingsDialog
-        open={settingsOpen}
-        initialTab="keys"
-        onOpenChange={(open) => {
-          setSettingsOpen(open)
-          if (!open) setKeysVersion((v) => v + 1)
-        }}
-      />
     </div>
   )
 }

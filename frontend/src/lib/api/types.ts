@@ -59,6 +59,9 @@ export interface RunResponse {
 }
 
 /** Slim history row for sidebar rail UI (`GET /api/history?view=rail`). */
+/** Sidebar lane pin persisted per workflow in the registry. */
+export type LaneOverride = "in_progress" | "completed"
+
 export interface HistoryRailEntry {
   workflow_id: string
   topic: string
@@ -68,6 +71,7 @@ export interface HistoryRailEntry {
   live_run_id?: string | null
   is_archived?: boolean
   is_completed_hidden?: boolean
+  lane_override?: LaneOverride | null
   notes?: string | null
   papers_found?: number | null
   papers_included?: number | null
@@ -94,4 +98,5 @@ export interface HistoryEntry {
   archived_at?: string | null
   is_completed_hidden?: boolean
   completed_hidden_at?: string | null
+  lane_override?: LaneOverride | null
 }

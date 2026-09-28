@@ -1,9 +1,10 @@
 // @vitest-environment jsdom
 import "@/test/dom"
 import { beforeEach, describe, expect, it, vi } from "vitest"
-import { render, screen } from "@testing-library/react"
+import { render, screen, waitFor } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
+import { SettingsProvider } from "@/context/SettingsContext"
 import { SetupView } from "./SetupView"
 
 const envStatus = vi.hoisted(() => ({
@@ -29,19 +30,37 @@ vi.mock("@/hooks/useHistory", () => ({
 }))
 
 vi.mock("@/components/SettingsDialog", () => ({
-  SettingsDialog: ({ open }: { open: boolean }) => (open ? <div role="dialog">settings-keys</div> : null),
+  SettingsDialog: ({
+    open,
+    initialTab,
+    onOpenChange,
+  }: {
+    open: boolean
+    initialTab: string
+    onOpenChange: (open: boolean) => void
+  }) =>
+    open ? (
+      <div role="dialog">
+        settings-{initialTab}
+        <button type="button" onClick={() => onOpenChange(false)}>
+          Close settings
+        </button>
+      </div>
+    ) : null,
 }))
 
 function renderSetup(onGenerateDraft = vi.fn()) {
   const client = new QueryClient()
   render(
     <QueryClientProvider client={client}>
-      <SetupView
-        defaultReviewYaml="research_question: x"
-        onGenerateDraft={onGenerateDraft}
-        onOpenDraftWithYaml={vi.fn()}
-        disabled={false}
-      />
+      <SettingsProvider>
+        <SetupView
+          defaultReviewYaml="research_question: x"
+          onGenerateDraft={onGenerateDraft}
+          onOpenDraftWithYaml={vi.fn()}
+          disabled={false}
+        />
+      </SettingsProvider>
     </QueryClientProvider>,
   )
   return onGenerateDraft
@@ -119,7 +138,26 @@ describe("SetupView", () => {
     renderSetup()
     expect(await screen.findByText(/Missing API key: Fireworks AI/)).toBeInTheDocument()
     await user.click(screen.getByRole("button", { name: "Open Settings → Keys" }))
-    expect(screen.getByRole("dialog")).toHaveTextContent("settings-keys")
+    expect(await screen.findByRole("dialog")).toHaveTextContent("settings-keys")
+    expect(screen.getAllByRole("dialog")).toHaveLength(1)
+  })
+
+  it("re-checks keys when Settings closes", async () => {
+    envStatus.value = {
+      required_ui_keys: ["fireworks"],
+      providers: { fireworks: { configured: false, masked: "", source: null, required: true } },
+      server_ready: false,
+    }
+    const user = userEvent.setup()
+    renderSetup()
+    await user.click(await screen.findByRole("button", { name: "Open Settings → Keys" }))
+    envStatus.value = {
+      required_ui_keys: ["fireworks"],
+      providers: { fireworks: { configured: true, masked: "***", source: "env", required: true } },
+      server_ready: true,
+    }
+    await user.click(await screen.findByRole("button", { name: "Close settings" }))
+    await waitFor(() => expect(screen.queryByText(/Missing API key/)).not.toBeInTheDocument())
   })
 
   it("shows the reuse control with an empty hint when there is no history", async () => {

@@ -12,7 +12,7 @@ import {
 import { useDbPaperDetail } from "@/hooks/useDbPapers"
 import type { PaperDetail, PaperScreeningStage } from "@/lib/api/db"
 import { confidenceToVariant, screeningDecisionToVariant } from "@/lib/constants"
-import { decodeHtmlEntities, humanizeSnake, humanizeStage } from "@/lib/humanize"
+import { decodeHtmlEntities, humanizeSnake, humanizeSource, humanizeStage } from "@/lib/humanize"
 import { PRIMARY_STATUS_VARIANT, paperLink } from "./paperColumns"
 
 export interface PaperInspectorProps {
@@ -84,7 +84,7 @@ function PaperDetailBody({ detail }: { detail: PaperDetail }) {
           <Field label="Authors" value={detail.authors.map((a) => decodeHtmlEntities(a)).join(", ")} />
           <Field label="Year" value={detail.year != null && <span className="font-mono tabular-nums">{detail.year}</span>} />
           <Field label="Journal" value={detail.journal} />
-          <Field label="Source" value={detail.source_database} />
+          <Field label="Source" value={humanizeSource(detail.source_database)} />
           <Field label="Country" value={detail.country} />
           <Field
             label={detail.doi ? "DOI" : "Link"}

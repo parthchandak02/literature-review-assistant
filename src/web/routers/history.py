@@ -7,7 +7,6 @@ import datetime
 import json as _json
 import logging
 import pathlib
-import shutil
 from typing import Any, Literal
 
 import aiosqlite
@@ -19,16 +18,19 @@ from src.db.database import open_runtime_db
 from src.db.source_of_truth import RUN_STATS_PRECEDENCE
 from src.db.workflow_registry import _open_registry as _open_registry_db
 from src.db.workflow_registry import archive_workflow as _archive_registry_workflow
+from src.db.workflow_registry import effective_lane_override, run_root_from_db_path
 from src.db.workflow_registry import hide_completed_workflow as _hide_completed_registry_workflow
 from src.db.workflow_registry import restore_completed_workflow as _restore_completed_registry_workflow
 from src.db.workflow_registry import restore_workflow as _restore_registry_workflow
-from src.db.workflow_registry import run_root_from_db_path
+from src.db.workflow_registry import set_lane_override as _set_registry_lane_override
 from src.db.workflow_registry import update_notes as _update_registry_notes
 from src.orchestration.resume import USER_RESUMABLE_PHASE_ORDER
 from src.web.path_guard import require_allowed_run_root
+from src.web.run_cleanup import remove_workflow_run_dirs
 from src.web.shared import (
     AttachRequest,
     HistoryEntry,
+    LaneOverride,
     ResumeRequest,
     RunResponse,
     _normalize_status,
@@ -71,6 +73,7 @@ async def _ensure_registry_columns(db: aiosqlite.Connection, registry_key: str) 
         ("papers_included", "INTEGER"),
         ("total_cost", "REAL"),
         ("stats_updated_at", "TEXT"),
+        ("lane_override", "TEXT"),
     ]
     for col_name, col_type in _columns:
         try:
@@ -176,6 +179,11 @@ async def _persist_registry_stats(
 # ---------------------------------------------------------------------------
 
 
+def _row_lane_override(row: Any) -> LaneOverride:
+    lane = row["lane_override"] if "lane_override" in row.keys() else None
+    return effective_lane_override(lane, row["is_completed_hidden"])  # type: ignore[return-value]
+
+
 async def _fetch_run_stats(db_path: str, *, workflow_id: str | None = None) -> dict[str, Any]:
     """Open a run's runtime.db and return lightweight aggregate stats."""
     from src.db.stats import RunStatsResolver
@@ -269,6 +277,7 @@ async def list_history(
                           archived_at,
                           COALESCE(is_completed_hidden, 0) AS is_completed_hidden,
                           completed_hidden_at,
+                          lane_override,
                           papers_found,
                           papers_included,
                           total_cost,
@@ -397,6 +406,7 @@ async def list_history(
                 archived_at=row["archived_at"] if row["archived_at"] is not None else None,
                 is_completed_hidden=bool(row["is_completed_hidden"]),
                 completed_hidden_at=(row["completed_hidden_at"] if row["completed_hidden_at"] is not None else None),
+                lane_override=_row_lane_override(row),
             )
         )
     return enriched
@@ -527,6 +537,11 @@ async def delete_run(workflow_id: str, run_root: str = "runs") -> dict[str, bool
 
     try:
         async with _open_registry_db(str(registry)) as db:
+            async with db.execute(
+                "SELECT db_path FROM workflows_registry WHERE workflow_id != ?",
+                (workflow_id,),
+            ) as cur:
+                other_db_paths = [str(r[0]) for r in await cur.fetchall() if r[0]]
             await db.execute(
                 "DELETE FROM workflows_registry WHERE workflow_id = ?",
                 (workflow_id,),
@@ -538,10 +553,14 @@ async def delete_run(workflow_id: str, run_root: str = "runs") -> dict[str, bool
     invalidate_stats_cache(workflow_id)
 
     try:
-        if run_dir.exists():
-            shutil.rmtree(run_dir)
-    except OSError:
-        pass
+        remove_workflow_run_dirs(
+            run_dir,
+            root,
+            workflow_id,
+            protected_dirs=[pathlib.Path(p).parent for p in other_db_paths],
+        )
+    except (OSError, ValueError):
+        _logger.warning("Failed to clean up run directories for %s", workflow_id, exc_info=True)
 
     return {"ok": True}
 
@@ -602,6 +621,26 @@ async def restore_completed_history_run(workflow_id: str, run_root: str = "runs"
     return {"ok": True}
 
 
+class _LaneBody(BaseModel):
+    lane: LaneOverride
+
+
+@router.post("/api/history/{workflow_id}/lane")
+async def set_history_lane(workflow_id: str, body: _LaneBody, run_root: str = "runs") -> dict[str, Any]:
+    """Pin a workflow to the In progress or Completed sidebar lane, or clear the pin (lane=null)."""
+    if body.lane == "completed":
+        _lifecycle_coordinator.ensure_not_running(
+            workflow_id,
+            detail="Cannot move a run to completed while it is currently in progress",
+        )
+    db_path = await _run_resolver.resolve_registry_db_path(workflow_id, run_root)
+    if not db_path:
+        raise HTTPException(status_code=404, detail="Workflow not found in registry")
+    await _set_registry_lane_override(run_root, workflow_id, body.lane)
+    invalidate_stats_cache(workflow_id)
+    return {"ok": True, "lane_override": body.lane}
+
+
 @router.post("/api/history/attach", response_model=RunResponse)
 async def attach_history(req: AttachRequest) -> RunResponse:
     """Create a read-only completed _RunRecord from a historical workflow."""
@@ -621,6 +660,7 @@ class HistoryRailEntry(BaseModel):
     live_run_id: str | None = None
     is_archived: bool = False
     is_completed_hidden: bool = False
+    lane_override: LaneOverride = None
     notes: str | None = None
     papers_found: int | None = None
     papers_included: int | None = None
@@ -647,6 +687,7 @@ def build_history_rail_entry(
         notes=row["notes"] if row["notes"] is not None else None,
         is_archived=bool(row["is_archived"]),
         is_completed_hidden=bool(row["is_completed_hidden"]),
+        lane_override=_row_lane_override(row),
     )
     if include_stats and stats is not None:
         entry.papers_found = stats.get("papers_found")

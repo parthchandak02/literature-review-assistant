@@ -86,8 +86,9 @@ The chrome "Download submission package" runs `ensureSubmissionPackage`: Build, 
 - Groups (`partitionHistory` / `laneOf` in `hooks/useSidebarRuns.ts`):
   - "Needs your input": `config_generating`, `config_ready`, `awaiting_prospero`, `awaiting_review`
   - "In progress": every other visible review
-  - "Completed": `is_completed_hidden`, or a finished (`done`) review with no live run, unless the user chose "Move to In progress". That choice is kept in `localStorage` (`sidebar-in-progress-pins`) because the API cannot tell "never filed" from "restored"
+  - "Completed": `lane_override: "completed"` (mirrored by `is_completed_hidden`), or a finished (`done`) review with no live run and no pin. "Move to In progress" sets `lane_override: "in_progress"` in the registry (`POST /api/history/{id}/lane`), so the choice follows the user across devices. Old `localStorage` pins (`sidebar-in-progress-pins`) are pushed to the server once and cleared; a server pin wins
   - "Archived": `is_archived`
+- Selecting a review from the sidebar opens its action tab every time, including re-clicking the review on screen: `awaiting_review` opens `review-screening`, PROSPERO and config gates open `config`, everything else opens `activity` (`sidebarSelectTab`). Deep links keep their tab
 - Use the noun "review" in all sidebar copy. Empty lanes read "No completed reviews" / "No archived reviews". Lane toggles set `aria-expanded`. In collapsed mode the lanes show as icons with count badges, and `#NN` badges are tinted by status (`STATUS_VARIANT`)
 - `RunNavCard` has no nested interactive elements. The title is the single select button, and its `::after` overlay covers the card. Stop, Resume, the actions menu, the details toggle, copy-id and the note field are siblings above it (`relative z-10`)
 - A card shows the title (3 lines, full title in a tooltip), status, one key metric and the date. The metric is hidden until search has found records. Funnel, cost and workflow id sit behind the metric's details toggle
@@ -95,7 +96,8 @@ The chrome "Download submission package" runs `ensureSubmissionPackage`: Build, 
 - A card that cannot be opened shows why ("No database yet") as a subtitle and in its tooltip
 - The actions menu (`DropdownMenu`) holds Add note, Move to In progress, Move to Completed, Archive and, for archived reviews, Delete permanently
 - Archive and the Move to... actions apply at once, then show a sonner toast with Undo that restores the previous lane
-- Stop and Delete use `ConfirmDialog`. It shows `onConfirm` errors inline (`role="alert"`) and stays open. The delete dialog names the review and #id and lists what is removed: the run directory (database, manuscript, figures, submission package, PDFs, logs and artifacts) and the registry row
+- Archiving or moving to Completed the review on screen goes home. Its Undo restores the lane and reopens the review on the tab it was on (`useRunRegistryActions`)
+- Stop and Delete use `ConfirmDialog`. It shows `onConfirm` errors inline (`role="alert"`) and stays open. The delete dialog names the review and #id and lists what is removed: the run directory (database, manuscript, figures, submission package, PDFs, logs and artifacts) and the registry row. The backend also removes sibling `run_*` dirs in the review's own `wf-NNNN-*` folder and prunes empty parent folders
 - Mobile: the sidebar is a left `Sheet` (dialog role, focus trap, Esc). Focus returns to "Open menu" on close
 - Resize handle: `role="separator"` with `aria-valuenow`; arrow keys step 16px (Shift 64px), Home/End jump to 200/420, and double-click resets to 240
 
@@ -106,6 +108,10 @@ The chrome "Download submission package" runs `ensureSubmissionPackage`: Build, 
 - Offline banner ("Can't reach the server", Retry now) in `App.tsx`; suppressed while streaming. Operator hints (`/api/health`, `pm2 status`) render only in dev builds
 - App bar question title is plain text (full text in a tooltip) with a separate "Copy question" icon button. Toasts sit bottom-right
 - `AppErrorBoundary` offers "Reload this page" and "Go home", with the raw message under "Technical details". `ViewBoundary` offers "Try again", "Reload page" and "Copy details"
+- One `SettingsDialog`, owned by `SettingsProvider` (`context/SettingsContext.tsx`). Views open it with `useSettings().openSettings(tab)` and can watch `closedVersion` to re-check state when it closes; never render a second dialog
+- `FetchError` (`components/ui/feedback.tsx`): pass `onRetry` only when the handler refetches (label "Retry"), `onDismiss` when it only clears the error (label "Dismiss")
+- Data tab Outcomes table follows the Papers filters (URL state) and pages server-side via `/api/db/{run_id}/tables`; its caption says "Outcomes for N filtered papers" when filters are active
+- Builds for local verification go to a temp `--outDir` (FastAPI serves `frontend/dist` from disk, so building there is a production deploy)
 - Settings dialog uses `GlassTabs`, resets to `initialTab` on every open, and sizes per tab (about 560px for API keys, wide for Global costs)
 - API keys: required providers first, the rest under a collapsed "Optional providers". Known prefixes get a format hint and a soft warning (`lib/apiKeyFields.ts`). Each key has Clear; a debounced "Saved" tick confirms the browser save. Email fields are `type=email` with no reveal toggle
 - Global costs (`CostsPanel.tsx`) keep the previous data dimmed while refreshing; counts use "Reviews"

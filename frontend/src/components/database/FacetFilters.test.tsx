@@ -34,6 +34,18 @@ describe("facetOptions", () => {
     ])
   })
 
+  it("humanises source labels but keeps the raw id as the filter value", () => {
+    const withSources: PapersFacets = {
+      ...facets,
+      counts: { source: [{ value: "semantic_scholar", count: 3 }, { value: "web_of_science", count: 1 }] },
+    }
+    expect(facetOptions("source", withSources, ["europepmc"])).toEqual([
+      { value: "semantic_scholar", label: "Semantic Scholar", count: 3 },
+      { value: "web_of_science", label: "Web of Science", count: 1 },
+      { value: "europepmc", label: "Europe PMC", count: 0 },
+    ])
+  })
+
   it("keeps selected values that dropped to zero", () => {
     const opts = facetOptions("ta", facets, ["uncertain"])
     expect(opts.at(-1)).toEqual({ value: "uncertain", label: "Uncertain", count: 0 })

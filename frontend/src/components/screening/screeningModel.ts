@@ -54,7 +54,7 @@ export function buildRows(papers: readonly ScreenedPaper[]): ScreeningRowData[] 
       key: paper.paper_id,
       paper,
       title: decodeHtmlEntities(paper.title).trim(),
-      authors: decodeHtmlEntities(paper.authors).trim(),
+      authors: formatAuthorList(paper.authors),
       abstract: decodeHtmlEntities(paper.abstract).trim(),
       reason: decodeHtmlEntities(paper.reason).trim(),
     })
@@ -214,4 +214,22 @@ export function summaryLine(counts: DecisionCounts): string {
     `${counts.uncertain} uncertain`,
     `${counts.overridden} overridden`,
   ].join(" · ")
+}
+
+/** Authors arrive as plain text or as a JSON array string (`["A", "B"]`); render "A, B". */
+export function formatAuthorList(raw: string | null | undefined): string {
+  const text = decodeHtmlEntities(raw ?? "").trim()
+  if (!text.startsWith("[")) return text
+  try {
+    const parsed: unknown = JSON.parse(text)
+    if (Array.isArray(parsed)) {
+      return parsed
+        .map((a) => (typeof a === "string" ? a.trim() : ""))
+        .filter(Boolean)
+        .join(", ")
+    }
+  } catch {
+    // Not valid JSON; show the text as-is.
+  }
+  return text
 }

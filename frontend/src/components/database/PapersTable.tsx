@@ -2,7 +2,7 @@ import { AlertTriangle, ExternalLink } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
 import { SortButton, Td, Th } from "@/components/ui/table"
 import { cn } from "@/lib/utils"
-import { decodeHtmlEntities, humanizeSnake } from "@/lib/humanize"
+import { decodeHtmlEntities, humanizeSnake, humanizeSource } from "@/lib/humanize"
 import type { PaperAllRow, PapersSort, PapersSortKey } from "@/lib/api/db"
 import { confidenceToVariant, screeningDecisionToVariant } from "@/lib/constants"
 import { PAPER_COLUMNS, PRIMARY_STATUS_VARIANT, paperLink, type PaperColumnId } from "./paperColumns"
@@ -117,7 +117,7 @@ export function PapersTable({
                     {p.year ?? "--"}
                   </Td>
                 )}
-                {show("source") && <TextCell value={p.source_database} />}
+                {show("source") && <TextCell value={humanizeSource(p.source_database)} />}
                 {show("country") && <TextCell value={p.country} />}
                 {show("screening") && <ScreeningCell paper={p} />}
                 {show("confidence") && <ExtractionConfidenceCell value={p.extraction_confidence} />}

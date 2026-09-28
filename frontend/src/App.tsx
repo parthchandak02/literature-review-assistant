@@ -5,7 +5,7 @@ import { Toaster, toast } from "sonner"
 import { AlertTriangle, Copy, Home, Menu, RotateCw } from "lucide-react"
 import { Sidebar } from "@/components/Sidebar"
 import { MOBILE_MENU_BUTTON_ID } from "@/components/sidebar/sidebarLayout"
-import { SettingsDialog } from "@/components/SettingsDialog"
+import { SettingsProvider, useSettings } from "@/context/SettingsContext"
 import { RunSessionProvider } from "@/context/RunSessionProvider"
 import { queryClient } from "@/lib/queryClient"
 import { useRunSessionActions, useRunSessionState } from "@/hooks/useRunSession"
@@ -116,7 +116,9 @@ const EMPTY_SELECTED_RUN: SelectedRun = {
 export default function App() {
   return (
     <RunSessionProvider>
-      <AppShell />
+      <SettingsProvider>
+        <AppShell />
+      </SettingsProvider>
     </RunSessionProvider>
   )
 }
@@ -184,7 +186,7 @@ function AppShell() {
     handleStartWithMasterlistCsv,
   })
   const [prosperoRegenerating, setProsperoRegenerating] = useState(false)
-  const [settingsOpen, setSettingsOpen] = useState(false)
+  const { openSettings } = useSettings()
   const { isOnline, checking: checkingBackend, retry: retryBackend } = useBackendHealth(6000, { suppressOffline: status === "streaming" })
   const prevOnlineRef = useRef(isOnline)
 
@@ -301,7 +303,7 @@ function AppShell() {
   }
 
   function handleOpenSettings() {
-    setSettingsOpen(true)
+    openSettings()
   }
 
   function renderMain() {
@@ -432,7 +434,7 @@ function AppShell() {
           </div>
         )}
 
-        {/* Top bar -- research question for runs; "New Review" on setup */}
+        {/* Top bar -- research question for runs; empty on setup, where the page h1 names it */}
         <ViewToolbar
           sticky
           bordered
@@ -484,8 +486,6 @@ function AppShell() {
                     <Copy aria-hidden />
                   </Button>
                 </div>
-                ) : !selectedRun ? (
-                  <span className="text-foreground font-medium">New Review</span>
                 ) : null}
               </TooltipProvider>
             </div>
@@ -502,8 +502,6 @@ function AppShell() {
         >
           {renderMain()}
         </div>
-
-        <SettingsDialog open={settingsOpen} onOpenChange={setSettingsOpen} />
       </main>
     </div>
   )

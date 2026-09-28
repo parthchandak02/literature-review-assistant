@@ -1,5 +1,6 @@
-import { useCallback, useEffect, useSyncExternalStore } from "react"
+import { useCallback, useEffect, useState, useSyncExternalStore } from "react"
 import { APIResponseError, triggerExport } from "@/lib/api"
+import { fetchManuscriptTemplateSections } from "./draftQuality"
 import { formatExportError } from "./manuscriptUtils"
 
 export type PackageStatus = "unbuilt" | "incomplete" | "building" | "ready" | "error"
@@ -161,6 +162,54 @@ export function useSubmissionPackage(
   )
 
   return { state, run, ensure }
+}
+
+export interface PackagePrompt {
+  /** Manuscript sections that still contain template text. */
+  sections: string[]
+  /** True when the build would overwrite an existing package. */
+  overwrite: boolean
+  proceed: () => void
+}
+
+/**
+ * Confirm step in front of every package build. Checks the run's manuscript for template text and,
+ * when some is found (or the build would overwrite a ready package), holds the build until confirmed.
+ */
+export function usePackageBuildGuard(runId: string | null | undefined) {
+  const [prompt, setPrompt] = useState<PackagePrompt | null>(null)
+  const [checking, setChecking] = useState(false)
+
+  const guard = useCallback(
+    async (proceed: () => void, options?: { overwrite?: boolean }) => {
+      const overwrite = Boolean(options?.overwrite)
+      let sections: string[] = []
+      if (runId) {
+        setChecking(true)
+        try {
+          sections = await fetchManuscriptTemplateSections(runId)
+        } finally {
+          setChecking(false)
+        }
+      }
+      if (sections.length === 0 && !overwrite) {
+        proceed()
+        return
+      }
+      setPrompt({ sections, overwrite, proceed })
+    },
+    [runId],
+  )
+
+  const confirm = useCallback(() => {
+    const pending = prompt
+    setPrompt(null)
+    pending?.proceed()
+  }, [prompt])
+
+  const cancel = useCallback(() => setPrompt(null), [])
+
+  return { prompt, checking, guard, confirm, cancel }
 }
 
 export function startDownload(url: string) {

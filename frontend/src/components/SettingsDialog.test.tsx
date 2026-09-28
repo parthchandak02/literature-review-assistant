@@ -22,7 +22,7 @@ describe("SettingsDialog", () => {
     keysTab.focus()
     fireEvent.keyDown(keysTab, { key: "ArrowRight" })
     expect(screen.getByRole("tab", { name: "Global costs" })).toHaveAttribute("aria-selected", "true")
-    expect(screen.getByTestId("costs-panel")).toBeInTheDocument()
+    expect(await screen.findByTestId("costs-panel")).toBeInTheDocument()
   })
 
   it("resets to initialTab every time it opens", async () => {
@@ -35,7 +35,7 @@ describe("SettingsDialog", () => {
     rerender(<SettingsDialog open={false} onOpenChange={() => {}} initialTab="costs" />)
     rerender(<SettingsDialog open onOpenChange={() => {}} initialTab="costs" />)
     expect(screen.getByRole("tab", { name: "Global costs" })).toHaveAttribute("aria-selected", "true")
-    expect(screen.getByTestId("costs-panel")).toBeInTheDocument()
+    expect(await screen.findByTestId("costs-panel")).toBeInTheDocument()
   })
 
   it("uses a narrow dialog for keys and a wide one for costs", async () => {

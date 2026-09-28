@@ -8,7 +8,7 @@ import pathlib
 import aiosqlite
 from fastapi import APIRouter, HTTPException
 
-from src.models.papers import decode_html_entities
+from src.models.papers import clean_abstract, decode_html_entities
 from src.web.run_resolver import resolve_registry_entry, resolve_runtime_db
 from src.web.shared import ApproveScreeningRequest, ResumeRequest
 from src.web.state import _lifecycle_coordinator, _resume_wrapper
@@ -130,7 +130,7 @@ async def get_screening_summary(run_id: str) -> dict:
                 "year": row["year"],
                 "source_database": row["source_database"],
                 "doi": row["doi"],
-                "abstract": decode_html_entities(row["abstract"]) if row["abstract"] else row["abstract"],
+                "abstract": clean_abstract(row["abstract"]) if row["abstract"] else row["abstract"],
                 "stage": row["stage"],
                 "decision": final_decision,
                 "final_decision": final_decision,

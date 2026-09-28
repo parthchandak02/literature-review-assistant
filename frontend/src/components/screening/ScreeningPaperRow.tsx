@@ -1,7 +1,7 @@
 import { memo } from "react"
 import { ChevronDown, ChevronRight } from "lucide-react"
 import { cn } from "@/lib/utils"
-import { humanizeStage } from "@/lib/humanize"
+import { humanizeSource, humanizeStage } from "@/lib/humanize"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import type { ScreeningOverride } from "@/lib/api"
@@ -50,7 +50,7 @@ export const ScreeningPaperRow = memo(function ScreeningPaperRow({
   const finalDecision = effectiveDecision(paper.decision, override)
   const innerTab = focused ? 0 : -1
   const displayTitle = title || "(no title)"
-  const meta = [paper.year ? String(paper.year) : null, paper.source_database || null].filter(Boolean).join(" · ")
+  const meta = [paper.year ? String(paper.year) : null, paper.source_database ? humanizeSource(paper.source_database) : null].filter(Boolean).join(" · ")
 
   return (
     <div
@@ -67,7 +67,7 @@ export const ScreeningPaperRow = memo(function ScreeningPaperRow({
         override ? "border-intent-primary-border bg-intent-primary-subtle" : "border-border bg-card/40",
       )}
     >
-      <div role="gridcell" className="flex items-start gap-3 px-3 py-2.5">
+      <div role="gridcell" className="flex flex-wrap sm:flex-nowrap items-start gap-x-3 gap-y-2 px-3 py-2.5">
         <input
           type="checkbox"
           tabIndex={innerTab}
@@ -82,7 +82,7 @@ export const ScreeningPaperRow = memo(function ScreeningPaperRow({
           aria-expanded={expanded}
           aria-controls={detailsId}
           onClick={() => onToggleExpanded(key)}
-          className="flex-1 min-w-0 flex items-start gap-1.5 text-left rounded-control focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          className="flex-1 min-w-[12rem] flex items-start gap-1.5 text-left rounded-control focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
         >
           {expanded ? (
             <ChevronDown aria-hidden className="size-4 mt-0.5 shrink-0 text-muted" />
@@ -100,7 +100,7 @@ export const ScreeningPaperRow = memo(function ScreeningPaperRow({
             )}
           </span>
         </button>
-        <div className="flex items-center gap-2 shrink-0 flex-wrap justify-end">
+        <div className="flex items-center gap-2 shrink-0 flex-wrap w-full pl-7 sm:w-auto sm:pl-0 sm:justify-end">
           <DecisionBadge decision={paper.decision} prefix={isHumanDecision(paper) ? "Human" : "AI"} />
           {override && <OverrideBadge decision={override.decision} />}
           <ConfidenceMeter confidence={paper.confidence} />

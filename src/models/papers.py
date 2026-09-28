@@ -72,6 +72,28 @@ def decode_html_entities(text: str) -> str:
     return text
 
 
+_LEADING_ABSTRACT_TITLE = re.compile(r"^\s*<(?:jats:)?title>\s*abstract\s*</(?:jats:)?title>", re.IGNORECASE)
+_BLOCK_CLOSE_TAG = re.compile(r"</(?:jats:)?(?:p|sec|title)>", re.IGNORECASE)
+_MARKUP_TAG = re.compile(r"</?[A-Za-z][\w:.-]*(?:\s[^<>]*)?/?>")
+
+
+def strip_abstract_markup(text: str) -> str:
+    """Remove JATS/HTML markup that publishers (e.g. Crossref) embed in abstracts."""
+    if "<" not in text:
+        return text
+    text = _LEADING_ABSTRACT_TITLE.sub("", text)
+    text = _BLOCK_CLOSE_TAG.sub("\n\n", text)
+    text = _MARKUP_TAG.sub("", text)
+    paragraphs = [" ".join(part.split()) for part in re.split(r"\n\s*\n", text)]
+    return "\n\n".join(p for p in paragraphs if p)
+
+
+def clean_abstract(value: object) -> object:
+    """Decode entities and strip embedded markup from an abstract value."""
+    decoded = decode_optional_html_entities(value)
+    return strip_abstract_markup(decoded) if isinstance(decoded, str) else decoded
+
+
 def decode_optional_html_entities(value: object) -> object:
     """Decode strings and lists of strings; pass other values through unchanged."""
     if isinstance(value, str):
@@ -121,10 +143,15 @@ class CandidatePaper(BaseModel):
     source_peer_reviewed: bool | None = None
     source_open_index: bool | None = None
 
-    @field_validator("title", "authors", "abstract", "keywords", "journal", mode="before")
+    @field_validator("title", "authors", "keywords", "journal", mode="before")
     @classmethod
     def _decode_entities(cls, value: object) -> object:
         return decode_optional_html_entities(value)
+
+    @field_validator("abstract", mode="before")
+    @classmethod
+    def _clean_abstract(cls, value: object) -> object:
+        return clean_abstract(value)
 
 
 def compute_display_label(paper: CandidatePaper) -> str:

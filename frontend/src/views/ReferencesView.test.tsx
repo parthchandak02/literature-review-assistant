@@ -21,7 +21,13 @@ const base: Omit<PaperReference, "paper_id" | "title"> = {
 
 const papers: PaperReference[] = [
   { ...base, paper_id: "a", title: "Exercise &amp; mood", has_file: true, file_type: "pdf", doi: "10.1/a" },
-  { ...base, paper_id: "b", title: "Yoga for anxiety" },
+  {
+    ...base,
+    paper_id: "b",
+    title: "Yoga for anxiety",
+    source_database: "semantic_scholar",
+    retrieval_source: "unpaywall_pdf",
+  },
 ]
 
 vi.mock("@/hooks/useReferences", () => ({
@@ -45,6 +51,17 @@ describe("ReferencesView", () => {
     expect(screen.getByRole("link", { name: /Open DOI 10\.1\/a for Exercise & mood/ })).toBeInTheDocument()
     expect(screen.getByRole("link", { name: "Download PDF of Exercise & mood" })).toBeInTheDocument()
     expect(screen.queryByText("Full text")).toBeNull()
+  })
+
+  it("shows humanised source badges and matches them in search", async () => {
+    const user = userEvent.setup()
+    renderView()
+    expect(screen.getByText("Semantic Scholar")).toBeInTheDocument()
+    expect(screen.getByText("Unpaywall")).toBeInTheDocument()
+    expect(screen.getByText("Abstract only")).toBeInTheDocument()
+    expect(screen.queryByText("semantic_scholar")).toBeNull()
+    await user.type(screen.getByRole("searchbox", { name: "Search included studies" }), "semantic scholar")
+    expect(screen.getByText("1 of 2 shown")).toBeInTheDocument()
   })
 
   it("filters by search and full text only, and clears", async () => {

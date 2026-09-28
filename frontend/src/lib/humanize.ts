@@ -36,6 +36,71 @@ export function humanizeStage(stage: string | null | undefined): string {
   return STAGE_LABELS[key] ?? humanizeSnake(key)
 }
 
+const SOURCE_LABELS: Record<string, string> = {
+  semantic_scholar: "Semantic Scholar",
+  semanticscholar: "Semantic Scholar",
+  openalex: "OpenAlex",
+  openalex_content: "OpenAlex",
+  pubmed: "PubMed",
+  medline: "PubMed",
+  pmc: "PMC",
+  crossref: "Crossref",
+  arxiv: "arXiv",
+  scopus: "Scopus",
+  embase: "Embase",
+  cinahl: "CINAHL",
+  europe_pmc: "Europe PMC",
+  europepmc: "Europe PMC",
+  unpaywall: "Unpaywall",
+  sciencedirect: "ScienceDirect",
+  core: "CORE",
+  biorxiv: "bioRxiv",
+  medrxiv: "medRxiv",
+  biorxiv_medrxiv: "bioRxiv/medRxiv",
+  web_of_science: "Web of Science",
+  wos: "Web of Science",
+  ieee: "IEEE Xplore",
+  ieee_xplore: "IEEE Xplore",
+  dblp: "DBLP",
+  clinicaltrials_gov: "ClinicalTrials.gov",
+  citation_chasing: "Citation chasing",
+  perplexity_search: "Perplexity",
+  perplexity_web: "Perplexity web",
+  publisher_direct: "Publisher",
+  manual: "Manual upload",
+  other: "Other",
+}
+
+const SOURCE_SUFFIX = /_(?:pdf|text|link|session)$/
+
+/** Search connector / retrieval source ids (`semantic_scholar`, `unpaywall_pdf`) -> display names. */
+export function humanizeSource(raw: string | null | undefined): string {
+  if (!raw) return ""
+  let key = raw.trim().toLowerCase().replace(/[\s-]+/g, "_")
+  for (;;) {
+    const label = SOURCE_LABELS[key]
+    if (label) return label
+    const stripped = key.replace(SOURCE_SUFFIX, "")
+    if (stripped === key || !stripped) return humanizeSnake(raw)
+    key = stripped
+  }
+}
+
+const RETRIEVAL_LABELS: Record<string, string> = {
+  abstract: "Abstract only",
+  landing_page_pdf: "Publisher Page (PDF)",
+  url_direct_pdf: "Publisher Page (PDF)",
+  landing_page_text: "Publisher Page (Text)",
+  url_direct_text: "Publisher Page (Text)",
+  landing_page: "Publisher Page (Text)",
+}
+
+/** Full-text retrieval source (`abstract`, `landing_page_pdf`, `unpaywall_pdf`) -> badge label. */
+export function humanizeRetrievalSource(raw: string | null | undefined): string {
+  const key = (raw ?? "").trim().toLowerCase()
+  return RETRIEVAL_LABELS[key] ?? humanizeSource(raw)
+}
+
 export interface ShortModelName {
   name: string
   provider: string | null

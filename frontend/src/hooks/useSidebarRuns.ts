@@ -1,7 +1,8 @@
-import { useCallback, useEffect, useState } from "react"
+import { useCallback, useEffect, useRef, useState } from "react"
 import { useQueryClient } from "@tanstack/react-query"
 import { toast } from "sonner"
-import type { HistoryEntry, NotesStreamEvent } from "@/lib/api"
+import { setHistoryLane } from "@/lib/api"
+import type { HistoryEntry, LaneOverride, NotesStreamEvent } from "@/lib/api"
 import { historyQueryKey } from "@/hooks/useHistory"
 import { useNotesStream } from "@/hooks/useNotesStream"
 import {
@@ -10,7 +11,7 @@ import {
   resolveRunStatus,
 } from "@/lib/constants"
 import { truncateTopic } from "@/components/sidebar/historyRowModel"
-import type { LiveRun } from "@/components/sidebar/types"
+import type { LaneChangeOptions, LiveRun } from "@/components/sidebar/types"
 
 export type SidebarLane = "in-progress" | "completed" | "archived"
 
@@ -22,31 +23,35 @@ export interface SidebarHistoryPartitions {
   visibleHistory: HistoryEntry[]
 }
 
+/** Legacy per-browser "Move to In progress" pins, migrated once to the server `lane_override`. */
 export const IN_PROGRESS_PINS_STORAGE_KEY = "sidebar-in-progress-pins"
 
+/** Server lane pin; rows from older backends only carry `is_completed_hidden`. */
+export function laneOverrideOf(entry: HistoryEntry): LaneOverride | null {
+  if (entry.is_completed_hidden || entry.lane_override === "completed") return "completed"
+  return entry.lane_override === "in_progress" ? "in_progress" : null
+}
+
 /**
- * Which lane a history row belongs in. Archived and "Move to Completed" are
- * persisted flags. A finished run with neither flag goes to Completed unless the
- * user explicitly moved it back to In progress (a local pin).
+ * Which lane a history row belongs in. Archived and the lane pin are persisted
+ * in the registry. A finished run with no pin goes to Completed.
  */
-export function laneOf(entry: HistoryEntry, inProgressPins: ReadonlySet<string>): SidebarLane {
+export function laneOf(entry: HistoryEntry): SidebarLane {
   if (entry.is_archived) return "archived"
-  if (entry.is_completed_hidden) return "completed"
+  const override = laneOverrideOf(entry)
+  if (override === "completed") return "completed"
+  if (override === "in_progress") return "in-progress"
   const finished = resolveRunStatus(entry.status) === "done" && !entry.live_run_id
-  if (finished && !inProgressPins.has(entry.workflow_id)) return "completed"
-  return "in-progress"
+  return finished ? "completed" : "in-progress"
 }
 
 /** Partition sidebar history into needs-input, in-progress, completed and archived lists. */
-export function partitionHistory(
-  history: HistoryEntry[],
-  inProgressPins: ReadonlySet<string> = new Set(),
-): SidebarHistoryPartitions {
+export function partitionHistory(history: HistoryEntry[]): SidebarHistoryPartitions {
   const completedHistory: HistoryEntry[] = []
   const archivedHistory: HistoryEntry[] = []
   const visibleHistory: HistoryEntry[] = []
   for (const entry of history) {
-    const lane = laneOf(entry, inProgressPins)
+    const lane = laneOf(entry)
     if (lane === "archived") archivedHistory.push(entry)
     else if (lane === "completed") completedHistory.push(entry)
     else visibleHistory.push(entry)
@@ -78,28 +83,49 @@ export function computeShouldShowStandaloneLiveCard(
   return Boolean(liveRun && !liveRunHasHistoryRow)
 }
 
-function readPins(): Set<string> {
+function readLegacyPins(): string[] {
   try {
     const raw = localStorage.getItem(IN_PROGRESS_PINS_STORAGE_KEY)
     const parsed: unknown = raw ? JSON.parse(raw) : []
-    return new Set(Array.isArray(parsed) ? parsed.filter((v): v is string => typeof v === "string") : [])
+    return Array.isArray(parsed) ? parsed.filter((v): v is string => typeof v === "string") : []
   } catch {
-    return new Set()
+    return []
   }
 }
 
-function writePins(pins: ReadonlySet<string>) {
+function writeLegacyPins(pins: string[]) {
   try {
-    localStorage.setItem(IN_PROGRESS_PINS_STORAGE_KEY, JSON.stringify([...pins]))
+    if (pins.length) localStorage.setItem(IN_PROGRESS_PINS_STORAGE_KEY, JSON.stringify(pins))
+    else localStorage.removeItem(IN_PROGRESS_PINS_STORAGE_KEY)
   } catch {
-    // Storage full or disabled; the pin still applies for this session.
+    // Storage disabled; nothing left to migrate.
   }
+}
+
+/**
+ * Push legacy localStorage pins to the server once, then clear them. A server-side pin wins,
+ * pins for reviews no longer in history are dropped, and failed pushes stay for the next load.
+ * Returns the workflow ids that were pinned to In progress.
+ */
+export async function migrateLegacyInProgressPins(
+  history: HistoryEntry[],
+  setLane: (workflowId: string, lane: LaneOverride | null) => Promise<void> = setHistoryLane,
+): Promise<string[]> {
+  const pins = readLegacyPins()
+  if (!pins.length) return []
+  const byId = new Map(history.map((e) => [e.workflow_id, e]))
+  const pending = pins.filter((id) => {
+    const entry = byId.get(id)
+    return entry !== undefined && laneOverrideOf(entry) === null
+  })
+  const results = await Promise.allSettled(pending.map((id) => setLane(id, "in_progress")))
+  writeLegacyPins(pending.filter((_, i) => results[i].status === "rejected"))
+  return pending.filter((_, i) => results[i].status === "fulfilled")
 }
 
 interface LaneFlags {
   archived: boolean
-  completedHidden: boolean
-  pinned: boolean
+  lane: LaneOverride | null
 }
 
 function errorMessage(err: unknown, fallback: string): string {
@@ -113,9 +139,9 @@ export interface UseSidebarRunsOptions {
   onSelectHistory: (entry: HistoryEntry) => Promise<void>
   onResume: (entry: HistoryEntry) => Promise<void>
   onArchive: (workflowId: string) => Promise<void>
-  onRestore: (workflowId: string) => Promise<void>
-  onHideCompleted: (workflowId: string) => Promise<void>
-  onRestoreCompleted: (workflowId: string) => Promise<void>
+  onRestore: (workflowId: string, options?: LaneChangeOptions) => Promise<void>
+  onHideCompleted: (workflowId: string, options?: LaneChangeOptions) => Promise<void>
+  onRestoreCompleted: (workflowId: string, options?: LaneChangeOptions) => Promise<void>
   onDelete: (workflowId: string) => Promise<void>
   isMobile?: boolean
   onToggle?: () => void
@@ -141,21 +167,9 @@ export function useSidebarRuns({
   const [resumingId, setResumingId] = useState<string | null>(null)
   const [busyId, setBusyId] = useState<string | null>(null)
   const [deleteConfirmWorkflowId, setDeleteConfirmWorkflowId] = useState<string | null>(null)
-  const [inProgressPins, setInProgressPins] = useState<Set<string>>(readPins)
 
   const [notes, setNotes] = useState<Record<string, string>>({})
   const [noteFlashCounters, setNoteFlashCounters] = useState<Record<string, number>>({})
-
-  const setPinned = useCallback((workflowId: string, pinned: boolean) => {
-    setInProgressPins((prev) => {
-      if (prev.has(workflowId) === pinned) return prev
-      const next = new Set(prev)
-      if (pinned) next.add(workflowId)
-      else next.delete(workflowId)
-      writePins(next)
-      return next
-    })
-  }, [])
 
   const optimisticHistoryUpdate = useCallback(
     (updater: (prev: HistoryEntry[]) => HistoryEntry[]) => {
@@ -175,6 +189,20 @@ export function useSidebarRuns({
   }, [])
 
   useNotesStream(handleNotesStreamMessage)
+
+  const legacyPinsMigratedRef = useRef(false)
+  useEffect(() => {
+    if (legacyPinsMigratedRef.current || !history.length) return
+    legacyPinsMigratedRef.current = true
+    void migrateLegacyInProgressPins(history).then((pinned) => {
+      if (!pinned.length) return
+      const ids = new Set(pinned)
+      optimisticHistoryUpdate((prev) =>
+        prev.map((e) => (ids.has(e.workflow_id) ? { ...e, lane_override: "in_progress" } : e)),
+      )
+      void refetchHistory()
+    })
+  }, [history, optimisticHistoryUpdate, refetchHistory])
 
   useEffect(() => {
     if (!history.length) return
@@ -225,8 +253,9 @@ export function useSidebarRuns({
   )
 
   const applyLaneFlags = useCallback(
-    async (workflowId: string, from: LaneFlags, to: LaneFlags) => {
+    async (workflowId: string, from: LaneFlags, to: LaneFlags, options: { undo?: boolean } = {}) => {
       const now = new Date().toISOString()
+      const completed = !to.archived && to.lane === "completed"
       optimisticHistoryUpdate((prev) =>
         prev.map((e) =>
           e.workflow_id === workflowId
@@ -234,30 +263,25 @@ export function useSidebarRuns({
                 ...e,
                 is_archived: to.archived,
                 archived_at: to.archived ? (e.archived_at ?? now) : null,
-                is_completed_hidden: !to.archived && to.completedHidden,
-                completed_hidden_at:
-                  !to.archived && to.completedHidden ? (e.completed_hidden_at ?? now) : null,
+                is_completed_hidden: completed,
+                completed_hidden_at: completed ? (e.completed_hidden_at ?? now) : null,
+                lane_override: to.lane,
               }
             : e,
         ),
       )
-      setPinned(workflowId, to.pinned)
-      try {
-        if (to.archived) {
-          if (!from.archived) await onArchive(workflowId)
-        } else if (to.completedHidden) {
-          if (from.archived || !from.completedHidden) await onHideCompleted(workflowId)
-        } else if (from.archived) {
-          await onRestore(workflowId)
-        } else if (from.completedHidden) {
-          await onRestoreCompleted(workflowId)
-        }
-      } catch (err) {
-        setPinned(workflowId, from.pinned)
-        throw err
+      const { undo } = options
+      if (to.archived) {
+        if (!from.archived) await onArchive(workflowId)
+      } else if (from.archived) {
+        await onRestore(workflowId, { undo, lane: to.lane })
+      } else if (to.lane === "completed") {
+        if (from.lane !== "completed") await onHideCompleted(workflowId, { undo })
+      } else if (to.lane !== from.lane) {
+        await onRestoreCompleted(workflowId, { undo, lane: to.lane })
       }
     },
-    [onArchive, onHideCompleted, onRestore, onRestoreCompleted, optimisticHistoryUpdate, setPinned],
+    [onArchive, onHideCompleted, onRestore, onRestoreCompleted, optimisticHistoryUpdate],
   )
 
   const moveWithUndo = useCallback(
@@ -270,8 +294,7 @@ export function useSidebarRuns({
       const entry = history.find((e) => e.workflow_id === workflowId)
       const from: LaneFlags = {
         archived: Boolean(entry?.is_archived),
-        completedHidden: Boolean(entry?.is_completed_hidden),
-        pinned: inProgressPins.has(workflowId),
+        lane: entry ? laneOverrideOf(entry) : null,
       }
       const to = target(from)
       const topic = `"${truncateTopic(entry?.topic ?? fallbackTopic ?? workflowId, 40)}"`
@@ -282,7 +305,7 @@ export function useSidebarRuns({
           action: {
             label: "Undo",
             onClick: () => {
-              void applyLaneFlags(workflowId, to, from)
+              void applyLaneFlags(workflowId, to, from, { undo: true })
                 .catch((err: unknown) => {
                   toast.error(errorMessage(err, "Couldn't undo that change"))
                 })
@@ -297,14 +320,14 @@ export function useSidebarRuns({
         void refetchHistory()
       }
     },
-    [applyLaneFlags, history, inProgressPins, refetchHistory],
+    [applyLaneFlags, history, refetchHistory],
   )
 
   const handleArchive = useCallback(
     (workflowId: string, fallbackTopic?: string) =>
       moveWithUndo(
         workflowId,
-        (from) => ({ archived: true, completedHidden: false, pinned: from.pinned }),
+        (from) => ({ archived: true, lane: from.lane === "in_progress" ? "in_progress" : null }),
         (topic) => `Archived ${topic}`,
         fallbackTopic,
       ),
@@ -315,7 +338,7 @@ export function useSidebarRuns({
     (workflowId: string) =>
       moveWithUndo(
         workflowId,
-        () => ({ archived: false, completedHidden: true, pinned: false }),
+        () => ({ archived: false, lane: "completed" }),
         (topic) => `Moved ${topic} to Completed`,
       ),
     [moveWithUndo],
@@ -325,7 +348,7 @@ export function useSidebarRuns({
     (workflowId: string) =>
       moveWithUndo(
         workflowId,
-        () => ({ archived: false, completedHidden: false, pinned: true }),
+        () => ({ archived: false, lane: "in_progress" }),
         (topic) => `Moved ${topic} to In progress`,
       ),
     [moveWithUndo],
@@ -339,13 +362,12 @@ export function useSidebarRuns({
     async (workflowId: string) => {
       await onDelete(workflowId)
       optimisticHistoryUpdate((prev) => prev.filter((e) => e.workflow_id !== workflowId))
-      setPinned(workflowId, false)
       void refetchHistory()
     },
-    [onDelete, optimisticHistoryUpdate, refetchHistory, setPinned],
+    [onDelete, optimisticHistoryUpdate, refetchHistory],
   )
 
-  const partitions = partitionHistory(history, inProgressPins)
+  const partitions = partitionHistory(history)
   const shouldShowStandaloneLiveCard = computeShouldShowStandaloneLiveCard(liveRun, history)
 
   return {

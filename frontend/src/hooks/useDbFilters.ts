@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useMemo, useState } from "react"
 import { useSearchParams } from "react-router-dom"
 import type { ActiveFilter } from "@/components/database/FilterChipBar"
-import { FACET_NONE, type PapersQuery, type PapersSort, type PapersSortKey } from "@/lib/api/db"
-import { decodeHtmlEntities, humanizeSnake } from "@/lib/humanize"
+import { FACET_NONE, type PapersQuery, type PapersSort, type PapersSortKey, type SortDir } from "@/lib/api/db"
+import { decodeHtmlEntities, humanizeSnake, humanizeSource } from "@/lib/humanize"
 
 export const PAGE_SIZE_OPTIONS = [50, 100, 250] as const
 export type PageSize = (typeof PAGE_SIZE_OPTIONS)[number]
@@ -114,9 +114,13 @@ export function hasDbSearchParams(sp: URLSearchParams): boolean {
 }
 
 /** Unsorted -> asc -> desc -> unsorted (server default order). */
+const DESC_FIRST_SORT_KEYS: ReadonlySet<PapersSortKey> = new Set(["year"])
+
+/** Cycles first direction -> opposite -> unsorted. Year starts newest first; other columns ascending. */
 export function nextSort(current: PapersSort, key: PapersSortKey): PapersSort {
-  if (current.sort !== key) return { sort: key, dir: "asc" }
-  if (current.dir === "asc") return { sort: key, dir: "desc" }
+  const first: SortDir = DESC_FIRST_SORT_KEYS.has(key) ? "desc" : "asc"
+  if (current.sort !== key) return { sort: key, dir: first }
+  if (current.dir === first) return { sort: key, dir: first === "asc" ? "desc" : "asc" }
   return { sort: null, dir: "desc" }
 }
 
@@ -152,6 +156,7 @@ const NONE_LABELS: Record<MultiFacetKey, string> = {
 export function facetValueLabel(key: MultiFacetKey, value: string): string {
   if (value === FACET_NONE) return NONE_LABELS[key]
   if (key === "ta" || key === "ft" || key === "primaryStatus") return humanizeSnake(value)
+  if (key === "source") return humanizeSource(value)
   return value
 }
 

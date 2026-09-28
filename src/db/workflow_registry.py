@@ -31,7 +31,8 @@ CREATE TABLE IF NOT EXISTS workflows_registry (
     is_archived INTEGER NOT NULL DEFAULT 0,
     archived_at TEXT,
     is_completed_hidden INTEGER NOT NULL DEFAULT 0,
-    completed_hidden_at TEXT
+    completed_hidden_at TEXT,
+    lane_override TEXT
 );
 
 CREATE INDEX IF NOT EXISTS idx_registry_topic ON workflows_registry(topic);
@@ -57,6 +58,9 @@ _MIGRATION_ADD_PAPERS_FOUND = "ALTER TABLE workflows_registry ADD COLUMN papers_
 _MIGRATION_ADD_PAPERS_INCLUDED = "ALTER TABLE workflows_registry ADD COLUMN papers_included INTEGER"
 _MIGRATION_ADD_TOTAL_COST = "ALTER TABLE workflows_registry ADD COLUMN total_cost REAL"
 _MIGRATION_ADD_STATS_UPDATED_AT = "ALTER TABLE workflows_registry ADD COLUMN stats_updated_at TEXT"
+_MIGRATION_ADD_LANE_OVERRIDE = "ALTER TABLE workflows_registry ADD COLUMN lane_override TEXT"
+
+LANE_OVERRIDES = ("in_progress", "completed")
 
 
 @asynccontextmanager
@@ -231,6 +235,7 @@ async def _ensure_registry(run_root: str) -> str:
             _MIGRATION_ADD_PAPERS_INCLUDED,
             _MIGRATION_ADD_TOTAL_COST,
             _MIGRATION_ADD_STATS_UPDATED_AT,
+            _MIGRATION_ADD_LANE_OVERRIDE,
         ):
             try:
                 await db.execute(migration)
@@ -515,6 +520,7 @@ async def archive_workflow(run_root: str, workflow_id: str) -> None:
                 archived_at = datetime('now'),
                 is_completed_hidden = 0,
                 completed_hidden_at = NULL,
+                lane_override = CASE WHEN lane_override = 'completed' THEN NULL ELSE lane_override END,
                 updated_at = datetime('now')
             WHERE workflow_id = ?
             """,
@@ -547,6 +553,7 @@ async def hide_completed_workflow(run_root: str, workflow_id: str) -> None:
             UPDATE workflows_registry
             SET is_completed_hidden = 1,
                 completed_hidden_at = datetime('now'),
+                lane_override = 'completed',
                 is_archived = 0,
                 archived_at = NULL,
                 updated_at = datetime('now')
@@ -566,12 +573,47 @@ async def restore_completed_workflow(run_root: str, workflow_id: str) -> None:
             UPDATE workflows_registry
             SET is_completed_hidden = 0,
                 completed_hidden_at = NULL,
+                lane_override = CASE WHEN lane_override = 'completed' THEN NULL ELSE lane_override END,
                 updated_at = datetime('now')
             WHERE workflow_id = ?
             """,
             (workflow_id,),
         )
         await db.commit()
+
+
+async def set_lane_override(run_root: str, workflow_id: str, lane: str | None) -> None:
+    """Pin a workflow to a sidebar lane ("in_progress" or "completed"), or clear the pin with None.
+
+    ``is_completed_hidden`` mirrors ``lane == "completed"`` so older clients keep working.
+    """
+    if lane is not None and lane not in LANE_OVERRIDES:
+        raise ValueError(f"lane must be one of {LANE_OVERRIDES} or None, got {lane!r}")
+    completed = 1 if lane == "completed" else 0
+    path = await _ensure_registry(run_root)
+    async with _open_registry(path) as db:
+        await db.execute(
+            """
+            UPDATE workflows_registry
+            SET lane_override = ?,
+                is_completed_hidden = ?,
+                completed_hidden_at = CASE
+                    WHEN ? = 1 THEN COALESCE(completed_hidden_at, datetime('now'))
+                    ELSE NULL
+                END,
+                updated_at = datetime('now')
+            WHERE workflow_id = ?
+            """,
+            (lane, completed, completed, workflow_id),
+        )
+        await db.commit()
+
+
+def effective_lane_override(lane_override: str | None, is_completed_hidden: object) -> str | None:
+    """Lane pin for a registry row; legacy rows only carry ``is_completed_hidden``."""
+    if is_completed_hidden:
+        return "completed"
+    return "in_progress" if lane_override == "in_progress" else None
 
 
 async def allocate_workflow_id(run_root: str) -> str:

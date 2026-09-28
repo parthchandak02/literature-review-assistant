@@ -173,7 +173,14 @@ export interface ExtractedOutcomePaper {
 }
 
 export interface ExtractedTablesResponse {
+  /** Outcome rows across every page. */
   total_rows: number
+  /** Papers with at least one numeric outcome, across every page. */
+  total_papers?: number
+  offset?: number
+  limit?: number | null
+  /** True when paper filters restricted the result. */
+  filtered?: boolean
   papers: ExtractedOutcomePaper[]
 }
 
@@ -303,8 +310,19 @@ export async function fetchGradeSof(runId: string): Promise<GradeSofResponse | n
   }
 }
 
-export async function fetchDbTables(runId: string): Promise<ExtractedTablesResponse> {
-  return apiFetch(`/db/${encodeURIComponent(runId)}/tables`)
+/** Numeric outcomes grouped by paper. With `query`, restricted to matching papers; with `page`, paginated by outcome row. */
+export async function fetchDbTables(
+  runId: string,
+  query?: PapersQuery,
+  page?: { offset: number; limit: number },
+): Promise<ExtractedTablesResponse> {
+  const params = query ? papersQueryParams(query) : new URLSearchParams()
+  if (page) {
+    params.set("offset", String(sanitizePageNumber(page.offset, 0)))
+    params.set("limit", String(sanitizePageNumber(page.limit, 50, 1)))
+  }
+  const qs = params.toString()
+  return apiFetch(`/db/${encodeURIComponent(runId)}/tables${qs ? `?${qs}` : ""}`)
 }
 
 export function prosperoFormDocxUrl(runId: string): string {

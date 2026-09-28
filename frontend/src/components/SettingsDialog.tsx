@@ -1,4 +1,4 @@
-import { useState } from "react"
+import { Suspense, lazy, useState } from "react"
 import { Key, BarChart3, X } from "lucide-react"
 import {
   Dialog,
@@ -9,10 +9,13 @@ import {
 import { Button } from "@/components/ui/button"
 import { GlassTabs } from "@/components/ui/glass-tabs"
 import { ApiKeysPanel } from "@/components/ApiKeysSection"
-import { CostsPanel } from "@/components/CostsPanel"
+import { LoadingPane } from "@/components/ui/feedback"
+import type { SettingsTab } from "@/context/SettingsContext"
 import { cn } from "@/lib/utils"
 
-export type SettingsTab = "keys" | "costs"
+export type { SettingsTab }
+
+const CostsPanel = lazy(() => import("@/components/CostsPanel").then((m) => ({ default: m.CostsPanel })))
 
 interface SettingsDialogProps {
   open: boolean
@@ -69,7 +72,11 @@ export function SettingsDialog({ open, onOpenChange, initialTab = "keys" }: Sett
           className="px-5 py-3 max-h-[82dvh] overflow-y-auto min-w-0"
         >
           {tab === "keys" && <ApiKeysPanel />}
-          {tab === "costs" && <CostsPanel />}
+          {tab === "costs" && (
+            <Suspense fallback={<LoadingPane />}>
+              <CostsPanel />
+            </Suspense>
+          )}
         </div>
       </DialogContent>
     </Dialog>

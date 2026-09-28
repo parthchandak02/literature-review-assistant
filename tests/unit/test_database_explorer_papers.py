@@ -252,3 +252,110 @@ async def test_paper_detail(seeded: httpx.AsyncClient) -> None:
 
     missing = await seeded.get(f"/api/db/{RUN_ID}/papers/nope")
     assert missing.status_code == 404
+
+
+async def _seed_outcomes() -> None:
+    db_path = _active_runs[RUN_ID].db_path
+    assert db_path
+    async with get_db(db_path) as db:
+        await db.execute("DELETE FROM extraction_records")
+        for pid, outcomes in [
+            ("p1", [{"name": "mortality", "effect_size": 0.5}, {"name": "los", "p_value": 0.04}, {"name": "none"}]),
+            ("p2", [{"name": "pain", "ci_lower": 0.1, "ci_upper": 0.9}]),
+            ("p3", [{"name": "qol", "effect_size": 1.2}, {"name": "cost", "effect_size": 2.0}]),
+            ("p4", [{"name": "text only"}]),
+        ]:
+            await db.execute(
+                "INSERT INTO extraction_records "
+                "(workflow_id, paper_id, study_design, primary_study_status, extraction_source, data) "
+                "VALUES (?, ?, 'rct', 'primary', 'text', ?)",
+                (WF, pid, json.dumps({"outcomes": outcomes})),
+            )
+        await db.commit()
+
+
+def _outcome_names(payload: dict) -> list[str]:
+    return [o["name"] for p in payload["papers"] for o in p["outcomes"]]
+
+
+@pytest.mark.asyncio
+async def test_tables_without_filters_is_backward_compatible(seeded: httpx.AsyncClient) -> None:
+    await _seed_outcomes()
+    res = await seeded.get(f"/api/db/{RUN_ID}/tables")
+    assert res.status_code == 200
+    payload = res.json()
+    assert payload["total_rows"] == 5
+    assert payload["total_papers"] == 3
+    assert payload["filtered"] is False
+    assert _ids(payload) == ["p1", "p2", "p3"]
+    assert _outcome_names(payload) == ["mortality", "los", "pain", "qol", "cost"]
+    assert payload["papers"][2]["title"] == "Gamma 'review'"
+
+
+@pytest.mark.asyncio
+async def test_tables_follow_paper_filters(seeded: httpx.AsyncClient) -> None:
+    await _seed_outcomes()
+    res = await seeded.get(
+        f"/api/db/{RUN_ID}/tables",
+        params=[("match", "exact"), ("source", "pubmed"), ("ta_decision", "include")],
+    )
+    assert res.status_code == 200
+    payload = res.json()
+    assert payload["filtered"] is True
+    assert _ids(payload) == ["p1", "p3"]
+    assert payload["total_rows"] == 4
+    assert payload["total_papers"] == 2
+
+    res = await seeded.get(f"/api/db/{RUN_ID}/tables", params={"year_min": 2021})
+    assert _ids(res.json()) == ["p2"]
+
+    res = await seeded.get(f"/api/db/{RUN_ID}/tables", params={"source": "scopus", "match": "exact"})
+    assert res.json()["papers"] == []
+    assert res.json()["total_rows"] == 0
+
+
+@pytest.mark.asyncio
+async def test_tables_paginate_by_outcome_row(seeded: httpx.AsyncClient) -> None:
+    await _seed_outcomes()
+    first = (await seeded.get(f"/api/db/{RUN_ID}/tables", params={"offset": 0, "limit": 2})).json()
+    assert _outcome_names(first) == ["mortality", "los"]
+    assert first["total_rows"] == 5
+    assert (first["offset"], first["limit"]) == (0, 2)
+    middle = (await seeded.get(f"/api/db/{RUN_ID}/tables", params={"offset": 2, "limit": 2})).json()
+    assert _ids(middle) == ["p2", "p3"]
+    assert _outcome_names(middle) == ["pain", "qol"]
+    tail = (await seeded.get(f"/api/db/{RUN_ID}/tables", params={"offset": 4, "limit": 2})).json()
+    assert _outcome_names(tail) == ["cost"]
+    past = (await seeded.get(f"/api/db/{RUN_ID}/tables", params={"offset": 10, "limit": 2})).json()
+    assert past["papers"] == []
+    assert past["total_rows"] == 5
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("params", [{"limit": 0}, {"limit": 501}, {"offset": -1}, {"match": "regex"}])
+async def test_tables_rejects_bad_params(seeded: httpx.AsyncClient, params: dict[str, object]) -> None:
+    res = await seeded.get(f"/api/db/{RUN_ID}/tables", params=params)
+    assert res.status_code in (400, 422)
+
+
+@pytest.mark.asyncio
+async def test_tables_filter_values_are_bound(seeded: httpx.AsyncClient) -> None:
+    await _seed_outcomes()
+    res = await seeded.get(
+        f"/api/db/{RUN_ID}/tables",
+        params={"source": "x') OR 1=1; DROP TABLE papers; --", "match": "exact"},
+    )
+    assert res.status_code == 200
+    assert res.json()["papers"] == []
+    again = await seeded.get(f"/api/db/{RUN_ID}/tables")
+    assert again.json()["total_papers"] == 3
+
+
+def test_outcome_restriction_binds_filter_values() -> None:
+    evil = "x' OR 1=1 --"
+    filters = PaperFilters(source=[evil], match="exact")
+    assert filters.is_active()
+    assert not PaperFilters().is_active()
+    where, params = filters.where()
+    assert evil not in where
+    assert params == [evil]

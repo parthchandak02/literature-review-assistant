@@ -143,6 +143,7 @@ def test_build_history_rail_entry_without_stats_omits_metrics() -> None:
         "live_run_id",
         "is_archived",
         "is_completed_hidden",
+        "lane_override",
         "notes",
         "papers_found",
         "papers_included",

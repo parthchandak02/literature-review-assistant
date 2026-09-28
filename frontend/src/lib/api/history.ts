@@ -1,5 +1,5 @@
 import { API_BASE } from "./internal"
-import type { HistoryEntry, HistoryRailEntry, RunResponse } from "./types"
+import type { HistoryEntry, HistoryRailEntry, LaneOverride, RunResponse } from "./types"
 
 export function railEntryToHistoryEntry(rail: HistoryRailEntry): HistoryEntry {
   return {
@@ -21,6 +21,7 @@ export function railEntryToHistoryEntry(rail: HistoryRailEntry): HistoryEntry {
     archived_at: null,
     is_completed_hidden: rail.is_completed_hidden ?? false,
     completed_hidden_at: null,
+    lane_override: rail.lane_override ?? null,
   }
 }
 
@@ -159,6 +160,24 @@ export async function restoreCompletedRun(workflowId: string, runRoot = "runs"):
   if (!res.ok) {
     const text = await res.text()
     throw new Error(`Failed to restore completed run: ${text}`)
+  }
+}
+
+/** Pin a review to the In progress or Completed lane, or clear the pin with `null`. */
+export async function setHistoryLane(
+  workflowId: string,
+  lane: LaneOverride | null,
+  runRoot = "runs",
+): Promise<void> {
+  const params = new URLSearchParams({ run_root: runRoot })
+  const res = await fetch(`${API_BASE}/history/${workflowId}/lane?${params}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ lane }),
+  })
+  if (!res.ok) {
+    const text = await res.text()
+    throw new Error(`Failed to move review: ${text}`)
   }
 }
 

@@ -61,11 +61,20 @@ describe("URL search param encoding", () => {
 
 describe("nextSort", () => {
   it("cycles unsorted -> asc -> desc -> unsorted", () => {
+    const a = nextSort({ sort: null, dir: "desc" }, "title")
+    expect(a).toEqual({ sort: "title", dir: "asc" })
+    const b = nextSort(a, "title")
+    expect(b).toEqual({ sort: "title", dir: "desc" })
+    expect(nextSort(b, "title")).toEqual({ sort: null, dir: "desc" })
+  })
+
+  it("starts year descending, then ascending, then unsorted", () => {
     const a = nextSort({ sort: null, dir: "desc" }, "year")
-    expect(a).toEqual({ sort: "year", dir: "asc" })
+    expect(a).toEqual({ sort: "year", dir: "desc" })
     const b = nextSort(a, "year")
-    expect(b).toEqual({ sort: "year", dir: "desc" })
+    expect(b).toEqual({ sort: "year", dir: "asc" })
     expect(nextSort(b, "year")).toEqual({ sort: null, dir: "desc" })
+    expect(nextSort({ sort: "title", dir: "asc" }, "year")).toEqual({ sort: "year", dir: "desc" })
   })
 
   it("starts ascending when switching column", () => {

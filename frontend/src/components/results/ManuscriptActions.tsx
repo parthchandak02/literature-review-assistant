@@ -1,16 +1,18 @@
-import { useMemo, useState } from "react"
+import { useMemo } from "react"
 import { AlertTriangle, Download, FileCode, FileType, Package, RefreshCw } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Spinner } from "@/components/ui/feedback"
-import { ConfirmDialog } from "@/components/ConfirmDialog"
 import { downloadUrl, submissionZipUrl } from "@/lib/api"
 import { findFileByName, hasCompleteSubmission, hasPartialSubmission } from "./manuscriptUtils"
+import { PackageBuildConfirm } from "./PackageBuildConfirm"
 import { RESULTS_DOWNLOAD_BTN_CLS } from "./resultsShared"
 import {
   PACKAGE_ACTION_LABEL,
   primaryPackageAction,
   rebuildNeedsConfirm,
+  usePackageBuildGuard,
   useSubmissionPackage,
+  type PackageAction,
 } from "./submissionPackage"
 
 interface ManuscriptActionsProps {
@@ -29,7 +31,7 @@ export function ManuscriptActions({
   const complete = useMemo(() => hasCompleteSubmission(allOutputs), [allOutputs])
   const partial = useMemo(() => hasPartialSubmission(allOutputs), [allOutputs])
   const { state, run } = useSubmissionPackage(exportRunId, { complete, partial })
-  const [confirmOpen, setConfirmOpen] = useState(false)
+  const buildGuard = usePackageBuildGuard(exportRunId)
   const prefix = exportRunId ?? "manuscript"
   const action = primaryPackageAction(state.status)
 
@@ -55,12 +57,12 @@ export function ManuscriptActions({
   const ready = state.status === "ready"
   const sharedCls = RESULTS_DOWNLOAD_BTN_CLS
 
-  function requestRebuild() {
-    if (rebuildNeedsConfirm(state.status)) {
-      setConfirmOpen(true)
-    } else {
-      void run("rebuild")
-    }
+  const checking = buildGuard.checking
+
+  function requestBuild(buildAction: Exclude<PackageAction, "download">) {
+    if (checking || state.status === "building") return
+    const overwrite = buildAction === "rebuild" && rebuildNeedsConfirm(state.status)
+    void buildGuard.guard(() => void run(buildAction), { overwrite })
   }
 
   return (
@@ -76,7 +78,9 @@ export function ManuscriptActions({
         <Button
           size="sm"
           variant="outline"
-          onClick={() => void run("build")}
+          onClick={() => requestBuild("build")}
+          disabled={checking}
+          aria-busy={checking || undefined}
           className={sharedCls}
           title="Build the submission package (.tex, .docx, references, study PDFs)"
         >
@@ -89,7 +93,9 @@ export function ManuscriptActions({
         <Button
           size="sm"
           variant="outline"
-          onClick={requestRebuild}
+          onClick={() => requestBuild("rebuild")}
+          disabled={checking}
+          aria-busy={checking || undefined}
           className={sharedCls}
           title="The submission package is incomplete. Rebuild it from the current manuscript."
         >
@@ -102,7 +108,9 @@ export function ManuscriptActions({
         <Button
           size="sm"
           variant="outline"
-          onClick={() => void run("retry")}
+          onClick={() => requestBuild("retry")}
+          disabled={checking}
+          aria-busy={checking || undefined}
           className={sharedCls}
           title={state.error ?? "Retry building the submission package"}
         >
@@ -145,28 +153,18 @@ export function ManuscriptActions({
               type="button"
               size="icon-sm"
               variant="ghost"
-              onClick={requestRebuild}
+              onClick={() => requestBuild("rebuild")}
+              disabled={checking}
               aria-label={PACKAGE_ACTION_LABEL.rebuild}
               title={PACKAGE_ACTION_LABEL.rebuild}
             >
               <RefreshCw />
             </Button>
           )}
-          <ConfirmDialog
-            open={confirmOpen}
-            onOpenChange={setConfirmOpen}
-            title="Rebuild submission package?"
-            description="This regenerates the .tex, DOCX and references from the current manuscript and overwrites the existing package ZIP."
-            confirmLabel="Rebuild"
-            pendingLabel="Rebuilding…"
-            confirmVariant="default"
-            onConfirm={() => {
-              setConfirmOpen(false)
-              void run("rebuild")
-            }}
-          />
         </>
       )}
+
+      <PackageBuildConfirm prompt={buildGuard.prompt} onConfirm={buildGuard.confirm} onCancel={buildGuard.cancel} />
     </div>
   )
 }

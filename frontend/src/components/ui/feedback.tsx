@@ -3,10 +3,10 @@
  *
  * Spinner     - inline animated spinner with size variants
  * EmptyState  - centred icon + heading + optional sub-text
- * FetchError  - red alert box with optional retry button
+ * FetchError  - red alert box with optional Retry and Dismiss actions
  * LoadingPane - centred spinner for full-pane loading states
  */
-import { AlertTriangle, Loader } from "lucide-react"
+import { AlertTriangle, Loader, X } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import type { LucideIcon } from "lucide-react"
 import type { ReactNode } from "react"
@@ -85,28 +85,36 @@ export function EmptyState({
 
 interface FetchErrorProps {
   message: string
+  /** Re-runs the failed request. Renders a "Retry" button. */
   onRetry?: () => void
+  /** Clears the error without refetching. Renders a "Dismiss" button. */
+  onDismiss?: () => void
   className?: string
 }
 
-export function FetchError({ message, onRetry, className }: FetchErrorProps) {
+const FETCH_ERROR_ACTION_CLASS =
+  "text-intent-danger-text hover:text-intent-danger-text hover:bg-intent-danger-subtle shrink-0"
+
+export function FetchError({ message, onRetry, onDismiss, className }: FetchErrorProps) {
   return (
     <div
+      role="alert"
       className={cn(
-        "flex items-start gap-2 text-xs text-intent-danger bg-intent-danger-subtle border border-intent-danger-border rounded-lg px-3 py-2.5",
+        "flex items-start gap-2 text-xs text-intent-danger-text bg-intent-danger-subtle border border-intent-danger-border rounded-lg px-3 py-2.5",
         className,
       )}
     >
-      <AlertTriangle className="h-3.5 w-3.5 mt-0.5 shrink-0" />
+      <AlertTriangle className="h-3.5 w-3.5 mt-0.5 shrink-0 text-intent-danger" aria-hidden />
       <span className="flex-1">{message}</span>
       {onRetry && (
-        <Button
-          size="xs"
-          variant="ghost"
-          onClick={onRetry}
-          className="text-intent-danger hover:text-intent-danger hover:bg-intent-danger-subtle shrink-0"
-        >
+        <Button type="button" size="xs" variant="ghost" onClick={onRetry} className={FETCH_ERROR_ACTION_CLASS}>
           Retry
+        </Button>
+      )}
+      {onDismiss && (
+        <Button type="button" size="xs" variant="ghost" onClick={onDismiss} className={FETCH_ERROR_ACTION_CLASS}>
+          <X aria-hidden />
+          Dismiss
         </Button>
       )}
     </div>

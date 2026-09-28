@@ -1,3 +1,5 @@
+import { apiFetch } from "@/lib/api"
+
 export interface TemplateTextMatch {
   id: string
   label: string
@@ -58,4 +60,45 @@ export function detectTemplateText(markdown: string | null | undefined): Templat
     matches.push({ id, label, excerpt: excerptAround(text, m.index, m[0].length) })
   }
   return matches
+}
+
+const FRONT_MATTER = "Title"
+
+function headingText(raw: string): string {
+  return raw.replace(/\s+#+\s*$/, "").replace(/[*_`]/g, "").trim()
+}
+
+/** Top-level (`##`) sections that contain template text; text before the first `##` counts as "Title". */
+export function detectTemplateSections(markdown: string | null | undefined): string[] {
+  if (!markdown) return []
+  const sections: Array<{ title: string; lines: string[] }> = [{ title: FRONT_MATTER, lines: [] }]
+  let inFence = false
+  for (const line of markdown.split("\n")) {
+    if (/^\s*```/.test(line)) inFence = !inFence
+    const heading = inFence ? null : /^##\s+(.+)$/.exec(line)
+    if (heading) {
+      sections.push({ title: headingText(heading[1]) || "Untitled section", lines: [] })
+      continue
+    }
+    sections[sections.length - 1].lines.push(line)
+  }
+  const flagged: string[] = []
+  for (const { title, lines } of sections) {
+    if (!flagged.includes(title) && detectTemplateText(lines.join("\n")).length > 0) flagged.push(title)
+  }
+  return flagged
+}
+
+export function templateTextWarning(sections: string[]): string {
+  return `The manuscript still contains template text in: ${sections.join(", ")}. Package anyway?`
+}
+
+/** Sections of the run's current manuscript that still contain template text. Empty when it can't be loaded. */
+export async function fetchManuscriptTemplateSections(runId: string): Promise<string[]> {
+  try {
+    const res = await apiFetch<{ content?: string }>(`/run/${encodeURIComponent(runId)}/manuscript`)
+    return detectTemplateSections(res?.content)
+  } catch {
+    return []
+  }
 }

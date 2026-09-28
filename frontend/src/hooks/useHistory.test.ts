@@ -125,6 +125,7 @@ describe("railEntryToHistoryEntry", () => {
       archived_at: null,
       is_completed_hidden: false,
       completed_hidden_at: null,
+      lane_override: null,
     })
   })
 })

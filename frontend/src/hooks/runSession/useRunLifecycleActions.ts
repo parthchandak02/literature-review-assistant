@@ -6,7 +6,7 @@ import {
   resolveHistorySelectTransition,
   selectedRunFromHistoryEntry,
 } from "@/lib/runSessionSelection"
-import { isProsperoPendingStatus } from "@/lib/constants"
+import { isProsperoPendingStatus, isReviewPendingStatus } from "@/lib/constants"
 import {
   attachHistory,
   cancelRun,
@@ -20,6 +20,16 @@ import type { HistoryEntry, RunRequest } from "@/lib/api"
 import type { RunTab } from "@/context/runSessionTypes"
 import type { RunSessionLifecycleActionDeps } from "@/hooks/runSession/runSessionActionDeps"
 import type { RunSessionLiveConnectHandles } from "@/hooks/runSession/useRunLiveConnect"
+
+/**
+ * Tab a sidebar selection opens. Gated runs open on their action tab every time, including
+ * re-clicking the run already on screen; RunView auto-routing only fires once per run and gate.
+ */
+export function sidebarSelectTab(status: string | null | undefined): RunTab {
+  if (isReviewPendingStatus(status)) return "review-screening"
+  if (isProsperoPendingStatus(status)) return "config"
+  return "activity"
+}
 
 export function useRunLifecycleActions(
   deps: RunSessionLifecycleActionDeps,
@@ -83,7 +93,7 @@ export function useRunLifecycleActions(
   const handleSelectHistory = useCallback(
     async (entry: HistoryEntry) => {
       const focusSelectedWorkflow = () => {
-        const tab = isProsperoPendingStatus(entry.status) ? "config" : "activity"
+        const tab = sidebarSelectTab(entry.status)
         setActiveRunTab(tab)
         navigate(`/run/${entry.workflow_id}/${tab}`, { replace: true })
       }
@@ -119,7 +129,7 @@ export function useRunLifecycleActions(
           return
 
         case "connect_live": {
-          const tab = isProsperoPendingStatus(entry.status) ? "config" : "activity"
+          const tab = sidebarSelectTab(entry.status)
           connectLiveRun(
             {
               reset,
@@ -158,7 +168,7 @@ export function useRunLifecycleActions(
               runId: res.run_id,
             }),
           )
-          const tab = isProsperoPendingStatus(entry.status) ? "config" : "activity"
+          const tab = sidebarSelectTab(entry.status)
           setActiveRunTab(tab)
           navigate(`/run/${entry.workflow_id}/${tab}`)
           return

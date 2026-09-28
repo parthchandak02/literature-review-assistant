@@ -1,4 +1,3 @@
-import { defaultUrlTransform } from "react-markdown"
 import { APIResponseError, downloadUrl } from "@/lib/api"
 
 export function isFilePath(val: unknown): val is string {
@@ -89,7 +88,7 @@ export function makeUrlTransform(markdownFilePath: string) {
       const resolved = dir ? `${dir}/${url}` : url
       return downloadUrl(resolved)
     }
-    return defaultUrlTransform(url)
+    return safeUrlTransform(url)
   }
 }
 
@@ -134,4 +133,24 @@ export function formatExportError(error: unknown): string {
   }
   if (error instanceof Error) return stripExportLabel(error.message)
   return "Export failed"
+}
+
+const SAFE_URL_PROTOCOL = /^(https?|ircs?|mailto|xmpp)$/i
+
+/** Same rule as react-markdown's defaultUrlTransform, kept local so this module stays out of the markdown chunk. */
+export function safeUrlTransform(value: string): string {
+  const colon = value.indexOf(":")
+  const questionMark = value.indexOf("?")
+  const numberSign = value.indexOf("#")
+  const slash = value.indexOf("/")
+  if (
+    colon === -1 ||
+    (slash !== -1 && colon > slash) ||
+    (questionMark !== -1 && colon > questionMark) ||
+    (numberSign !== -1 && colon > numberSign) ||
+    SAFE_URL_PROTOCOL.test(value.slice(0, colon))
+  ) {
+    return value
+  }
+  return ""
 }

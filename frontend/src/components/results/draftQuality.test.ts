@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { detectTemplateText } from "./draftQuality"
+import { detectTemplateSections, detectTemplateText, templateTextWarning } from "./draftQuality"
 
 const ids = (md: string) => detectTemplateText(md).map((m) => m.id)
 
@@ -38,5 +38,39 @@ describe("detectTemplateText", () => {
     const [m] = detectTemplateText(long)
     expect(m.excerpt.length).toBeLessThan(110)
     expect(m.excerpt.startsWith("…")).toBe(true)
+  })
+})
+
+describe("detectTemplateSections", () => {
+  it("names the top-level sections that contain template text", () => {
+    const md = [
+      "# Review of X",
+      "",
+      "## Abstract",
+      "Databases were searched using the configured protocol.",
+      "",
+      "## Methods",
+      "### Search",
+      "Studies for the topic were screened.",
+      "",
+      "## **Results**",
+      "Clean text.",
+      "```",
+      "## not a heading [TODO]",
+      "```",
+    ].join("\n")
+    expect(detectTemplateSections(md)).toEqual(["Abstract", "Methods"])
+  })
+
+  it("labels text before the first section as Title and ignores clean drafts", () => {
+    expect(detectTemplateSections("# Effects [TBD]\n\n## Abstract\nFine.")).toEqual(["Title"])
+    expect(detectTemplateSections("## Abstract\nFine.")).toEqual([])
+    expect(detectTemplateSections(null)).toEqual([])
+  })
+
+  it("formats the package warning", () => {
+    expect(templateTextWarning(["Abstract", "Methods"])).toBe(
+      "The manuscript still contains template text in: Abstract, Methods. Package anyway?",
+    )
   })
 })

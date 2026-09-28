@@ -6,7 +6,7 @@ import { EmptyState, FetchError, LoadingPane, Spinner } from "@/components/ui/fe
 import { ViewToolbar } from "@/components/ui/view-toolbar"
 import { Input } from "@/components/ui/input"
 import { filterReferences, hasFullText } from "@/components/results/referenceFilters"
-import { decodeHtmlEntities } from "@/lib/humanize"
+import { decodeHtmlEntities, humanizeRetrievalSource, humanizeSource } from "@/lib/humanize"
 import { fetchPdfsForRun, paperFileUrl, studyFilesZipUrl } from "@/lib/api"
 import type { FetchPdfsProgressEvent, FetchPdfsResult, PaperReference } from "@/lib/api"
 import { referencesQueryKey, useReferences } from "@/hooks/useReferences"
@@ -20,33 +20,7 @@ interface ReferencesViewProps {
 }
 
 function SourceBadge({ source }: { source: string }) {
-  const label =
-    source === "abstract"
-      ? "Abstract only"
-      : source === "landing_page_pdf" || source === "url_direct_pdf"
-        ? "Publisher Page (PDF)"
-        : source === "landing_page_text" || source === "url_direct_text" || source === "landing_page"
-          ? "Publisher Page (Text)"
-          : source.startsWith("unpaywall")
-            ? "Unpaywall"
-            : source.startsWith("semantic")
-              ? "Semantic Scholar"
-              : source.startsWith("pmc")
-                ? "PMC"
-                : source.startsWith("core")
-                  ? "CORE"
-                  : source.startsWith("europepmc")
-                    ? "Europe PMC"
-                    : source.startsWith("sciencedirect")
-                      ? "ScienceDirect"
-                      : source.startsWith("arxiv")
-                        ? "arXiv"
-                        : source.startsWith("biorxiv") || source.startsWith("medrxiv")
-                          ? "bioRxiv/medRxiv"
-                          : source.startsWith("crossref")
-                            ? "Crossref"
-                            : source
-
+  const label = humanizeRetrievalSource(source)
   const isAbstract = source === "abstract"
   return (
     <span
@@ -393,7 +367,7 @@ function PaperCard({ paper, index, runId }: PaperCardProps) {
             <SourceBadge source={paper.retrieval_source} />
             {paper.source_database && (
             <span className="glass-chip inline-flex items-center px-1.5 py-0.5 rounded text-2xs font-mono text-muted">
-                {paper.source_database}
+                {humanizeSource(paper.source_database)}
               </span>
             )}
             {paper.file_type === "pdf" && (

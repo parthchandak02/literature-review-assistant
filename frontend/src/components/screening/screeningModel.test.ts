@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest"
 import type { ScreenedPaper, ScreeningOverride } from "@/lib/api"
 import {
+  formatAuthorList,
   approvalSummaryText,
   buildRows,
   countFilterTabs,
@@ -156,5 +157,17 @@ describe("approvalSummaryText", () => {
     expect(approvalSummaryText({ total: 1, include: 1, exclude: 0, uncertain: 0, overridden: 0 })).toContain(
       "no overrides",
     )
+  })
+})
+
+describe("formatAuthorList", () => {
+  it("joins JSON array author strings and decodes unicode escapes", () => {
+    expect(formatAuthorList('["Nguy\\u1ec5n Ch\\u00e2u", "Sara L. Terrell"]')).toBe("Nguyễn Châu, Sara L. Terrell")
+  })
+  it("keeps plain author text", () => {
+    expect(formatAuthorList("Jae-ok Koh, Rod Cross")).toBe("Jae-ok Koh, Rod Cross")
+  })
+  it("returns malformed JSON-looking text unchanged", () => {
+    expect(formatAuthorList("[unclosed")).toBe("[unclosed")
   })
 })

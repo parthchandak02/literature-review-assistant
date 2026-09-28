@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react"
+import { Suspense, lazy, useEffect, useRef, useState } from "react"
 import { AlertTriangle, Check, ClipboardCheck, Copy } from "lucide-react"
 import { toast } from "sonner"
 import { cn } from "@/lib/utils"
@@ -7,7 +7,6 @@ import { LiveStreamStatus } from "@/components/run-status"
 import { GlassTabs } from "@/components/ui/glass-tabs"
 import { Button } from "@/components/ui/button"
 import { ViewToolbar } from "@/components/ui/view-toolbar"
-import { SubmissionPackageButton } from "@/components/results/SubmissionPackageButton"
 import { NEEDS_REVISION_EXPLANATION } from "@/lib/constants"
 import { AUDIT_FINDINGS_ANCHOR } from "@/lib/resultsCategories"
 import type { RunChromeVM } from "@/hooks/useRunChrome"
@@ -15,6 +14,10 @@ import type { RunTab, SelectedRun } from "@/context/runSessionTypes"
 import { RunFunnelPopover } from "./RunFunnelPopover"
 import { orderRunTabs } from "./runRouting"
 import { formatChromeCost, formatOutcome } from "./runChromeFormat"
+
+const SubmissionPackageButton = lazy(() =>
+  import("@/components/results/SubmissionPackageButton").then((m) => ({ default: m.SubmissionPackageButton })),
+)
 
 function Divider() {
   return <span aria-hidden className="h-3 w-px shrink-0 bg-border" />
@@ -207,7 +210,9 @@ export function RunChrome({
         />
         {canDownloadPackage && (
           <div className="hidden sm:flex items-center shrink-0 py-1">
-            <SubmissionPackageButton runId={run.runId} />
+            <Suspense fallback={null}>
+              <SubmissionPackageButton runId={run.runId} />
+            </Suspense>
           </div>
         )}
       </div>

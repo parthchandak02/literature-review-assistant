@@ -64,7 +64,7 @@ describe("RunChrome needs_revision", () => {
 
     const status = screen.getByText("Needs revision")
     expect(status).toHaveAttribute("aria-live", "polite")
-    expect(screen.getByRole("button", { name: /Download submission package/ })).toBeInTheDocument()
+    expect(await screen.findByRole("button", { name: /Download submission package/ })).toBeInTheDocument()
 
     await user.click(screen.getByRole("button", { name: /Review audit findings/ }))
     expect(onTabChange).toHaveBeenCalledWith("results")

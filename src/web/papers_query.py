@@ -133,6 +133,9 @@ class PaperFilters:
         where = f"WHERE {' AND '.join(conditions)}" if conditions else ""
         return where, params
 
+    def is_active(self) -> bool:
+        return bool(self.where()[0])
+
     def _categorical(self, column: str, values: list[str]) -> tuple[str, list[Any]]:
         if self.match == "contains":
             parts = [f"COALESCE({column}, '') LIKE ?" for _ in values]
@@ -234,6 +237,88 @@ async def fetch_facet_counts(db: aiosqlite.Connection, filters: PaperFilters) ->
         ) as cur:
             counts[name] = [{"value": r[0], "count": r[1]} for r in await cur.fetchall()]
     return counts
+
+
+def _has_numeric_result(outcome: Any) -> bool:
+    return isinstance(outcome, dict) and bool(
+        outcome.get("effect_size") or outcome.get("p_value") or outcome.get("ci_lower")
+    )
+
+
+async def fetch_outcome_tables(
+    db: aiosqlite.Connection,
+    filters: PaperFilters,
+    *,
+    offset: int = 0,
+    limit: int | None = None,
+) -> dict[str, Any]:
+    """Numeric extracted outcomes grouped by paper, restricted to papers matching the filters.
+
+    Pagination counts outcome rows; a paper can span two pages.
+    """
+    restrict = ""
+    params: list[Any] = []
+    if filters.is_active():
+        where, params = filters.where()
+        restrict = f"AND x.paper_id IN (SELECT p.paper_id {FROM_CLAUSE} {where})"
+    async with db.execute(
+        f"""
+        SELECT x.paper_id, x.data, x.extraction_source, pp.title, pp.doi
+        FROM extraction_records x
+        LEFT JOIN papers pp ON pp.paper_id = x.paper_id
+        WHERE x.data IS NOT NULL {restrict}
+        ORDER BY x.paper_id
+        """,
+        params,
+    ) as cur:
+        rows = await cur.fetchall()
+
+    grouped: list[tuple[dict[str, Any], list[dict[str, Any]]]] = []
+    for row in rows:
+        try:
+            record_data = json.loads(row["data"] or "{}")
+        except Exception:
+            record_data = {}
+        if not isinstance(record_data, dict):
+            continue
+        outcomes = record_data.get("outcomes") or []
+        numeric = [o for o in outcomes if _has_numeric_result(o)] if isinstance(outcomes, list) else []
+        if not numeric:
+            continue
+        grouped.append(
+            (
+                {
+                    "paper_id": row["paper_id"],
+                    "title": decode_html_entities(row["title"] or ""),
+                    "doi": row["doi"],
+                    "extraction_source": str(
+                        row["extraction_source"] or record_data.get("extraction_source") or "text"
+                    ),
+                },
+                numeric,
+            )
+        )
+
+    total_rows = sum(len(outcomes) for _, outcomes in grouped)
+    end = total_rows if limit is None else offset + limit
+    papers_out: list[dict[str, Any]] = []
+    cursor = 0
+    for meta, outcomes in grouped:
+        lo, hi = max(offset - cursor, 0), min(end - cursor, len(outcomes))
+        if lo < hi:
+            papers_out.append({**meta, "outcomes": outcomes[lo:hi]})
+        cursor += len(outcomes)
+        if cursor >= end:
+            break
+
+    return {
+        "total_rows": total_rows,
+        "total_papers": len(grouped),
+        "offset": offset,
+        "limit": limit,
+        "filtered": filters.is_active(),
+        "papers": papers_out,
+    }
 
 
 EXPORT_COLUMNS = [

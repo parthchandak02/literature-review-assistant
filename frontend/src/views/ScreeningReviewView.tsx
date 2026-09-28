@@ -1,4 +1,4 @@
-import { useCallback, useState, type KeyboardEvent } from "react"
+import { useCallback, useEffect, useRef, useState, type KeyboardEvent } from "react"
 import { flushSync } from "react-dom"
 import { toast } from "sonner"
 import { ConfirmDialog } from "@/components/ConfirmDialog"
@@ -81,6 +81,17 @@ export function ScreeningReviewView({ runId, workflowId, onApproveAndResume }: S
     if (event.defaultPrevented) return
     // Ignore keys from portaled menus and dialogs; React still bubbles them here.
     if (!(event.target instanceof Node) || !event.currentTarget.contains(event.target)) return
+    runShortcut(event)
+  }
+
+  const runShortcut = (event: {
+    key: string
+    target: EventTarget | null
+    metaKey: boolean
+    ctrlKey: boolean
+    altKey: boolean
+    preventDefault: () => void
+  }) => {
     const command = shortcutFor(event)
     if (!command) return
     if (command.type === "help") {
@@ -111,6 +122,20 @@ export function ScreeningReviewView({ runId, workflowId, onApproveAndResume }: S
     else if (command.type === "expand") dispatch({ type: "toggleExpanded", key })
     else dispatch({ type: "toggleSelected", key })
   }
+
+  const runShortcutRef = useRef(runShortcut)
+  useEffect(() => {
+    runShortcutRef.current = runShortcut
+  })
+  useEffect(() => {
+    // Shortcuts also work before anything in the view has focus (focus on <body>).
+    const onKey = (event: globalThis.KeyboardEvent) => {
+      if (event.defaultPrevented || event.target !== document.body) return
+      runShortcutRef.current(event)
+    }
+    document.addEventListener("keydown", onKey)
+    return () => document.removeEventListener("keydown", onKey)
+  }, [])
 
   if (summaryQuery.isPending) {
     return (
@@ -197,7 +222,7 @@ export function ScreeningReviewView({ runId, workflowId, onApproveAndResume }: S
         )}
       </div>
 
-      <div className="sticky bottom-0 z-10 -mx-1 px-4 py-3 glass-toolbar border-t border-border rounded-panel">
+      <div className="sticky bottom-0 z-10 -mx-1 px-4 py-3 bg-surface-1 shadow-lg border border-border rounded-panel">
         <ScreeningApprovalBar
           status={status}
           overrideCount={review.finalCounts.overridden}

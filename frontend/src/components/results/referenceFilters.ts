@@ -1,5 +1,5 @@
 import type { PaperReference } from "@/lib/api"
-import { decodeHtmlEntities } from "@/lib/humanize"
+import { decodeHtmlEntities, humanizeSource } from "@/lib/humanize"
 
 export interface ReferenceFilters {
   query: string
@@ -17,6 +17,7 @@ function haystack(paper: PaperReference): string {
     paper.year != null ? String(paper.year) : "",
     paper.doi ?? "",
     paper.source_database ?? "",
+    humanizeSource(paper.source_database),
   ]
     .join(" ")
     .toLowerCase()

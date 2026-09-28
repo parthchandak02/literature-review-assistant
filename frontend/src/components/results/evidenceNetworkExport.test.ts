@@ -1,6 +1,55 @@
 // @vitest-environment jsdom
-import { describe, expect, it } from "vitest"
-import { communityColor, inlineCssVars, prepareSvgForExport } from "./evidenceNetworkExport"
+import { afterEach, describe, expect, it } from "vitest"
+import { communityColor, inlineCssVars, lightThemeLookup, prepareSvgForExport } from "./evidenceNetworkExport"
+
+describe("lightThemeLookup", () => {
+  afterEach(() => {
+    document.head.innerHTML = ""
+    delete document.documentElement.dataset.theme
+  })
+
+  function addStyle(css: string) {
+    const el = document.createElement("style")
+    el.textContent = css
+    document.head.appendChild(el)
+  }
+
+  it("uses light-theme tokens even when the dark theme is active", () => {
+    addStyle(`
+      @layer theme {
+        :root, :host { --surface: black; --canvas: var(--surface); --edge: teal; }
+      }
+      html[data-theme="light"] { --surface: ivory; }
+      html[data-theme="dark"] { --edge: navy; }
+    `)
+    document.documentElement.dataset.theme = "dark"
+    const lookup = lightThemeLookup(Array.from(document.styleSheets), () => "")
+    expect(lookup("--surface")).toBe("ivory")
+    expect(lookup("--edge")).toBe("teal")
+    expect(inlineCssVars("var(--canvas)", lookup)).toBe("ivory")
+  })
+
+  it("falls back for unknown variables and unreadable sheets", () => {
+    const unreadable = {
+      get cssRules(): CSSRuleList {
+        throw new DOMException("cross-origin", "SecurityError")
+      },
+    } as unknown as CSSStyleSheet
+    const lookup = lightThemeLookup([unreadable], (name) => (name === "--x" ? "fallback" : ""))
+    expect(lookup("--x")).toBe("fallback")
+    expect(lookup("--y")).toBe("")
+  })
+
+  it("feeds prepareSvgForExport with light colours", () => {
+    addStyle(`:root { --node: black; } html[data-theme="light"] { --node: coral; }`)
+    const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg")
+    const circle = document.createElementNS("http://www.w3.org/2000/svg", "circle")
+    circle.setAttribute("fill", "var(--node)")
+    svg.appendChild(circle)
+    const out = prepareSvgForExport(svg, lightThemeLookup(Array.from(document.styleSheets), () => ""))
+    expect(out.querySelector("circle")!.getAttribute("fill")).toBe("coral")
+  })
+})
 
 const vars: Record<string, string> = {
   "--a": " #111111 ",

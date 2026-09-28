@@ -2,12 +2,64 @@ import { describe, expect, it } from "vitest"
 import {
   decodeHtmlEntities,
   humanizeLogTag,
+  humanizeRetrievalSource,
   humanizeSnake,
+  humanizeSource,
   humanizeStage,
   humanizeStatus,
   LOG_TAG_GLOSSARY,
   shortModelName,
 } from "./humanize"
+
+describe("humanizeSource", () => {
+  it.each([
+    ["semantic_scholar", "Semantic Scholar"],
+    ["openalex", "OpenAlex"],
+    ["openalex_content", "OpenAlex"],
+    ["pubmed", "PubMed"],
+    ["crossref", "Crossref"],
+    ["arxiv", "arXiv"],
+    ["scopus", "Scopus"],
+    ["europe_pmc", "Europe PMC"],
+    ["europepmc", "Europe PMC"],
+    ["unpaywall", "Unpaywall"],
+    ["sciencedirect", "ScienceDirect"],
+    ["core", "CORE"],
+    ["biorxiv", "bioRxiv"],
+    ["medrxiv", "medRxiv"],
+    ["web_of_science", "Web of Science"],
+    ["ieee", "IEEE Xplore"],
+    ["ieee_xplore", "IEEE Xplore"],
+    ["clinicaltrials_gov", "ClinicalTrials.gov"],
+    ["Embase", "Embase"],
+    ["Semantic Scholar", "Semantic Scholar"],
+  ])("%s -> %s", (raw, label) => {
+    expect(humanizeSource(raw)).toBe(label)
+  })
+
+  it("strips retrieval format suffixes", () => {
+    expect(humanizeSource("unpaywall_pdf")).toBe("Unpaywall")
+    expect(humanizeSource("sciencedirect_session_pdf")).toBe("ScienceDirect")
+    expect(humanizeSource("crossref_link")).toBe("Crossref")
+    expect(humanizeSource("biorxiv_medrxiv_pdf")).toBe("bioRxiv/medRxiv")
+  })
+
+  it("falls back to humanizeSnake", () => {
+    expect(humanizeSource("my_custom_db")).toBe("My custom db")
+    expect(humanizeSource("")).toBe("")
+    expect(humanizeSource(null)).toBe("")
+  })
+})
+
+describe("humanizeRetrievalSource", () => {
+  it("labels publisher and abstract fallbacks, then defers to humanizeSource", () => {
+    expect(humanizeRetrievalSource("abstract")).toBe("Abstract only")
+    expect(humanizeRetrievalSource("landing_page_pdf")).toBe("Publisher Page (PDF)")
+    expect(humanizeRetrievalSource("url_direct_text")).toBe("Publisher Page (Text)")
+    expect(humanizeRetrievalSource("semanticscholar_pdf")).toBe("Semantic Scholar")
+    expect(humanizeRetrievalSource("pmc_pdf")).toBe("PMC")
+  })
+})
 
 describe("humanizeSnake", () => {
   it("sentence-cases snake, kebab and camel identifiers", () => {

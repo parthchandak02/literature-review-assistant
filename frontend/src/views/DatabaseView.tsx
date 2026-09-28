@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react"
 import { Database, FilterX } from "lucide-react"
 import { FacetFilters } from "@/components/database/FacetFilters"
 import { FilterChipBar } from "@/components/database/FilterChipBar"
-import { OutcomesTable } from "@/components/database/OutcomesTable"
+import { OUTCOMES_PAGE_SIZE, OutcomesTable } from "@/components/database/OutcomesTable"
 import { PaperInspector } from "@/components/database/PaperInspector"
 import { PapersTable } from "@/components/database/PapersTable"
 import { ColumnsMenu, ExportMenu } from "@/components/database/TableMenus"
@@ -65,7 +65,11 @@ function DatabaseViewBody({ runId, isDone, dbAvailable, isLive, isSSEConnected }
   const liveOptions = { enabled: dbAvailable, isLive, isSSEConnected }
   const papersQuery = useDbPapers(runId, filters, sort, page, pageSize, liveOptions)
   const facetsQuery = useDbPapersFacets(runId, filters, liveOptions)
-  const outcomesQuery = useDbOutcomes(runId, liveOptions)
+  const filtersKey = JSON.stringify(filters)
+  const [outcomePaging, setOutcomePaging] = useState({ filtersKey, page: 0 })
+  const outcomePage = outcomePaging.filtersKey === filtersKey ? outcomePaging.page : 0
+  const setOutcomePage = (next: number) => setOutcomePaging({ filtersKey, page: Math.max(0, next) })
+  const outcomesQuery = useDbOutcomes(runId, filters, outcomePage, OUTCOMES_PAGE_SIZE, liveOptions)
   const titleSuggestionsQuery = useDbPaperSuggest(runId, "title", table.titleSuggestQuery)
   const authorSuggestionsQuery = useDbPaperSuggest(runId, "author", table.authorSuggestQuery)
 
@@ -80,6 +84,12 @@ function DatabaseViewBody({ runId, isDone, dbAvailable, isLive, isSSEConnected }
     if (!papersQuery.isFetched || papersQuery.isPlaceholderData) return
     if (page > 0 && page * pageSize >= total) setPage(Math.max(0, Math.ceil(total / pageSize) - 1))
   }, [page, pageSize, total, papersQuery.isFetched, papersQuery.isPlaceholderData, setPage])
+
+  const outcomeTotal = outcomesQuery.data?.total_rows ?? 0
+  const outcomesSettled = outcomesQuery.isFetched && !outcomesQuery.isPlaceholderData
+  if (outcomesSettled && outcomePage > 0 && outcomePage * OUTCOMES_PAGE_SIZE >= outcomeTotal) {
+    setOutcomePaging({ filtersKey, page: Math.max(0, Math.ceil(outcomeTotal / OUTCOMES_PAGE_SIZE) - 1) })
+  }
 
   const empty = useMemo(() => emptyColumns(papers), [papers])
   const visibleColumns = useMemo(
@@ -208,7 +218,10 @@ function DatabaseViewBody({ runId, isDone, dbAvailable, isLive, isSSEConnected }
       </GlassTableShell>
 
       <OutcomesTable
-        outcomePapers={outcomesQuery.data?.papers ?? []}
+        data={outcomesQuery.data}
+        page={outcomePage}
+        onPageChange={setOutcomePage}
+        filteredPaperCount={filterCount > 0 ? total : null}
         error={outcomeError}
         onRetry={() => void outcomesQuery.refetch()}
       />

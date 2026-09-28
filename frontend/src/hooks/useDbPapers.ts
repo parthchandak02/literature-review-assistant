@@ -38,8 +38,10 @@ export function dbPapersFacetsQueryKey(runId: string, filters?: PapersQuery) {
   return filters ? (["dbPapersFacets", runId, filters] as const) : (["dbPapersFacets", runId] as const)
 }
 
-export function dbOutcomesQueryKey(runId: string) {
-  return ["dbOutcomes", runId] as const
+export function dbOutcomesQueryKey(runId: string, filters?: PapersQuery, page?: number, pageSize?: number) {
+  return filters
+    ? (["dbOutcomes", runId, filters, page ?? 0, pageSize ?? 0] as const)
+    : (["dbOutcomes", runId] as const)
 }
 
 export function dbPaperDetailQueryKey(runId: string, paperId: string | null) {
@@ -94,11 +96,19 @@ export function useDbPaperDetail(runId: string, paperId: string | null) {
   })
 }
 
-export function useDbOutcomes(runId: string, options?: LiveOptions) {
+/** Numeric outcomes for papers matching the Data tab filters, one server page of outcome rows at a time. */
+export function useDbOutcomes(
+  runId: string,
+  filters: PapersQuery,
+  page: number,
+  pageSize: number,
+  options?: LiveOptions,
+) {
   return useQuery({
-    queryKey: dbOutcomesQueryKey(runId),
-    queryFn: () => fetchDbTables(runId),
+    queryKey: dbOutcomesQueryKey(runId, filters, page, pageSize),
+    queryFn: () => fetchDbTables(runId, filters, { offset: page * pageSize, limit: pageSize }),
     enabled: (options?.enabled ?? true) && Boolean(runId),
+    placeholderData: keepPreviousData,
     refetchInterval: liveInterval(options),
     refetchIntervalInBackground: false,
   })

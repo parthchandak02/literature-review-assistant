@@ -4,7 +4,8 @@ import { Button } from "@/components/ui/button"
 import { Spinner } from "@/components/ui/feedback"
 import { submissionZipUrl } from "@/lib/api"
 import { cn } from "@/lib/utils"
-import { PACKAGE_ACTION_LABEL, startDownload, useSubmissionPackage } from "./submissionPackage"
+import { PackageBuildConfirm } from "./PackageBuildConfirm"
+import { PACKAGE_ACTION_LABEL, startDownload, usePackageBuildGuard, useSubmissionPackage } from "./submissionPackage"
 
 export function SubmissionPackageButton({
   runId,
@@ -16,10 +17,11 @@ export function SubmissionPackageButton({
   label?: string
 }) {
   const { state, ensure } = useSubmissionPackage(runId)
+  const buildGuard = usePackageBuildGuard(runId)
   const building = state.status === "building"
+  const busy = building || buildGuard.checking
 
-  async function handleClick() {
-    if (building) return
+  async function buildAndDownload() {
     const next = await ensure()
     if (next.status === "ready") {
       startDownload(submissionZipUrl(runId))
@@ -28,23 +30,35 @@ export function SubmissionPackageButton({
     }
   }
 
+  function handleClick() {
+    if (busy) return
+    if (state.status === "ready") {
+      startDownload(submissionZipUrl(runId))
+      return
+    }
+    void buildGuard.guard(() => void buildAndDownload())
+  }
+
   return (
-    <Button
-      type="button"
-      size="xs"
-      variant="outline"
-      onClick={() => void handleClick()}
-      disabled={building}
-      aria-busy={building}
-      title={
-        state.status === "ready"
-          ? "Download the submission package (.zip)"
-          : "Build the submission package if needed, then download it (.zip)"
-      }
-      className={cn("gap-1", className)}
-    >
-      {building ? <Spinner size="sm" /> : <Download className="h-3 w-3" />}
-      {building ? "Building…" : label}
-    </Button>
+    <>
+      <Button
+        type="button"
+        size="xs"
+        variant="outline"
+        onClick={handleClick}
+        disabled={busy}
+        aria-busy={busy}
+        title={
+          state.status === "ready"
+            ? "Download the submission package (.zip)"
+            : "Build the submission package if needed, then download it (.zip)"
+        }
+        className={cn("gap-1", className)}
+      >
+        {building ? <Spinner size="sm" /> : <Download className="h-3 w-3" />}
+        {building ? "Building…" : label}
+      </Button>
+      <PackageBuildConfirm prompt={buildGuard.prompt} onConfirm={buildGuard.confirm} onCancel={buildGuard.cancel} />
+    </>
   )
 }

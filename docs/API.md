@@ -58,7 +58,7 @@ Enforced by `scripts/check.py api` against Section 10.1 below. Update this table
 | GET | /api/config/env-keys/required | Required LLM provider UI keys for the active settings profile |
 | GET | /api/config/env-keys/status | Masked env-key presence map for Setup diagnostics |
 | GET | /api/health | Health check; polled every 6s by useBackendHealth hook |
-| GET | /api/history | Past runs from workflows_registry.db; optional `view=rail` (slim sidebar rows) and `stats=false` (skip runtime.db stats) |
+| GET | /api/history | Past runs from workflows_registry.db; optional `view=rail` (slim sidebar rows) and `stats=false` (skip runtime.db stats). Rows carry `lane_override` (`in_progress`, `completed` or null) |
 | GET | /api/history/active-run | Whether a run for the given workflow_id is currently active (requires `workflow_id` query param) |
 | GET | /api/history/costs/aggregates | Global cost aggregates across registry-linked runtime.db files |
 | GET | /api/history/costs/export | Global cost CSV export across registry-linked runtime.db files |
@@ -69,7 +69,8 @@ Enforced by `scripts/check.py api` against Section 10.1 below. Update this table
 | POST | /api/history/{workflow_id}/restore | Restore an archived workflow row to the active list |
 | POST | /api/history/{workflow_id}/complete-hide | Move a non-running workflow into the manual Completed bucket |
 | POST | /api/history/{workflow_id}/complete-restore | Restore a workflow from the Completed bucket to In Progress |
-| DELETE | /api/history/{workflow_id} | Delete run directory + registry entry from disk |
+| POST | /api/history/{workflow_id}/lane | Set the sidebar lane pin: body `{lane: "in_progress" \| "completed" \| null}`; `completed` also sets `is_completed_hidden` and is refused while running |
+| DELETE | /api/history/{workflow_id} | Delete registry entry, the run directory and sibling `run_*` dirs in the workflow's own `wf-NNNN-*` folder, then empty parents up to `run_root`; symlinks and dirs of other registry rows are kept |
 | GET | /api/db/{run_id}/papers-all | Paginated papers with doi + url fields. Optional `sort` (title, year, source, ta_decision, ft_decision, primary_status, confidence; 400 otherwise) and `dir` (asc, desc). Filters: `title`, `author`, `search` (substring); repeatable `ta_decision`, `ft_decision`, `primary_status`, `source`, `country` (substring by default, exact with `match=exact`, `__none__` matches missing values); `year_min`/`year_max` range; legacy `year`. `include=facets` co-fetches facet values and counts |
 | GET | /api/db/{run_id}/papers-facets | Distinct facet values (sources, decisions) for filter UI, plus `counts` per value for ta_decision, ft_decision, primary_status, year, source, country. Accepts the papers-all filters; each facet's counts ignore that facet's own filter |
 | GET | /api/db/{run_id}/papers-export | Download the whole filtered set (`format=csv` or `ris`), same filter, `sort` and `dir` params as papers-all |
@@ -79,7 +80,7 @@ Enforced by `scripts/check.py api` against Section 10.1 below. Update this table
 | GET | /api/db/{run_id}/costs/aggregates | Time-bucket and dimension cost aggregates (day/week/month/workflow/phase/model) |
 | GET | /api/db/{run_id}/costs/export | CSV export for reconciliation (day/week/month buckets) |
 | GET | /api/db/{run_id}/cost-dashboard | Consolidated per-run cost dashboard payload (model/phase breakdown) |
-| GET | /api/db/{run_id}/tables | Vision-extracted table rows from papers |
+| GET | /api/db/{run_id}/tables | Numeric extracted outcome rows grouped by paper (`total_rows`, `total_papers`, `filtered`, `papers`). Accepts the papers-all filters to restrict outcomes to matching papers; optional `offset`/`limit` (1-500) paginate by outcome row. No params returns every row, as before |
 | GET | /api/db/{run_id}/rag-diagnostics | Per-section RAG retrieval diagnostics |
 | GET | /api/run/{run_id}/artifacts | Full run_summary.json for any run (live or historical) |
 | GET | /api/run/{run_id}/manuscript | Download manuscript content (`fmt=md` or `fmt=tex`) |

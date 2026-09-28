@@ -29,6 +29,7 @@ export {
   restoreRun,
   hideCompletedRun,
   restoreCompletedRun,
+  setHistoryLane,
   saveNote,
 } from "./history"
 export {
@@ -148,6 +149,7 @@ export type {
   EventDurability,
   HistoryEntry,
   HistoryRailEntry,
+  LaneOverride,
   ReviewEvent,
   RunRequest,
   RunResponse,

@@ -27,6 +27,8 @@ _logger = logging.getLogger(__name__)
 # Request / response models
 # ---------------------------------------------------------------------------
 
+LaneOverride = Literal["in_progress", "completed"] | None
+
 
 class RunRequest(BaseModel):
     review_yaml: str
@@ -81,6 +83,7 @@ class HistoryEntry(BaseModel):
     archived_at: str | None = None
     is_completed_hidden: bool = False
     completed_hidden_at: str | None = None
+    lane_override: LaneOverride = None
 
 
 class AttachRequest(BaseModel):

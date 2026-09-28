@@ -10,7 +10,7 @@ import type {
   ProsperoRegistration,
   ScreeningOverride,
 } from "@/lib/api"
-import type { LiveRun } from "@/components/sidebar/types"
+import type { LaneChangeOptions, LiveRun } from "@/components/sidebar/types"
 
 export type RunTab = "activity" | "results" | "database" | "cost" | "config" | "review-screening"
 
@@ -82,9 +82,9 @@ export interface RunSessionActions {
   handleTimelineResumePhase: (phase: string) => Promise<void>
   handleSidebarDelete: (workflowId: string) => Promise<void>
   handleSidebarArchive: (workflowId: string) => Promise<void>
-  handleSidebarRestore: (workflowId: string) => Promise<void>
-  handleSidebarHideCompleted: (workflowId: string) => Promise<void>
-  handleSidebarRestoreCompleted: (workflowId: string) => Promise<void>
+  handleSidebarRestore: (workflowId: string, options?: LaneChangeOptions) => Promise<void>
+  handleSidebarHideCompleted: (workflowId: string, options?: LaneChangeOptions) => Promise<void>
+  handleSidebarRestoreCompleted: (workflowId: string, options?: LaneChangeOptions) => Promise<void>
   handleTabChange: (tab: RunTab) => void
   handleGoToSubmissionReferencePapers: () => void
   handleSubmitProsperoAndResume: (runId: string, registration: ProsperoRegistration) => Promise<void>

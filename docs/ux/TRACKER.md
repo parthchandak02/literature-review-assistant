@@ -317,3 +317,41 @@ _(append per sprint: landed, blocked, next)_
 - Decide on an "AI reviewer" method chip for screening-decision log rows.
 - The top bar says "New Review" and the h1 says "New review", so the heading is duplicated.
 - Key-prefix hints and the "where each key is used" copy are hard-coded.
+
+### Sprint 7: Follow-ups (2026-09-28)
+
+**Landed**
+
+*Sidebar and runs*
+- Clicking a run that is awaiting review in the sidebar re-routes it to the gate tab.
+- Archive or complete can be undone, and undo re-opens the run on the tab you were on.
+- Lane pins are stored on the server (`lane_override` plus `POST /api/history/{id}/lane`). Existing localStorage pins are migrated once.
+- Delete removes the workflow's run folders and any empty parent folders, with the paths guarded.
+
+*Shell and settings*
+- `FetchError` now has separate Retry and Dismiss actions.
+- There is one Settings dialog, opened through `SettingsContext`.
+- The duplicate setup title is gone.
+- Code splitting cut the main chunk from 1,056 kB to 254 kB.
+
+*Content and data*
+- Source names are humanized.
+- Packaging a draft that still contains template text asks for confirmation first.
+- Evidence network SVG export always uses light-theme colours.
+- The Outcomes table follows the Papers filters and pages server-side.
+- Year sort starts with newest first.
+
+*Found by visual QA with the screening preview harness (`scripts/ux_screening_preview.py`)*
+- JSON author lists are now rendered as names.
+- JATS markup is stripped from abstracts, both on ingest and on read.
+- Screening shortcuts work before the list has focus.
+- The approve bar has a solid background.
+- Mobile rows wrap their actions below the title.
+
+**Verified**
+- `make check-local`: ruff; 1391 unit tests; parity (72 endpoints); 544 frontend tests; replay-workflow.
+- Integration: 169 passed.
+- Live checks on a sandbox copy of `runs/` (port 8093): lane endpoint, filtered outcomes, delete cleanup, clean abstracts.
+- Screenshots in dark, light and mobile.
+
+**Process note:** local verification builds go to a temp `--outDir`, because building `frontend/dist` changes what production serves.

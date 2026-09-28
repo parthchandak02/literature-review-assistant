@@ -23,7 +23,7 @@ import { Spinner, FetchError, EmptyState } from "@/components/ui/feedback"
 import { Button } from "@/components/ui/button"
 import { humanizeSnake } from "@/lib/humanize"
 import { cn } from "@/lib/utils"
-import { communityColor, prepareSvgForExport } from "@/components/results/evidenceNetworkExport"
+import { communityColor, lightThemeLookup, prepareSvgForExport } from "@/components/results/evidenceNetworkExport"
 
 const EDGE_COLORS: Record<string, string> = {
   shared_outcome: "var(--color-graph-edge-shared-outcome)",
@@ -468,7 +468,7 @@ export function EvidenceNetworkViz({ runId }: EvidenceNetworkVizProps) {
 
   const handleDownloadSvg = useCallback(() => {
     if (!svgRef.current) return
-    const clone = prepareSvgForExport(svgRef.current)
+    const clone = prepareSvgForExport(svgRef.current, lightThemeLookup())
     const svgStr = new XMLSerializer().serializeToString(clone)
     const blob = new Blob([svgStr], { type: "image/svg+xml;charset=utf-8" })
     const url = URL.createObjectURL(blob)

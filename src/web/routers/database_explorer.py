@@ -15,6 +15,7 @@ from src.web.papers_query import (
     PaperFilters,
     fetch_export_rows,
     fetch_facet_counts,
+    fetch_outcome_tables,
     fetch_paper_detail,
     fetch_papers_page,
     to_csv,
@@ -267,47 +268,18 @@ async def get_paper_detail(run_id: str, paper_id: str) -> dict[str, Any]:
 
 
 @router.get("/api/db/{run_id}/tables")
-async def get_db_tables(run_id: str) -> dict[str, Any]:
-    """Vision-extracted quantitative outcome table rows grouped by paper."""
+async def get_db_tables(
+    run_id: str,
+    params: _FilterParams = Depends(),
+    offset: int = Query(0, ge=0),
+    limit: int | None = Query(None, ge=1, le=500),
+) -> dict[str, Any]:
+    """Numeric extracted outcome rows grouped by paper, optionally filtered and paginated by outcome row."""
     db_path = await resolve_runtime_db(run_id)
     try:
         async with aiosqlite.connect(db_path) as db:
             db.row_factory = aiosqlite.Row
-            async with db.execute(
-                """
-                SELECT er.paper_id, er.data, er.extraction_source, p.title, p.doi
-                FROM extraction_records er
-                LEFT JOIN papers p USING (paper_id)
-                WHERE er.data IS NOT NULL
-                ORDER BY er.paper_id
-                """
-            ) as cur:
-                rows = await cur.fetchall()
-
-        papers_out: list[dict[str, Any]] = []
-        total_rows = 0
-        for row in rows:
-            try:
-                record_data: dict[str, Any] = _json.loads(row["data"] or "{}")
-            except Exception:
-                record_data = {}
-            outcomes: list[dict[str, Any]] = record_data.get("outcomes") or []
-            extraction_source: str = str(row["extraction_source"] or record_data.get("extraction_source") or "text")
-            numeric_outcomes = [o for o in outcomes if o.get("effect_size") or o.get("p_value") or o.get("ci_lower")]
-            if not numeric_outcomes:
-                continue
-            total_rows += len(numeric_outcomes)
-            papers_out.append(
-                {
-                    "paper_id": row["paper_id"],
-                    "title": decode_html_entities(row["title"] or ""),
-                    "doi": row["doi"],
-                    "extraction_source": extraction_source,
-                    "outcomes": numeric_outcomes,
-                }
-            )
-
-        return {"total_rows": total_rows, "papers": papers_out}
+            return await fetch_outcome_tables(db, params.filters, offset=offset, limit=limit)
     except HTTPException:
         raise
     except Exception as exc:
