@@ -274,9 +274,19 @@ export function RunView({
             <CostView
               costStats={costStats}
               dbRunId={run.runId}
-              workflowId={run.workflowId}
               isLive={isLive}
               isSSEConnected={isSSEConnected}
+              includedCount={chrome.outcomeIncluded}
+              screenedCount={
+                chrome.displayFunnelStages.find((s) => s.key === "deduped")?.count ?? chrome.outcomeRecords
+              }
+              runState={
+                chrome.isRunning
+                  ? "running"
+                  : isDone || chrome.isFailed || chrome.isCancelled
+                    ? "finished"
+                    : "not_started"
+              }
             />
           )}
 

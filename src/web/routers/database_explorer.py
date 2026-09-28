@@ -1,4 +1,4 @@
-"""Database explorer endpoints: papers facets, suggest, all-papers, tables, RAG diagnostics."""
+"""Database explorer endpoints: papers facets, suggest, all-papers, export, detail, tables, RAG diagnostics."""
 
 from __future__ import annotations
 
@@ -6,9 +6,20 @@ import json as _json
 from typing import Any
 
 import aiosqlite
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi.responses import Response
 
 from src.models.papers import decode_html_entities
+from src.web.papers_query import (
+    InvalidQueryError,
+    PaperFilters,
+    fetch_export_rows,
+    fetch_facet_counts,
+    fetch_paper_detail,
+    fetch_papers_page,
+    to_csv,
+    to_ris,
+)
 from src.web.run_resolver import resolve_runtime_db
 
 router = APIRouter(tags=["database_explorer"])
@@ -28,9 +39,7 @@ async def _fetch_papers_facets(db: aiosqlite.Connection) -> dict[str, Any]:
         "SELECT DISTINCT source_database FROM papers WHERE source_database IS NOT NULL ORDER BY source_database"
     ) as cur:
         sources = [row[0] for row in await cur.fetchall()]
-    async with db.execute(
-        "SELECT DISTINCT country FROM papers WHERE country IS NOT NULL ORDER BY country"
-    ) as cur:
+    async with db.execute("SELECT DISTINCT country FROM papers WHERE country IS NOT NULL ORDER BY country") as cur:
         countries = [row[0] for row in await cur.fetchall()]
     async with db.execute(
         "SELECT DISTINCT final_decision FROM dual_screening_results "
@@ -69,14 +78,53 @@ async def _fetch_papers_facets(db: aiosqlite.Connection) -> dict[str, Any]:
     }
 
 
+class _FilterParams:
+    """Shared query params for papers-all, papers-facets and papers-export."""
+
+    def __init__(
+        self,
+        search: str = "",
+        title: str = "",
+        author: str = "",
+        ta_decision: list[str] = Query(default=[]),
+        ft_decision: list[str] = Query(default=[]),
+        primary_status: list[str] = Query(default=[]),
+        year: str = "",
+        year_min: int | None = None,
+        year_max: int | None = None,
+        source: list[str] = Query(default=[]),
+        country: list[str] = Query(default=[]),
+        match: str = "contains",
+    ) -> None:
+        try:
+            self.filters = PaperFilters(
+                search=search,
+                title=title,
+                author=author,
+                ta_decision=ta_decision,
+                ft_decision=ft_decision,
+                primary_status=primary_status,
+                year=year,
+                year_min=year_min,
+                year_max=year_max,
+                source=source,
+                country=country,
+                match=match,  # type: ignore[arg-type]
+            )
+        except InvalidQueryError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
 @router.get("/api/db/{run_id}/papers-facets")
-async def get_papers_facets(run_id: str) -> dict[str, Any]:
-    """Return distinct values for all filter columns (used by autocomplete dropdowns)."""
+async def get_papers_facets(run_id: str, params: _FilterParams = Depends()) -> dict[str, Any]:
+    """Distinct values for filter columns, plus per-value counts that respect the other active filters."""
     db_path = await resolve_runtime_db(run_id)
     try:
         async with aiosqlite.connect(db_path) as db:
             db.row_factory = aiosqlite.Row
-            return await _fetch_papers_facets(db)
+            facets = await _fetch_papers_facets(db)
+            facets["counts"] = await fetch_facet_counts(db, params.filters)
+            return facets
     except HTTPException:
         raise
     except Exception as exc:
@@ -138,148 +186,84 @@ async def get_papers_suggest(
 @router.get("/api/db/{run_id}/papers-all")
 async def get_papers_all(
     run_id: str,
-    search: str = "",
-    title: str = "",
-    author: str = "",
-    ta_decision: str = "",
-    ft_decision: str = "",
-    primary_status: str = "",
-    year: str = "",
-    source: str = "",
-    country: str = "",
-    offset: int = 0,
-    limit: int = 50,
+    params: _FilterParams = Depends(),
+    offset: int = Query(0, ge=0),
+    limit: int = Query(50, ge=1, le=500),
     include: str = "",
+    sort: str = "",
+    direction: str = Query("desc", alias="dir"),
 ) -> dict[str, Any]:
     """Unified per-paper table joining papers with final screening decisions."""
     db_path = await resolve_runtime_db(run_id)
     try:
         async with aiosqlite.connect(db_path) as db:
             db.row_factory = aiosqlite.Row
-
-            conditions: list[str] = []
-            params: list[Any] = []
-
-            if search:
-                like = f"%{search}%"
-                conditions.append("(p.title LIKE ? OR p.abstract LIKE ? OR p.authors LIKE ?)")
-                params.extend([like, like, like])
-            if title:
-                conditions.append("COALESCE(p.title, '') LIKE ?")
-                params.append(f"%{title}%")
-            if author:
-                conditions.append("COALESCE(p.authors, '') LIKE ?")
-                params.append(f"%{author}%")
-            if ta_decision:
-                conditions.append("COALESCE(ta.final_decision, '') LIKE ?")
-                params.append(f"%{ta_decision}%")
-            if ft_decision:
-                conditions.append("COALESCE(ft.final_decision, '') LIKE ?")
-                params.append(f"%{ft_decision}%")
-            if primary_status:
-                conditions.append(
-                    "COALESCE(er.primary_study_status, json_extract(er.data, '$.primary_study_status'), 'unknown') LIKE ?"
-                )
-                params.append(f"%{primary_status}%")
-            if year:
-                conditions.append("CAST(p.year AS TEXT) LIKE ?")
-                params.append(f"%{year}%")
-            if source:
-                conditions.append("COALESCE(p.source_database, '') LIKE ?")
-                params.append(f"%{source}%")
-            if country:
-                conditions.append("COALESCE(p.country, '') LIKE ?")
-                params.append(f"%{country}%")
-
-            where = f"WHERE {' AND '.join(conditions)}" if conditions else ""
-
-            base_query = f"""
-                FROM papers p
-                LEFT JOIN dual_screening_results ta
-                  ON p.paper_id = ta.paper_id AND ta.stage = 'title_abstract'
-                LEFT JOIN dual_screening_results ft
-                  ON p.paper_id = ft.paper_id AND ft.stage = 'fulltext'
-                LEFT JOIN extraction_records er
-                  ON p.paper_id = er.paper_id
-                LEFT JOIN rob_assessments ra
-                  ON p.paper_id = ra.paper_id
-                {where}
-            """
-
-            async with db.execute(
-                f"""SELECT p.paper_id, p.title, p.authors, p.year,
-                           p.source_database, p.doi, p.url, p.country,
-                           ta.final_decision AS ta_decision,
-                           ft.final_decision AS ft_decision,
-                           COALESCE(
-                               er.primary_study_status,
-                               json_extract(er.data, '$.primary_study_status'),
-                               'unknown'
-                           ) AS primary_study_status,
-                           er.data AS extraction_data,
-                           ra.assessment_data AS rob_assessment_data
-                    {base_query}
-                    ORDER BY p.year DESC LIMIT ? OFFSET ?""",
-                (*params, limit, offset),
-            ) as cur:
-                rows = await cur.fetchall()
-
-            async with db.execute(f"SELECT COUNT(*) {base_query}", params) as cur:
-                total = (await cur.fetchone())[0]  # type: ignore[index]
-
-            papers = []
-            for row in rows:
-                raw = row["authors"] or ""
-                try:
-                    authors_list = _json.loads(raw) if raw.startswith("[") else [raw]
-                    authors_fmt = ", ".join(
-                        (a.get("name") or a.get("raw_name") or str(a)) if isinstance(a, dict) else str(a)
-                        for a in authors_list
-                    )
-                except Exception:
-                    authors_fmt = raw
-                extraction_confidence: float | None = None
-                try:
-                    if row["extraction_data"]:
-                        ed = _json.loads(row["extraction_data"])
-                        extraction_confidence = ed.get("extraction_confidence")
-                except Exception:
-                    pass
-
-                assessment_source: str | None = None
-                try:
-                    if row["rob_assessment_data"]:
-                        rad = _json.loads(row["rob_assessment_data"])
-                        assessment_source = rad.get("assessment_source")
-                except Exception:
-                    pass
-
-                papers.append(
-                    {
-                        "paper_id": row["paper_id"],
-                        "title": decode_html_entities(row["title"] or ""),
-                        "authors": decode_html_entities(authors_fmt),
-                        "year": row["year"],
-                        "source_database": row["source_database"],
-                        "doi": row["doi"],
-                        "url": row["url"],
-                        "country": row["country"],
-                        "ta_decision": row["ta_decision"],
-                        "ft_decision": row["ft_decision"],
-                        "primary_study_status": row["primary_study_status"],
-                        "extraction_confidence": extraction_confidence,
-                        "assessment_source": assessment_source,
-                    }
-                )
-
+            total, papers = await fetch_papers_page(
+                db, params.filters, sort=sort, direction=direction, offset=offset, limit=limit
+            )
             response: dict[str, Any] = {"total": total, "offset": offset, "limit": limit, "papers": papers}
             if "facets" in _parse_papers_include(include):
-                response["facets"] = await _fetch_papers_facets(db)
+                facets = await _fetch_papers_facets(db)
+                facets["counts"] = await fetch_facet_counts(db, params.filters)
+                response["facets"] = facets
             return response
+    except InvalidQueryError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     except HTTPException:
         raise
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@router.get("/api/db/{run_id}/papers-export")
+async def export_papers(
+    run_id: str,
+    params: _FilterParams = Depends(),
+    fmt: str = Query("csv", alias="format"),
+    sort: str = "",
+    direction: str = Query("desc", alias="dir"),
+) -> Response:
+    """Download the full filtered paper set as CSV or RIS (same filters and sort as papers-all)."""
+    if fmt not in ("csv", "ris"):
+        raise HTTPException(status_code=400, detail="format must be 'csv' or 'ris'")
+    db_path = await resolve_runtime_db(run_id)
+    try:
+        async with aiosqlite.connect(db_path) as db:
+            db.row_factory = aiosqlite.Row
+            rows = await fetch_export_rows(db, params.filters, sort=sort, direction=direction)
+    except InvalidQueryError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+    safe_id = "".join(ch for ch in run_id if ch.isalnum() or ch in "-_") or "run"
+    if fmt == "csv":
+        body, media_type = to_csv(rows), "text/csv; charset=utf-8"
+    else:
+        body, media_type = to_ris(rows), "application/x-research-info-systems; charset=utf-8"
+    return Response(
+        content=body,
+        media_type=media_type,
+        headers={"Content-Disposition": f'attachment; filename="papers-{safe_id}.{fmt}"'},
+    )
+
+
+@router.get("/api/db/{run_id}/papers/{paper_id}")
+async def get_paper_detail(run_id: str, paper_id: str) -> dict[str, Any]:
+    """Full record for one paper: metadata, abstract, per-stage screening reasons, extraction and quality summary."""
+    db_path = await resolve_runtime_db(run_id)
+    try:
+        async with aiosqlite.connect(db_path) as db:
+            db.row_factory = aiosqlite.Row
+            detail = await fetch_paper_detail(db, paper_id)
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+    if detail is None:
+        raise HTTPException(status_code=404, detail="Paper not found")
+    return detail
 
 
 @router.get("/api/db/{run_id}/tables")

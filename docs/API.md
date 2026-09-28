@@ -70,8 +70,10 @@ Enforced by `scripts/check.py api` against Section 10.1 below. Update this table
 | POST | /api/history/{workflow_id}/complete-hide | Move a non-running workflow into the manual Completed bucket |
 | POST | /api/history/{workflow_id}/complete-restore | Restore a workflow from the Completed bucket to In Progress |
 | DELETE | /api/history/{workflow_id} | Delete run directory + registry entry from disk |
-| GET | /api/db/{run_id}/papers-all | All papers with doi + url fields; optional `include=facets` co-fetches filter facet values |
-| GET | /api/db/{run_id}/papers-facets | Distinct facet values (sources, decisions) for filter UI |
+| GET | /api/db/{run_id}/papers-all | Paginated papers with doi + url fields. Optional `sort` (title, year, source, ta_decision, ft_decision, primary_status, confidence; 400 otherwise) and `dir` (asc, desc). Filters: `title`, `author`, `search` (substring); repeatable `ta_decision`, `ft_decision`, `primary_status`, `source`, `country` (substring by default, exact with `match=exact`, `__none__` matches missing values); `year_min`/`year_max` range; legacy `year`. `include=facets` co-fetches facet values and counts |
+| GET | /api/db/{run_id}/papers-facets | Distinct facet values (sources, decisions) for filter UI, plus `counts` per value for ta_decision, ft_decision, primary_status, year, source, country. Accepts the papers-all filters; each facet's counts ignore that facet's own filter |
+| GET | /api/db/{run_id}/papers-export | Download the whole filtered set (`format=csv` or `ris`), same filter, `sort` and `dir` params as papers-all |
+| GET | /api/db/{run_id}/papers/{paper_id} | One paper's full record: metadata, abstract, per-stage screening decisions with reasons, extraction and quality summary |
 | GET | /api/db/{run_id}/papers-suggest | Autocomplete suggestions for paper search |
 | GET | /api/db/{run_id}/costs | Cost records grouped by model and phase (includes embedding phase) |
 | GET | /api/db/{run_id}/costs/aggregates | Time-bucket and dimension cost aggregates (day/week/month/workflow/phase/model) |

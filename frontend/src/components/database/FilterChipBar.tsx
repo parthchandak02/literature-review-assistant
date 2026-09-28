@@ -21,18 +21,17 @@ export function FilterChipBar({ filters, onRemove, onClearAll }: FilterChipBarPr
       {filters.map((filter) => (
         <span
           key={filter.id}
-          className={cn(
-            "glass-chip inline-flex items-center gap-1 max-w-full",
-            "text-foreground",
-          )}
+          className={cn("glass-chip inline-flex items-center gap-1 max-w-full py-0 pr-0", "text-foreground")}
         >
           <span className="text-muted shrink-0">{filter.label}:</span>
-          <span className="truncate max-w-[10rem]">{filter.value}</span>
+          <span className="truncate max-w-40" title={filter.value}>
+            {filter.value}
+          </span>
           <button
             type="button"
             onClick={() => onRemove(filter.id)}
-            className="shrink-0 text-muted hover:text-foreground transition-colors"
-            aria-label={`Remove ${filter.label} filter`}
+            className="inline-flex size-6 shrink-0 items-center justify-center rounded-pill text-muted transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            aria-label={`Remove ${filter.label} filter: ${filter.value}`}
           >
             <X className="h-3 w-3" />
           </button>
@@ -41,7 +40,7 @@ export function FilterChipBar({ filters, onRemove, onClearAll }: FilterChipBarPr
       <button
         type="button"
         onClick={onClearAll}
-        className="text-xs text-intent-primary hover:text-intent-primary transition-colors whitespace-nowrap shrink-0"
+        className="min-h-6 rounded-control px-1 text-xs text-intent-primary hover:underline whitespace-nowrap shrink-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
       >
         Clear all
       </button>

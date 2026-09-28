@@ -1,29 +1,22 @@
 import { useMemo, useState } from "react"
-import {
-  BarChart,
-  Bar,
-  XAxis,
-  YAxis,
-  Tooltip,
-  ResponsiveContainer,
-  Cell,
-} from "recharts"
-import { DollarSign, Zap, ArrowUpDown, Activity, BarChart3 } from "lucide-react"
+import { BarChart, Bar, XAxis, YAxis, ResponsiveContainer, Cell, LabelList } from "recharts"
+import { Activity, ArrowUpDown, BarChart3, DollarSign, Download, Zap } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { CHART_THEME } from "@/lib/constants"
 import { getDbCostExportUrl } from "@/lib/api"
+import { shortModelName } from "@/lib/humanize"
 import { buildCostStatsFromDashboard, type CostStats } from "@/hooks/useCostStats"
 import {
   costsFetchErrorMessage,
   useDbCostAggregates,
   useDbCostDashboard,
-  useWorkflowValidationSummaryWithChecks,
 } from "@/hooks/useDbCosts"
+import { Button } from "@/components/ui/button"
 import { FetchError, EmptyState } from "@/components/ui/feedback"
 import { SkeletonCard } from "@/components/ui/skeleton"
 import { PageSection } from "@/components/ui/section"
+import { StatTile } from "@/components/ui/stat-tile"
 import { ChartTableToggle, type ChartTableMode } from "@/components/cost-ops/ChartTableToggle"
-import { CostChartTooltip } from "@/components/cost-ops/CostChartTooltip"
 import { CostOpsFiltersBar } from "@/components/cost-ops/CostOpsFiltersBar"
 import {
   CostOpsGroupSection,
@@ -33,46 +26,59 @@ import {
 } from "@/components/cost-ops/CostOpsChartSection"
 import {
   buildPresetRange,
-  costOpsGridClass,
+  costOpsPairGridClass,
   formatInteger,
-  formatPhaseName,
   formatUsd,
-  statCardClass,
   toApiEnd,
   toApiStart,
 } from "@/components/cost-ops/costOpsFormatters"
-import { phaseColor } from "@/lib/constants"
+import {
+  buildPhaseCostRows,
+  costEmptyHeading,
+  costPerUnit,
+  formatCompact,
+  formatShare,
+  withShare,
+  type CostRunState,
+} from "@/components/cost-ops/costBreakdown"
 
-interface MetricTileProps {
-  icon: React.ElementType
-  label: string
-  value: string
-  sub?: string
-  iconClass?: string
-}
+const PHASE_BAR_HEIGHT = 32
+const MUTED_BAR_OPACITY = 0.45
 
-function MetricTile({ icon: Icon, label, value, sub, iconClass }: MetricTileProps) {
-  return (
-    <div className="card-section">
-      <div className="flex items-center gap-2 mb-3">
-        <Icon className={cn("h-4 w-4", iconClass ?? "text-muted")} />
-        <span className="label-caps">{label}</span>
-      </div>
-      <div className="text-2xl font-bold text-foreground tabular-nums font-mono">{value}</div>
-      {sub && <div className="label-muted mt-1">{sub}</div>}
-    </div>
-  )
+const thClass = "px-4 py-2.5 label-caps"
+const numCellClass = "px-4 py-3 text-right tabular-nums text-xs"
+
+function unitCostLine(totalCost: number, included: number | null | undefined, screened: number | null | undefined) {
+  const perStudy = costPerUnit(totalCost, included)
+  const perThousand = costPerUnit(totalCost, screened, 1000)
+  const parts = [
+    perStudy != null ? `${formatUsd(perStudy)} / included study` : null,
+    perThousand != null ? `${formatUsd(perThousand)} / 1k screened` : null,
+  ].filter(Boolean)
+  return parts.length > 0 ? parts.join(" · ") : undefined
 }
 
 interface CostViewProps {
   costStats: CostStats
   dbRunId?: string | null
-  workflowId?: string | null
   isLive?: boolean
   isSSEConnected?: boolean
+  /** Final included-study count for per-study cost. */
+  includedCount?: number | null
+  /** Records entering screening for per-1k-screened cost. */
+  screenedCount?: number | null
+  runState?: CostRunState
 }
 
-export function CostView({ costStats, dbRunId, workflowId, isLive, isSSEConnected }: CostViewProps) {
+export function CostView({
+  costStats,
+  dbRunId,
+  isLive,
+  isSSEConnected,
+  includedCount,
+  screenedCount,
+  runState = "not_started",
+}: CostViewProps) {
   const defaultOpsRange = useMemo(() => buildPresetRange(30), [])
   const [opsStartDate, setOpsStartDate] = useState(defaultOpsRange.startDate)
   const [opsEndDate, setOpsEndDate] = useState(defaultOpsRange.endDate)
@@ -99,8 +105,6 @@ export function CostView({ costStats, dbRunId, workflowId, isLive, isSSEConnecte
     isLive,
     isSSEConnected,
   })
-  const validationQuery = useWorkflowValidationSummaryWithChecks(workflowId)
-  const validationSummary = validationQuery.data?.latest_run ?? null
 
   const opsAggregatesQuery = useDbCostAggregates(dbRunId, {
     enabled: opsEnabled && Boolean(dbRunId),
@@ -116,8 +120,6 @@ export function CostView({ costStats, dbRunId, workflowId, isLive, isSSEConnecte
     return buildCostStatsFromDashboard(dashboard)
   }, [dashboardQuery.data])
 
-  const screeningDiagnostics = dashboardQuery.data?.screening_diagnostics ?? null
-  const validationChecks = validationQuery.data?.checks ?? []
   const loadingDb = dashboardQuery.isLoading
   const dbError = dashboardQuery.isError ? costsFetchErrorMessage(dashboardQuery.error) : null
   const opsAggregates = opsAggregatesQuery.data ?? null
@@ -128,26 +130,24 @@ export function CostView({ costStats, dbRunId, workflowId, isLive, isSSEConnecte
       : String(opsAggregatesQuery.error)
     : null
 
-  // DB data is always the primary source -- it captures every LLM call across
-  // all phases regardless of whether the SSE event was buffered in event_log.
-  // SSE-derived stats are only used as a last resort when the DB hasn't been
-  // queried yet (e.g., before the first poll completes).
+  // DB data is the primary source; SSE-derived stats are a fallback before the first poll.
   const activeCostStats = dbCostStats ?? costStats
-
   const { total_cost, total_tokens_in, total_tokens_out, total_calls, by_model, by_phase } = activeCostStats
 
-  const chartData = by_phase
-    .slice()
-    .sort((a, b) => b.cost_usd - a.cost_usd)
-    .map((p) => ({
-      name: formatPhaseName(p.phase),
-      cost: parseFloat(p.cost_usd.toFixed(6)),
-      fullPhase: p.phase,
-    }))
-
-  const nonZeroPhasesCount = chartData.filter((d) => d.cost > 0).length
+  const phaseRows = useMemo(() => buildPhaseCostRows(by_phase), [by_phase])
+  const phaseTotals = useMemo(
+    () => phaseRows.reduce((acc, r) => ({ calls: acc.calls + r.calls, cost: acc.cost + r.cost_usd }), { calls: 0, cost: 0 }),
+    [phaseRows],
+  )
+  const modelRows = useMemo(() => withShare(by_model), [by_model])
+  const chartData = phaseRows.map((r) => ({
+    ...r,
+    barLabel: `${formatUsd(r.cost_usd)} · ${formatShare(r.share)}`,
+  }))
+  const nonZeroPhasesCount = phaseRows.filter((d) => d.cost_usd > 0).length
 
   const hasCosts = total_calls > 0 || total_cost > 0
+  const runExportUrl = dbRunId ? getDbCostExportUrl(dbRunId, { granularity: "day" }) : ""
   const opsExportUrl = dbRunId
     ? getDbCostExportUrl(dbRunId, {
       start_ts: toApiStart(opsStartDate),
@@ -158,7 +158,7 @@ export function CostView({ costStats, dbRunId, workflowId, isLive, isSSEConnecte
 
   if (loadingDb) {
     return (
-      <div className="flex flex-col gap-4 max-w-4xl">
+      <div className="flex flex-col gap-4">
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
           {[1, 2, 3, 4].map((i) => <SkeletonCard key={i} />)}
         </div>
@@ -178,91 +178,94 @@ export function CostView({ costStats, dbRunId, workflowId, isLive, isSSEConnecte
   }
 
   if (!hasCosts) {
-    return (
-      <EmptyState
-        icon={DollarSign}
-        heading="Cost data will appear once the review starts."
-        className="h-64"
-      />
-    )
+    return <EmptyState icon={DollarSign} heading={costEmptyHeading(runState)} className="h-64" />
   }
 
+  const perCall = costPerUnit(total_cost, total_calls)
+
   return (
-    <div className="flex flex-col gap-6 max-w-4xl">
-      {/* Top metric tiles */}
+    <div className="flex flex-col gap-6 min-w-0">
+      {dbRunId && (
+        <div className="flex justify-end">
+          <Button variant="outline" size="sm" asChild>
+            <a href={runExportUrl} download>
+              <Download aria-hidden />
+              Export CSV
+            </a>
+          </Button>
+        </div>
+      )}
+
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-        <MetricTile
+        <StatTile
           icon={DollarSign}
-          label="Total Cost"
-          value={`$${total_cost.toFixed(4)}`}
-          sub="across all agents"
-          iconClass="text-intent-success"
+          label="Total cost"
+          value={formatUsd(total_cost)}
+          sub={unitCostLine(total_cost, includedCount, screenedCount)}
         />
-        <MetricTile
+        <StatTile
           icon={Activity}
-          label="LLM Calls"
-          value={String(total_calls)}
-          sub="successful completions"
-          iconClass="text-intent-primary"
+          label="LLM calls"
+          value={formatInteger(total_calls)}
+          sub={perCall != null ? `${formatUsd(perCall)} / call` : undefined}
         />
-        <MetricTile
+        <StatTile
           icon={Zap}
-          label="Tokens In"
-          value={total_tokens_in.toLocaleString()}
-          sub="prompt tokens"
-          iconClass="text-intent-info"
+          label="Tokens in"
+          value={`${formatCompact(total_tokens_in)} tokens`}
         />
-        <MetricTile
+        <StatTile
           icon={ArrowUpDown}
-          label="Tokens Out"
-          value={total_tokens_out.toLocaleString()}
-          sub="completion tokens"
-          iconClass="text-intent-warning"
+          label="Tokens out"
+          value={`${formatCompact(total_tokens_out)} tokens`}
         />
       </div>
 
-      {/* Cost by phase — chart or table, never both */}
-      {by_phase.length > 0 && (
+      {phaseRows.length > 0 && (
         <PageSection
           icon={BarChart3}
-          title="Cost by Phase"
+          title="Cost by phase"
           action={
-            <ChartTableToggle mode={phaseViewMode} onChange={setPhaseViewMode} />
+            <ChartTableToggle
+              mode={phaseViewMode}
+              onChange={setPhaseViewMode}
+              ariaLabel="Cost by phase display"
+            />
           }
           contentClassName={phaseViewMode === "table" ? "p-0" : undefined}
         >
           {phaseViewMode === "chart" ? (
             nonZeroPhasesCount >= 2 ? (
-              <ResponsiveContainer width="100%" height={Math.max(180, chartData.length * 36)}>
+              <ResponsiveContainer width="100%" height={chartData.length * PHASE_BAR_HEIGHT + 8}>
                 <BarChart
                   data={chartData}
                   layout="vertical"
-                  margin={{ left: 4, right: 56, top: 4, bottom: 4 }}
+                  margin={{ left: 4, right: 112, top: 4, bottom: 4 }}
                 >
-                  <XAxis
-                    type="number"
-                    tickFormatter={(v: number) => `$${v.toFixed(3)}`}
-                    tick={{ fill: CHART_THEME.tickFill, fontSize: 11 }}
-                    axisLine={false}
-                    tickLine={false}
-                  />
+                  <XAxis type="number" hide />
                   <YAxis
                     type="category"
-                    dataKey="name"
-                    width={110}
-                    tick={{ fill: CHART_THEME.tickFill, fontSize: 11 }}
+                    dataKey="label"
+                    width={168}
+                    tick={{ fill: CHART_THEME.tickFill, fontSize: 12 }}
                     axisLine={false}
                     tickLine={false}
+                    interval={0}
                   />
-                  <Tooltip content={<CostChartTooltip />} cursor={{ fill: CHART_THEME.cursorFill }} />
-                  <Bar dataKey="cost" radius={[0, 4, 4, 0]} label={{ position: "right", formatter: (v: unknown) => `$${(v as number).toFixed(4)}`, fill: "var(--color-muted-foreground)", fontSize: 11 }}>
-                    {chartData.map((entry) => (
+                  <Bar dataKey="cost_usd" radius={[0, 4, 4, 0]} barSize={18} isAnimationActive={false}>
+                    {chartData.map((entry, i) => (
                       <Cell
-                        key={entry.fullPhase}
-                        fill={phaseColor(entry.fullPhase)}
-                        fillOpacity={0.85}
+                        key={entry.phase}
+                        fill={CHART_THEME.seriesPrimary}
+                        fillOpacity={i === 0 ? 1 : MUTED_BAR_OPACITY}
                       />
                     ))}
+                    <LabelList
+                      dataKey="barLabel"
+                      position="right"
+                      fill="var(--color-foreground)"
+                      fontSize={12}
+                    />
                   </Bar>
                 </BarChart>
               </ResponsiveContainer>
@@ -276,80 +279,73 @@ export function CostView({ costStats, dbRunId, workflowId, isLive, isSSEConnecte
               <table className="w-full text-sm">
                 <thead>
                   <tr className="glass-table-head border-b border-border/70">
-                    <th className="text-left px-5 py-2.5 label-caps">Phase</th>
-                    <th className="text-right px-4 py-2.5 label-caps">Calls</th>
-                    <th className="text-right px-5 py-2.5 label-caps">Cost</th>
+                    <th className={cn(thClass, "text-left px-5")}>Phase</th>
+                    <th className={cn(thClass, "text-right")}>Calls</th>
+                    <th className={cn(thClass, "text-right")}>Cost</th>
+                    <th className={cn(thClass, "text-right px-5")}>Share</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {by_phase.map((p, i) => (
-                    <tr
-                      key={p.phase}
-                      className={cn(
-                        "border-b border-border/50 hover:bg-surface-2/40 transition-colors",
-                        i === by_phase.length - 1 && "border-0",
-                      )}
-                    >
-                      <td className="px-5 py-3 text-foreground text-xs">
-                        <div className="flex items-center gap-2">
-                          <span
-                            className="inline-block h-2 w-2 rounded-sm shrink-0"
-                            style={{ backgroundColor: phaseColor(p.phase), opacity: 0.85 }}
-                          />
-                          {formatPhaseName(p.phase)}
-                        </div>
-                      </td>
-                      <td className="px-4 py-3 text-right tabular-nums text-muted text-xs">{p.calls}</td>
-                      <td className="px-5 py-3 text-right tabular-nums font-mono font-medium text-intent-success text-xs">
-                        ${p.cost_usd.toFixed(4)}
-                      </td>
+                  {phaseRows.map((p) => (
+                    <tr key={p.phase} className="border-b border-border/50 hover:bg-surface-2/40 transition-colors">
+                      <td className="px-5 py-3 text-foreground text-xs" title={p.phase}>{p.label}</td>
+                      <td className={cn(numCellClass, "text-muted")}>{formatInteger(p.calls)}</td>
+                      <td className={cn(numCellClass, "font-medium text-foreground")}>{formatUsd(p.cost_usd)}</td>
+                      <td className={cn(numCellClass, "px-5 text-muted")}>{formatShare(p.share)}</td>
                     </tr>
                   ))}
                 </tbody>
+                <tfoot>
+                  <tr className="border-t border-border/70">
+                    <td className="px-5 py-3 text-xs font-semibold text-foreground">Total</td>
+                    <td className={cn(numCellClass, "font-semibold text-foreground")}>{formatInteger(phaseTotals.calls)}</td>
+                    <td className={cn(numCellClass, "font-semibold text-foreground")}>{formatUsd(phaseTotals.cost)}</td>
+                    <td className={cn(numCellClass, "px-5 font-semibold text-foreground")}>100%</td>
+                  </tr>
+                </tfoot>
               </table>
             </div>
           )}
         </PageSection>
       )}
 
-      {/* Cost by model table */}
-      {by_model.length > 0 && (
-        <PageSection title="Cost by Model" contentClassName="p-0">
+      {modelRows.length > 0 && (
+        <PageSection title="Cost by model" contentClassName="p-0">
           <div className="data-surface overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
                 <tr className="glass-table-head border-b border-border/70">
-                  <th className="text-left px-5 py-2.5 label-caps">Model</th>
-                  <th className="text-right px-4 py-2.5 label-caps">Calls</th>
-                  <th className="text-right px-4 py-2.5 label-caps">Tokens In</th>
-                  <th className="text-right px-4 py-2.5 label-caps">Tokens Out</th>
-                  <th className="text-right px-5 py-2.5 label-caps">Cost</th>
+                  <th className={cn(thClass, "text-left px-5")}>Model</th>
+                  <th className={cn(thClass, "text-right")}>Calls</th>
+                  <th className={cn(thClass, "text-right")}>Tokens in</th>
+                  <th className={cn(thClass, "text-right")}>Tokens out</th>
+                  <th className={cn(thClass, "text-right")}>Cost</th>
+                  <th className={cn(thClass, "text-right px-5")}>Share</th>
                 </tr>
               </thead>
               <tbody>
-                {by_model.map((m, i) => (
-                  <tr
-                    key={m.model}
-                    className={cn(
-                      "border-b border-border/50 hover:bg-surface-2/40 transition-colors",
-                      i === by_model.length - 1 && "border-0",
-                    )}
-                  >
-                    <td className="px-5 py-3 font-mono text-xs text-foreground">
-                      {m.model.split(":").pop() ?? m.model}
-                    </td>
-                    <td className="px-4 py-3 text-right tabular-nums text-muted text-xs">{m.calls}</td>
-                    <td className="px-4 py-3 text-right tabular-nums text-muted text-xs">
-                      {m.tokens_in.toLocaleString()}
-                    </td>
-                    <td className="px-4 py-3 text-right tabular-nums text-muted text-xs">
-                      {m.tokens_out.toLocaleString()}
-                    </td>
-                    <td className="px-5 py-3 text-right tabular-nums font-mono font-medium text-intent-success text-xs">
-                      ${m.cost_usd.toFixed(4)}
-                    </td>
-                  </tr>
-                ))}
+                {modelRows.map(({ row: m, share }, i) => {
+                  const { name, provider } = shortModelName(m.model)
+                  return (
+                    <tr
+                      key={m.model}
+                      className={cn(
+                        "border-b border-border/50 hover:bg-surface-2/40 transition-colors",
+                        i === modelRows.length - 1 && "border-0",
+                      )}
+                    >
+                      <td className="px-5 py-3 text-xs" title={m.model}>
+                        <span className="font-mono text-foreground">{name || m.model}</span>
+                        {provider && <span className="ml-2 text-muted">{provider}</span>}
+                      </td>
+                      <td className={cn(numCellClass, "text-muted")}>{formatInteger(m.calls)}</td>
+                      <td className={cn(numCellClass, "text-muted")}>{formatCompact(m.tokens_in)}</td>
+                      <td className={cn(numCellClass, "text-muted")}>{formatCompact(m.tokens_out)}</td>
+                      <td className={cn(numCellClass, "font-medium text-foreground")}>{formatUsd(m.cost_usd)}</td>
+                      <td className={cn(numCellClass, "px-5 text-muted")}>{formatShare(share)}</td>
+                    </tr>
+                  )
+                })}
               </tbody>
             </table>
           </div>
@@ -357,10 +353,7 @@ export function CostView({ costStats, dbRunId, workflowId, isLive, isSSEConnecte
       )}
 
       {opsEnabled && dbRunId && (
-        <PageSection
-          title="Ops Cost Diagnostics"
-          action={<span className="label-muted">Hidden mode (`ops=1`)</span>}
-        >
+        <PageSection title="Ops cost diagnostics">
           <div className="space-y-5">
             <CostOpsFiltersBar
               showPresets={false}
@@ -397,30 +390,10 @@ export function CostView({ costStats, dbRunId, workflowId, isLive, isSSEConnecte
             {opsAggregates && (
               <>
                 <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-                  <div className={cn(statCardClass, "min-w-0")}>
-                    <div className="text-xs uppercase tracking-wide text-muted">Total cost</div>
-                    <div className="mt-2 text-lg sm:text-2xl font-semibold text-foreground tabular-nums truncate">
-                      {formatUsd(Number(opsAggregates.totals?.total_cost_usd || 0))}
-                    </div>
-                  </div>
-                  <div className={cn(statCardClass, "min-w-0")}>
-                    <div className="text-xs uppercase tracking-wide text-muted">Total calls</div>
-                    <div className="mt-2 text-lg sm:text-2xl font-semibold text-foreground tabular-nums truncate">
-                      {formatInteger(Number(opsAggregates.totals?.total_calls || 0))}
-                    </div>
-                  </div>
-                  <div className={cn(statCardClass, "min-w-0")}>
-                    <div className="text-xs uppercase tracking-wide text-muted">Input tokens</div>
-                    <div className="mt-2 text-lg sm:text-2xl font-semibold text-foreground tabular-nums truncate">
-                      {formatInteger(Number(opsAggregates.totals?.total_tokens_in || 0))}
-                    </div>
-                  </div>
-                  <div className={cn(statCardClass, "min-w-0")}>
-                    <div className="text-xs uppercase tracking-wide text-muted">Output tokens</div>
-                    <div className="mt-2 text-lg sm:text-2xl font-semibold text-foreground tabular-nums truncate">
-                      {formatInteger(Number(opsAggregates.totals?.total_tokens_out || 0))}
-                    </div>
-                  </div>
+                  <StatTile label="Total cost" value={formatUsd(Number(opsAggregates.totals?.total_cost_usd || 0))} />
+                  <StatTile label="Total calls" value={formatInteger(Number(opsAggregates.totals?.total_calls || 0))} />
+                  <StatTile label="Input tokens" value={formatCompact(Number(opsAggregates.totals?.total_tokens_in || 0))} />
+                  <StatTile label="Output tokens" value={formatCompact(Number(opsAggregates.totals?.total_tokens_out || 0))} />
                 </div>
 
                 <div className="space-y-2">
@@ -430,62 +403,12 @@ export function CostView({ costStats, dbRunId, workflowId, isLive, isSSEConnecte
                     byMonth={opsAggregates.by_month}
                     viewMode={opsViewMode}
                   />
-                  <div className={costOpsGridClass}>
+                  <div className={costOpsPairGridClass}>
                     <CostOpsPhaseSection title="Top phases" rows={opsAggregates.by_phase} viewMode={opsViewMode} />
-                    <CostOpsGroupSection title="Top models" rows={opsAggregates.by_model} viewMode={opsViewMode} axisLabelKind="model" />
+                    <CostOpsGroupSection title="Top models" rows={opsAggregates.by_model} viewMode={opsViewMode} />
                   </div>
                 </div>
               </>
-            )}
-          </div>
-        </PageSection>
-      )}
-
-      {(screeningDiagnostics || validationSummary) && (
-        <PageSection title="Validation and Screening Diagnostics">
-          <div className="space-y-3 text-xs text-foreground">
-            {validationSummary && (
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
-                <div>Validation status: <span className="font-semibold">{validationSummary.status}</span></div>
-                <div>Profile: <span className="font-semibold">{validationSummary.profile}</span></div>
-                <div>Error checks: <span className="font-semibold">{validationSummary.error_count}</span></div>
-                <div>Warn checks: <span className="font-semibold">{validationSummary.warn_count}</span></div>
-              </div>
-            )}
-            {validationChecks.length > 0 && (
-              <div className="rounded-panel border border-border bg-card/70 overflow-hidden">
-                <div className="px-3 py-2 border-b border-border text-xs font-semibold text-muted">
-                  Latest validation checks
-                </div>
-                <div className="divide-y divide-border">
-                  {validationChecks.slice(0, 8).map((check, idx) => (
-                    <div key={`${check.phase}-${check.check_name}-${idx}`} className="px-3 py-2 text-xs">
-                      <div className="flex items-center justify-between gap-3">
-                        <div className="text-foreground">{check.check_name}</div>
-                        <div className={cn(
-                          "font-medium",
-                          check.status === "error" ? "text-intent-danger" : check.status === "warn" ? "text-intent-warning" : "text-intent-success",
-                        )}>
-                          {check.status}
-                        </div>
-                      </div>
-                      <div className="mt-0.5 text-muted">
-                        {check.phase}
-                        {check.metric_value != null ? ` | metric ${check.metric_value}` : ""}
-                        {check.source_module ? ` | ${check.source_module}` : ""}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-            {screeningDiagnostics && (
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-muted">
-                <div>Batch parse degraded: {screeningDiagnostics.batch_parse_degraded}</div>
-                <div>Batch id mismatch: {screeningDiagnostics.batch_id_mismatch}</div>
-                <div>Missing fallback: {screeningDiagnostics.batch_missing_fallback}</div>
-                <div>Contract violations: {screeningDiagnostics.contract_violation_count}</div>
-              </div>
             )}
           </div>
         </PageSection>

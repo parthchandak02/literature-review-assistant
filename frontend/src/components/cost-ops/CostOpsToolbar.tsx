@@ -1,11 +1,8 @@
-import { BarChart3, Download, RefreshCw, Table2 } from "lucide-react"
+import { Download, RefreshCw } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Spinner } from "@/components/ui/feedback"
-import {
-  costOpsSegmentButtonClass,
-  costOpsSegmentGroupClass,
-} from "./costOpsFormatters"
-import type { ChartTableMode } from "./ChartTableToggle"
+import { costOpsSegmentButtonClass } from "./costOpsFormatters"
+import { ChartTableToggle, type ChartTableMode } from "./ChartTableToggle"
 
 export interface CostOpsToolbarProps {
   chartTableMode: ChartTableMode
@@ -23,25 +20,11 @@ export function CostOpsToolbar({
   onRefresh,
 }: CostOpsToolbarProps) {
   return (
-    <div className={costOpsSegmentGroupClass}>
-      <button
-        type="button"
-        className={costOpsSegmentButtonClass(chartTableMode === "chart")}
-        onClick={() => onChartTableModeChange("chart")}
-        aria-pressed={chartTableMode === "chart"}
-      >
-        <BarChart3 className="h-3.5 w-3.5" />
-        Chart
-      </button>
-      <button
-        type="button"
-        className={costOpsSegmentButtonClass(chartTableMode === "table")}
-        onClick={() => onChartTableModeChange("table")}
-        aria-pressed={chartTableMode === "table"}
-      >
-        <Table2 className="h-3.5 w-3.5" />
-        Table
-      </button>
+    <ChartTableToggle
+      mode={chartTableMode}
+      onChange={onChartTableModeChange}
+      ariaLabel="Cost breakdown display and actions"
+    >
       <span className="mx-0.5 h-5 w-px bg-border/80" aria-hidden />
       <Button
         type="button"
@@ -63,9 +46,9 @@ export function CostOpsToolbar({
       >
         <a href={exportUrl} download>
           <Download className="h-3.5 w-3.5" />
-          Export
+          Export CSV
         </a>
       </Button>
-    </div>
+    </ChartTableToggle>
   )
 }

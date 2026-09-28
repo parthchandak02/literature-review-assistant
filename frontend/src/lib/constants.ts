@@ -92,7 +92,7 @@ const PHASE_META_TABLE = {
     milestone: "discovery",
   },
   phase_4_extraction_quality: {
-    short: "Extraction",
+    short: "Extraction + quality",
     long: "Data extraction and quality appraisal",
     milestone: "evidence",
   },
@@ -166,6 +166,20 @@ export type PhaseId = keyof typeof PHASE_META_TABLE
 export const PHASE_META: Readonly<Record<PhaseId, PhaseMeta>> = PHASE_META_TABLE
 
 export const PHASE_IDS = Object.keys(PHASE_META) as PhaseId[]
+
+/** Alias phase ids that name the same step; maps each alias to its canonical id. */
+export const PHASE_ALIASES: Readonly<Partial<Record<PhaseId, PhaseId>>> = {
+  phase_6_hyde: "phase_6a_hyde",
+  phase_6_writing_outline: "phase_6a2_outline",
+  phase_6e_concept_diagram: "phase_6e_concepts",
+}
+
+/** Canonical phase id for grouping; unknown phases return the raw string. */
+export function canonicalPhaseId(raw: string): string {
+  const id = resolvePhaseId(raw)
+  if (!id) return raw
+  return PHASE_ALIASES[id] ?? id
+}
 
 function labelMap(form: "short" | "long"): Record<string, string> {
   return Object.fromEntries(PHASE_IDS.map((id) => [id, PHASE_META[id][form]]))

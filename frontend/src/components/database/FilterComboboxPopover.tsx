@@ -10,7 +10,8 @@ import {
 } from "@/components/ui/command"
 import { Spinner } from "@/components/ui/feedback"
 import { cn } from "@/lib/utils"
-import { Filter, X } from "lucide-react"
+import { ChevronDown, Filter, X } from "lucide-react"
+import { Button } from "@/components/ui/button"
 
 export const SUGGEST_DEBOUNCE_MS = 200
 export const FILTER_DEBOUNCE_MS = 350
@@ -82,22 +83,18 @@ export function FilterComboboxPopover({
     <Popover.Root open={open} onOpenChange={setOpen}>
       <Popover.Trigger asChild>
         {label ? (
-          <button
+          <Button
             type="button"
-            className={cn(
-              "flex flex-col w-full rounded-lg border px-2.5 py-1.5 text-left transition-colors",
-              "border-border/80 glass-panel hover:border-border",
-              isActive && "border-intent-primary-border bg-intent-primary-subtle/30",
-            )}
+            variant="secondary"
+            size="xs"
+            className={cn("max-w-56", isActive && "border border-intent-primary-border")}
             aria-label={`Filter ${label}`}
+            title={value || undefined}
           >
-            <span className="text-2xs font-medium text-muted uppercase tracking-wide">
-              {label}
-            </span>
-            <span className={cn("text-xs truncate", value ? "text-foreground" : "text-muted")}>
-              {value || placeholder}
-            </span>
-          </button>
+            <span>{label}</span>
+            {value && <span className="truncate text-muted">: {value}</span>}
+            <ChevronDown className="opacity-60" />
+          </Button>
         ) : (
           <button
             type="button"

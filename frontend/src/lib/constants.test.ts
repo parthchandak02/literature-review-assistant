@@ -142,7 +142,7 @@ describe("PHASE_META single label source", () => {
       expect(PHASE_LABEL_MAP[id]).toBe(PHASE_META[id].short)
     }
     expect(PHASE_LABEL_MAP.quality_rob2).toBe("RoB 2")
-    expect(PHASE_LABEL_MAP.phase_4_extraction_quality).toBe("Extraction")
+    expect(PHASE_LABEL_MAP.phase_4_extraction_quality).toBe("Extraction + quality")
   })
 
   it("covers every timeline, resume and sub-phase checkpoint id", () => {
@@ -212,7 +212,7 @@ describe("PHASE_META single label source", () => {
 describe("phaseLabel", () => {
   it("returns long labels by default and short on request", () => {
     expect(phaseLabel("phase_4_extraction_quality")).toBe("Data extraction and quality appraisal")
-    expect(phaseLabel("phase_4_extraction_quality", "short")).toBe("Extraction")
+    expect(phaseLabel("phase_4_extraction_quality", "short")).toBe("Extraction + quality")
     expect(phaseLabel("phase_6_humanizer")).toBe("Humanizer pass")
     expect(phaseLabel("quality_mmat")).toBe("Quality appraisal (MMAT)")
     expect(phaseLabel("phase_6f_custom_diagrams")).toBe("Custom diagrams")

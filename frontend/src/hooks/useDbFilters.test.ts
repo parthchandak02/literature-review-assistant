@@ -1,115 +1,153 @@
+// @vitest-environment jsdom
+import "@/test/dom"
+import { createElement, useEffect, type ReactNode } from "react"
 import { describe, expect, it } from "vitest"
-import type { DbPapersFilters } from "@/hooks/useDbPapers"
+import { act, renderHook } from "@testing-library/react"
+import { MemoryRouter, useLocation } from "react-router-dom"
+import { parseRunUrl } from "@/lib/runSessionUrl"
 import {
-  buildFilterSignature,
-  isDbInitialQuery,
-  papersPaginationReducer,
-  resolveQueryPage,
+  EMPTY_PAPERS_QUERY,
+  buildFilterChips,
+  countActiveFilters,
+  nextSort,
+  parseDbSearchParams,
+  removeFilterById,
+  toggleFacetValue,
+  useDbFilters,
+  writeDbSearchParams,
+  type DbTableState,
 } from "./useDbFilters"
 
-const emptyFilters: DbPapersFilters = {
-  titleFilter: "",
-  authorFilter: "",
-  taFilter: "",
-  ftFilter: "",
-  primaryStatusFilter: "",
-  yearFilter: "",
-  sourceFilter: "",
-  countryFilter: "",
+const baseState: DbTableState = {
+  filters: EMPTY_PAPERS_QUERY,
+  sort: { sort: null, dir: "desc" },
+  page: 0,
+  pageSize: 50,
 }
 
-describe("papersPaginationReducer", () => {
-  const baseState = {
-    filterSignature: "sig-a",
-    runId: "run-1",
-    page: 3,
-  }
-
-  it("resets page to 0 when filter signature changes", () => {
-    const next = papersPaginationReducer(baseState, {
-      type: "sync_scope",
-      filterSignature: "sig-b",
-      runId: "run-1",
-    })
-    expect(next).toEqual({
-      filterSignature: "sig-b",
-      runId: "run-1",
-      page: 0,
-    })
-  })
-
-  it("resets page to 0 when run id changes", () => {
-    const next = papersPaginationReducer(baseState, {
-      type: "sync_scope",
-      filterSignature: "sig-a",
-      runId: "run-2",
-    })
-    expect(next).toEqual({
-      filterSignature: "sig-a",
-      runId: "run-2",
-      page: 0,
-    })
-  })
-
-  it("keeps page when scope is unchanged", () => {
-    const next = papersPaginationReducer(baseState, {
-      type: "sync_scope",
-      filterSignature: "sig-a",
-      runId: "run-1",
-    })
-    expect(next).toBe(baseState)
-  })
-
-  it("updates page without resetting filters", () => {
-    const next = papersPaginationReducer(baseState, { type: "set_page", page: 5 })
-    expect(next).toEqual({ ...baseState, page: 5 })
-  })
-})
-
-describe("buildFilterSignature", () => {
-  it("changes when any filter field changes", () => {
-    const base = buildFilterSignature(emptyFilters)
-    expect(buildFilterSignature({ ...emptyFilters, titleFilter: "sleep" })).not.toBe(base)
-    expect(buildFilterSignature({ ...emptyFilters, yearFilter: "2020" })).not.toBe(base)
-    expect(buildFilterSignature({ ...emptyFilters, taFilter: "include" })).not.toBe(base)
-  })
-
-  it("is stable for identical filter objects", () => {
-    const filters: DbPapersFilters = {
-      ...emptyFilters,
-      authorFilter: "Smith",
-      countryFilter: "US",
+describe("URL search param encoding", () => {
+  it("round-trips filters, sort, page and size", () => {
+    const state: DbTableState = {
+      filters: {
+        ...EMPTY_PAPERS_QUERY,
+        title: "sleep",
+        ta: ["include", "__none__"],
+        source: ["pubmed"],
+        yearMin: 2015,
+        yearMax: 2020,
+      },
+      sort: { sort: "title", dir: "asc" },
+      page: 2,
+      pageSize: 100,
     }
-    expect(buildFilterSignature(filters)).toBe(buildFilterSignature({ ...filters }))
+    const sp = writeDbSearchParams(new URLSearchParams(), state)
+    expect(sp.getAll("ta")).toEqual(["include", "__none__"])
+    expect(sp.get("page")).toBe("3")
+    expect(parseDbSearchParams(sp)).toEqual(state)
+  })
+
+  it("omits defaults and keeps params it doesn't own", () => {
+    const sp = writeDbSearchParams(new URLSearchParams("foo=1&ta=old"), baseState)
+    expect(sp.toString()).toBe("foo=1")
+  })
+
+  it("ignores unknown sort keys and page sizes", () => {
+    const state = parseDbSearchParams(new URLSearchParams("sort=abstract&size=7&page=-4"))
+    expect(state.sort).toEqual({ sort: null, dir: "desc" })
+    expect(state.pageSize).toBe(50)
+    expect(state.page).toBe(0)
   })
 })
 
-describe("resolveQueryPage", () => {
-  const pagination = { filterSignature: "sig-a", runId: "run-1", page: 4 }
-
-  it("returns stored page when scope matches", () => {
-    expect(resolveQueryPage(pagination, "sig-a", "run-1")).toBe(4)
+describe("nextSort", () => {
+  it("cycles unsorted -> asc -> desc -> unsorted", () => {
+    const a = nextSort({ sort: null, dir: "desc" }, "year")
+    expect(a).toEqual({ sort: "year", dir: "asc" })
+    const b = nextSort(a, "year")
+    expect(b).toEqual({ sort: "year", dir: "desc" })
+    expect(nextSort(b, "year")).toEqual({ sort: null, dir: "desc" })
   })
 
-  it("returns 0 when filter signature is stale", () => {
-    expect(resolveQueryPage(pagination, "sig-b", "run-1")).toBe(0)
-  })
-
-  it("returns 0 when run id is stale", () => {
-    expect(resolveQueryPage(pagination, "sig-a", "run-2")).toBe(0)
+  it("starts ascending when switching column", () => {
+    expect(nextSort({ sort: "year", dir: "desc" }, "title")).toEqual({ sort: "title", dir: "asc" })
   })
 })
 
-describe("isDbInitialQuery", () => {
-  it("is true for unfiltered page 0", () => {
-    expect(isDbInitialQuery(0, emptyFilters)).toBe(true)
+describe("facet helpers", () => {
+  it("toggles values in and out", () => {
+    expect(toggleFacetValue([], "include")).toEqual(["include"])
+    expect(toggleFacetValue(["include", "exclude"], "include")).toEqual(["exclude"])
   })
 
-  it("is false when paginated", () => {
-    expect(isDbInitialQuery(1, emptyFilters)).toBe(false)
+  it("builds one chip per value and removes by chip id", () => {
+    const filters = { ...EMPTY_PAPERS_QUERY, ta: ["include", "__none__"], yearMin: 2019 }
+    const chips = buildFilterChips(filters)
+    expect(chips.map((c) => c.value)).toEqual(["2019 or later", "Include", "Not screened"])
+    expect(countActiveFilters(filters)).toBe(3)
+    const next = removeFilterById(filters, "ta:__none__")
+    expect(next.ta).toEqual(["include"])
+    expect(removeFilterById(next, "year").yearMin).toBeNull()
+  })
+})
+
+function renderWithRouter(initial: string) {
+  const seen = { current: "" }
+  function Spy() {
+    const loc = useLocation()
+    useEffect(() => {
+      seen.current = `${loc.pathname}${loc.search}`
+    })
+    return null
+  }
+  const wrapper = ({ children }: { children: ReactNode }) =>
+    createElement(MemoryRouter, { initialEntries: [initial] }, children, createElement(Spy))
+  const hook = renderHook(() => useDbFilters("run-1"), { wrapper })
+  return { ...hook, location: () => seen.current }
+}
+
+describe("useDbFilters URL sync", () => {
+  it("reads state from a deep link", () => {
+    const { result } = renderWithRouter("/run/wf-1/database?ta=include&sort=year&dir=asc&page=2")
+    expect(result.current.filters.ta).toEqual(["include"])
+    expect(result.current.sort).toEqual({ sort: "year", dir: "asc" })
+    expect(result.current.page).toBe(1)
   })
 
-  it("is false when any filter is active", () => {
-    expect(isDbInitialQuery(0, { ...emptyFilters, ftFilter: "exclude" })).toBe(false)
+  it("writes changes to the URL, resets page on filter change, and keeps the run path", () => {
+    const { result, location } = renderWithRouter("/run/wf-1/database?page=3")
+    expect(result.current.page).toBe(2)
+    act(() => result.current.toggleFacet("source", "pubmed"))
+    expect(result.current.filters.source).toEqual(["pubmed"])
+    expect(result.current.page).toBe(0)
+    expect(location()).toBe("/run/wf-1/database?src=pubmed")
+    expect(parseRunUrl("/run/wf-1/database")).toEqual({ workflowId: "wf-1", tab: "database" })
+
+    act(() => result.current.toggleSort("title"))
+    act(() => result.current.setPage(1))
+    expect(location()).toBe("/run/wf-1/database?src=pubmed&sort=title&dir=asc&page=2")
+  })
+
+  it("does not reset the page when a text filter re-applies the same value", () => {
+    const { result } = renderWithRouter("/run/wf-1/database?title=sleep&page=3")
+    act(() => result.current.setTitleFilter("sleep"))
+    expect(result.current.page).toBe(2)
+  })
+
+  it("restores the last view after a tab switch drops the query string", () => {
+    const first = renderWithRouter("/run/wf-1/database")
+    act(() => first.result.current.toggleFacet("ta", "exclude"))
+    first.unmount()
+
+    const second = renderWithRouter("/run/wf-1/database")
+    expect(second.result.current.filters.ta).toEqual(["exclude"])
+    expect(second.location()).toBe("/run/wf-1/database?ta=exclude")
+  })
+
+  it("does not restore after the user clears filters", () => {
+    const first = renderWithRouter("/run/wf-1/database?ta=exclude")
+    act(() => first.result.current.clearAllFilters())
+    first.unmount()
+    const second = renderWithRouter("/run/wf-1/database")
+    expect(second.result.current.filters.ta).toEqual([])
   })
 })

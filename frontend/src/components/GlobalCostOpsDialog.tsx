@@ -183,9 +183,9 @@ export function CostsPanel() {
               viewMode={chartTableMode}
             />
             <div className={costOpsGridClass}>
-              <CostOpsGroupSection title="Top workflows" rows={data?.by_workflow ?? []} viewMode={chartTableMode} axisLabelKind="workflow" />
+              <CostOpsGroupSection title="Top workflows" rows={data?.by_workflow ?? []} viewMode={chartTableMode} />
               <CostOpsPhaseSection title="Top phases" rows={data?.by_phase ?? []} viewMode={chartTableMode} />
-              <CostOpsGroupSection title="Top models" rows={data?.by_model ?? []} viewMode={chartTableMode} axisLabelKind="model" />
+              <CostOpsGroupSection title="Top models" rows={data?.by_model ?? []} viewMode={chartTableMode} />
             </div>
           </div>
         </>

@@ -1,26 +1,11 @@
 import { describe, expect, it } from "vitest"
 import {
   formatPhaseName,
-  formatCostGroupAxisLabel,
   formatSpendBucketAxisLabel,
   formatSpendBucketLabel,
   resolveCostOpsPreset,
   sqliteWeekStart,
 } from "./costOpsFormatters"
-
-describe("formatCostGroupAxisLabel", () => {
-  it("shortens workflow ids for narrow charts", () => {
-    expect(formatCostGroupAxisLabel("wf-0083", "workflow")).toBe("0083")
-  })
-
-  it("uses model tail after provider prefix", () => {
-    expect(formatCostGroupAxisLabel("google:gemini-2.0-flash", "model")).toBe("gemini-2.0-…")
-  })
-
-  it("abbreviates multi-word phase names", () => {
-    expect(formatCostGroupAxisLabel("Pdf Vision Extraction", "phase")).toBe("Pdf Visi Extr")
-  })
-})
 
 describe("formatSpendBucketLabel", () => {
   it("formats day buckets as readable dates", () => {

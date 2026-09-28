@@ -24,7 +24,7 @@ Note: sidebar SHL rows run in Sprint 2 and app-shell and settings rows in Sprint
 | BE-02 | M | Data table | `students&amp;apos;` shows **undecoded HTML entities**. Country, Full-text, Primary Status ("unknown") and RoB Source are empty or "--" for nearly every row. | Decode entities at ingest. Auto-hide columns with no data and add a Columns toggle. | 2 | done | fbf8640 |
 | BE-03 | M | Manuscript | Abstract template leakage (content pipeline) | Detect/replace template text in abstract writer | 2 | done | fbf8640 |
 | RES-01 | M | Manuscript | Manuscript measure ~150ch; no draft-quality chip | 68ch column; warning chip on template text | 5 | todo | |
-| CST-01 | M | Cost chart | Raw labels such as "Phase 6f Custom Diagram Drawing" wrap to four lines. The top bar is **grey** while smaller ones are orange or red, so colour emphasis is inverted. | Use short human labels, one hue, and highlight the top bar. | 4 | todo | |
+| CST-01 | M | Cost chart | Raw labels such as "Phase 6f Custom Diagram Drawing" wrap to four lines. The top bar is **grey** while smaller ones are orange or red, so colour emphasis is inverted. | Use short human labels, one hue, and highlight the top bar. | 4 | done | sprint-4 |
 | ACT-03 | M | Run tabs | Five equal full-width tabs (about 230px each, 38px tall) create a heavy band above every view. | Use underline tabs with left-aligned, content-width items, and move the Download CTA onto the same row on the right. | 2 | done | sprint-2 |
 | ACT-04 | L | Stepper | The connectors are tiny "–" glyphs, not lines. All-complete and all-pending states look alike in weight. | Use 2px connector lines filled with progress colour, and the sub-status text from S1. | 2 | done | sprint-2 |
 | SET-01 | L | Setup | A 3-button quiz floats in empty space. There's no title, and the research-question input is hidden behind the quiz. | Put an h1 and a big question textarea first. Offer review type as two cards, with "Help me decide" as a link. | 6 | todo | |
@@ -112,36 +112,36 @@ Note: sidebar SHL rows run in Sprint 2 and app-shell and settings rows in Sprint
 | RES-14 | L | `EvidenceNetworkViz.tsx:216,431` | Arrows on symmetric edges, exported SVG loses its colours, and there's no cluster legend. | Draw arrows only for citations, inline colours on export, and add a legend. | 5 | todo | |
 | RES-15 | M | `constants.ts:23-40` vs `422-440` | Two label sets for the same phases ("Ext. Quality" vs "Extraction & Quality"). | Keep one `PHASE_LABELS` with a `short` field. | 5 | done | sprint-1 |
 | RES-16 | L | multiple | "--" used as a dash in UI copy. | Use "·" or "–". | 5 | todo | |
-| DAT-01 | H | `database/PapersTable.tsx:34`, `ui/table.tsx:16` | No column sort and no `aria-sort`. | Sortable `Th` with a chevron. | 4 | todo | |
-| DAT-02 | H | `DatabaseView.tsx:210` | The Papers pagination renders below the *Outcomes* table. | Put the pager inside the Papers shell footer or toolbar. | 4 | todo | |
-| DAT-03 | H | `DatabaseView.tsx:197` | "No papers found." appears even when filters caused it, with no way out. | Show "No papers match 3 filters" with Clear filters. | 4 | todo | |
-| DAT-04 | H | `hooks/useDbFilters.ts:89` | Filters and page are lost on tab switch or reload, and views can't be linked. | Sync them to URL search params. | 4 | todo | |
-| DAT-05 | H | `DatabaseFiltersPopover.tsx`, `FilterComboboxPopover.tsx` | Filters are two popovers deep, single-value, with no counts. | Inline facets with counts, multi-select and a year range. | 4 | todo | |
-| DAT-06 | M | `FilterComboboxPopover.tsx:58` | Typing "incl" filters the table before a value is picked. | Apply on select for categorical fields. | 4 | todo | |
-| DAT-07 | M | `PapersTable.tsx:31-43` | 10 columns, no sticky header or first column, and no column toggle. | Sticky header, Columns menu, and merge TA/FT/Status into one "Screening" cell. | 4 | todo | |
-| DAT-08 | M | `PapersTable.tsx:56-86` | Truncated with no title attribute and no row detail. | Open a side drawer with the abstract, reasons, DOI and extraction. | 4 | todo | |
-| DAT-09 | M | `PapersTable.tsx:98-166` | Two badge shapes in one row and raw snake_case. | Use `Badge` with humanised labels. | 4 | todo | |
-| DAT-10 | M | `PapersTable.tsx:30` | Double frame (data-surface inside glass-table-shell) with mismatched radii. | Use one frame. | 4 | todo | |
-| DAT-11 | M | `OutcomesTable.tsx:71-90` | Silent 200-row cap, left-aligned numbers, no tabular numerals. | Right-align with tabular-nums, format `p<0.001`, paginate. | 4 | todo | |
-| DAT-12 | M | `DatabaseView.tsx` | No CSV/RIS export, a core systematic-review deliverable. | Add an Export button that respects the current filters. | 4 | todo | |
-| DAT-13 | L | `DatabaseView.tsx:126,186` | "Complete" is bare green text. | Use Badge. | 4 | todo | |
-| DAT-14 | L | `ui/table.tsx:108` | The pager hides itself at 1 page and has no page-size control. | Always show the count, and add a 50/100/250 select. | 4 | todo | |
-| DAT-15 | L | `FilterChipBar.tsx:31` | 12px remove targets. | Make them at least 24px. | 4 | todo | |
-| CST-02 | H | `CostView.tsx:258-265` | A rainbow of phase colours on a labelled bar chart, plus redundant axis, labels and tooltip. The top bar is grey. | One hue, direct labels "$0.41 · 34%", and no X axis. | 4 | todo | |
-| CST-03 | H | `CostView.tsx:139` vs `285` | The chart sorts descending but the table uses raw order. | Share one sort, and add % and a total row to the table. | 4 | todo | |
-| CST-04 | H | `CostView.tsx:194-221` | Raw totals only. | Add "$0.20 / included study · $0.70 / 1k screened" and compact numbers (12.3M). | 4 | todo | |
-| CST-05 | M | `CostView.tsx:61` | Large numbers overflow tiles. | `min-w-0 truncate` plus compact format. | 4 | todo | |
-| CST-06 | M | `CostView.tsx:303,348` | Spend is shown in success green. | Use neutral colour, and reserve colour for over-budget. | 4 | todo | |
-| CST-07 | M | `CostView.tsx:197` vs `costOpsFormatters.ts:43` | Two currency formatters, so tooltip and table disagree. | Use `formatUsd` everywhere. | 4 | todo | |
-| CST-08 | M | `CostView.tsx:339` | The provider is stripped, so rows are ambiguous. | Show the provider as muted secondary text. | 4 | todo | |
-| CST-09 | M | `CostView.tsx:151,359` | Export only exists behind `?ops=1`, and the label shows literal backticks. | Always offer a per-run export. | 4 | todo | |
-| CST-10 | M | `CostOpsChartSection.tsx:90,228` | 9px ticks at -38° cut to 4-letter stems. | Horizontal bars with full labels and an 11px minimum. | 4 | todo | |
-| CST-11 | M | `CostOpsChartSection.tsx:70,151,244` | Silent slices at 8, 12 and 24. | Add an "Other" bucket and "showing last 24". | 4 | todo | |
-| CST-12 | M | `costOpsFormatters.ts:248` | `text-primary-foreground` doesn't exist, which gives 3.23:1 contrast in light mode. | Use `text-intent-primary-fg`. | 4 | todo | |
-| CST-13 | L | `costOpsFormatters.ts:240` | 3-column grid holding 2 items. | `md:grid-cols-2`. | 4 | todo | |
-| CST-14 | L | `CostOpsToolbar.tsx:27` vs `ChartTableToggle.tsx` | The segmented control is duplicated. | Reuse one, with `role=group`. | 4 | todo | |
-| CST-15 | L | `CostView.tsx:444-491` | Validation diagnostics live on the Cost tab, with colour-only status and a silent cap at 8. | Move them to Quality, use Badges and "show all". | 4 | todo | |
-| CST-16 | L | `CostView.tsx:180,191` | Wrong empty copy for finished runs, and `max-w-4xl` leaves wide screens empty. | Choose copy by state and widen. | 4 | todo | |
+| DAT-01 | H | `database/PapersTable.tsx:34`, `ui/table.tsx:16` | No column sort and no `aria-sort`. | Sortable `Th` with a chevron. | 4 | done | sprint-4 |
+| DAT-02 | H | `DatabaseView.tsx:210` | The Papers pagination renders below the *Outcomes* table. | Put the pager inside the Papers shell footer or toolbar. | 4 | done | sprint-4 |
+| DAT-03 | H | `DatabaseView.tsx:197` | "No papers found." appears even when filters caused it, with no way out. | Show "No papers match 3 filters" with Clear filters. | 4 | done | sprint-4 |
+| DAT-04 | H | `hooks/useDbFilters.ts:89` | Filters and page are lost on tab switch or reload, and views can't be linked. | Sync them to URL search params. | 4 | done | sprint-4 |
+| DAT-05 | H | `DatabaseFiltersPopover.tsx`, `FilterComboboxPopover.tsx` | Filters are two popovers deep, single-value, with no counts. | Inline facets with counts, multi-select and a year range. | 4 | done | sprint-4 |
+| DAT-06 | M | `FilterComboboxPopover.tsx:58` | Typing "incl" filters the table before a value is picked. | Apply on select for categorical fields. | 4 | done | sprint-4 |
+| DAT-07 | M | `PapersTable.tsx:31-43` | 10 columns, no sticky header or first column, and no column toggle. | Sticky header, Columns menu, and merge TA/FT/Status into one "Screening" cell. | 4 | done | sprint-4 |
+| DAT-08 | M | `PapersTable.tsx:56-86` | Truncated with no title attribute and no row detail. | Open a side drawer with the abstract, reasons, DOI and extraction. | 4 | done | sprint-4 |
+| DAT-09 | M | `PapersTable.tsx:98-166` | Two badge shapes in one row and raw snake_case. | Use `Badge` with humanised labels. | 4 | done | sprint-4 |
+| DAT-10 | M | `PapersTable.tsx:30` | Double frame (data-surface inside glass-table-shell) with mismatched radii. | Use one frame. | 4 | done | sprint-4 |
+| DAT-11 | M | `OutcomesTable.tsx:71-90` | Silent 200-row cap, left-aligned numbers, no tabular numerals. | Right-align with tabular-nums, format `p<0.001`, paginate. | 4 | done | sprint-4 |
+| DAT-12 | M | `DatabaseView.tsx` | No CSV/RIS export, a core systematic-review deliverable. | Add an Export button that respects the current filters. | 4 | done | sprint-4 |
+| DAT-13 | L | `DatabaseView.tsx:126,186` | "Complete" is bare green text. | Use Badge. | 4 | done | sprint-4 |
+| DAT-14 | L | `ui/table.tsx:108` | The pager hides itself at 1 page and has no page-size control. | Always show the count, and add a 50/100/250 select. | 4 | done | sprint-4 |
+| DAT-15 | L | `FilterChipBar.tsx:31` | 12px remove targets. | Make them at least 24px. | 4 | done | sprint-4 |
+| CST-02 | H | `CostView.tsx:258-265` | A rainbow of phase colours on a labelled bar chart, plus redundant axis, labels and tooltip. The top bar is grey. | One hue, direct labels "$0.41 · 34%", and no X axis. | 4 | done | sprint-4 |
+| CST-03 | H | `CostView.tsx:139` vs `285` | The chart sorts descending but the table uses raw order. | Share one sort, and add % and a total row to the table. | 4 | done | sprint-4 |
+| CST-04 | H | `CostView.tsx:194-221` | Raw totals only. | Add "$0.20 / included study · $0.70 / 1k screened" and compact numbers (12.3M). | 4 | done | sprint-4 |
+| CST-05 | M | `CostView.tsx:61` | Large numbers overflow tiles. | `min-w-0 truncate` plus compact format. | 4 | done | sprint-4 |
+| CST-06 | M | `CostView.tsx:303,348` | Spend is shown in success green. | Use neutral colour, and reserve colour for over-budget. | 4 | done | sprint-4 |
+| CST-07 | M | `CostView.tsx:197` vs `costOpsFormatters.ts:43` | Two currency formatters, so tooltip and table disagree. | Use `formatUsd` everywhere. | 4 | done | sprint-4 |
+| CST-08 | M | `CostView.tsx:339` | The provider is stripped, so rows are ambiguous. | Show the provider as muted secondary text. | 4 | done | sprint-4 |
+| CST-09 | M | `CostView.tsx:151,359` | Export only exists behind `?ops=1`, and the label shows literal backticks. | Always offer a per-run export. | 4 | done | sprint-4 |
+| CST-10 | M | `CostOpsChartSection.tsx:90,228` | 9px ticks at -38° cut to 4-letter stems. | Horizontal bars with full labels and an 11px minimum. | 4 | done | sprint-4 |
+| CST-11 | M | `CostOpsChartSection.tsx:70,151,244` | Silent slices at 8, 12 and 24. | Add an "Other" bucket and "showing last 24". | 4 | done | sprint-4 |
+| CST-12 | M | `costOpsFormatters.ts:248` | `text-primary-foreground` doesn't exist, which gives 3.23:1 contrast in light mode. | Use `text-intent-primary-fg`. | 4 | done | sprint-4 |
+| CST-13 | L | `costOpsFormatters.ts:240` | 3-column grid holding 2 items. | `md:grid-cols-2`. | 4 | done | sprint-4 |
+| CST-14 | L | `CostOpsToolbar.tsx:27` vs `ChartTableToggle.tsx` | The segmented control is duplicated. | Reuse one, with `role=group`. | 4 | done | sprint-4 |
+| CST-15 | L | `CostView.tsx:444-491` | Validation diagnostics live on the Cost tab, with colour-only status and a silent cap at 8. | Move them to Quality, use Badges and "show all". | 4 | done | sprint-4 |
+| CST-16 | L | `CostView.tsx:180,191` | Wrong empty copy for finished runs, and `max-w-4xl` leaves wide screens empty. | Choose copy by state and widen. | 4 | done | sprint-4 |
 | DS-01 | H | `ui/button.tsx:8` | **`focus-visible:outline-none` kills the focus ring on every Button** (verified in the compiled CSS). The fallback ring is 1.8–2.0:1. | `focus-visible:ring-2 ring-ring ring-offset-2`, at full opacity. | 1 | done | sprint-1 |
 | DS-02 | H | `tokens.css:52-65`, `theme-overrides.css:44-57` | Solid buttons fail contrast in dark mode: success 1.84, warning 1.61, danger 2.53, primary 3.86. | Add `--color-intent-*-solid` fill tokens (#7c3aed, #047857, #b45309, #b91c1c) or dark text on light fills. | 1 | done | sprint-1 |
 | DS-03 | H | `tokens.css:25` | `--color-muted #71717a` gives 3.67:1 on surface-1, and it's the most-used secondary text colour at 10–11px. | Raise it to about #8b8b94 or lighter in dark mode. | 1 | done | sprint-1 |
@@ -238,3 +238,29 @@ _(append per sprint: landed, blocked, next)_
 - Backend (fbf8640): the summary returns AI excludes and final decisions, the cohort data-loss bug is fixed, and override writes are idempotent.
 
 **Not visually verified:** no run is currently awaiting review. Check on the next live gate.
+### Sprint 4: Data and Cost (2026-09-28)
+
+**Landed**
+- **DAT-01..15**
+  - Server-side sort (whitelisted), multi-value facets with counts, a year range, and CSV/RIS export (formula-escaped).
+  - A paper detail endpoint feeding a Sheet inspector.
+  - URL-synced filter state.
+  - Merged Screening cell, Columns toggle with empty columns auto-hidden, sticky header and title column.
+  - Pager in the table footer.
+  - Filtered empty state.
+  - Outcomes numerics.
+- **CST-01..16**
+  - Single-hue direct-labelled bars showing share %, with alias phases merged.
+  - Chart and table share one sort; the table has a total row.
+  - StatTiles with per-included-study and per-1k-records cost.
+  - One `formatUsd` everywhere.
+  - Per-run CSV export.
+  - Ops charts with an Other bucket.
+  - `ValidationDiagnostics` extracted, to be mounted in Quality in Sprint 5.
+
+**Follow-ups**
+- Source values show raw ("semantic_scholar"), so humanize the source names.
+- The cost tile subline truncates on narrow tiles.
+- Outcomes table is not filter-aware yet (needs a filter-aware /tables endpoint).
+- Year sort starts ascending.
+- Column visibility isn't persisted.

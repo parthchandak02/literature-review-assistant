@@ -17,6 +17,19 @@ export interface PaperAllRow {
   assessment_source: string | null
 }
 
+export type PapersFacetField =
+  | "ta_decision"
+  | "ft_decision"
+  | "primary_status"
+  | "year"
+  | "source"
+  | "country"
+
+export interface PapersFacetCount {
+  value: string | number | null
+  count: number
+}
+
 export interface PapersFacets {
   years: number[]
   sources: string[]
@@ -24,6 +37,94 @@ export interface PapersFacets {
   ta_decisions: string[]
   ft_decisions: string[]
   primary_statuses: string[]
+  counts?: Partial<Record<PapersFacetField, PapersFacetCount[]>>
+}
+
+export type PapersSortKey =
+  | "title"
+  | "year"
+  | "source"
+  | "ta_decision"
+  | "ft_decision"
+  | "primary_status"
+  | "confidence"
+
+export type SortDir = "asc" | "desc"
+
+/** Missing-value sentinel for exact-match facet filters (e.g. not yet screened). */
+export const FACET_NONE = "__none__"
+
+export interface PapersQuery {
+  title: string
+  author: string
+  ta: string[]
+  ft: string[]
+  primaryStatus: string[]
+  source: string[]
+  country: string[]
+  yearMin: number | null
+  yearMax: number | null
+}
+
+export interface PapersSort {
+  sort: PapersSortKey | null
+  dir: SortDir
+}
+
+export interface PaperScreeningDecision {
+  reviewer_type: string
+  decision: string
+  reason: string | null
+  exclusion_reason: string | null
+  confidence: number | null
+  created_at: string | null
+}
+
+export interface PaperScreeningStage {
+  stage: string
+  final_decision: string | null
+  agreement: boolean | null
+  adjudication_needed: boolean | null
+  decisions: PaperScreeningDecision[]
+}
+
+export interface PaperExtractionSummary {
+  study_design: string | null
+  primary_study_status: string | null
+  extraction_source: string | null
+  extraction_confidence: number | null
+  participant_count: number | null
+  setting: string | null
+  country: string | null
+  study_duration: string | null
+  intervention_description: string | null
+  comparator_description: string | null
+  results_summary: Record<string, string> | null
+  funding_source: string | null
+  outcome_count: number
+}
+
+export interface PaperQualitySummary {
+  tool_used: string
+  overall_judgment: string
+  assessment_source: string | null
+}
+
+export interface PaperDetail {
+  paper_id: string
+  title: string
+  authors: string[]
+  year: number | null
+  source_database: string | null
+  doi: string | null
+  url: string | null
+  country: string | null
+  journal: string | null
+  abstract: string | null
+  keywords: string[]
+  screening: PaperScreeningStage[]
+  extraction: PaperExtractionSummary | null
+  quality: PaperQualitySummary | null
 }
 
 export interface PapersAllResponse {
@@ -127,8 +228,61 @@ export async function fetchPapersAll(
   return apiFetch(`/db/${runId}/papers-all?${params}`)
 }
 
-export async function fetchPapersFacets(runId: string): Promise<PapersFacets> {
-  return apiFetch(`/db/${runId}/papers-facets`)
+export async function fetchPapersFacets(runId: string, query?: PapersQuery): Promise<PapersFacets> {
+  const qs = query ? `?${papersQueryParams(query)}` : ""
+  return apiFetch(`/db/${runId}/papers-facets${qs}`)
+}
+
+/** Exact-match, multi-value query params shared by papers-page, papers-facets and papers-export. */
+export function papersQueryParams(query: PapersQuery, sort?: PapersSort): URLSearchParams {
+  const params = new URLSearchParams({ match: "exact" })
+  if (query.title) params.set("title", query.title)
+  if (query.author) params.set("author", query.author)
+  const multi: Array<[string, string[]]> = [
+    ["ta_decision", query.ta],
+    ["ft_decision", query.ft],
+    ["primary_status", query.primaryStatus],
+    ["source", query.source],
+    ["country", query.country],
+  ]
+  for (const [key, values] of multi) {
+    for (const v of values) params.append(key, v)
+  }
+  if (query.yearMin != null) params.set("year_min", String(query.yearMin))
+  if (query.yearMax != null) params.set("year_max", String(query.yearMax))
+  if (sort?.sort) {
+    params.set("sort", sort.sort)
+    params.set("dir", sort.dir)
+  }
+  return params
+}
+
+export async function fetchPapersPage(
+  runId: string,
+  query: PapersQuery,
+  sort: PapersSort,
+  offset: number,
+  limit: number,
+): Promise<PapersAllResponse> {
+  const params = papersQueryParams(query, sort)
+  params.set("offset", String(sanitizePageNumber(offset, 0)))
+  params.set("limit", String(sanitizePageNumber(limit, 50, 1)))
+  return apiFetch(`/db/${encodeURIComponent(runId)}/papers-all?${params}`)
+}
+
+export function papersExportUrl(
+  runId: string,
+  query: PapersQuery,
+  sort: PapersSort,
+  format: "csv" | "ris",
+): string {
+  const params = papersQueryParams(query, sort)
+  params.set("format", format)
+  return `${API_BASE}/db/${encodeURIComponent(runId)}/papers-export?${params}`
+}
+
+export async function fetchPaperDetail(runId: string, paperId: string): Promise<PaperDetail> {
+  return apiFetch(`/db/${encodeURIComponent(runId)}/papers/${encodeURIComponent(paperId)}`)
 }
 
 export async function fetchPapersSuggest(

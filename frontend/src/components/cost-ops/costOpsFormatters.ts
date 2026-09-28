@@ -44,13 +44,13 @@ export function formatUsd(value: number): string {
   return new Intl.NumberFormat("en-US", {
     style: "currency",
     currency: "USD",
-    minimumFractionDigits: value >= 1 ? 2 : 4,
-    maximumFractionDigits: 4,
+    minimumFractionDigits: 2,
+    maximumFractionDigits: Math.abs(value) >= 1 ? 2 : 4,
   }).format(value)
 }
 
 export function formatAxisCost(value: number): string {
-  return `$${value >= 1 ? value.toFixed(2) : value.toFixed(4)}`
+  return formatUsd(value)
 }
 
 export function formatInteger(value: number): string {
@@ -194,44 +194,15 @@ export function formatSpendBucketLabel(
   return `${formatShortDate(start, true)} – ${formatShortDate(end, true)}`
 }
 
-export type CostOpsGroupAxisKind = "workflow" | "model" | "phase" | "generic"
-
-function truncateAxisLabel(label: string, maxLength: number): string {
-  if (label.length <= maxLength) return label
-  return `${label.slice(0, maxLength - 1)}…`
-}
-
-/** Short x-axis labels for narrow breakdown charts (workflows, phases, models). */
-export function formatCostGroupAxisLabel(
-  label: string,
-  kind: CostOpsGroupAxisKind = "generic",
-): string {
-  if (kind === "workflow") {
-    const short = label.replace(/^wf-/i, "")
-    return truncateAxisLabel(short, 10)
-  }
-
-  if (kind === "model") {
-    const tail = label.split(/[:/]/).pop() ?? label
-    return truncateAxisLabel(tail, 12)
-  }
-
-  if (kind === "phase") {
-    const words = label.split(/\s+/)
-    if (words.length === 1) return truncateAxisLabel(label, 12)
-    return truncateAxisLabel(words.map((word) => word.slice(0, 4)).join(" "), 14)
-  }
-
-  return truncateAxisLabel(label, 12)
-}
-
 export const fieldLabelClass = "space-y-1 text-xs"
 export const fieldControlClass =
   "h-8 w-full min-w-0 rounded-control border border-border bg-card/90 px-2.5 text-xs text-foreground shadow-sm outline-none transition-colors hover:border-border focus:border-intent-primary focus-visible:ring-1 focus-visible:ring-ring"
 export const statCardClass = "rounded-lg border border-border/80 bg-card/60 px-2.5 py-2"
 export const sectionHeaderClass = "border-b border-border/80 px-2.5 py-1.5 text-xs font-semibold text-foreground"
 /** 3-up grid for cost breakdown panels; fits 6 sections in 2 rows on wide layouts */
-export const costOpsGridClass = "grid gap-2 grid-cols-2 md:grid-cols-3"
+export const costOpsGridClass = "grid gap-2 grid-cols-1 md:grid-cols-3"
+/** 2-up grid for the per-run ops panel (phases + models). */
+export const costOpsPairGridClass = "grid gap-2 grid-cols-1 md:grid-cols-2"
 /** Shared segmented control chrome for presets, view mode, and actions */
 export const costOpsSegmentGroupClass =
   "flex flex-wrap items-center gap-1 rounded-lg border border-border/80 bg-card/50 p-1 shrink-0"

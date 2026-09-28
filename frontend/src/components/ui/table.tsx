@@ -1,21 +1,85 @@
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
-import { ChevronLeft, ChevronRight } from "lucide-react"
+import { ChevronDown, ChevronLeft, ChevronRight, ChevronUp, ChevronsUpDown } from "lucide-react"
 
 // ---------------------------------------------------------------------------
-// Th -- table header cell with optional filter popover
+// Th -- table header cell with optional filter popover or sort button
 // ---------------------------------------------------------------------------
+
+export type SortDirection = "asc" | "desc"
+
+function ariaSortValue(
+  direction: SortDirection | null | undefined,
+): "ascending" | "descending" | "none" {
+  if (direction === "asc") return "ascending"
+  if (direction === "desc") return "descending"
+  return "none"
+}
+
+interface SortButtonProps {
+  children: React.ReactNode
+  direction: SortDirection | null | undefined
+  onSort: () => void
+  className?: string
+}
+
+/** Header sort toggle: label plus a chevron that shows the active direction. */
+export function SortButton({ children, direction, onSort, className }: SortButtonProps) {
+  const Icon = direction === "asc" ? ChevronUp : direction === "desc" ? ChevronDown : ChevronsUpDown
+  return (
+    <button
+      type="button"
+      onClick={onSort}
+      className={cn(
+        "-mx-1 inline-flex items-center gap-1 rounded-control px-1 py-0.5 uppercase tracking-wide transition-colors",
+        "hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+        direction ? "text-foreground" : "text-muted",
+        className,
+      )}
+    >
+      <span>{children}</span>
+      <Icon className={cn("h-3 w-3 shrink-0", !direction && "opacity-60")} aria-hidden />
+    </button>
+  )
+}
 
 interface ThProps {
   children: React.ReactNode
   align?: "right"
   filter?: React.ReactNode
   className?: string
+  /** Renders the label as a sort button and sets aria-sort. */
+  sortable?: boolean
+  sortDirection?: SortDirection | null
+  onSort?: () => void
+  /** Override aria-sort for headers that host their own sort buttons. */
+  ariaSort?: "ascending" | "descending" | "none"
+  scope?: "col" | "row"
 }
 
-export function Th({ children, align, filter, className }: ThProps) {
+export function Th({
+  children,
+  align,
+  filter,
+  className,
+  sortable,
+  sortDirection,
+  onSort,
+  ariaSort,
+  scope = "col",
+}: ThProps) {
+  const label =
+    sortable && onSort ? (
+      <SortButton direction={sortDirection} onSort={onSort}>
+        {children}
+      </SortButton>
+    ) : (
+      children
+    )
   return (
     <th
+      scope={scope}
+      aria-sort={ariaSort ?? (sortable ? ariaSortValue(sortDirection) : undefined)}
       className={cn(
         "px-4 py-2.5 text-xs font-medium text-foreground uppercase tracking-wide",
         align === "right" ? "text-right" : "text-left",
@@ -24,11 +88,11 @@ export function Th({ children, align, filter, className }: ThProps) {
     >
       {filter ? (
         <div className="flex items-center gap-1.5">
-          <span>{children}</span>
+          <span>{label}</span>
           {filter}
         </div>
       ) : (
-        children
+        label
       )}
     </th>
   )
@@ -88,7 +152,7 @@ export function TableSkeleton({ cols, rows }: TableSkeletonProps) {
 }
 
 // ---------------------------------------------------------------------------
-// Pagination -- prev/next controls for server-side paginated tables
+// Pagination -- range, count, optional page size, prev/next for server-side tables
 // ---------------------------------------------------------------------------
 
 interface PaginationProps {
@@ -97,42 +161,82 @@ interface PaginationProps {
   total: number
   onPrev: () => void
   onNext: () => void
+  /** Noun after the count, e.g. "papers". */
+  itemLabel?: string
+  pageSizeOptions?: readonly number[]
+  onPageSizeChange?: (size: number) => void
+  className?: string
 }
 
-export function Pagination({ page, pageSize, total, onPrev, onNext }: PaginationProps) {
-  const start = page * pageSize + 1
+function formatPageRange(page: number, pageSize: number, total: number): string {
+  if (total <= 0) return "0"
+  const start = Math.min(page * pageSize + 1, total)
   const end = Math.min((page + 1) * pageSize, total)
-  const hasPrev = page > 0
-  const hasNext = end < total
+  return `${start.toLocaleString()}–${end.toLocaleString()} of ${total.toLocaleString()}`
+}
 
-  if (total <= pageSize) return null
+export function Pagination({
+  page,
+  pageSize,
+  total,
+  onPrev,
+  onNext,
+  itemLabel,
+  pageSizeOptions,
+  onPageSizeChange,
+  className,
+}: PaginationProps) {
+  const hasPrev = page > 0
+  const hasNext = (page + 1) * pageSize < total
+  const multiPage = total > pageSize
 
   return (
-    <div className="flex items-center justify-between text-xs text-muted">
-      <span>
-        {start}-{end} of {total.toLocaleString()}
+    <div className={cn("flex flex-wrap items-center justify-between gap-2 text-xs text-muted", className)}>
+      <span className="tabular-nums" aria-live="polite">
+        {formatPageRange(page, pageSize, total)}
+        {itemLabel ? ` ${itemLabel}` : ""}
       </span>
-      <div className="flex gap-1">
-        <Button
-          size="icon"
-          variant="outline"
-          onClick={onPrev}
-          disabled={!hasPrev}
-          className="border-border"
-          aria-label="Previous page"
-        >
-          <ChevronLeft className="h-3.5 w-3.5" />
-        </Button>
-        <Button
-          size="icon"
-          variant="outline"
-          onClick={onNext}
-          disabled={!hasNext}
-          className="border-border"
-          aria-label="Next page"
-        >
-          <ChevronRight className="h-3.5 w-3.5" />
-        </Button>
+      <div className="flex items-center gap-3">
+        {pageSizeOptions && onPageSizeChange && (
+          <label className="flex items-center gap-1.5">
+            <span>Rows per page</span>
+            <select
+              value={pageSize}
+              onChange={(e) => onPageSizeChange(Number(e.target.value))}
+              className="rounded-control border border-border-strong bg-background px-1.5 py-0.5 text-xs text-foreground tabular-nums focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            >
+              {pageSizeOptions.map((n) => (
+                <option key={n} value={n}>
+                  {n}
+                </option>
+              ))}
+            </select>
+          </label>
+        )}
+        {multiPage && (
+          <div className="flex gap-1">
+            <Button
+              size="icon-sm"
+              variant="outline"
+              onClick={onPrev}
+              disabled={!hasPrev}
+              className="border-border"
+              aria-label="Previous page"
+            >
+              <ChevronLeft className="h-3.5 w-3.5" />
+            </Button>
+            <Button
+              size="icon-sm"
+              variant="outline"
+              onClick={onNext}
+              disabled={!hasNext}
+              className="border-border"
+              aria-label="Next page"
+            >
+              <ChevronRight className="h-3.5 w-3.5" />
+            </Button>
+          </div>
+        )}
       </div>
     </div>
   )

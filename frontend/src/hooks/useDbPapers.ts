@@ -1,41 +1,49 @@
-import { useQuery, useQueryClient } from "@tanstack/react-query"
+import { keepPreviousData, useQuery } from "@tanstack/react-query"
+import { fetchDbTables, fetchPapersSuggest } from "@/lib/api"
 import {
-  fetchDbTables,
-  fetchPapersAll,
+  fetchPaperDetail,
   fetchPapersFacets,
-  fetchPapersSuggest,
-  type PapersFacets,
-} from "@/lib/api"
+  fetchPapersPage,
+  type PapersQuery,
+  type PapersSort,
+} from "@/lib/api/db"
 import { LIVE_DB_REFRESH_MS, resolveLiveQueryRefetchInterval } from "@/lib/pollingBackoff"
 
 export { LIVE_DB_REFRESH_MS }
 
-export interface DbPapersFilters {
-  titleFilter: string
-  authorFilter: string
-  taFilter: string
-  ftFilter: string
-  primaryStatusFilter: string
-  yearFilter: string
-  sourceFilter: string
-  countryFilter: string
+interface LiveOptions {
+  enabled?: boolean
+  isLive?: boolean
+  isSSEConnected?: boolean
+}
+
+function liveInterval(options?: LiveOptions) {
+  return resolveLiveQueryRefetchInterval(LIVE_DB_REFRESH_MS, {
+    isLive: Boolean(options?.isLive),
+    isSSEConnected: options?.isSSEConnected,
+  })
 }
 
 export function dbPapersQueryKey(
   runId: string,
-  filters: DbPapersFilters,
+  filters: PapersQuery,
+  sort: PapersSort,
   page: number,
   pageSize: number,
 ) {
-  return ["dbPapers", runId, filters, page, pageSize] as const
+  return ["dbPapers", runId, filters, sort, page, pageSize] as const
 }
 
-export function dbPapersFacetsQueryKey(runId: string) {
-  return ["dbPapersFacets", runId] as const
+export function dbPapersFacetsQueryKey(runId: string, filters?: PapersQuery) {
+  return filters ? (["dbPapersFacets", runId, filters] as const) : (["dbPapersFacets", runId] as const)
 }
 
 export function dbOutcomesQueryKey(runId: string) {
   return ["dbOutcomes", runId] as const
+}
+
+export function dbPaperDetailQueryKey(runId: string, paperId: string | null) {
+  return ["dbPaperDetail", runId, paperId] as const
 }
 
 export function dbPaperSuggestQueryKey(
@@ -48,102 +56,50 @@ export function dbPaperSuggestQueryKey(
 
 export function useDbPapers(
   runId: string,
-  filters: DbPapersFilters,
+  filters: PapersQuery,
+  sort: PapersSort,
   page: number,
   pageSize: number,
-  options?: {
-    enabled?: boolean
-    isLive?: boolean
-    isSSEConnected?: boolean
-    includeFacets?: boolean
-  },
+  options?: LiveOptions,
 ) {
-  const queryClient = useQueryClient()
-  const enabled = (options?.enabled ?? true) && Boolean(runId)
   return useQuery({
-    queryKey: dbPapersQueryKey(runId, filters, page, pageSize),
-    queryFn: async () => {
-      const facetsCached = Boolean(
-        queryClient.getQueryData<PapersFacets>(dbPapersFacetsQueryKey(runId)),
-      )
-      const includeFacets = Boolean(options?.includeFacets) && !facetsCached
-      const result = await fetchPapersAll(
-        runId,
-        "",
-        filters.taFilter,
-        filters.ftFilter,
-        filters.primaryStatusFilter,
-        filters.yearFilter,
-        filters.sourceFilter,
-        filters.countryFilter,
-        page * pageSize,
-        pageSize,
-        filters.titleFilter,
-        filters.authorFilter,
-        { includeFacets },
-      )
-      if (result.facets) {
-        queryClient.setQueryData(dbPapersFacetsQueryKey(runId), result.facets)
-      }
-      return result
-    },
-    enabled,
-    refetchInterval: resolveLiveQueryRefetchInterval(LIVE_DB_REFRESH_MS, {
-      isLive: Boolean(options?.isLive),
-      isSSEConnected: options?.isSSEConnected,
-    }),
+    queryKey: dbPapersQueryKey(runId, filters, sort, page, pageSize),
+    queryFn: () => fetchPapersPage(runId, filters, sort, page * pageSize, pageSize),
+    enabled: (options?.enabled ?? true) && Boolean(runId),
+    placeholderData: keepPreviousData,
+    refetchInterval: liveInterval(options),
     refetchIntervalInBackground: false,
   })
 }
 
-export interface DbPapersFacetsOptions {
-  /** True when the paired papers query requested include=facets. */
-  papersQueryIncludesFacets?: boolean
-  /** True once the paired papers query has settled. */
-  papersQueryFetched?: boolean
-  /** True when the paired papers response included facets. */
-  papersHadFacets?: boolean
-}
-
-export function useDbPapersFacets(
-  runId: string,
-  enabled = true,
-  options?: DbPapersFacetsOptions,
-) {
-  const queryClient = useQueryClient()
-  const cachedFacets = queryClient.getQueryData<PapersFacets>(dbPapersFacetsQueryKey(runId))
-  const waitingForPapersFacets =
-    Boolean(options?.papersQueryIncludesFacets) && !options?.papersQueryFetched
-  const shouldFallbackFetch =
-    enabled &&
-    Boolean(runId) &&
-    !cachedFacets &&
-    !waitingForPapersFacets &&
-    (!options?.papersQueryIncludesFacets ||
-      (options.papersQueryFetched && !options.papersHadFacets))
-
+/** Facet values with counts; each facet's counts respect every other active filter. */
+export function useDbPapersFacets(runId: string, filters: PapersQuery, options?: LiveOptions) {
   return useQuery({
-    queryKey: dbPapersFacetsQueryKey(runId),
-    queryFn: () => fetchPapersFacets(runId),
-    enabled: shouldFallbackFetch,
-    staleTime: 60_000,
-    initialData: cachedFacets,
+    queryKey: dbPapersFacetsQueryKey(runId, filters),
+    queryFn: () => fetchPapersFacets(runId, filters),
+    enabled: (options?.enabled ?? true) && Boolean(runId),
+    placeholderData: keepPreviousData,
+    staleTime: 15_000,
+    refetchInterval: liveInterval(options),
+    refetchIntervalInBackground: false,
   })
 }
 
-export function useDbOutcomes(
-  runId: string,
-  options?: { enabled?: boolean; isLive?: boolean; isSSEConnected?: boolean },
-) {
-  const enabled = (options?.enabled ?? true) && Boolean(runId)
+export function useDbPaperDetail(runId: string, paperId: string | null) {
+  return useQuery({
+    queryKey: dbPaperDetailQueryKey(runId, paperId),
+    queryFn: () => fetchPaperDetail(runId, paperId as string),
+    enabled: Boolean(runId) && Boolean(paperId),
+    staleTime: 30_000,
+  })
+}
+
+export function useDbOutcomes(runId: string, options?: LiveOptions) {
   return useQuery({
     queryKey: dbOutcomesQueryKey(runId),
     queryFn: () => fetchDbTables(runId),
-    enabled,
-    refetchInterval: resolveLiveQueryRefetchInterval(LIVE_DB_REFRESH_MS, {
-      isLive: Boolean(options?.isLive),
-      isSSEConnected: options?.isSSEConnected,
-    }),
+    enabled: (options?.enabled ?? true) && Boolean(runId),
+    refetchInterval: liveInterval(options),
     refetchIntervalInBackground: false,
   })
 }

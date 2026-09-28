@@ -1,152 +1,240 @@
 import { AlertTriangle, ExternalLink } from "lucide-react"
-import { Badge, type BadgeVariant } from "@/components/ui/badge"
-import { Th, Td } from "@/components/ui/table"
+import { Badge } from "@/components/ui/badge"
+import { SortButton, Td, Th } from "@/components/ui/table"
 import { cn } from "@/lib/utils"
-import { humanizeSnake } from "@/lib/humanize"
-import type { PaperAllRow } from "@/lib/api"
+import { decodeHtmlEntities, humanizeSnake } from "@/lib/humanize"
+import type { PaperAllRow, PapersSort, PapersSortKey } from "@/lib/api/db"
 import { confidenceToVariant, screeningDecisionToVariant } from "@/lib/constants"
+import { PAPER_COLUMNS, PRIMARY_STATUS_VARIANT, paperLink, type PaperColumnId } from "./paperColumns"
 
-/**
- * Resolve the best clickable link for a paper following Crossref DOI display
- * guidelines (https://www.crossref.org/display-guidelines/):
- * DOIs must be displayed as full HTTPS URLs: https://doi.org/10.xxxx/xxxxx
- * Falls back to the connector-provided source URL when no DOI is available.
- */
-function paperLink(p: PaperAllRow): string | null {
-  if (p.doi) {
-    const raw = p.doi.replace(/^https?:\/\/(dx\.)?doi\.org\//i, "")
-    return `https://doi.org/${raw}`
-  }
-  return p.url ?? null
-}
+const CELL = "px-2.5 py-2"
+const STICKY_HEAD = "sticky top-0 z-10 bg-surface-1 border-b border-border-strong"
+const STICKY_TITLE = "sticky left-0 bg-surface-1"
 
 export interface PapersTableProps {
   papers: PaperAllRow[]
+  visibleColumns?: Set<PaperColumnId>
+  sort?: PapersSort
+  onSort?: (key: PapersSortKey) => void
+  onOpenPaper?: (paperId: string) => void
+  selectedPaperId?: string | null
 }
 
-export function PapersTable({ papers }: PapersTableProps) {
-  const hasConfidenceData = papers.some((p) => p.extraction_confidence != null)
+const ALL_COLUMNS = new Set(PAPER_COLUMNS.map((c) => c.id))
+
+export function PapersTable({
+  papers,
+  visibleColumns = ALL_COLUMNS,
+  sort = { sort: null, dir: "desc" },
+  onSort,
+  onOpenPaper,
+  selectedPaperId,
+}: PapersTableProps) {
+  const dirFor = (key: PapersSortKey) => (sort.sort === key ? sort.dir : null)
+  const sortProps = (key: PapersSortKey) =>
+    onSort ? { sortable: true, sortDirection: dirFor(key), onSort: () => onSort(key) } : {}
+  const show = (id: PaperColumnId) => visibleColumns.has(id)
+  const screeningKeys: PapersSortKey[] = ["ta_decision", "ft_decision", "primary_status"]
+  const screeningSorted = screeningKeys.some((k) => sort.sort === k)
+  const screeningAriaSort = !screeningSorted
+    ? "none"
+    : sort.dir === "asc"
+      ? "ascending"
+      : "descending"
 
   return (
-    <div className="data-surface overflow-x-auto">
-      <table className="w-full text-xs">
+    <div className="max-h-[70vh] overflow-auto">
+      <table className="w-full border-separate border-spacing-0 text-xs">
         <thead>
-          <tr className="glass-table-head border-b border-border/70">
-            <Th>Title</Th>
-            <Th>Authors</Th>
-            <Th>Year</Th>
-            <Th>Source</Th>
-            <Th>Country</Th>
-            <Th>Title/Abstract</Th>
-            <Th>Full-Text</Th>
-            <Th>Primary Status</Th>
-            {hasConfidenceData && <Th>Confidence</Th>}
-            <Th>RoB Source</Th>
+          <tr>
+            <Th className={cn(CELL, STICKY_HEAD, "left-0 z-20 min-w-64")} {...sortProps("title")}>
+              Title
+            </Th>
+            {show("authors") && <Th className={cn(CELL, STICKY_HEAD)}>Authors</Th>}
+            {show("year") && (
+              <Th className={cn(CELL, STICKY_HEAD)} align="right" {...sortProps("year")}>
+                Year
+              </Th>
+            )}
+            {show("source") && (
+              <Th className={cn(CELL, STICKY_HEAD)} {...sortProps("source")}>
+                Source
+              </Th>
+            )}
+            {show("country") && <Th className={cn(CELL, STICKY_HEAD)}>Country</Th>}
+            {show("screening") && (
+              <Th
+                className={cn(CELL, STICKY_HEAD)}
+                ariaSort={onSort ? screeningAriaSort : undefined}
+              >
+                {onSort ? (
+                  <span className="inline-flex items-center gap-2">
+                    <span>Screening</span>
+                    <SortButton direction={dirFor("ta_decision")} onSort={() => onSort("ta_decision")}>
+                      <span className="sr-only">Sort by title/abstract decision: </span>TA
+                    </SortButton>
+                    <SortButton direction={dirFor("ft_decision")} onSort={() => onSort("ft_decision")}>
+                      <span className="sr-only">Sort by full-text decision: </span>FT
+                    </SortButton>
+                    <SortButton
+                      direction={dirFor("primary_status")}
+                      onSort={() => onSort("primary_status")}
+                    >
+                      <span className="sr-only">Sort by primary status: </span>Status
+                    </SortButton>
+                  </span>
+                ) : (
+                  "Screening"
+                )}
+              </Th>
+            )}
+            {show("confidence") && (
+              <Th className={cn(CELL, STICKY_HEAD)} align="right" {...sortProps("confidence")}>
+                Confidence
+              </Th>
+            )}
+            {show("rob") && <Th className={cn(CELL, STICKY_HEAD)}>RoB source</Th>}
           </tr>
         </thead>
         <tbody>
-          {papers.map((p, i) => (
-            <tr
-              key={p.paper_id}
-              className={cn(
-                "glass-table-row border-b border-border/40",
-                i === papers.length - 1 && "border-0",
-              )}
-            >
-              <TitleCell paper={p} />
-              <Td className="glass-table-cell-muted max-w-[160px]">
-                <span className="line-clamp-1">{p.authors}</span>
-              </Td>
-              <Td className="tabular-nums glass-table-cell-muted">{p.year ?? "--"}</Td>
-              <Td className="glass-table-cell-muted">{p.source_database}</Td>
-              <Td className="glass-table-cell-muted">{p.country ?? "--"}</Td>
-              <DecisionCell value={p.ta_decision} />
-              <DecisionCell value={p.ft_decision} />
-              <PrimaryStatusCell value={p.primary_study_status} />
-              {hasConfidenceData && <ExtractionConfidenceCell value={p.extraction_confidence} />}
-              <AssessmentSourceCell value={p.assessment_source} />
-            </tr>
-          ))}
+          {papers.map((p) => {
+            const selected = p.paper_id === selectedPaperId
+            return (
+              <tr
+                key={p.paper_id}
+                onClick={onOpenPaper ? () => onOpenPaper(p.paper_id) : undefined}
+                aria-selected={onOpenPaper ? selected : undefined}
+                className={cn(
+                  "group glass-table-row [&>td]:border-b [&>td]:border-border/40 last:[&>td]:border-0",
+                  onOpenPaper && "cursor-pointer",
+                  selected && "[&>td]:bg-intent-primary-subtle",
+                )}
+              >
+                <TitleCell paper={p} onOpen={onOpenPaper} />
+                {show("authors") && <TextCell value={decodeHtmlEntities(p.authors)} className="max-w-48" />}
+                {show("year") && (
+                  <Td align="right" className={cn(CELL, "font-mono tabular-nums glass-table-cell-muted")}>
+                    {p.year ?? "--"}
+                  </Td>
+                )}
+                {show("source") && <TextCell value={p.source_database} />}
+                {show("country") && <TextCell value={p.country} />}
+                {show("screening") && <ScreeningCell paper={p} />}
+                {show("confidence") && <ExtractionConfidenceCell value={p.extraction_confidence} />}
+                {show("rob") && <AssessmentSourceCell value={p.assessment_source} />}
+              </tr>
+            )
+          })}
         </tbody>
       </table>
     </div>
   )
 }
 
-function TitleCell({ paper }: { paper: PaperAllRow }) {
-  const href = paperLink(paper)
+function TextCell({ value, className }: { value: string | null | undefined; className?: string }) {
+  if (!value) return <Td className={cn(CELL, "text-muted")}>--</Td>
   return (
-    <Td className="max-w-xs">
-      {href ? (
-        <a
-          href={href}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="group flex items-start gap-1"
-        >
-          <span className="line-clamp-2 text-foreground group-hover:text-foreground group-hover:underline underline-offset-2">
-            {paper.title}
-          </span>
-          <ExternalLink className="h-3 w-3 shrink-0 mt-0.5 text-muted group-hover:text-foreground transition-colors" />
-        </a>
-      ) : (
-        <span className="line-clamp-2 text-foreground">{paper.title}</span>
-      )}
-    </Td>
-  )
-}
-
-const PRIMARY_STATUS_VARIANT: Record<string, BadgeVariant> = {
-  primary: "success",
-  secondary_review: "danger",
-  protocol_only: "warning",
-}
-
-function PrimaryStatusCell({ value }: { value: string | null }) {
-  const normalized = (value ?? "unknown").toLowerCase()
-  return (
-    <Td>
-      <Badge variant={PRIMARY_STATUS_VARIANT[normalized] ?? "neutral"} size="sm">
-        {humanizeSnake(normalized)}
-      </Badge>
-    </Td>
-  )
-}
-
-function DecisionCell({ value }: { value: string | null }) {
-  if (!value) {
-    return <Td className="text-muted">--</Td>
-  }
-  return (
-    <Td>
-      <Badge variant={screeningDecisionToVariant(value)} size="sm" className="capitalize">
+    <Td className={cn(CELL, "glass-table-cell-muted", className)}>
+      <span className="line-clamp-1" title={value}>
         {value}
-      </Badge>
+      </span>
+    </Td>
+  )
+}
+
+function TitleCell({ paper, onOpen }: { paper: PaperAllRow; onOpen?: (id: string) => void }) {
+  const href = paperLink(paper)
+  const title = decodeHtmlEntities(paper.title)
+  return (
+    <Td className={cn(CELL, STICKY_TITLE, "z-[5] max-w-sm min-w-64 group-hover:bg-surface-2")}>
+      <div className="flex items-start gap-1">
+        {onOpen ? (
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation()
+              onOpen(paper.paper_id)
+            }}
+            title={title}
+            className="line-clamp-2 rounded-control text-left text-foreground hover:underline underline-offset-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          >
+            {title}
+          </button>
+        ) : (
+          <span className="line-clamp-2 text-foreground" title={title}>
+            {title}
+          </span>
+        )}
+        {href && (
+          <a
+            href={href}
+            target="_blank"
+            rel="noopener noreferrer"
+            onClick={(e) => e.stopPropagation()}
+            aria-label="Open publisher page"
+            title={href}
+            className="mt-0.5 shrink-0 rounded-control text-muted transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          >
+            <ExternalLink className="h-3 w-3" />
+          </a>
+        )}
+      </div>
+    </Td>
+  )
+}
+
+function ScreeningCell({ paper }: { paper: PaperAllRow }) {
+  const status = (paper.primary_study_status ?? "unknown").toLowerCase()
+  const stages: Array<{ label: string; value: string | null }> = [
+    { label: "TA", value: paper.ta_decision },
+    { label: "FT", value: paper.ft_decision },
+  ]
+  return (
+    <Td className={CELL}>
+      <div className="flex flex-col items-start gap-0.5">
+        {stages.map(({ label, value }) =>
+          value ? (
+            <Badge key={label} variant={screeningDecisionToVariant(value)} size="sm">
+              <span className="font-mono opacity-70">{label}</span>
+              {humanizeSnake(value)}
+            </Badge>
+          ) : null,
+        )}
+        {status !== "unknown" && (
+          <Badge variant={PRIMARY_STATUS_VARIANT[status] ?? "neutral"} size="sm">
+            {humanizeSnake(status)}
+          </Badge>
+        )}
+        {!paper.ta_decision && !paper.ft_decision && status === "unknown" && (
+          <span className="text-muted">Not screened</span>
+        )}
+      </div>
     </Td>
   )
 }
 
 function ExtractionConfidenceCell({ value }: { value: number | null }) {
   if (value == null) {
-    return <Td className="text-muted">--</Td>
+    return (
+      <Td align="right" className={cn(CELL, "text-muted")}>
+        --
+      </Td>
+    )
   }
-  const pct = Math.round(value * 100)
   return (
-    <Td>
-      <Badge variant={confidenceToVariant(value)} size="sm" className="font-mono">
-        {pct}%
+    <Td align="right" className={CELL}>
+      <Badge variant={confidenceToVariant(value)} size="sm" className="font-mono tabular-nums">
+        {Math.round(value * 100)}%
       </Badge>
     </Td>
   )
 }
 
 function AssessmentSourceCell({ value }: { value: string | null }) {
-  if (!value) {
-    return <Td className="text-muted">--</Td>
-  }
+  if (!value) return <Td className={cn(CELL, "text-muted")}>--</Td>
   const heuristic = value === "heuristic"
   return (
-    <Td>
+    <Td className={CELL}>
       <Badge variant={heuristic ? "warning" : "neutral"} size="sm">
         {heuristic && <AlertTriangle />}
         {humanizeSnake(value)}
