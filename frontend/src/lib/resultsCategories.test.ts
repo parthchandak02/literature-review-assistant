@@ -5,6 +5,9 @@ import {
   resolveActiveResultsCategory,
   RESULTS_CATEGORY_ORDER,
   SUBMISSION_FOCUS_RESULTS_CATEGORY,
+  AUDIT_FINDINGS_ANCHOR,
+  categoryForHash,
+  lockedResultsState,
 } from "./resultsCategories"
 
 describe("resultsCategories", () => {
@@ -69,5 +72,27 @@ describe("resultsCategories", () => {
     for (const id of allFromBuilder) {
       expect(RESULTS_CATEGORY_ORDER).toContain(id)
     }
+  })
+})
+
+describe("categoryForHash", () => {
+  it("maps the audit findings anchor to Quality", () => {
+    expect(categoryForHash(`#${AUDIT_FINDINGS_ANCHOR}`)).toBe("quality")
+    expect(categoryForHash("audit-findings")).toBe("quality")
+    expect(categoryForHash("#other")).toBeNull()
+    expect(categoryForHash("")).toBeNull()
+  })
+})
+
+describe("lockedResultsState", () => {
+  it("points a screening pause at the review tab", () => {
+    expect(lockedResultsState(true)).toMatchObject({
+      heading: "Waiting on your screening review",
+      target: "review-screening",
+    })
+  })
+
+  it("points a running review at Activity", () => {
+    expect(lockedResultsState(false).target).toBe("activity")
   })
 })

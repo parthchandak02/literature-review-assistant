@@ -1,9 +1,12 @@
-import { useState } from "react"
+import { useMemo, useState } from "react"
 import { useQueryClient } from "@tanstack/react-query"
-import { BookOpen, Download, ExternalLink, FileText, FileX, RefreshCw } from "lucide-react"
+import { BookOpen, Download, ExternalLink, FileText, FileX, RefreshCw, Search, X } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { EmptyState, FetchError, LoadingPane, Spinner } from "@/components/ui/feedback"
 import { ViewToolbar } from "@/components/ui/view-toolbar"
+import { Input } from "@/components/ui/input"
+import { filterReferences, hasFullText } from "@/components/results/referenceFilters"
+import { decodeHtmlEntities } from "@/lib/humanize"
 import { fetchPdfsForRun, paperFileUrl, studyFilesZipUrl } from "@/lib/api"
 import type { FetchPdfsProgressEvent, FetchPdfsResult, PaperReference } from "@/lib/api"
 import { referencesQueryKey, useReferences } from "@/hooks/useReferences"
@@ -78,11 +81,18 @@ export function ReferencesView({
   const [fetchProgress, setFetchProgress] = useState<FetchProgress | null>(null)
   const [fetchResult, setFetchResult] = useState<FetchPdfsResult | null>(null)
   const [fetchError, setFetchError] = useState<string | null>(null)
+  const [query, setQuery] = useState("")
+  const [fullTextOnly, setFullTextOnly] = useState(false)
   /** For historical runs, use workflowId (registry-stable); for live runs use runId */
   const effectiveId = (isDone && workflowId) ? workflowId : runId
 
   const referencesQuery = useReferences(effectiveId, workflowId, { enabled: isDone })
-  const papers = referencesQuery.data ?? []
+  const papers = useMemo(() => referencesQuery.data ?? [], [referencesQuery.data])
+  const indexed = useMemo(() => papers.map((paper, idx) => ({ ...paper, index: idx + 1 })), [papers])
+  const visiblePapers = useMemo(
+    () => filterReferences(indexed, { query, fullTextOnly }),
+    [indexed, query, fullTextOnly],
+  )
   const loading = referencesQuery.isLoading
   const error = referencesQuery.isError
     ? referencesQuery.error instanceof Error
@@ -134,7 +144,7 @@ export function ReferencesView({
   }
 
   if (loading) {
-    return <LoadingPane message="Loading references..." className="h-48" />
+    return <LoadingPane message="Loading references…" className="h-48" />
   }
 
   if (error) {
@@ -152,7 +162,9 @@ export function ReferencesView({
   }
 
   const someFilesMissing = papers.length > 0 && papers.some((p) => !p.has_file)
-  const abstractOnlyCount = papers.length - papers.filter((p) => p.has_file).length
+  const fullTextCount = papers.filter(hasFullText).length
+  const abstractOnlyCount = papers.length - fullTextCount
+  const filtersActive = query.trim() !== "" || fullTextOnly
   const fetchProgressPercent =
     fetchProgress && fetchProgress.total > 0
       ? Math.round((fetchProgress.current / fetchProgress.total) * 100)
@@ -163,7 +175,15 @@ export function ReferencesView({
     <div className="border-t border-border/70 px-4 py-2.5">
       {fetching && fetchProgress && (
         <div className="flex flex-col gap-1.5 max-w-md ml-auto">
-          <div className="h-1 overflow-hidden rounded-full bg-surface-3/40">
+          <div
+            role="progressbar"
+            aria-label="Fetching full-text PDFs"
+            aria-valuemin={0}
+            aria-valuemax={fetchProgress.total}
+            aria-valuenow={fetchProgress.current}
+            aria-valuetext={`${fetchProgress.current} of ${fetchProgress.total} papers`}
+            className="h-1 overflow-hidden rounded-full bg-surface-3/40"
+          >
             <div
               className="h-full bg-intent-active transition-all duration-300"
               style={{ width: `${fetchProgressPercent}%` }}
@@ -173,7 +193,7 @@ export function ReferencesView({
             {fetchProgress.current} / {fetchProgress.total} papers
             {fetchProgress.succeeded > 0 && (
               <span className="text-intent-success ml-1">
-                -- {fetchProgress.succeeded} retrieved
+                · {fetchProgress.succeeded} retrieved
               </span>
             )}
           </p>
@@ -186,11 +206,11 @@ export function ReferencesView({
         </div>
       )}
       {fetching && !fetchProgress && (
-        <p className="text-2xs text-muted text-right">Connecting...</p>
+        <p className="text-2xs text-muted text-right">Connecting…</p>
       )}
       {fetchResult && !fetching && (
         <p className="text-2xs text-muted text-right">
-          Retrieved {fetchResult.succeeded} of {fetchResult.attempted} --{" "}
+          Retrieved {fetchResult.succeeded} of {fetchResult.attempted} ·{" "}
           {fetchResult.failed > 0 ? `${fetchResult.failed} unavailable` : "all found"}
           {fetchResult.skipped > 0 ? `, ${fetchResult.skipped} already saved` : ""}
         </p>
@@ -211,7 +231,7 @@ export function ReferencesView({
             {papers.length} {papers.length === 1 ? "paper" : "papers"} included in this review
             {abstractOnlyCount > 0 && (
               <span className="text-intent-warning ml-1">
-                -- {abstractOnlyCount} without full text (abstract-only extraction)
+                · {abstractOnlyCount} without full text (abstract-only extraction)
               </span>
             )}
           </p>
@@ -219,16 +239,6 @@ export function ReferencesView({
       }
       actions={
         <div className="flex flex-wrap items-center justify-end gap-x-3 gap-y-2">
-          <div className="flex items-center gap-3 text-2xs text-muted">
-            <span className="inline-flex items-center gap-1">
-              <span className="h-2 w-2 rounded-full bg-intent-success" />
-              Full text
-            </span>
-            <span className="inline-flex items-center gap-1">
-              <span className="h-2 w-2 rounded-full bg-surface-4" />
-              Abstract only
-            </span>
-          </div>
           <Button
             size="sm"
             variant="outline"
@@ -249,7 +259,7 @@ export function ReferencesView({
               className="border-border text-foreground hover:text-foreground"
             >
               {fetching ? <Spinner size="sm" /> : <RefreshCw className="h-3 w-3" />}
-              {fetching ? "Fetching..." : "Fetch PDFs"}
+              {fetching ? "Fetching…" : "Fetch PDFs"}
             </Button>
           )}
         </div>
@@ -265,16 +275,69 @@ export function ReferencesView({
       </div>
 
       {/* Paper cards */}
-      <div className="flex flex-col gap-3">
-        {papers.map((paper, idx) => (
-          <PaperCard
-            key={paper.paper_id}
-            paper={paper}
-            index={idx + 1}
-            runId={effectiveId}
+      <div className="flex flex-wrap items-center gap-2" role="search" aria-label="Filter included studies">
+        <div className="relative min-w-0 flex-1 sm:max-w-sm">
+          <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted" aria-hidden />
+          <Input
+            type="search"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="Search title, author, year, DOI"
+            aria-label="Search included studies"
+            className="h-8 pl-8 text-sm"
           />
-        ))}
+        </div>
+        <Button
+          type="button"
+          size="sm"
+          variant={fullTextOnly ? "secondary" : "ghost"}
+          aria-pressed={fullTextOnly}
+          onClick={() => setFullTextOnly((v) => !v)}
+          disabled={fullTextCount === 0 && !fullTextOnly}
+        >
+          <FileText className="h-3.5 w-3.5" />
+          Full text only
+          <span className="tabular-nums text-muted">{fullTextCount}</span>
+        </Button>
+        {filtersActive && (
+          <span className="text-xs text-muted tabular-nums" aria-live="polite">
+            {visiblePapers.length} of {papers.length} shown
+          </span>
+        )}
       </div>
+
+      {visiblePapers.length === 0 ? (
+        <EmptyState
+          icon={Search}
+          heading="No included studies match these filters."
+          className="h-40 py-0"
+          action={
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              onClick={() => {
+                setQuery("")
+                setFullTextOnly(false)
+              }}
+            >
+              <X className="h-3.5 w-3.5" />
+              Clear filters
+            </Button>
+          }
+        />
+      ) : (
+        <div className="flex flex-col gap-3">
+          {visiblePapers.map((paper) => (
+            <PaperCard
+              key={paper.paper_id}
+              paper={paper}
+              index={paper.index}
+              runId={effectiveId}
+            />
+          ))}
+        </div>
+      )}
 
       {/* Note on full-text availability */}
       <p className="text-xs text-muted border-t border-border pt-3 mt-1">
@@ -293,13 +356,15 @@ interface PaperCardProps {
 }
 
 function PaperCard({ paper, index, runId }: PaperCardProps) {
-  const hasFullText = paper.has_file && paper.file_type != null
+  const fullText = hasFullText(paper)
+  const title = decodeHtmlEntities(paper.title) || "Untitled"
+  const authors = decodeHtmlEntities(paper.authors)
 
   return (
     <div
       className={cn(
         "group relative p-4 transition-colors data-surface",
-        hasFullText && "hover:border-border",
+        fullText && "hover:border-border",
       )}
     >
       <div className="flex items-start gap-3">
@@ -311,16 +376,14 @@ function PaperCard({ paper, index, runId }: PaperCardProps) {
         <div className="flex-1 min-w-0">
           {/* Title */}
           <p className="text-sm font-medium text-foreground leading-snug">
-            {paper.title || "Untitled"}
+            {title}
           </p>
 
           {/* Authors + year */}
-          {(paper.authors || paper.year) && (
+          {(authors || paper.year) && (
             <p className="text-xs text-muted mt-1 truncate">
-              {paper.authors && (
-                <span>{paper.authors}</span>
-              )}
-              {paper.authors && paper.year && <span className="mx-1">--</span>}
+              {authors && <span>{authors}</span>}
+              {authors && paper.year && <span className="mx-1" aria-hidden>·</span>}
               {paper.year && <span>{paper.year}</span>}
             </p>
           )}
@@ -357,8 +420,9 @@ function PaperCard({ paper, index, runId }: PaperCardProps) {
               rel="noopener noreferrer"
               className="p-1.5 rounded text-muted hover:text-foreground hover:bg-surface-2 transition-colors"
               title={`Open DOI: ${paper.doi}`}
+              aria-label={`Open DOI ${paper.doi} for ${title} (opens in a new tab)`}
             >
-              <ExternalLink className="h-3.5 w-3.5" />
+              <ExternalLink className="h-3.5 w-3.5" aria-hidden />
             </a>
           )}
           {!paper.doi && paper.url && (
@@ -368,18 +432,20 @@ function PaperCard({ paper, index, runId }: PaperCardProps) {
               rel="noopener noreferrer"
               className="p-1.5 rounded text-muted hover:text-foreground hover:bg-surface-2 transition-colors"
               title="Open source URL"
+              aria-label={`Open source page for ${title} (opens in a new tab)`}
             >
-              <ExternalLink className="h-3.5 w-3.5" />
+              <ExternalLink className="h-3.5 w-3.5" aria-hidden />
             </a>
           )}
-          {hasFullText && (
+          {fullText && (
             <a
               href={paperFileUrl(runId, paper.paper_id)}
               download
               className="p-1.5 rounded text-intent-success hover:text-intent-success hover:bg-surface-2 transition-colors"
               title={`Download ${paper.file_type === "pdf" ? "PDF" : "full text"}`}
+              aria-label={`Download ${paper.file_type === "pdf" ? "PDF" : "full text"} of ${title}`}
             >
-              <Download className="h-3.5 w-3.5" />
+              <Download className="h-3.5 w-3.5" aria-hidden />
             </a>
           )}
         </div>

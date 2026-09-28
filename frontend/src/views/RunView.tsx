@@ -257,6 +257,8 @@ export function RunView({
               needsRevision={isNeedsRevision}
               gateFailureReasons={gateFailureReasons(liveOutputs)}
               onOpenActivity={() => onTabChange("activity")}
+              awaitingReview={chrome.isAwaitingReview}
+              onOpenReviewScreening={() => onTabChange("review-screening")}
             />
           )}
 

@@ -1,18 +1,37 @@
-import { useMemo, useRef, useState } from "react"
+import { useCallback, useLayoutEffect, useMemo, useRef, useState, type ComponentProps } from "react"
 import ReactMarkdown from "react-markdown"
 import remarkGfm from "remark-gfm"
 import rehypeSlug from "rehype-slug"
 import rehypeAutolinkHeadings from "rehype-autolink-headings"
 import rehypeHighlight from "rehype-highlight"
-import { BookOpen } from "lucide-react"
+import { AlertTriangle, BookOpen, ChevronDown, Minus, Plus } from "lucide-react"
 import { cn } from "@/lib/utils"
+import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
 import { FetchError, Spinner } from "@/components/ui/feedback"
 import { ViewToolbar } from "@/components/ui/view-toolbar"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
 import { ManuscriptImage } from "@/components/ManuscriptImage"
 import { ManuscriptActions } from "@/components/results/ManuscriptActions"
 import { useFileTextPreview } from "@/hooks/useFilePreview"
 import { extractHeadings, makeUrlTransform } from "./manuscriptUtils"
+import { detectTemplateText, type TemplateTextMatch } from "./draftQuality"
+import { useScrollSpy } from "./tocScrollSpy"
+
+const ZOOM_MIN = 70
+const ZOOM_MAX = 160
+const ZOOM_STEP = 15
+
+interface TocItem {
+  slug: string
+  text: string
+  level: number
+}
 
 interface ManuscriptViewerProps {
   filePath: string
@@ -20,6 +39,105 @@ interface ManuscriptViewerProps {
   canExport: boolean
   exportRunId: string | null | undefined
   allOutputs: Record<string, unknown>
+}
+
+function ManuscriptTable(props: ComponentProps<"table">) {
+  return (
+    <div className="manuscript-table-wrap overflow-x-auto">
+      <table {...props} />
+    </div>
+  )
+}
+
+const MARKDOWN_COMPONENTS = { img: ManuscriptImage, table: ManuscriptTable }
+
+function scrollParent(el: HTMLElement): HTMLElement | null {
+  let node = el.parentElement
+  while (node) {
+    const { overflowY } = getComputedStyle(node)
+    if (overflowY === "auto" || overflowY === "scroll") return node
+    node = node.parentElement
+  }
+  return null
+}
+
+function tocIndent(level: number) {
+  return level === 1 ? "pl-2 font-medium" : level === 2 ? "pl-4" : "pl-6"
+}
+
+function TocRail({
+  items,
+  activeSlug,
+  onJump,
+}: {
+  items: TocItem[]
+  activeSlug: string | null
+  onJump: (slug: string) => void
+}) {
+  return (
+    <nav
+      aria-label="Manuscript outline"
+      className="manuscript-toc hidden lg:block sticky top-14 self-start max-h-[calc(100vh-10rem)] overflow-y-auto"
+    >
+      <p className="label-caps pb-2 pl-2">Outline</p>
+      <ul className="flex flex-col gap-px border-l border-border">
+        {items.map((h) => {
+          const active = h.slug === activeSlug
+          return (
+            <li key={h.slug}>
+              <a
+                href={`#${h.slug}`}
+                aria-current={active ? "location" : undefined}
+                onClick={(e) => {
+                  e.preventDefault()
+                  onJump(h.slug)
+                }}
+                className={cn(
+                  "-ml-px block border-l-2 py-1 pr-2 text-xs leading-snug transition-colors",
+                  tocIndent(h.level),
+                  active
+                    ? "border-intent-primary text-foreground"
+                    : "border-transparent text-muted hover:text-foreground",
+                )}
+              >
+                {h.text}
+              </a>
+            </li>
+          )
+        })}
+      </ul>
+    </nav>
+  )
+}
+
+function DraftQualityChip({ matches }: { matches: TemplateTextMatch[] }) {
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <button
+          type="button"
+          className="inline-flex items-center gap-1 rounded-pill border border-intent-warning-border bg-intent-warning-subtle px-2 py-0.5 text-2xs font-medium text-intent-warning-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        >
+          <AlertTriangle className="h-3 w-3" aria-hidden />
+          Draft quality
+        </button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="start" className="w-80 p-3">
+        <p className="text-xs font-medium text-foreground">Template text found in the manuscript</p>
+        <p className="mt-1 text-2xs text-muted">
+          Edit these passages before submitting, or rerun the writing phase.
+        </p>
+        <ul className="mt-2 flex flex-col gap-2">
+          {matches.map((m) => (
+            <li key={m.id} className="text-xs">
+              <span className="font-medium text-intent-warning-text">{m.label}</span>
+              <span className="mt-0.5 block text-muted">“{m.excerpt}”</span>
+            </li>
+          ))}
+        </ul>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  )
 }
 
 export function ManuscriptViewer({
@@ -31,24 +149,48 @@ export function ManuscriptViewer({
 }: ManuscriptViewerProps) {
   const { content, loading, error, retry } = useFileTextPreview(filePath)
   const [zoom, setZoom] = useState(100)
-  const [showOutline, setShowOutline] = useState(false)
-  const viewerRef = useRef<HTMLDivElement>(null)
+  const [article, setArticle] = useState<HTMLElement | null>(null)
+  const [tocItems, setTocItems] = useState<TocItem[]>([])
+  const toolbarRef = useRef<HTMLDivElement>(null)
 
-  const headings = useMemo(() => content ? extractHeadings(content) : [], [content])
+  const hasHeadings = useMemo(() => (content ? extractHeadings(content).length > 0 : false), [content])
+  const templateMatches = useMemo(() => detectTemplateText(content), [content])
 
-  function jumpTo(slug: string) {
-    const container = viewerRef.current
-    if (!container) return
-    const target = container.querySelector(`#${CSS.escape(slug)}`) as HTMLElement | null
-    if (target) target.scrollIntoView({ behavior: "smooth", block: "start" })
-  }
+  useLayoutEffect(() => {
+    if (!article) return
+    const items = Array.from(article.querySelectorAll<HTMLElement>("h1[id], h2[id], h3[id]")).map((el) => ({
+      slug: el.id,
+      text: el.textContent?.trim() ?? "",
+      level: Number(el.tagName.slice(1)),
+    }))
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- headings come from the rendered DOM (rehype-slug ids)
+    setTocItems(items)
+  }, [article, content])
+
+  const getActivationLine = useCallback(() => {
+    const toolbar = toolbarRef.current
+    if (!toolbar) return 0
+    const scroller = scrollParent(toolbar)
+    const top = scroller ? scroller.getBoundingClientRect().top : 0
+    return top + toolbar.offsetHeight + 24
+  }, [])
+  const slugs = useMemo(() => tocItems.map((t) => t.slug), [tocItems])
+  const activeSlug = useScrollSpy(slugs, article, getActivationLine)
+
+  const jumpTo = useCallback(
+    (slug: string) => {
+      const target = article?.querySelector<HTMLElement>(`#${CSS.escape(slug)}`)
+      target?.scrollIntoView({ behavior: "smooth", block: "start" })
+    },
+    [article],
+  )
 
   if (loading) {
     return (
       <div className="overflow-hidden">
         <div className="px-6 py-4 border-b border-border flex items-center gap-2">
           <Spinner size="sm" />
-          <span className="text-sm text-muted">Loading manuscript...</span>
+          <span className="text-sm text-muted">Loading manuscript…</span>
         </div>
         <div className="p-6 space-y-4">
           <Skeleton className="h-7 w-2/3" />
@@ -69,86 +211,101 @@ export function ManuscriptViewer({
 
   if (!content) return null
 
+  const showToc = hasHeadings && tocItems.length > 0
+
   return (
-    <div className="overflow-hidden">
-      <div className="relative">
+    <div>
+      <div ref={toolbarRef} className="manuscript-toolbar sticky top-0 z-20">
         <ViewToolbar
           dense
+          height="auto"
+          className="flex-wrap"
           title={
-            <button
-              type="button"
-              onClick={() => setShowOutline((v) => !v)}
-              className={cn(
-                "flex items-center gap-1.5 text-xs rounded px-1.5 py-1 transition-colors",
-                showOutline
-                  ? "text-foreground bg-surface-2/60 hover:bg-surface-2"
-                  : "text-muted hover:text-foreground hover:bg-surface-2/40",
+            <div className="flex items-center gap-2">
+              {showToc && (
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button type="button" size="xs" variant="ghost" className="lg:hidden">
+                      <BookOpen />
+                      Outline
+                      <ChevronDown />
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="start" className="max-h-80 w-72 overflow-y-auto">
+                    {tocItems.map((h) => (
+                      <DropdownMenuItem
+                        key={h.slug}
+                        onSelect={() => jumpTo(h.slug)}
+                        aria-current={h.slug === activeSlug ? "location" : undefined}
+                        className={cn("text-xs", tocIndent(h.level), h.slug === activeSlug && "text-foreground")}
+                      >
+                        <span className="truncate">{h.text}</span>
+                      </DropdownMenuItem>
+                    ))}
+                  </DropdownMenuContent>
+                </DropdownMenu>
               )}
-              title={showOutline ? "Hide outline" : "Show outline"}
-            >
-              <BookOpen className="h-3.5 w-3.5" />
-              Outline
-            </button>
+              {templateMatches.length > 0 && <DraftQualityChip matches={templateMatches} />}
+            </div>
           }
           actions={
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center justify-end gap-2">
               <ManuscriptActions
                 docxPath={docxPath}
                 canExport={canExport}
                 exportRunId={exportRunId}
                 allOutputs={allOutputs}
               />
-              <div className="flex items-center gap-1 border-l border-border/70 pl-2">
+              <div className="flex items-center gap-0.5 border-l border-border/70 pl-2" role="group" aria-label="Zoom">
+                <Button
+                  type="button"
+                  size="icon-sm"
+                  variant="ghost"
+                  onClick={() => setZoom((z) => Math.max(ZOOM_MIN, z - ZOOM_STEP))}
+                  disabled={zoom <= ZOOM_MIN}
+                  aria-label="Zoom out"
+                  title="Zoom out"
+                >
+                  <Minus />
+                </Button>
                 <button
                   type="button"
-                  onClick={() => setZoom((z) => Math.max(70, z - 15))}
-                  disabled={zoom <= 70}
-                  className="w-6 h-6 rounded text-sm font-mono text-muted hover:text-foreground hover:bg-surface-2 disabled:opacity-30 transition-colors"
+                  onClick={() => setZoom(100)}
+                  aria-label={`Zoom ${zoom}%, reset to 100%`}
+                  title="Reset zoom"
+                  className="w-11 rounded-control py-1 text-center text-xs font-mono tabular-nums text-muted hover:bg-surface-2 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                 >
-                  -
+                  {zoom}%
                 </button>
-                <span className="text-xs font-mono text-muted w-10 text-center tabular-nums">{zoom}%</span>
-                <button
+                <Button
                   type="button"
-                  onClick={() => setZoom((z) => Math.min(160, z + 15))}
-                  disabled={zoom >= 160}
-                  className="w-6 h-6 rounded text-sm font-mono text-muted hover:text-foreground hover:bg-surface-2 disabled:opacity-30 transition-colors"
+                  size="icon-sm"
+                  variant="ghost"
+                  onClick={() => setZoom((z) => Math.min(ZOOM_MAX, z + ZOOM_STEP))}
+                  disabled={zoom >= ZOOM_MAX}
+                  aria-label="Zoom in"
+                  title="Zoom in"
                 >
-                  +
-                </button>
+                  <Plus />
+                </Button>
               </div>
             </div>
           }
         />
-
-        {showOutline && headings.length > 0 && (
-          <div
-            className="absolute top-full left-0 right-0 z-20 max-h-52 overflow-y-auto border-b border-border/70 bg-surface-1/95 backdrop-blur-sm shadow-md"
-          >
-            <nav className="py-1">
-              {headings.map((h) => (
-                <button
-                  key={h.slug}
-                  onClick={() => jumpTo(h.slug)}
-                  className={cn(
-                    "w-full text-left px-4 py-1 text-xs transition-colors hover:bg-surface-2/50 truncate block",
-                    h.level === 1
-                      ? "text-foreground font-semibold pl-4"
-                      : h.level === 2
-                      ? "text-muted pl-7"
-                      : "text-muted pl-10",
-                  )}
-                >
-                  {h.text}
-                </button>
-              ))}
-            </nav>
-          </div>
-        )}
       </div>
 
-      <div ref={viewerRef} className="overflow-auto max-h-[70vh] p-6 md:p-10">
-        <div className="manuscript-prose max-w-3xl mx-auto manuscript-viewer" style={{ fontSize: `${zoom}%` }}>
+      <div
+        className={cn(
+          "px-5 py-8 md:px-10",
+          showToc && "lg:grid lg:grid-cols-[13rem_minmax(0,1fr)] lg:gap-10",
+        )}
+      >
+        {showToc && <TocRail items={tocItems} activeSlug={activeSlug} onJump={jumpTo} />}
+        <article
+          ref={setArticle}
+          className="manuscript-prose manuscript-viewer mx-auto max-w-[68ch]"
+          style={{ fontSize: `${zoom}%` }}
+        >
           <ReactMarkdown
             remarkPlugins={[remarkGfm]}
             rehypePlugins={[
@@ -157,13 +314,11 @@ export function ManuscriptViewer({
               rehypeHighlight,
             ]}
             urlTransform={makeUrlTransform(filePath)}
-            components={{
-              img: ManuscriptImage,
-            }}
+            components={MARKDOWN_COMPONENTS}
           >
             {content}
           </ReactMarkdown>
-        </div>
+        </article>
       </div>
     </div>
   )

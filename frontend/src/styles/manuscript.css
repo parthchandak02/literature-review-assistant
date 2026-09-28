@@ -4,7 +4,8 @@
 
 /* Theme-backed prose (no prose-zinc in TSX) */
 .manuscript-prose {
-  @apply prose max-w-none;
+  @apply prose;
+  max-width: 68ch;
   --tw-prose-body: var(--color-foreground);
   --tw-prose-headings: var(--color-foreground);
   --tw-prose-lead: var(--color-muted);
@@ -40,6 +41,10 @@ html[data-theme="dark"] .manuscript-prose {
   margin-bottom: 2rem;
 }
 
+.manuscript-viewer :is(h1, h2, h3, h4) {
+  scroll-margin-top: 4.5rem;
+}
+
 .manuscript-viewer :is(h1, h2, h3, h4) a {
   text-decoration: none;
   color: inherit;
@@ -55,6 +60,12 @@ html[data-theme="dark"] .manuscript-prose {
   color: var(--color-text-dim);
 }
 
+.manuscript-viewer .manuscript-table-wrap {
+  margin-block: 1.5em;
+}
+.manuscript-viewer .manuscript-table-wrap table {
+  margin-block: 0;
+}
 .manuscript-viewer table {
   border-collapse: collapse;
   width: 100%;
@@ -81,7 +92,19 @@ html[data-theme="dark"] .manuscript-prose {
 }
 
 @media print {
+  .manuscript-toolbar,
+  .manuscript-toc {
+    display: none !important;
+  }
   .manuscript-viewer {
+    max-width: none;
+    font-size: 100% !important;
+  }
+  .manuscript-viewer .manuscript-table-wrap {
+    overflow: visible !important;
+  }
+  body:has(.manuscript-viewer) [role="tabpanel"] {
+    height: auto !important;
     max-height: none !important;
     overflow: visible !important;
   }

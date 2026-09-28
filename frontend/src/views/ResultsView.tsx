@@ -1,4 +1,4 @@
-import { Suspense, lazy, useEffect, useMemo, useState } from "react"
+import { Suspense, lazy, useCallback, useEffect, useMemo, useState } from "react"
 import {
   Activity,
   AlertTriangle,
@@ -8,11 +8,15 @@ import {
   Image,
   ShieldCheck,
   FolderOpen,
+  ListChecks,
 } from "lucide-react"
 import { EmptyState, Spinner } from "@/components/ui/feedback"
 import { Button } from "@/components/ui/button"
 import { NEEDS_REVISION_EXPLANATION } from "@/lib/constants"
 import { ArtifactFileList } from "@/components/results/ArtifactFileList"
+import { AuditFindingsBlock } from "@/components/results/AuditFindingsBlock"
+import { ValidationDiagnostics } from "@/components/results/ValidationDiagnostics"
+import { collectFiles } from "@/components/results/artifactFileUtils"
 import { collectCustomDiagramItems, customDiagramPipelineTouched } from "@/lib/customDiagrams"
 import { submissionZipUrl } from "@/lib/api"
 import { ProsperoDownloadsCard } from "@/components/results/ProsperoSection"
@@ -22,8 +26,11 @@ import {
 } from "@/components/results/ResultsCategoryNav"
 import type { ResultsCategory } from "@/lib/resultsCategories"
 import {
+  AUDIT_FINDINGS_ANCHOR,
   buildResultsCategoryIds,
+  categoryForHash,
   defaultResultsCategory,
+  lockedResultsState,
   resolveActiveResultsCategory,
   SUBMISSION_FOCUS_RESULTS_CATEGORY,
 } from "@/lib/resultsCategories"
@@ -73,6 +80,8 @@ interface ResultsViewProps {
   needsRevision?: boolean
   gateFailureReasons?: string[]
   onOpenActivity?: () => void
+  awaitingReview?: boolean
+  onOpenReviewScreening?: () => void
 }
 
 export function ResultsView({
@@ -87,6 +96,8 @@ export function ResultsView({
   needsRevision = false,
   gateFailureReasons = [],
   onOpenActivity,
+  awaitingReview = false,
+  onOpenReviewScreening,
 }: ResultsViewProps) {
   const effectiveOutputs = useMemo<Record<string, unknown>>(() => {
     const base =
@@ -105,7 +116,7 @@ export function ResultsView({
   }, [outputs, historyOutputs, exportRunId])
 
   const isHistorical = !isDone && Object.keys(historyOutputs).length > 0
-  const hasResults = isDone || isHistorical
+  const hasResults = isDone || (isHistorical && !awaitingReview)
   const canExport = exportRunId != null && hasResults
 
   const manuscriptPath = useMemo(
@@ -173,10 +184,29 @@ export function ResultsView({
     defaultResultsCategory(Boolean(manuscriptPath)),
   )
 
+  const [auditScrollToken, setAuditScrollToken] = useState(0)
+
+  const openAuditFindings = useCallback(() => {
+    setCategory("quality")
+    setAuditScrollToken((t) => t + 1)
+  }, [])
+
   /* eslint-disable react-hooks/set-state-in-effect -- reset category when run/manuscript context changes */
   useEffect(() => {
+    if (needsRevision || categoryForHash(window.location.hash) === "quality") {
+      openAuditFindings()
+      return
+    }
     setCategory(defaultResultsCategory(Boolean(manuscriptPath)))
-  }, [manuscriptPath, runId])
+  }, [manuscriptPath, runId, needsRevision, openAuditFindings])
+
+  useEffect(() => {
+    const onHash = () => {
+      if (categoryForHash(window.location.hash) === "quality") openAuditFindings()
+    }
+    window.addEventListener("hashchange", onHash)
+    return () => window.removeEventListener("hashchange", onHash)
+  }, [openAuditFindings])
 
   useEffect(() => {
     if (submissionFocusTarget === "reference-papers") {
@@ -187,22 +217,45 @@ export function ResultsView({
 
   const activeCategory = resolveActiveResultsCategory(category, categoryIds)
 
+  useEffect(() => {
+    if (auditScrollToken === 0 || activeCategory !== "quality") return
+    const raf = window.requestAnimationFrame(() => {
+      document.getElementById(AUDIT_FINDINGS_ANCHOR)?.scrollIntoView?.({ behavior: "smooth", block: "start" })
+    })
+    return () => window.cancelAnimationFrame(raf)
+  }, [auditScrollToken, activeCategory])
+
+  const hasPartialFiles = useMemo(
+    () => !hasResults && collectFiles(effectiveOutputs).length > 0,
+    [hasResults, effectiveOutputs],
+  )
+
   if (!hasResults) {
+    const locked = lockedResultsState(awaitingReview)
+    const onCta = locked.target === "review-screening" ? onOpenReviewScreening : onOpenActivity
     return (
-      <EmptyState
-        icon={Lock}
-        heading="Results available once the review completes."
-        sub="Monitor progress in the Activity tab."
-        className="h-64"
-        action={
-          onOpenActivity ? (
-            <Button type="button" size="sm" variant="outline" onClick={onOpenActivity}>
-              <Activity className="h-3.5 w-3.5" />
-              Go to Activity
-            </Button>
-          ) : null
-        }
-      />
+      <div className="flex flex-col gap-4">
+        <EmptyState
+          icon={awaitingReview ? ListChecks : Lock}
+          heading={locked.heading}
+          sub={hasPartialFiles ? `${locked.sub} Files produced so far are listed below.` : locked.sub}
+          className={hasPartialFiles ? "h-48" : "h-64"}
+          action={
+            onCta ? (
+              <Button type="button" size="sm" variant={awaitingReview ? "default" : "outline"} onClick={onCta}>
+                {awaitingReview ? <ListChecks className="h-3.5 w-3.5" /> : <Activity className="h-3.5 w-3.5" />}
+                {locked.cta}
+              </Button>
+            ) : null
+          }
+        />
+        {hasPartialFiles && (
+          <section className="card-surface p-4" aria-labelledby="partial-files-heading">
+            <p id="partial-files-heading" className="label-caps pb-3">Files so far</p>
+            <ArtifactFileList outputs={effectiveOutputs} runId={null} />
+          </section>
+        )}
+      </div>
     )
   }
 
@@ -235,15 +288,15 @@ export function ResultsView({
               </ul>
             )}
           </div>
-          {categoryIds.includes("quality") && activeCategory !== "quality" && (
+          {categoryIds.includes("quality") && (
             <Button
               type="button"
               size="xs"
               variant="outline"
               className="shrink-0"
-              onClick={() => setCategory("quality")}
+              onClick={openAuditFindings}
             >
-              View Quality
+              View audit findings
             </Button>
           )}
         </div>
@@ -256,7 +309,7 @@ export function ResultsView({
       />
 
       <div
-        className="card-surface overflow-hidden min-h-[480px]"
+        className="card-surface overflow-clip min-h-[480px]"
         role="tabpanel"
         id={`tabpanel-${activeCategory}`}
         aria-labelledby={`tab-${activeCategory}`}
@@ -292,6 +345,13 @@ export function ResultsView({
 
         {activeCategory === "quality" && exportRunId && (
           <div className="p-4 space-y-1">
+            <AuditFindingsBlock
+              runId={exportRunId}
+              outputs={effectiveOutputs}
+              gateFailureReasons={gateFailureReasons}
+              onOpenFiles={() => setCategory("files")}
+            />
+            <ValidationDiagnostics runId={exportRunId} workflowId={workflowId} />
             <Suspense fallback={<CategoryPanelLoader />}>
               <GradeSofCard runId={exportRunId} />
               <EvidenceNetworkSection runId={exportRunId} />

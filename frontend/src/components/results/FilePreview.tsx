@@ -194,7 +194,7 @@ export function FilePreview({ file, className }: FilePreviewProps) {
       {loading && (
         <div className="flex items-center justify-center gap-2 py-16 border border-border rounded-lg bg-background">
           <Spinner size="sm" />
-          <span className="text-sm text-muted">Loading preview...</span>
+          <span className="text-sm text-muted">Loading preview…</span>
         </div>
       )}
 

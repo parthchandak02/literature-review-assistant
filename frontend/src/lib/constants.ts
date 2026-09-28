@@ -632,7 +632,7 @@ export function isNeedsRevisionStatus(raw: string | null | undefined): boolean {
 }
 
 export const NEEDS_REVISION_EXPLANATION =
-  "The run finished, but the manuscript audit gate flagged issues that need revision. Results are available; open Results > Quality to see the audit findings."
+  "The run finished, but the manuscript audit gate flagged issues that need revision. Results are available; open Results › Quality › Audit findings to see what to fix."
 
 /** True when a run is parked at an external human gate (not actively streaming). */
 export function isParkedGateStatus(raw: string | null | undefined): boolean {

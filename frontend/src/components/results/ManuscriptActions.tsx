@@ -1,24 +1,23 @@
-import { useCallback, useEffect, useMemo, useState } from "react"
-import { AlertTriangle, Download, FileCode, FileType, RefreshCw } from "lucide-react"
+import { useMemo, useState } from "react"
+import { AlertTriangle, Download, FileCode, FileType, Package, RefreshCw } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Spinner } from "@/components/ui/feedback"
-import { APIResponseError, downloadUrl, submissionZipUrl, triggerExport } from "@/lib/api"
-import {
-  findFileByName,
-  formatExportError,
-  hasCompleteSubmission,
-  hasPartialSubmission,
-} from "./manuscriptUtils"
+import { ConfirmDialog } from "@/components/ConfirmDialog"
+import { downloadUrl, submissionZipUrl } from "@/lib/api"
+import { findFileByName, hasCompleteSubmission, hasPartialSubmission } from "./manuscriptUtils"
 import { RESULTS_DOWNLOAD_BTN_CLS } from "./resultsShared"
-
-type ExportState = "idle" | "loading" | "done" | "error"
+import {
+  PACKAGE_ACTION_LABEL,
+  primaryPackageAction,
+  rebuildNeedsConfirm,
+  useSubmissionPackage,
+} from "./submissionPackage"
 
 interface ManuscriptActionsProps {
   docxPath: string | null
   canExport: boolean
   exportRunId: string | null | undefined
   allOutputs: Record<string, unknown>
-  onExportReadyChange?: (ready: boolean) => void
 }
 
 export function ManuscriptActions({
@@ -26,138 +25,93 @@ export function ManuscriptActions({
   canExport,
   exportRunId,
   allOutputs,
-  onExportReadyChange,
 }: ManuscriptActionsProps) {
-  const [exportState, setExportState] = useState<ExportState>("idle")
-  const [exportFiles, setExportFiles] = useState<string[]>([])
-  const [exportError, setExportError] = useState<string | null>(null)
-  const [packagingIncomplete, setPackagingIncomplete] = useState(false)
+  const complete = useMemo(() => hasCompleteSubmission(allOutputs), [allOutputs])
+  const partial = useMemo(() => hasPartialSubmission(allOutputs), [allOutputs])
+  const { state, run } = useSubmissionPackage(exportRunId, { complete, partial })
+  const [confirmOpen, setConfirmOpen] = useState(false)
   const prefix = exportRunId ?? "manuscript"
+  const action = primaryPackageAction(state.status)
 
-  const handleExport = useCallback(async (force = false) => {
-    if (!exportRunId) return
-    setExportError(null)
-    setExportState("loading")
-    try {
-      const result = await triggerExport(exportRunId, force)
-      setExportFiles(result.files)
-      onExportReadyChange?.(result.files.length > 0)
-      setExportState("done")
-    } catch (error) {
-      if (error instanceof APIResponseError && error.status === 409) {
-        setPackagingIncomplete(true)
-        setExportError(null)
-        onExportReadyChange?.(false)
-        setExportState("idle")
-        return
-      }
-      setExportError(formatExportError(error))
-      onExportReadyChange?.(false)
-      setExportState("error")
-    }
-  }, [exportRunId, onExportReadyChange])
-
-  const completeSubmission = useMemo(
-    () => hasCompleteSubmission(allOutputs),
-    [allOutputs],
-  )
-  const partialSubmission = useMemo(
-    () => hasPartialSubmission(allOutputs),
-    [allOutputs],
-  )
-
-  useEffect(() => {
-    if (partialSubmission) {
-      // eslint-disable-next-line react-hooks/set-state-in-effect -- mirror partial submission into packaging banner
-      setPackagingIncomplete(true)
-    }
-  }, [partialSubmission])
-
-  // Reuse an already-packaged submission without re-running export.
-  useEffect(() => {
-    if (completeSubmission && exportState === "idle") {
-      // eslint-disable-next-line react-hooks/set-state-in-effect
-      setExportState("done")
-      onExportReadyChange?.(true)
-    }
-  }, [completeSubmission, exportState, onExportReadyChange])
-
-  // After export, merge the generated file paths into the outputs map
   const mergedOutputs = useMemo<Record<string, unknown>>(() => {
-    if (exportFiles.length === 0) return allOutputs
+    if (state.files.length === 0) return allOutputs
     const submission: Record<string, string> = {}
-    for (const filePath of exportFiles) {
+    for (const filePath of state.files) {
       const name = filePath.split("/").pop() ?? filePath
       submission[name] = filePath
     }
     return { ...allOutputs, submission }
-  }, [allOutputs, exportFiles])
+  }, [allOutputs, state.files])
 
-  // Prefer the freshly packaged submission/manuscript.tex over doc_manuscript.tex.
-  // findFileByName() matches substrings so "doc_manuscript.tex" would always win because
-  // it also contains "manuscript.tex". When exportFiles is populated, look for the exact
-  // submission path first before falling back to the SSE artifact map.
   const texPath = useMemo(() => {
-    if (exportFiles.length > 0) {
-      const submissionTex = exportFiles.find(f => /\/manuscript\.tex$/.test(f))
-      if (submissionTex) return submissionTex
-    }
-    return findFileByName(mergedOutputs, "manuscript.tex")
-  }, [mergedOutputs, exportFiles])
-  // DOCX: prefer the post-export path; fall back to any pre-existing artifact path from the run
+    const submissionTex = state.files.find((f) => /\/manuscript\.tex$/.test(f))
+    return submissionTex ?? findFileByName(mergedOutputs, "manuscript.tex")
+  }, [mergedOutputs, state.files])
   const mergedDocxPath = useMemo(
     () => findFileByName(mergedOutputs, ".docx") ?? docxPath,
     [mergedOutputs, docxPath],
   )
 
+  const ready = state.status === "ready"
   const sharedCls = RESULTS_DOWNLOAD_BTN_CLS
 
-  const submissionReady = completeSubmission || exportState === "done"
+  function requestRebuild() {
+    if (rebuildNeedsConfirm(state.status)) {
+      setConfirmOpen(true)
+    } else {
+      void run("rebuild")
+    }
+  }
 
   return (
     <div className="flex items-center gap-1.5">
-      {exportState === "loading" && (
-        <Button
-          size="sm"
-          variant="outline"
-          disabled
-          aria-busy
-          className={sharedCls}
-        >
+      {state.status === "building" && (
+        <Button size="sm" variant="outline" disabled aria-busy className={sharedCls}>
           <Spinner size="sm" />
-          Packaging...
+          Building…
         </Button>
       )}
 
-      {exportState === "idle" && canExport && !completeSubmission && (
+      {canExport && action === "build" && (
         <Button
           size="sm"
           variant="outline"
-          onClick={() => void handleExport(packagingIncomplete)}
+          onClick={() => void run("build")}
           className={sharedCls}
-          title="Build IEEE submission package (.tex, .docx, study PDFs)"
+          title="Build the submission package (.tex, .docx, references, study PDFs)"
         >
-          <Download className="h-3 w-3" />
-          {packagingIncomplete ? "Rebuild package" : "Package manuscript"}
+          <Package className="h-3 w-3" />
+          {PACKAGE_ACTION_LABEL.build}
         </Button>
       )}
 
-      {/* Retry button on failure */}
-      {exportState === "error" && (
+      {canExport && action === "rebuild" && (
         <Button
           size="sm"
           variant="outline"
-          onClick={() => void handleExport()}
+          onClick={requestRebuild}
           className={sharedCls}
-          title={exportError ?? "Retry manuscript packaging"}
+          title="The submission package is incomplete. Rebuild it from the current manuscript."
+        >
+          <RefreshCw className="h-3 w-3" />
+          {PACKAGE_ACTION_LABEL.rebuild}
+        </Button>
+      )}
+
+      {canExport && action === "retry" && (
+        <Button
+          size="sm"
+          variant="outline"
+          onClick={() => void run("retry")}
+          className={sharedCls}
+          title={state.error ?? "Retry building the submission package"}
         >
           <AlertTriangle className="h-3 w-3 text-intent-danger" />
-          Retry export
+          {PACKAGE_ACTION_LABEL.retry}
         </Button>
       )}
 
-      {/* Download buttons -- shown once export is done (or if artifacts were already present) */}
-      {(exportState === "done" || mergedDocxPath) && (
+      {(ready || mergedDocxPath) && (
         <>
           {texPath && (
             <Button size="sm" variant="outline" asChild className={sharedCls}>
@@ -175,30 +129,42 @@ export function ManuscriptActions({
               </a>
             </Button>
           )}
-          {exportState === "done" && (
+        </>
+      )}
+
+      {exportRunId && ready && (
+        <>
+          <Button size="xs" variant="success" asChild className="gap-1 border-0 shadow-none">
+            <a href={submissionZipUrl(exportRunId)} download title="Download the submission package (.zip)">
+              <Download className="h-3 w-3" />
+              Submission package
+            </a>
+          </Button>
+          {canExport && (
             <Button
-              size="xs"
-              onClick={() => { setExportState("idle"); void handleExport(true); }}
-              className="gap-1 bg-surface-2 hover:bg-surface-3 text-foreground hover:text-foreground border-0 shadow-none"
-              title="Regenerate manuscript .tex and DOCX"
+              type="button"
+              size="icon-sm"
+              variant="ghost"
+              onClick={requestRebuild}
+              aria-label={PACKAGE_ACTION_LABEL.rebuild}
+              title={PACKAGE_ACTION_LABEL.rebuild}
             >
-              <RefreshCw className="h-3 w-3 text-intent-success" />
-              Refresh
+              <RefreshCw />
             </Button>
           )}
-          {exportRunId && submissionReady && (
-            <Button
-              size="xs"
-              variant="success"
-              asChild
-              className="gap-1 border-0 shadow-none"
-            >
-              <a href={submissionZipUrl(exportRunId)} download title="Download full IEEE submission package">
-                <Download className="h-3 w-3" />
-                Submission Package
-              </a>
-            </Button>
-          )}
+          <ConfirmDialog
+            open={confirmOpen}
+            onOpenChange={setConfirmOpen}
+            title="Rebuild submission package?"
+            description="This regenerates the .tex, DOCX and references from the current manuscript and overwrites the existing package ZIP."
+            confirmLabel="Rebuild"
+            pendingLabel="Rebuilding…"
+            confirmVariant="default"
+            onConfirm={() => {
+              setConfirmOpen(false)
+              void run("rebuild")
+            }}
+          />
         </>
       )}
     </div>

@@ -39,7 +39,35 @@ Logic in `lib/resultsCategories.ts` (vitest-covered):
 | `files` | Always |
 | `references` | Always |
 
-Default: Manuscript if present, else Files.
+Default: Manuscript if present, else Files. `#audit-findings` in the URL (`categoryForHash`) opens Quality and scrolls to the audit block.
+
+**Locked state** (`lockedResultsState`): before results exist, Results shows a lock with a CTA to Activity. For `awaiting_review` it says "Waiting on your screening review" with a CTA to `review-screening`, even when history outputs exist. Any files produced so far are listed under "Files so far".
+
+**Manuscript** (`ManuscriptViewer.tsx`):
+
+- Text column capped at 68ch (`.manuscript-prose` in `styles/manuscript.css`); the page scroll carries the document, with no inner scroller. The toolbar is sticky
+- On `lg`, a sticky left outline rail built from the rendered heading ids, with IntersectionObserver scroll-spy (`tocScrollSpy.ts`) and `aria-current="location"`. Below `lg`, an Outline dropdown that closes after a jump. No Outline control when there are no headings
+- Zoom buttons are labelled; clicking the percentage resets to 100%
+- A "Draft quality" chip appears when `detectTemplateText` (`draftQuality.ts`) finds template or placeholder text; its menu lists each match with an excerpt
+- Tables are wrapped in `overflow-x-auto`. Missing figures render a dashed "Figure not found: {alt}" placeholder (`ManuscriptImage.tsx`). Print hides the toolbar and rail and unclamps the run tab panel
+
+**Submission package** (`submissionPackage.ts`): one per-run state machine shared by the Manuscript actions and the chrome `SubmissionPackageButton`:
+
+| State | Offered action |
+|-------|----------------|
+| `unbuilt` | Build (`force=false`) |
+| `building` | none (busy) |
+| `incomplete` (409 or partial `submission/`) | Rebuild (`force=true`), no confirm |
+| `ready` | Download; Rebuild asks for confirmation because it overwrites the ZIP |
+| `error` | Retry with the failed attempt's `force` |
+
+The chrome "Download submission package" runs `ensureSubmissionPackage`: Build, auto-Rebuild on 409, then download. A `ready` package downloads without rebuilding. Export URLs are unchanged.
+
+**Figures and Files**: figure cards (`FigureCard.tsx`) share download, "Preview unavailable" on load error, 4:3 thumbnails and click-to-zoom. Custom diagrams show real planned/saved counts from the brief pack or generation report. Previewable file rows use a toggle button with `aria-pressed`, separate from the download link.
+
+**Quality**: "Audit findings" (`AuditFindingsBlock.tsx`, anchor `#audit-findings`) is first. Data comes from `GET /api/run/{run_id}/manuscript-audit`: contract violations plus audit findings, sorted failures → warnings → notes with severity badges. With no audit record it links to `run_summary.json` and Files. The `needs_revision` banner's "View audit findings" opens it. Then GRADE and the evidence network (keyboard-reachable nodes, a right-column inspector on `lg`, cluster legend, arrows on citation edges only, and colours inlined on SVG export).
+
+**References**: search (title, author, year, DOI, database), a "Full text only" toggle, and Clear filters (`referenceFilters.ts`). Titles are decoded with `decodeHtmlEntities`. Icon actions have `aria-label`s, and PDF fetch progress is a `role="progressbar"`.
 
 ## Run chrome
 
@@ -49,7 +77,7 @@ Default: Manuscript if present, else Files.
 - "Waiting on you" banner (`RunGateBanner.tsx`, `role="status"`) below the chrome on every tab except the gate's action tab, for `config_ready` / `awaiting_prospero` (action tab Config) and `awaiting_review` (action tab `review-screening`). It states what is needed and has a primary CTA that switches to the action tab
 - Phase timeline on Activity tab only (no duplicate header chips)
 - Run status announced via `aria-live="polite"` in `RunChrome.tsx`
-- Finished runs show "Download submission package" (`SubmissionPackageButton`) in the chrome; Results Manuscript actions have an explicit "Package manuscript" (or "Rebuild package") step
+- Finished runs show "Download submission package" (`SubmissionPackageButton`) in the chrome. It shares the submission package state machine with the Results Manuscript actions (see Results categories)
 - `needs_revision` status (contracts/audit failed, artifacts produced) has its own label/badge and a Results banner (`isNeedsRevisionStatus` in `lib/constants.ts`)
 
 ## Sidebar
@@ -193,6 +221,9 @@ Run before merging changes to `frontend/src/views/` or run navigation.
 - [ ] Manuscript default when present; export actions work
 - [ ] Figures, Quality, Files, References categories
 - [ ] `submissionFocusTarget=reference-papers` highlights ZIP row
+- [ ] Manuscript: 68ch column, sticky toolbar, outline rail tracks scroll on `lg`
+- [ ] `awaiting_review` Results says "Waiting on your screening review"
+- [ ] Quality shows Audit findings first
 
 ### Pipeline actions
 
@@ -200,7 +231,7 @@ Run before merging changes to `frontend/src/views/` or run navigation.
 - [ ] Stop run shows confirm dialog; "Keep running" cancels
 - [ ] Screening overrides survive reload; approve continues workflow
 - [ ] `needs_revision` run shows badge + Results banner
-- [ ] Package manuscript, then Download submission package
+- [ ] Build submission package, then Download; Rebuild asks to confirm
 - [ ] SSE on live run
 - [ ] Data tab filters
 

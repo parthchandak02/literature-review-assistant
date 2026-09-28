@@ -41,3 +41,34 @@ export function resolveActiveResultsCategory(
   if (available.length === 0) return "files"
   return available.includes(active) ? active : available[0]
 }
+
+export const AUDIT_FINDINGS_ANCHOR = "audit-findings"
+
+export function categoryForHash(hash: string | null | undefined): ResultsCategory | null {
+  const id = (hash ?? "").replace(/^#/, "")
+  return id === AUDIT_FINDINGS_ANCHOR ? "quality" : null
+}
+
+export interface LockedResultsState {
+  heading: string
+  sub: string
+  cta: string
+  target: "review-screening" | "activity"
+}
+
+export function lockedResultsState(awaitingReview: boolean): LockedResultsState {
+  if (awaitingReview) {
+    return {
+      heading: "Waiting on your screening review",
+      sub: "The run is paused until you confirm the screening decisions.",
+      cta: "Review screening",
+      target: "review-screening",
+    }
+  }
+  return {
+    heading: "Results are available once the review completes.",
+    sub: "Monitor progress in the Activity tab.",
+    cta: "Go to Activity",
+    target: "activity",
+  }
+}

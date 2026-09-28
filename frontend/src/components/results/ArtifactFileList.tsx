@@ -5,6 +5,7 @@ import { Download, FileText } from "lucide-react"
 import { studyFilesZipUrl } from "@/lib/api"
 import { cn } from "@/lib/utils"
 import { FilePreview } from "./FilePreview"
+import { FigureCard } from "./FigureCard"
 import {
   type OutputFile,
   type DocGroup,
@@ -64,34 +65,25 @@ function SelectableDocRow({
   const { icon: Icon, className: iconClass } = fileIcon(file)
   return (
     <div
-      role="button"
-      tabIndex={0}
-      onClick={() => onSelect(file)}
-      onKeyDown={(e) => {
-        if (e.key === "Enter" || e.key === " ") {
-          e.preventDefault()
-          onSelect(file)
-        }
-      }}
       className={cn(
-        "flex items-center justify-between gap-2 rounded-md px-2 py-1.5 -mx-2 cursor-pointer transition-colors",
+        "flex items-center justify-between gap-2 rounded-md -mx-2 pr-2 transition-colors",
         selected
           ? "bg-intent-primary-subtle ring-1 ring-intent-primary-border"
           : "hover:bg-surface-2/60",
       )}
     >
-      <span className="flex items-center gap-2 min-w-0">
+      <button
+        type="button"
+        aria-pressed={selected}
+        onClick={() => onSelect(file)}
+        title={selected ? `Hide preview of ${file.label}` : `Preview ${file.label}`}
+        className="flex flex-1 items-center gap-2 min-w-0 rounded-md px-2 py-1.5 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+      >
         <Icon className={`h-4 w-4 shrink-0 ${iconClass}`} />
         <span className="text-sm truncate text-foreground">{file.label}</span>
-      </span>
-      <Button
-        size="sm"
-        variant="outline"
-        asChild
-        className={`shrink-0 ${RESULTS_DOWNLOAD_BTN_CLS}`}
-        onClick={(e) => e.stopPropagation()}
-      >
-        <a href={resolveFileUrl(file.path)} download={file.label} className="gap-1.5">
+      </button>
+      <Button size="sm" variant="outline" asChild className={`shrink-0 ${RESULTS_DOWNLOAD_BTN_CLS}`}>
+        <a href={resolveFileUrl(file.path)} download={file.label} className="gap-1.5" aria-label={`Download ${file.label}`}>
           <Download className="h-3.5 w-3.5" />
           Download
         </a>
@@ -100,79 +92,18 @@ function SelectableDocRow({
   )
 }
 
-function FigureGridCard({ file }: { file: OutputFile }) {
-  const [imgError, setImgError] = useState(false)
+function FigureFileCard({ file }: { file: OutputFile }) {
   const { icon: Icon, className: iconClass } = fileIcon(file)
+  const url = resolveFileUrl(file.path)
   return (
-    <figure className="rounded-panel border border-border bg-card overflow-hidden">
-      <div className="px-3 py-2 border-b border-border bg-surface-1/60 flex items-center justify-between gap-2">
-        <figcaption className="flex items-center gap-2 min-w-0 text-sm font-medium text-foreground">
-          <Icon className={`h-4 w-4 shrink-0 ${iconClass}`} />
-          <span className="truncate" title={file.label}>
-            {file.label}
-          </span>
-        </figcaption>
-        {!imgError ? (
-          <Button size="sm" variant="outline" asChild className={`shrink-0 ${RESULTS_DOWNLOAD_BTN_CLS}`}>
-            <a href={resolveFileUrl(file.path)} download={file.label} className="gap-1.5">
-              <Download className="h-3.5 w-3.5" />
-              Download
-            </a>
-          </Button>
-        ) : (
-          <span className="shrink-0 text-xs text-muted border border-border rounded px-2 py-1">
-            Not generated
-          </span>
-        )}
-      </div>
-      {file.isRasterImage && !imgError ? (
-        <div className="p-2 aspect-square flex items-center justify-center bg-surface-1/20">
-          <img
-            src={resolveFileUrl(file.path)}
-            alt={file.label}
-            className="max-h-full max-w-full rounded-lg object-contain"
-            loading="lazy"
-            onError={() => setImgError(true)}
-          />
-        </div>
-      ) : null}
-    </figure>
-  )
-}
-
-function FigureRow({ file }: { file: OutputFile }) {
-  const [imgError, setImgError] = useState(false)
-  const { icon: Icon, className: iconClass } = fileIcon(file)
-  return (
-    <div className="flex flex-col gap-2">
-      <div className="flex items-center justify-between gap-2">
-        <span className="flex items-center gap-2 min-w-0">
-          <Icon className={`h-4 w-4 shrink-0 ${iconClass}`} />
-          <span className="text-sm truncate text-foreground">{file.label}</span>
-        </span>
-        {!imgError ? (
-          <Button size="sm" variant="outline" asChild className={`shrink-0 ${RESULTS_DOWNLOAD_BTN_CLS}`}>
-            <a href={resolveFileUrl(file.path)} download={file.label} className="gap-1.5">
-              <Download className="h-3.5 w-3.5" />
-              Download
-            </a>
-          </Button>
-        ) : (
-          <span className="shrink-0 text-xs text-muted border border-border rounded px-2 py-1">
-            Not generated
-          </span>
-        )}
-      </div>
-      {file.isRasterImage && !imgError && (
-        <img
-          src={resolveFileUrl(file.path)}
-          alt={file.label}
-          className="w-full rounded-lg border border-border object-contain max-h-72"
-          loading="lazy"
-          onError={() => setImgError(true)}
-        />
-      )}
-    </div>
+    <FigureCard
+      src={url}
+      downloadHref={url}
+      downloadName={file.label}
+      title={file.label}
+      icon={<Icon className={`h-4 w-4 shrink-0 ${iconClass}`} />}
+      showImage={file.isRasterImage}
+    />
   )
 }
 
@@ -320,7 +251,7 @@ export function ArtifactFileList({
     return (
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
         {figs.map((f) => (
-          <FigureGridCard key={f.key} file={f} />
+          <FigureFileCard key={f.key} file={f} />
         ))}
       </div>
     )
@@ -340,9 +271,9 @@ export function ArtifactFileList({
       {!hideFigures && figs.length > 0 && (
         <div>
           <p className="label-caps pb-2">Figures</p>
-          <div className="flex flex-col gap-3">
+          <div className="grid gap-3 sm:grid-cols-2">
             {figs.map((f) => (
-              <FigureRow key={f.key} file={f} />
+              <FigureFileCard key={f.key} file={f} />
             ))}
           </div>
         </div>

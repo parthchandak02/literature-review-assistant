@@ -23,7 +23,7 @@ Note: sidebar SHL rows run in Sprint 2 and app-shell and settings rows in Sprint
 | SHL-02 | M | Sidebar cards | #2 and #3 both read "What hospital-based and…". Two truncated lines make them indistinguishable. Config-state cards show "0 found → 0 included", which is noise. | Give titles three lines or a smart abbreviation, show the full title on hover, and hide the funnel until search has run. | 2 | done | sprint-2 |
 | BE-02 | M | Data table | `students&amp;apos;` shows **undecoded HTML entities**. Country, Full-text, Primary Status ("unknown") and RoB Source are empty or "--" for nearly every row. | Decode entities at ingest. Auto-hide columns with no data and add a Columns toggle. | 2 | done | fbf8640 |
 | BE-03 | M | Manuscript | Abstract template leakage (content pipeline) | Detect/replace template text in abstract writer | 2 | done | fbf8640 |
-| RES-01 | M | Manuscript | Manuscript measure ~150ch; no draft-quality chip | 68ch column; warning chip on template text | 5 | todo | |
+| RES-01 | M | Manuscript | Manuscript measure ~150ch; no draft-quality chip | 68ch column; warning chip on template text | 5 | done | sprint-5 |
 | CST-01 | M | Cost chart | Raw labels such as "Phase 6f Custom Diagram Drawing" wrap to four lines. The top bar is **grey** while smaller ones are orange or red, so colour emphasis is inverted. | Use short human labels, one hue, and highlight the top bar. | 4 | done | sprint-4 |
 | ACT-03 | M | Run tabs | Five equal full-width tabs (about 230px each, 38px tall) create a heavy band above every view. | Use underline tabs with left-aligned, content-width items, and move the Download CTA onto the same row on the right. | 2 | done | sprint-2 |
 | ACT-04 | L | Stepper | The connectors are tiny "–" glyphs, not lines. All-complete and all-pending states look alike in weight. | Use 2px connector lines filled with progress colour, and the sub-status text from S1. | 2 | done | sprint-2 |
@@ -97,21 +97,21 @@ Note: sidebar SHL rows run in Sprint 2 and app-shell and settings rows in Sprint
 | SCR-08 | M | `screeningBadges.tsx:31` | Low confidence uses the same red as Exclude. | Show confidence as a neutral meter. | 3 | done | sprint-3 |
 | SCR-09 | L | `ScreeningPaperRow.tsx:40-107`, `ScreeningApprovalBar.tsx:44` | No aria-expanded, a raw stage id, a lowercase badge, and "active learning" jargon. | Humanise these and add the ARIA attributes. | 3 | done | sprint-3 |
 | SCR-10 | L | `ScreeningSummaryHeader.tsx` | Static copy with no counts or progress. | Show "12 of 480 reviewed · 5 overridden" and the thresholds. | 3 | done | sprint-3 |
-| RES-02 | H | `constants.ts:463`, `ResultsView.tsx:238-300` | `needs_revision` says "see Results > Quality", but Quality has no audit findings, so the CTA leads nowhere. | Add an "Audit findings" block at the top of Quality and deep-link to it. | 5 | todo | |
-| RES-03 | M | `ManuscriptActions.tsx:132-200`, `SubmissionPackageButton.tsx` | Two packaging flows use five different verbs, and "Refresh" silently rebuilds. | Use one name and one state machine: "Submission package → Build / Rebuild / Download". | 5 | todo | |
-| RES-04 | M | `ResultsView.tsx:190` | The Lock says "available once complete" even while paused at screening with artefacts ready. | Show "Waiting on your screening", and show partial Files. | 5 | todo | |
-| RES-05 | M | `ManuscriptViewer.tsx:150`, `manuscript.css:7` | `prose max-w-none` gives about 150 characters per line, plus double scrollbars from the 70vh inner scroller. | Cap at 68ch, use page scroll and a sticky toolbar. | 5 | todo | |
-| RES-06 | M | `ManuscriptViewer.tsx:78-147` | The outline overlay covers the text, has no scroll-spy, and shows even with no headings. | Use a sticky left TOC rail on `lg` with `aria-current`. | 5 | todo | |
-| RES-07 | L | `ManuscriptViewer.tsx:102` | The "-" and "+" zoom buttons have no labels and no reset. | Add aria-labels and click % to reset. | 5 | todo | |
-| RES-08 | L | `manuscript.css:83` | Print truncates at 70vh, and tables have no overflow wrapper. | Target the scroll container and wrap tables. | 5 | todo | |
-| RES-09 | M | `ManuscriptImage.tsx:6` | A missing figure renders `null` and silently disappears from the submission. | Show a dashed "Figure not found: {alt}" placeholder. | 5 | todo | |
-| RES-10 | M | `CustomDiagramsCard.tsx:74,117,125` | A hard-coded "3 planned", no download or zoom, and copy pointing to a non-existent "Artifacts" tab. | Use real counts, reuse FigureGridCard, and say "Files". | 5 | todo | |
-| RES-11 | L | `ArtifactFileList.tsx:66-129` | "Not generated" appears on any load error, square thumbnails crop plots, and a link is nested inside a role=button. | Say "Preview unavailable", use 4:3 thumbnails, and add aria-pressed. | 5 | todo | |
-| RES-12 | M | `ReferencesView.tsx:166-384` | The legend matches nothing on the cards, icon-only actions have no aria-label, and there's no search or sort. | Remove the legend, add labels and search, and add a "full text only" filter. | 5 | todo | |
-| RES-13 | M | `EvidenceNetworkViz.tsx:232,556` | Nodes aren't keyboard-reachable, and the detail panel renders below the fold. | Use `tabIndex` nodes and a right-column inspector. | 5 | todo | |
-| RES-14 | L | `EvidenceNetworkViz.tsx:216,431` | Arrows on symmetric edges, exported SVG loses its colours, and there's no cluster legend. | Draw arrows only for citations, inline colours on export, and add a legend. | 5 | todo | |
+| RES-02 | H | `constants.ts:463`, `ResultsView.tsx:238-300` | `needs_revision` says "see Results > Quality", but Quality has no audit findings, so the CTA leads nowhere. | Add an "Audit findings" block at the top of Quality and deep-link to it. | 5 | done | sprint-5 |
+| RES-03 | M | `ManuscriptActions.tsx:132-200`, `SubmissionPackageButton.tsx` | Two packaging flows use five different verbs, and "Refresh" silently rebuilds. | Use one name and one state machine: "Submission package → Build / Rebuild / Download". | 5 | done | sprint-5 |
+| RES-04 | M | `ResultsView.tsx:190` | The Lock says "available once complete" even while paused at screening with artefacts ready. | Show "Waiting on your screening", and show partial Files. | 5 | done | sprint-5 |
+| RES-05 | M | `ManuscriptViewer.tsx:150`, `manuscript.css:7` | `prose max-w-none` gives about 150 characters per line, plus double scrollbars from the 70vh inner scroller. | Cap at 68ch, use page scroll and a sticky toolbar. | 5 | done | sprint-5 |
+| RES-06 | M | `ManuscriptViewer.tsx:78-147` | The outline overlay covers the text, has no scroll-spy, and shows even with no headings. | Use a sticky left TOC rail on `lg` with `aria-current`. | 5 | done | sprint-5 |
+| RES-07 | L | `ManuscriptViewer.tsx:102` | The "-" and "+" zoom buttons have no labels and no reset. | Add aria-labels and click % to reset. | 5 | done | sprint-5 |
+| RES-08 | L | `manuscript.css:83` | Print truncates at 70vh, and tables have no overflow wrapper. | Target the scroll container and wrap tables. | 5 | done | sprint-5 |
+| RES-09 | M | `ManuscriptImage.tsx:6` | A missing figure renders `null` and silently disappears from the submission. | Show a dashed "Figure not found: {alt}" placeholder. | 5 | done | sprint-5 |
+| RES-10 | M | `CustomDiagramsCard.tsx:74,117,125` | A hard-coded "3 planned", no download or zoom, and copy pointing to a non-existent "Artifacts" tab. | Use real counts, reuse FigureGridCard, and say "Files". | 5 | done | sprint-5 |
+| RES-11 | L | `ArtifactFileList.tsx:66-129` | "Not generated" appears on any load error, square thumbnails crop plots, and a link is nested inside a role=button. | Say "Preview unavailable", use 4:3 thumbnails, and add aria-pressed. | 5 | done | sprint-5 |
+| RES-12 | M | `ReferencesView.tsx:166-384` | The legend matches nothing on the cards, icon-only actions have no aria-label, and there's no search or sort. | Remove the legend, add labels and search, and add a "full text only" filter. | 5 | done | sprint-5 |
+| RES-13 | M | `EvidenceNetworkViz.tsx:232,556` | Nodes aren't keyboard-reachable, and the detail panel renders below the fold. | Use `tabIndex` nodes and a right-column inspector. | 5 | done | sprint-5 |
+| RES-14 | L | `EvidenceNetworkViz.tsx:216,431` | Arrows on symmetric edges, exported SVG loses its colours, and there's no cluster legend. | Draw arrows only for citations, inline colours on export, and add a legend. | 5 | done | sprint-5 |
 | RES-15 | M | `constants.ts:23-40` vs `422-440` | Two label sets for the same phases ("Ext. Quality" vs "Extraction & Quality"). | Keep one `PHASE_LABELS` with a `short` field. | 5 | done | sprint-1 |
-| RES-16 | L | multiple | "--" used as a dash in UI copy. | Use "·" or "–". | 5 | todo | |
+| RES-16 | L | multiple | "--" used as a dash in UI copy. | Use "·" or "–". | 5 | done | sprint-5 |
 | DAT-01 | H | `database/PapersTable.tsx:34`, `ui/table.tsx:16` | No column sort and no `aria-sort`. | Sortable `Th` with a chevron. | 4 | done | sprint-4 |
 | DAT-02 | H | `DatabaseView.tsx:210` | The Papers pagination renders below the *Outcomes* table. | Put the pager inside the Papers shell footer or toolbar. | 4 | done | sprint-4 |
 | DAT-03 | H | `DatabaseView.tsx:197` | "No papers found." appears even when filters caused it, with no way out. | Show "No papers match 3 filters" with Clear filters. | 4 | done | sprint-4 |
@@ -264,3 +264,18 @@ _(append per sprint: landed, blocked, next)_
 - Outcomes table is not filter-aware yet (needs a filter-aware /tables endpoint).
 - Year sort starts ascending.
 - Column visibility isn't persisted.
+### Sprint 5: Results (2026-09-28)
+
+**Landed (RES-01..14, 16)**
+- **Manuscript view:** 68ch column with page scroll, a sticky toolbar, an outline rail with scroll-spy, and a "Draft quality" chip that flags template text. Print is fixed and tables scroll horizontally.
+- **Figures and diagrams:** missing figures show a placeholder, and custom diagrams show real counts with download.
+- **Quality tab:** audit findings come from /manuscript-audit, with a segmented, collapsible summary that `needs_revision` runs and the chrome button deep-link to. `ValidationDiagnostics` is mounted here.
+- **Submission package:** one state machine drives build, rebuild (with confirmation) and download.
+- **Gate:** the locked state is gate-aware ("Waiting on your screening review") and shows "Files so far".
+- **References:** search, a "Full text only" filter, and ARIA fixes.
+- **Evidence network:** nodes are reachable by keyboard, there is an inspector column and a legend, arrows appear only on citations, and export uses inlined colours.
+
+**Follow-ups**
+- Humanize source names (openalex_content, semantic_scholar) in References and Data.
+- Warn on package build when the draft-quality check flags template text.
+- Evidence network SVG export should always use light-theme colours.

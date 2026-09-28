@@ -20,11 +20,10 @@ import { Network, Download, X } from "lucide-react"
 import { fetchKnowledgeGraph } from "@/lib/api"
 import type { KnowledgeGraph, KnowledgeGraphNode, KnowledgeGraphEdge } from "@/lib/api"
 import { Spinner, FetchError, EmptyState } from "@/components/ui/feedback"
-
-const COMMUNITY_COLORS = [
-  "var(--color-graph-community-0)", "var(--color-graph-community-1)", "var(--color-graph-community-2)", "var(--color-graph-community-3)", "var(--color-graph-community-4)",
-  "var(--color-graph-community-5)", "var(--color-graph-community-6)", "var(--color-graph-community-7)", "var(--color-graph-community-8)", "var(--color-graph-community-9)",
-]
+import { Button } from "@/components/ui/button"
+import { humanizeSnake } from "@/lib/humanize"
+import { cn } from "@/lib/utils"
+import { communityColor, prepareSvgForExport } from "@/components/results/evidenceNetworkExport"
 
 const EDGE_COLORS: Record<string, string> = {
   shared_outcome: "var(--color-graph-edge-shared-outcome)",
@@ -35,13 +34,22 @@ const EDGE_COLORS: Record<string, string> = {
 }
 
 const GAP_TYPE_LABELS: Record<string, string> = {
-  underrepresented_population: "Population Gap",
-  missing_outcome: "Outcome Gap",
-  methodology_gap: "Methodology Gap",
+  underrepresented_population: "Population gap",
+  missing_outcome: "Outcome gap",
+  methodology_gap: "Methodology gap",
+}
+
+function nodeAriaLabel(node: KnowledgeGraphNode, isGap: boolean): string {
+  const parts = [node.title]
+  if (node.first_author) parts.push(`${node.first_author}${node.has_multiple_authors ? " et al." : ""}`)
+  if (node.year) parts.push(String(node.year))
+  parts.push(`cluster ${node.community_id}`)
+  if (isGap) parts.push("related to a research gap")
+  return parts.join(", ")
 }
 
 function truncateTitle(title: string, max = 18): string {
-  return title.length <= max ? title : title.slice(0, max - 2) + ".."
+  return title.length <= max ? title : title.slice(0, max - 1) + "…"
 }
 
 function nodeLabel(node: KnowledgeGraphNode): string {
@@ -88,7 +96,7 @@ function useForceLayout(
 
     // VOS-style force simulation: repulsion + distance-aware spring + center gravity.
     // SPRING_LEN is dynamic per edge: shorter for high-weight (similar) edges,
-    // longer for low-weight edges -- this clusters semantically related nodes.
+    // longer for low-weight edges, which clusters semantically related nodes.
     const REPULSION = 1800
     const SPRING_K = 0.06
     const DAMPING = 0.82
@@ -167,6 +175,7 @@ interface GraphCanvasProps {
 function GraphCanvas({ graph, width, height, gapPaperIds, selectedId, onSelect, svgRef }: GraphCanvasProps) {
   const positions = useForceLayout(graph.nodes, graph.edges, width, height)
   const [hovered, setHovered] = useState<string | null>(null)
+  const hasCitations = graph.edges.some((e) => e.rel_type === "citation")
 
   if (!positions.size) {
     return (
@@ -181,14 +190,19 @@ function GraphCanvas({ graph, width, height, gapPaperIds, selectedId, onSelect, 
       ref={svgRef}
       width={width}
       height={height}
+      xmlns="http://www.w3.org/2000/svg"
+      role="group"
+      aria-label="Evidence network graph"
       className="absolute inset-0"
       style={{ background: "var(--color-graph-canvas)" }}
     >
-      <defs>
-        <marker id="arrowhead" markerWidth="6" markerHeight="4" refX="6" refY="2" orient="auto">
-          <polygon points="0 0, 6 2, 0 4" fill="var(--color-graph-edge-default)" />
-        </marker>
-      </defs>
+      {hasCitations && (
+        <defs>
+          <marker id="arrowhead" markerWidth="6" markerHeight="4" refX="6" refY="2" orient="auto">
+            <polygon points="0 0, 6 2, 0 4" fill="var(--color-graph-edge-citation)" />
+          </marker>
+        </defs>
+      )}
 
       {/* Edges */}
       {graph.edges.map((edge, i) => {
@@ -213,7 +227,7 @@ function GraphCanvas({ graph, width, height, gapPaperIds, selectedId, onSelect, 
             stroke={color}
             strokeWidth={Math.max(0.5, edge.weight * 2.5)}
             strokeOpacity={opacity}
-            markerEnd="url(#arrowhead)"
+            markerEnd={edge.rel_type === "citation" ? "url(#arrowhead)" : undefined}
           />
         )
       })}
@@ -222,7 +236,7 @@ function GraphCanvas({ graph, width, height, gapPaperIds, selectedId, onSelect, 
       {graph.nodes.map((node) => {
         const pos = positions.get(node.id)
         if (!pos) return null
-        const communityColor = COMMUNITY_COLORS[node.community_id % COMMUNITY_COLORS.length] || "var(--color-graph-edge-default)"
+        const nodeColor = communityColor(node.community_id)
         const isHovered = hovered === node.id
         const isSelected = selectedId === node.id
         const isGap = gapPaperIds.has(node.id)
@@ -232,9 +246,24 @@ function GraphCanvas({ graph, width, height, gapPaperIds, selectedId, onSelect, 
           <g
             key={node.id}
             transform={`translate(${pos.x},${pos.y})`}
+            role="button"
+            tabIndex={0}
+            aria-label={nodeAriaLabel(node, isGap)}
+            aria-pressed={isSelected}
             onMouseEnter={() => setHovered(node.id)}
             onMouseLeave={() => setHovered(null)}
+            onFocus={() => setHovered(node.id)}
+            onBlur={() => setHovered((h) => (h === node.id ? null : h))}
             onClick={() => onSelect(isSelected ? null : node.id)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" || e.key === " ") {
+                e.preventDefault()
+                onSelect(isSelected ? null : node.id)
+              } else if (e.key === "Escape" && isSelected) {
+                onSelect(null)
+              }
+            }}
+            className="evidence-node"
             style={{ cursor: "pointer" }}
           >
             {/* Gap highlight: amber dashed outer ring */}
@@ -252,9 +281,9 @@ function GraphCanvas({ graph, width, height, gapPaperIds, selectedId, onSelect, 
             {/* Node circle */}
             <circle
               r={nodeR}
-              fill={communityColor}
+              fill={nodeColor}
               fillOpacity={0.88}
-              stroke={isSelected ? "var(--color-graph-node-stroke)" : isHovered ? "var(--color-graph-node-stroke)" : communityColor}
+              stroke={isSelected || isHovered ? "var(--color-graph-node-stroke)" : nodeColor}
               strokeWidth={isSelected ? 2.5 : isHovered ? 1.5 : 0.8}
             />
 
@@ -281,7 +310,7 @@ function GraphCanvas({ graph, width, height, gapPaperIds, selectedId, onSelect, 
                   className="pointer-events-none select-none"
                   style={{ userSelect: "none" }}
                 >
-                  {node.title.length > 50 ? node.title.slice(0, 50) + "..." : node.title}
+                  {node.title.length > 50 ? node.title.slice(0, 50) + "…" : node.title}
                 </text>
                 {node.year && (
                   <text
@@ -312,7 +341,7 @@ interface DetailSidebarProps {
 }
 
 function DetailSidebar({ node, graph, gapPaperIds, onClose }: DetailSidebarProps) {
-  const communityColor = COMMUNITY_COLORS[node.community_id % COMMUNITY_COLORS.length] || "var(--color-graph-edge-default)"
+  const nodeColor = communityColor(node.community_id)
   const community = graph.communities.find((c) => c.paper_ids.includes(node.id))
   const connectedEdges = graph.edges.filter(
     (e) => e.source === node.id || e.target === node.id,
@@ -324,25 +353,27 @@ function DetailSidebar({ node, graph, gapPaperIds, onClose }: DetailSidebarProps
   const isGap = gapPaperIds.has(node.id)
 
   return (
-    <div className="border border-border rounded-lg bg-card p-4 space-y-3 text-sm relative">
-      <button
+    <div className="border border-border rounded-lg bg-card p-4 space-y-3 text-sm relative" aria-live="polite">
+      <Button
+        type="button"
+        size="icon-sm"
+        variant="ghost"
         onClick={onClose}
-        className="absolute top-3 right-3 text-muted hover:text-foreground transition-colors"
-        aria-label="Close detail panel"
+        className="absolute top-2 right-2"
+        aria-label="Close paper details"
       >
-        <X size={14} />
-      </button>
+        <X />
+      </Button>
 
       <div className="flex items-start gap-2 pr-6">
         <span
           className="mt-0.5 flex-shrink-0 w-3 h-3 rounded-full"
-          style={{ backgroundColor: communityColor }}
+          style={{ backgroundColor: nodeColor }}
         />
         <div>
           <p className="text-foreground font-medium leading-snug">{node.title}</p>
           <p className="text-muted text-xs mt-0.5">
-            {node.year ? `${node.year}  |  ` : ""}
-            {node.study_design}
+            {[node.year, humanizeSnake(node.study_design)].filter(Boolean).join(" · ")}
           </p>
         </div>
       </div>
@@ -373,7 +404,7 @@ function DetailSidebar({ node, graph, gapPaperIds, onClose }: DetailSidebarProps
               return (
                 <li key={p.id} className="flex items-center gap-1.5 text-xs text-muted">
                   <span className="w-2 h-0.5 rounded-full flex-shrink-0" style={{ backgroundColor: color }} />
-                  {p.title.length > 50 ? p.title.slice(0, 50) + "..." : p.title}
+                  {p.title.length > 50 ? p.title.slice(0, 50) + "…" : p.title}
                 </li>
               )
             })}
@@ -395,13 +426,14 @@ export function EvidenceNetworkViz({ runId }: EvidenceNetworkVizProps) {
   const [graph, setGraph] = useState<KnowledgeGraph | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  const containerRef = useRef<HTMLDivElement>(null)
+  const [container, setContainer] = useState<HTMLDivElement | null>(null)
   const svgRef = useRef<SVGSVGElement | null>(null)
+  const detailRef = useRef<HTMLDivElement>(null)
   const [dims, setDims] = useState({ width: 600, height: 400 })
   const [selectedId, setSelectedId] = useState<string | null>(null)
 
   useEffect(() => {
-    if (!containerRef.current) return
+    if (!container) return
     const obs = new ResizeObserver((entries) => {
       const entry = entries[0]
       if (entry) {
@@ -411,9 +443,9 @@ export function EvidenceNetworkViz({ runId }: EvidenceNetworkVizProps) {
         })
       }
     })
-    obs.observe(containerRef.current)
+    obs.observe(container)
     return () => obs.disconnect()
-  }, [])
+  }, [container])
 
   const loadGraph = useCallback(() => {
     setLoading(true)
@@ -428,10 +460,16 @@ export function EvidenceNetworkViz({ runId }: EvidenceNetworkVizProps) {
   // eslint-disable-next-line react-hooks/set-state-in-effect -- loadGraph is a useCallback that triggers data fetching; setState inside is indirect
   useEffect(() => { loadGraph() }, [loadGraph])
 
+  useEffect(() => {
+    if (!selectedId || !detailRef.current) return
+    if (typeof window.matchMedia === "function" && window.matchMedia("(min-width: 1024px)").matches) return
+    detailRef.current.scrollIntoView?.({ behavior: "smooth", block: "nearest" })
+  }, [selectedId])
+
   const handleDownloadSvg = useCallback(() => {
     if (!svgRef.current) return
-    const serializer = new XMLSerializer()
-    const svgStr = serializer.serializeToString(svgRef.current)
+    const clone = prepareSvgForExport(svgRef.current)
+    const svgStr = new XMLSerializer().serializeToString(clone)
     const blob = new Blob([svgStr], { type: "image/svg+xml;charset=utf-8" })
     const url = URL.createObjectURL(blob)
     const a = document.createElement("a")
@@ -470,41 +508,38 @@ export function EvidenceNetworkViz({ runId }: EvidenceNetworkVizProps) {
   const relTypes = [...new Set(graph.edges.map((e) => e.rel_type))]
   const gapPaperIds = new Set(graph.gaps.flatMap((g) => g.related_paper_ids))
   const selectedNode = selectedId ? graph.nodes.find((n) => n.id === selectedId) ?? null : null
+  const clusters = [...graph.communities].sort((a, b) => b.paper_ids.length - a.paper_ids.length)
 
   return (
     <div className="space-y-4">
-      {/* Stats bar + Download SVG */}
-      <div className="flex items-center gap-4 p-3 rounded-lg bg-card border border-border text-sm flex-wrap">
+      <div className="flex items-center gap-x-4 gap-y-2 p-3 rounded-lg bg-card border border-border text-sm flex-wrap">
         <span className="text-muted">
-          <span className="text-foreground font-semibold">{graph.nodes.length}</span> papers
+          <span className="text-foreground font-semibold tabular-nums">{graph.nodes.length}</span> papers
         </span>
-        <span className="text-border">|</span>
         <span className="text-muted">
-          <span className="text-foreground font-semibold">{graph.edges.length}</span> relationships
+          <span className="text-foreground font-semibold tabular-nums">{graph.edges.length}</span> relationships
         </span>
-        <span className="text-border">|</span>
         <span className="text-muted">
-          <span className="text-foreground font-semibold">{graph.communities.length}</span> clusters
+          <span className="text-foreground font-semibold tabular-nums">{graph.communities.length}</span> clusters
         </span>
         {graph.gaps.length > 0 && (
-          <>
-            <span className="text-border">|</span>
-            <span className="text-intent-warning font-semibold">{graph.gaps.length} research gaps</span>
-          </>
+          <span className="text-intent-warning font-semibold tabular-nums">{graph.gaps.length} research gaps</span>
         )}
         <div className="ml-auto">
-          <button
+          <Button
+            type="button"
+            size="xs"
+            variant="outline"
             onClick={handleDownloadSvg}
-            className="flex items-center gap-1.5 px-2.5 py-1.5 rounded border border-border text-xs text-muted hover:text-foreground hover:border-border transition-colors"
+            disabled={graph.edges.length === 0}
             title="Download evidence network as SVG"
           >
-            <Download size={12} />
+            <Download />
             Download SVG
-          </button>
+          </Button>
         </div>
       </div>
 
-      {/* Edge type legend */}
       {relTypes.length > 0 && (
         <div className="flex items-center gap-3 flex-wrap text-xs text-muted">
           <span>Edge types:</span>
@@ -513,71 +548,99 @@ export function EvidenceNetworkViz({ runId }: EvidenceNetworkVizProps) {
               <span
                 className="inline-block w-3 h-1 rounded-full"
                 style={{ backgroundColor: EDGE_COLORS[t] || "var(--color-graph-edge-default)" }}
+                aria-hidden
               />
-              {t.replace(/_/g, " ")}
+              {humanizeSnake(t)}
+              {t === "citation" && <span aria-hidden>→</span>}
             </span>
           ))}
           {gapPaperIds.size > 0 && (
             <span className="flex items-center gap-1 text-intent-warning">
-              <span className="inline-block w-3 h-3 rounded-full border border-intent-warning border-dashed" />
-              research gap
+              <span className="inline-block w-3 h-3 rounded-full border border-intent-warning border-dashed" aria-hidden />
+              Research gap
             </span>
           )}
-          <span className="ml-auto text-muted italic">Click a node for details</span>
+          <span className="ml-auto text-muted">Select a node (click, or Tab then Enter) for details</span>
         </div>
       )}
 
-      {/* Graph canvas */}
-      <div
-        ref={containerRef}
-        className="w-full rounded-lg border border-border bg-background overflow-hidden"
-        style={{ height: dims.height }}
-      >
-        {graph.edges.length === 0 ? (
-          <div className="flex items-center justify-center h-full text-sm text-muted">
-            No edges found -- papers may be too heterogeneous to cluster.
-          </div>
-        ) : (
-          <div className="relative" style={{ width: dims.width, height: dims.height }}>
-            <GraphCanvas
+      <div className="flex flex-col gap-4 lg:grid lg:grid-cols-[minmax(0,1fr)_18rem] lg:items-start">
+        <div
+          ref={setContainer}
+          className="w-full rounded-lg border border-border bg-background overflow-hidden"
+          style={{ height: dims.height }}
+        >
+          {graph.edges.length === 0 ? (
+            <div className="flex items-center justify-center h-full text-sm text-muted px-4 text-center">
+              No edges found. The papers may be too heterogeneous to cluster.
+            </div>
+          ) : (
+            <div className="relative" style={{ width: dims.width, height: dims.height }}>
+              <GraphCanvas
+                graph={graph}
+                width={dims.width}
+                height={dims.height}
+                gapPaperIds={gapPaperIds}
+                selectedId={selectedId}
+                onSelect={setSelectedId}
+                svgRef={svgRef}
+              />
+            </div>
+          )}
+        </div>
+
+        <div ref={detailRef} className="flex flex-col gap-4 min-w-0">
+          {selectedNode ? (
+            <DetailSidebar
+              node={selectedNode}
               graph={graph}
-              width={dims.width}
-              height={dims.height}
               gapPaperIds={gapPaperIds}
-              selectedId={selectedId}
-              onSelect={setSelectedId}
-              svgRef={svgRef}
+              onClose={() => setSelectedId(null)}
             />
-          </div>
-        )}
+          ) : (
+            <p className="hidden lg:block rounded-lg border border-dashed border-border p-4 text-xs text-muted">
+              Select a paper in the graph to see its cluster and connections.
+            </p>
+          )}
+
+          {clusters.length > 0 && (
+            <div className="rounded-lg border border-border bg-card p-3">
+              <p className="label-caps pb-2">Clusters</p>
+              <ul className="flex flex-col gap-1.5">
+                {clusters.map((c) => (
+                  <li key={c.id} className="flex items-start gap-2 text-xs">
+                    <span
+                      className="mt-1 h-2.5 w-2.5 shrink-0 rounded-full"
+                      style={{ backgroundColor: communityColor(c.id) }}
+                      aria-hidden
+                    />
+                    <span className={cn("min-w-0 flex-1", selectedNode?.community_id === c.id ? "text-foreground" : "text-muted")}>
+                      {c.label || `Cluster ${c.id}`}
+                    </span>
+                    <span className="shrink-0 tabular-nums text-muted">{c.paper_ids.length}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+        </div>
       </div>
 
-      {/* Click-to-detail sidebar panel */}
-      {selectedNode && (
-        <DetailSidebar
-          node={selectedNode}
-          graph={graph}
-          gapPaperIds={gapPaperIds}
-          onClose={() => setSelectedId(null)}
-        />
-      )}
-
-      {/* Research gaps */}
       {graph.gaps.length > 0 && (
         <div className="space-y-2">
-          <h4 className="text-sm font-semibold text-foreground">Detected Research Gaps</h4>
+          <h4 className="text-sm font-semibold text-foreground">Detected research gaps</h4>
           {graph.gaps.map((gap) => (
             <div
               key={gap.id}
               className="p-3 rounded-lg border border-intent-warning-border bg-intent-warning-subtle text-sm"
             >
               <span className="inline-block px-1.5 py-0.5 rounded text-xs font-medium bg-intent-warning-subtle text-intent-warning border border-intent-warning-border mb-1.5">
-                {GAP_TYPE_LABELS[gap.gap_type] || gap.gap_type}
+                {GAP_TYPE_LABELS[gap.gap_type] || humanizeSnake(gap.gap_type)}
               </span>
               <p className="text-foreground text-xs leading-relaxed">{gap.description}</p>
               {gap.related_paper_ids.length > 0 && (
                 <p className="text-muted text-xs mt-1">
-                  {gap.related_paper_ids.length} related paper(s)
+                  {gap.related_paper_ids.length} related {gap.related_paper_ids.length === 1 ? "paper" : "papers"}
                 </p>
               )}
             </div>

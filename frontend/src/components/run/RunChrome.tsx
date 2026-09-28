@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button"
 import { ViewToolbar } from "@/components/ui/view-toolbar"
 import { SubmissionPackageButton } from "@/components/results/SubmissionPackageButton"
 import { NEEDS_REVISION_EXPLANATION } from "@/lib/constants"
+import { AUDIT_FINDINGS_ANCHOR } from "@/lib/resultsCategories"
 import type { RunChromeVM } from "@/hooks/useRunChrome"
 import type { RunTab, SelectedRun } from "@/context/runSessionTypes"
 import { RunFunnelPopover } from "./RunFunnelPopover"
@@ -137,7 +138,10 @@ export function RunChrome({
           {isNeedsRevision && (
             <button
               type="button"
-              onClick={() => onTabChange("results")}
+              onClick={() => {
+                window.location.hash = AUDIT_FINDINGS_ANCHOR
+                onTabChange("results")
+              }}
               className="inline-flex items-center gap-1 shrink-0 text-intent-warning hover:underline"
               title={NEEDS_REVISION_EXPLANATION}
             >
