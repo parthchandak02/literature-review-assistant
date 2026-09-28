@@ -67,5 +67,5 @@ export function useHistory(options?: { enabled?: boolean; refetchInterval?: numb
 
 export function historyFetchErrorMessage(error: unknown): string | null {
   const msg = error instanceof Error ? error.message : String(error)
-  return msg.toLowerCase().includes("fetch") ? "Cannot reach backend" : msg
+  return msg.toLowerCase().includes("fetch") ? "Can't reach the server." : msg
 }

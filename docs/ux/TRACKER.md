@@ -17,16 +17,16 @@ Note: sidebar SHL rows run in Sprint 2 and app-shell and settings rows in Sprint
 | ID | Sev | Where | Issue | Fix | Sprint | Status | Commit |
 |---|---|---|---|---|---|---|---|
 | BE-01 | H | wf-0003 Activity | Error event emitted for config_ready gate status | Don't emit error event for gate statuses | 2 | todo | |
-| ACT-01 | H | wf-0003 Activity | config_ready run lands on Activity, not Config | Route config_ready to Config tab | 2 | todo | |
-| ACT-02 | H | Run chrome funnel strip | The strip reads `1,716 retrieved > 1,548 deduped > … > 6 inclu` and cuts off the **one number users care about**. It is 11px mono with seven colours and `>` separators. | Lead with the outcome: **"6 included"** from 1,716 records. Put the full funnel in a hover popover or the PRISMA figure. | 2 | todo | |
-| SHL-01 | H | Sidebar | Completed run #1 sits under "Reviews", while the **"Completed (0)"** lane is empty. The information architecture contradicts itself. | Auto-file completed runs into Completed, or drop the lane and use a status filter. | 2 | todo | |
-| SHL-02 | M | Sidebar cards | #2 and #3 both read "What hospital-based and…". Two truncated lines make them indistinguishable. Config-state cards show "0 found → 0 included", which is noise. | Give titles three lines or a smart abbreviation, show the full title on hover, and hide the funnel until search has run. | 2 | todo | |
+| ACT-01 | H | wf-0003 Activity | config_ready run lands on Activity, not Config | Route config_ready to Config tab | 2 | done | sprint-2 |
+| ACT-02 | H | Run chrome funnel strip | The strip reads `1,716 retrieved > 1,548 deduped > … > 6 inclu` and cuts off the **one number users care about**. It is 11px mono with seven colours and `>` separators. | Lead with the outcome: **"6 included"** from 1,716 records. Put the full funnel in a hover popover or the PRISMA figure. | 2 | done | sprint-2 |
+| SHL-01 | H | Sidebar | Completed run #1 sits under "Reviews", while the **"Completed (0)"** lane is empty. The information architecture contradicts itself. | Auto-file completed runs into Completed, or drop the lane and use a status filter. | 2 | done | sprint-2 |
+| SHL-02 | M | Sidebar cards | #2 and #3 both read "What hospital-based and…". Two truncated lines make them indistinguishable. Config-state cards show "0 found → 0 included", which is noise. | Give titles three lines or a smart abbreviation, show the full title on hover, and hide the funnel until search has run. | 2 | done | sprint-2 |
 | BE-02 | M | Data table | `students&amp;apos;` shows **undecoded HTML entities**. Country, Full-text, Primary Status ("unknown") and RoB Source are empty or "--" for nearly every row. | Decode entities at ingest. Auto-hide columns with no data and add a Columns toggle. | 2 | todo | |
 | BE-03 | M | Manuscript | Abstract template leakage (content pipeline) | Detect/replace template text in abstract writer | 2 | todo | |
 | RES-01 | M | Manuscript | Manuscript measure ~150ch; no draft-quality chip | 68ch column; warning chip on template text | 5 | todo | |
 | CST-01 | M | Cost chart | Raw labels such as "Phase 6f Custom Diagram Drawing" wrap to four lines. The top bar is **grey** while smaller ones are orange or red, so colour emphasis is inverted. | Use short human labels, one hue, and highlight the top bar. | 4 | todo | |
-| ACT-03 | M | Run tabs | Five equal full-width tabs (about 230px each, 38px tall) create a heavy band above every view. | Use underline tabs with left-aligned, content-width items, and move the Download CTA onto the same row on the right. | 2 | todo | |
-| ACT-04 | L | Stepper | The connectors are tiny "–" glyphs, not lines. All-complete and all-pending states look alike in weight. | Use 2px connector lines filled with progress colour, and the sub-status text from S1. | 2 | todo | |
+| ACT-03 | M | Run tabs | Five equal full-width tabs (about 230px each, 38px tall) create a heavy band above every view. | Use underline tabs with left-aligned, content-width items, and move the Download CTA onto the same row on the right. | 2 | done | sprint-2 |
+| ACT-04 | L | Stepper | The connectors are tiny "–" glyphs, not lines. All-complete and all-pending states look alike in weight. | Use 2px connector lines filled with progress colour, and the sub-status text from S1. | 2 | done | sprint-2 |
 | SET-01 | L | Setup | A 3-button quiz floats in empty space. There's no title, and the research-question input is hidden behind the quiz. | Put an h1 and a big question textarea first. Offer review type as two cards, with "Help me decide" as a link. | 6 | todo | |
 | SET-02 | H | `views/ConfigView.tsx:243-256`, `setup/QuestionStage.tsx:260-268` | "Paste YAML" is offered, but launch is then disabled for pasted configs, so the path is a dead end. | Support launching pasted YAML, or relabel the action "View YAML (no launch)". | 6 | todo | |
 | SET-03 | H | `config/ProsperoGatePanel.tsx:184-199` | There's no path forward without a PROSPERO CRD, and scoping reviews are forced through the same gate. | Add "Start without registration". Skip or relabel the gate for scoping reviews (OSF). | 6 | todo | |
@@ -43,25 +43,25 @@ Note: sidebar SHL rows run in Sprint 2 and app-shell and settings rows in Sprint
 | SET-14 | M | `ConfigView.tsx:95-111`, `setup/constants.ts` | The stepper shows made-up history, "PICO" appears for scoping reviews, and labels like "Routing" and "Backup" are unclear. | Hide the stepper when provenance is unknown, use PCC for scoping reviews, and use plain labels. | 6 | todo | |
 | SET-15 | M | `ConfigView.tsx:78,236`, `YamlEditor.tsx` | YAML edits are lost when switching tabs, there's no dirty flag, reset or parse validation, and the editor has a fixed 400px height. | Lift state up, add a dirty dot, Reset, inline YAML errors and a viewport height. | 6 | todo | |
 | SET-16 | L | `ProsperoGatePanel.tsx:81-137` | An invalid CRD just disables the button without saying why. | Add helper text ("CRD42 + digits") and an error on blur. | 6 | todo | |
-| SHL-03 | H | `App.tsx:131`, `Sidebar.tsx:167-190` | The mobile drawer has no focus trap, no Esc and no dialog role. | Use the Sheet primitive. | 2 | todo | |
-| SHL-04 | H | `sidebar/RunNavCard.tsx:450-481`, `RunCardMetrics.tsx` | Buttons are nested inside the card `<button>`, and Space triggers both. | Build the card with an overlay link and sibling actions. | 2 | todo | |
-| SHL-05 | H | `RunNavCard.tsx:255-368` | Archive and Complete fire instantly on 28px icons that sit next to Resume. | Show a toast with Undo, and move these actions into the overflow menu. | 2 | todo | |
-| SHL-06 | M | `DeleteConfirmDialog.tsx:20` | The dialog says "Delete this review?" without naming which review, and it doesn't say what gets deleted. | Name the topic and #id, list what gets removed, and label the button "Delete permanently". | 2 | todo | |
-| SHL-07 | M | `ConfirmDialog.tsx:38-47` | When `onConfirm` throws, the error is swallowed. | Show the error inline. | 2 | todo | |
-| SHL-08 | M | `RunNavCard.tsx:147-176` | The hand-rolled overflow menu has no Esc and no outside-click close, and it gets clipped. | Use Radix DropdownMenu. | 2 | todo | |
-| SHL-09 | M | `RunNavCard.tsx:369-426` | Two different actions are both labelled "Restore" with the same icon. | Name the destination ("Move to In progress"). | 2 | todo | |
-| SHL-10 | M | `RunNavCard.tsx:119-138` | Disabled cards at 50% opacity give no reason. | Add a tooltip with the reason. | 2 | todo | |
-| SHL-11 | M | `RunNavCard.tsx:525` | The empty note field appears only on hover, so touch users never see it. | Add an "Add note" item to the overflow menu. | 2 | todo | |
-| SHL-12 | M | `SidebarCompletedArchivedSection.tsx:56`, `WorkflowBadges.tsx` | In collapsed mode the lanes vanish and bare "#NN" badges are left. | Use lane icons with counts and status-tinted badges. | 2 | todo | |
-| SHL-13 | L | `SidebarCompletedArchivedSection.tsx:81,128` | Copy mixes "runs", "chats" and "reviews", and the lanes lack aria-expanded. | Use one noun: **review**. Add aria-expanded. | 2 | todo | |
-| SHL-14 | L | `SidebarInProgressSection.tsx:110-133` | The group is labelled "Reviews", but everything is a review. | Rename it "In progress". | 2 | todo | |
-| SHL-15 | L | `Sidebar.tsx:314` | The resize handle works only with a mouse. | Add `role=separator`, arrow keys, and double-click to reset. | 2 | todo | |
-| SHL-16 | L | `SidebarHeader.tsx:72` | Settings and theme move or vanish when the sidebar collapses. | Keep one fixed location. | 2 | todo | |
-| SHL-17 | L | `RunNavCard.tsx:488` | "RECONNECTING" is hard-coded in caps. | Use `statusLabel` with the caps style applied in CSS. | 2 | todo | |
+| SHL-03 | H | `App.tsx:131`, `Sidebar.tsx:167-190` | The mobile drawer has no focus trap, no Esc and no dialog role. | Use the Sheet primitive. | 2 | done | sprint-2 |
+| SHL-04 | H | `sidebar/RunNavCard.tsx:450-481`, `RunCardMetrics.tsx` | Buttons are nested inside the card `<button>`, and Space triggers both. | Build the card with an overlay link and sibling actions. | 2 | done | sprint-2 |
+| SHL-05 | H | `RunNavCard.tsx:255-368` | Archive and Complete fire instantly on 28px icons that sit next to Resume. | Show a toast with Undo, and move these actions into the overflow menu. | 2 | done | sprint-2 |
+| SHL-06 | M | `DeleteConfirmDialog.tsx:20` | The dialog says "Delete this review?" without naming which review, and it doesn't say what gets deleted. | Name the topic and #id, list what gets removed, and label the button "Delete permanently". | 2 | done | sprint-2 |
+| SHL-07 | M | `ConfirmDialog.tsx:38-47` | When `onConfirm` throws, the error is swallowed. | Show the error inline. | 2 | done | sprint-2 |
+| SHL-08 | M | `RunNavCard.tsx:147-176` | The hand-rolled overflow menu has no Esc and no outside-click close, and it gets clipped. | Use Radix DropdownMenu. | 2 | done | sprint-2 |
+| SHL-09 | M | `RunNavCard.tsx:369-426` | Two different actions are both labelled "Restore" with the same icon. | Name the destination ("Move to In progress"). | 2 | done | sprint-2 |
+| SHL-10 | M | `RunNavCard.tsx:119-138` | Disabled cards at 50% opacity give no reason. | Add a tooltip with the reason. | 2 | done | sprint-2 |
+| SHL-11 | M | `RunNavCard.tsx:525` | The empty note field appears only on hover, so touch users never see it. | Add an "Add note" item to the overflow menu. | 2 | done | sprint-2 |
+| SHL-12 | M | `SidebarCompletedArchivedSection.tsx:56`, `WorkflowBadges.tsx` | In collapsed mode the lanes vanish and bare "#NN" badges are left. | Use lane icons with counts and status-tinted badges. | 2 | done | sprint-2 |
+| SHL-13 | L | `SidebarCompletedArchivedSection.tsx:81,128` | Copy mixes "runs", "chats" and "reviews", and the lanes lack aria-expanded. | Use one noun: **review**. Add aria-expanded. | 2 | done | sprint-2 |
+| SHL-14 | L | `SidebarInProgressSection.tsx:110-133` | The group is labelled "Reviews", but everything is a review. | Rename it "In progress". | 2 | done | sprint-2 |
+| SHL-15 | L | `Sidebar.tsx:314` | The resize handle works only with a mouse. | Add `role=separator`, arrow keys, and double-click to reset. | 2 | done | sprint-2 |
+| SHL-16 | L | `SidebarHeader.tsx:72` | Settings and theme move or vanish when the sidebar collapses. | Keep one fixed location. | 2 | done | sprint-2 |
+| SHL-17 | L | `RunNavCard.tsx:488` | "RECONNECTING" is hard-coded in caps. | Use `statusLabel` with the caps style applied in CSS. | 2 | done | sprint-2 |
 | SHL-18 | M | `App.tsx:432-441` | Clicking the title silently copies it. | Add an explicit copy icon and make the title plain text. | 6 | todo | |
 | SHL-19 | M | `App.tsx:397-404` | The offline banner tells users about `pm2 status`. | Keep a user message and put operator hints behind a dev flag. | 6 | todo | |
 | SHL-20 | M | `App.tsx:55-66` | The error boundary shows a raw message, and "Reload" goes to `/` and loses context. | Offer "Reload this page" and "Go home", with collapsible details. | 6 | todo | |
-| SHL-21 | L | `App.tsx:204` | Cmd+B fires inside textareas and isn't discoverable. | Ignore it in editable fields and show it in the tooltip. | 6 | todo | |
+| SHL-21 | L | `App.tsx:204` | Cmd+B fires inside textareas and isn't discoverable. | Ignore it in editable fields and show it in the tooltip. | 6 | wip (Cmd+B guard done in S2) | |
 | SHL-22 | L | `App.tsx:356` | Toasts at top-center cover the breadcrumb. | Move them to bottom-right. | 6 | todo | |
 | SHL-23 | M | `SettingsDialog.tsx:47-67` | Tabs have no ARIA roles and the `initialTab` prop is ignored. | Reuse GlassTabs and reset on open. | 6 | todo | |
 | SHL-24 | M | `SettingsDialog.tsx:31` | The dialog is always 1280px wide, so key inputs stretch. | Use a width per tab. | 6 | todo | |
@@ -69,15 +69,15 @@ Note: sidebar SHL rows run in Sprint 2 and app-shell and settings rows in Sprint
 | SHL-26 | L | `ApiKeysSection.tsx:96,172` | Email fields are masked as passwords, and the warning has no icon. | Use `type=email` and add an alert icon. | 6 | todo | |
 | SHL-27 | L | `GlobalCostOpsDialog.tsx` | Dead code, and "Workflows" wording; the layout jumps on reload. | Delete it, and keep stale data dimmed while refreshing. | 6 | todo | |
 | SHL-28 | L | `ViewBoundary.tsx:46` | "Try again" remounts into the same crash. | Add "Reload page" and "Copy details". | 6 | todo | |
-| ACT-05 | H | `activity/PhaseTimeline.tsx:67`, `ui/HorizontalStepper.tsx:119` | Seven milestones only, with sub-phase, progress and elapsed time never shown. | Show "Full-text retrieval · 34/120 · 6m" under the active step and mirror it in the chrome. | 2 | todo | |
-| ACT-06 | H | `ActivityView.tsx:192-208` | Resume is a hidden double-tap that silently disarms after 8s and re-runs paid phases. | Add an explicit "Resume from…" menu and a confirm listing the phases and prior cost. | 2 | todo | |
-| ACT-07 | H | `RunView.tsx:159`, `RunChrome.tsx:190` | `awaiting_review` gets no redirect or banner, and its tab sits last. | Show a "Paused: 312 decisions need you → Review" banner on every tab and put the tab second. | 2 | todo | |
-| ACT-08 | M | `ActivityView.tsx:148-166` | `resumeBlockedReason` is computed but never shown. | Show it as an inline hint. | 2 | todo | |
-| ACT-09 | M | `ActivityView.tsx:224` | The failure banner shows the *first* error, has no role=alert, and offers no action. | Show "Failed in {phase}" with the last error, "Show in log" and "Resume from {phase}". | 2 | todo | |
+| ACT-05 | H | `activity/PhaseTimeline.tsx:67`, `ui/HorizontalStepper.tsx:119` | Seven milestones only, with sub-phase, progress and elapsed time never shown. | Show "Full-text retrieval · 34/120 · 6m" under the active step and mirror it in the chrome. | 2 | done | sprint-2 |
+| ACT-06 | H | `ActivityView.tsx:192-208` | Resume is a hidden double-tap that silently disarms after 8s and re-runs paid phases. | Add an explicit "Resume from…" menu and a confirm listing the phases and prior cost. | 2 | done | sprint-2 |
+| ACT-07 | H | `RunView.tsx:159`, `RunChrome.tsx:190` | `awaiting_review` gets no redirect or banner, and its tab sits last. | Show a "Paused: 312 decisions need you → Review" banner on every tab and put the tab second. | 2 | done | sprint-2 |
+| ACT-08 | M | `ActivityView.tsx:148-166` | `resumeBlockedReason` is computed but never shown. | Show it as an inline hint. | 2 | done | sprint-2 |
+| ACT-09 | M | `ActivityView.tsx:224` | The failure banner shows the *first* error, has no role=alert, and offers no action. | Show "Failed in {phase}" with the last error, "Show in log" and "Resume from {phase}". | 2 | done | sprint-2 |
 | ACT-10 | M | `lib/constants.ts:335` | Unknown statuses fall back to "Ready" (stale runs, config_generating). | Map through `STATUS_LABEL`. | 2 | done | sprint-1 |
-| ACT-11 | M | `HorizontalStepper.tsx:95-139` | State is conveyed by colour and icon only, with no `aria-current` and no `<ol>`. | Add sr-only status text. | 2 | todo | |
-| ACT-12 | L | `ActivityView.tsx:57,90` | "Start the server" is developer copy. | "Can't reach the server. Retry". | 2 | todo | |
-| ACT-13 | L | `RunChrome.tsx:91-125` | Literal ` | ` and `>` separators are read aloud, "Copied" isn't announced, and cost is styled as a warning. | 2 | todo | |
+| ACT-11 | M | `HorizontalStepper.tsx:95-139` | State is conveyed by colour and icon only, with no `aria-current` and no `<ol>`. | Add sr-only status text. | 2 | done | sprint-2 |
+| ACT-12 | L | `ActivityView.tsx:57,90` | "Start the server" is developer copy. | "Can't reach the server. Retry". | 2 | done | sprint-2 |
+| ACT-13 | L | `RunChrome.tsx:91-125` | Literal ` | ` and `>` separators are read aloud, "Copied" isn't announced, and cost is styled as a warning. | 2 | done | sprint-2 |
 | LOG-01 | H | `LogStream.tsx:328-380` | Virtualisation assumes 24px rows, but rows wrap, which breaks scroll and sticky phase headers above 350 rows. | Use `@tanstack/react-virtual` with measured rows and a sticky phase header outside the list. | 6 | todo | |
 | LOG-02 | H | `LogStream.tsx:299`, `ActivityLogPanel.tsx` | Follow stops silently, and there's no severity filter. | Add a "↓ 14 new" pill and chips: All, Warnings+, Errors, Decisions. | 6 | todo | |
 | LOG-03 | M | `LogStream.tsx:365` | `aria-live` on a firehose floods screen readers. | Announce only phase changes and errors. | 6 | todo | |
@@ -180,3 +180,45 @@ _(append per sprint: landed, blocked, next)_
 - The SVG font sizes in EvidenceNetworkViz stay at 9/10px (RES sprint).
 
 **Next:** Sprint 2 (Status and safety). BE-01..03 is already in progress in a worktree.
+
+### Sprint 2: Status and safety (2026-09-28)
+
+**Landed**
+- **ACT-01..13:**
+  - stepper sub-status, also shown live in the chrome
+  - explicit "Resume from…" with a confirm dialog listing phases and prior spend
+  - failure banner with actions
+  - "Waiting on you" banner, including config_generating
+  - auto-routing to the action tab (deep links respected)
+  - underline tabs with the gate tab second
+  - outcome-first strip and Funnel popover
+  - mobile: stepper shows only the current label, and the download button is hidden
+  - `warn` event rendering
+- **SHL-01..17:**
+  - overlay-link cards
+  - Radix actions menu and undo toasts
+  - named delete dialog and inline confirm errors
+  - completed runs default into the Completed lane, with a localStorage pin for "Move to In progress"
+  - "In progress" naming
+  - collapsed lane icons
+  - Sheet mobile drawer
+  - keyboard resize
+  - Cmd+B guard
+
+**Decisions**
+- Gate banners are violet (primary).
+- Resume confirm uses the primary style and wording "Previously spent on these phases".
+- `needs_revision` stays In progress.
+- Uncertain papers are kept in extraction (backend behaviour, stated in the screening confirm).
+- Methods wording is "automated reviewers" (user decision).
+
+**Open follow-ups**
+- Gate banner decision count: wire it after Sprint 3 merges.
+- A sidebar re-click on an awaiting_review run should re-route to the gate tab (`useRunLifecycleActions`).
+- Archiving the viewed run navigates home; Undo should return to it.
+- Persist the "moved to In progress" pin in the backend (currently per-browser).
+- Delete leaves empty parent `wf-*` folders.
+
+**In flight**
+- BE-01..03 and the screening backend fixes (return AI excludes, fix the approval cohort data loss, idempotent overrides, thresholds) in the backend worktree.
+- Sprint 3 frontend done (branch 734ef4f), awaiting merge.

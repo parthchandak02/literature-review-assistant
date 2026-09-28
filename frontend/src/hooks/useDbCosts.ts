@@ -136,5 +136,5 @@ export function useWorkflowValidationChecks(
 
 export function costsFetchErrorMessage(error: unknown): string | null {
   const msg = error instanceof Error ? error.message : String(error)
-  return msg.toLowerCase().includes("failed to fetch") ? "Cannot reach backend." : msg
+  return msg.toLowerCase().includes("failed to fetch") ? "Can't reach the server." : msg
 }

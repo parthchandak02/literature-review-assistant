@@ -1,4 +1,12 @@
-import { PHASE_MILESTONES, PHASE_ORDER, RESUME_PHASE_ORDER } from "@/lib/constants"
+import {
+  PHASE_META,
+  PHASE_MILESTONES,
+  PHASE_ORDER,
+  RESUME_PHASE_ORDER,
+  phaseLabel,
+  resolvePhaseId,
+  type MilestoneId,
+} from "@/lib/constants"
 import { PROSPERO_GATE_PHASE } from "@/lib/phaseProgress"
 import type { ReviewEvent } from "@/lib/api"
 
@@ -170,4 +178,206 @@ export function buildMilestoneState(
     }
   }
   return { status: "pending" }
+}
+
+type TimelinePhase = (typeof PHASE_ORDER)[number]
+type ResumePhase = (typeof RESUME_PHASE_ORDER)[number]
+
+function parseTs(raw: string): number {
+  const iso = raw.includes("T") ? raw : `${raw.replace(" ", "T")}Z`
+  return new Date(iso).getTime()
+}
+
+/** Compact elapsed time: "45s", "6m", "1h 12m". */
+export function formatElapsed(ms: number): string {
+  const secs = Math.max(0, Math.floor(ms / 1000))
+  if (secs < 60) return `${secs}s`
+  const mins = Math.floor(secs / 60)
+  if (mins < 60) return `${mins}m`
+  const hours = Math.floor(mins / 60)
+  const rest = mins % 60
+  return rest ? `${hours}h ${rest}m` : `${hours}h`
+}
+
+/**
+ * The phase the run is on: an awaiting gate first, otherwise the running phase
+ * that started most recently (so a sub-phase wins over its parent).
+ */
+export function currentPhaseId(phaseStates: Record<string, PhaseState>): string | null {
+  const entries = Object.entries(phaseStates)
+  const awaiting = entries.find(([, state]) => state.status === "awaiting")
+  if (awaiting) return awaiting[0]
+  let best: { phase: string; ts: number } | null = null
+  for (const [phase, state] of entries) {
+    if (state.status !== "running") continue
+    const parsed = state.startedTs ? parseTs(state.startedTs) : Number.NaN
+    const ts = Number.isFinite(parsed) ? parsed : Number.NEGATIVE_INFINITY
+    if (!best || ts >= best.ts) best = { phase, ts }
+  }
+  return best?.phase ?? null
+}
+
+export interface ActiveSubStatus {
+  phase: string
+  milestone: MilestoneId | null
+  label: string
+  progressText: string | null
+  elapsedText: string | null
+  awaiting: boolean
+}
+
+function formatCount(value: number): string {
+  return value.toLocaleString("en-US")
+}
+
+/** Sub-status of the active step, e.g. label "PDF retrieval", progressText "34/120", elapsedText "6m". */
+export function activeSubStatus(
+  phaseStates: Record<string, PhaseState>,
+  now: number | Date,
+): ActiveSubStatus | null {
+  const phase = currentPhaseId(phaseStates)
+  if (!phase) return null
+  const state = phaseStates[phase]
+  const awaiting = state.status === "awaiting"
+  const progress = state.progress
+  const progressText =
+    progress && progress.total > 0
+      ? `${formatCount(Math.min(progress.current, progress.total))}/${formatCount(progress.total)}`
+      : null
+  let elapsedText: string | null = null
+  if (!awaiting && state.startedTs) {
+    const started = parseTs(state.startedTs)
+    const nowMs = typeof now === "number" ? now : now.getTime()
+    if (Number.isFinite(started)) elapsedText = formatElapsed(nowMs - started)
+  }
+  const id = resolvePhaseId(phase)
+  return {
+    phase,
+    milestone: id ? PHASE_META[id].milestone : null,
+    label: phaseLabel(phase, "short"),
+    progressText,
+    elapsedText,
+    awaiting,
+  }
+}
+
+/** "PDF retrieval · 34/120 · 6m" */
+export function formatSubStatus(sub: ActiveSubStatus): string {
+  return [sub.label, sub.progressText, sub.elapsedText].filter(Boolean).join(" · ")
+}
+
+const NON_NUMBERED_PARENT: Record<string, TimelinePhase> = {
+  screening_calibration: "phase_3_screening",
+  screening_batch_ranker: "phase_3_screening",
+  criteria_refinement: "phase_3_screening",
+  human_review_checkpoint: "phase_3_screening",
+  citation_chasing: "phase_3_screening",
+  quality_rob2: "phase_4_extraction_quality",
+  quality_robins_i: "phase_4_extraction_quality",
+  quality_casp: "phase_4_extraction_quality",
+  quality_mmat: "phase_4_extraction_quality",
+}
+
+/** Map a phase, sub-phase or cost-record key to its PHASE_ORDER phase. */
+export function timelinePhaseFor(raw: string): TimelinePhase | null {
+  const id: string = resolvePhaseId(raw) ?? raw
+  if ((PHASE_ORDER as readonly string[]).includes(id)) return id as TimelinePhase
+  if (NON_NUMBERED_PARENT[id]) return NON_NUMBERED_PARENT[id]
+  const match = /^phase_(\d+)([a-z]?)/.exec(id)
+  if (!match) return null
+  const [, num, letter] = match
+  const exact = letter ? PHASE_ORDER.find((p) => p.startsWith(`phase_${num}${letter}_`)) : undefined
+  return exact ?? PHASE_ORDER.find((p) => p.startsWith(`phase_${num}_`)) ?? null
+}
+
+/** Timeline phases that run again when resuming from `phase`. */
+export function phasesRerunFrom(phase: string): TimelinePhase[] {
+  const idx = PHASE_ORDER.indexOf(phase as TimelinePhase)
+  return idx < 0 ? [] : PHASE_ORDER.slice(idx)
+}
+
+/** Prior spend of the given timeline phases; null when there is no cost data. */
+export function priorCostForPhases(
+  byPhase: ReadonlyArray<{ phase: string; cost_usd: number }> | null | undefined,
+  phases: readonly string[],
+): number | null {
+  if (!byPhase || byPhase.length === 0) return null
+  const wanted = new Set(phases)
+  let total = 0
+  for (const row of byPhase) {
+    const parent = timelinePhaseFor(row.phase)
+    if (parent && wanted.has(parent)) total += row.cost_usd || 0
+  }
+  return total
+}
+
+export interface ResumeOption {
+  phase: ResumePhase
+  label: string
+  selectable: boolean
+}
+
+export function resumeOptions(
+  phaseStates: Record<string, PhaseState>,
+  completedWorkflow: boolean,
+): ResumeOption[] {
+  return RESUME_PHASE_ORDER.map((phase) => ({
+    phase,
+    label: phaseLabel(phase, "long"),
+    selectable: isPhaseResumeSelectable(phase, phaseStates, completedWorkflow),
+  }))
+}
+
+/** Latest resumable phase; the failure banner offers to resume from it. */
+export function latestResumablePhase(
+  phaseStates: Record<string, PhaseState>,
+  completedWorkflow: boolean,
+): ResumePhase | null {
+  const options = resumeOptions(phaseStates, completedWorkflow)
+  for (let i = options.length - 1; i >= 0; i--) {
+    if (options[i].selectable) return options[i].phase
+  }
+  return null
+}
+
+/** Mark the phase the run died in, and its timeline parent, as errored. */
+export function applyFailure(
+  phaseStates: Record<string, PhaseState>,
+  failedPhase: string | null,
+): Record<string, PhaseState> {
+  if (!failedPhase) return phaseStates
+  const next = { ...phaseStates }
+  for (const phase of new Set([failedPhase, timelinePhaseFor(failedPhase) ?? failedPhase])) {
+    const prev = next[phase]
+    if (!prev || prev.status !== "running") continue
+    next[phase] = { ...prev, status: "error" }
+  }
+  return next
+}
+
+export interface FailureSummary {
+  phase: string | null
+  message: string
+}
+
+/** Last error message, and the phase that was running when the run failed. */
+export function failureSummary(
+  events: ReviewEvent[],
+  phaseStates: Record<string, PhaseState>,
+): FailureSummary {
+  let message: string | null = null
+  for (let i = events.length - 1; i >= 0 && message === null; i--) {
+    const ev = events[i]
+    if (ev.type === "error" && ev.msg) message = ev.msg
+  }
+  for (let i = events.length - 1; i >= 0 && message === null; i--) {
+    const ev = events[i]
+    if (ev.type === "done" && typeof ev.outputs?.error === "string" && ev.outputs.error) {
+      message = ev.outputs.error
+    }
+  }
+  return {
+    phase: currentPhaseId(phaseStates),
+    message: message ?? "An unexpected error occurred.",
+  }
 }

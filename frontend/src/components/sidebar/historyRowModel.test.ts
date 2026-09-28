@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest"
-import { buildInProgressRowModel, buildRunCardModel } from "./historyRowModel"
+import {
+  buildInProgressRowModel,
+  buildRunCardModel,
+  keyMetricText,
+  truncateTopic,
+} from "./historyRowModel"
 import type { HistoryEntry } from "@/lib/api"
 import type { LiveRun } from "./types"
 
@@ -57,6 +62,17 @@ describe("buildInProgressRowModel", () => {
     expect(model.actionPadClass).toBe("pr-14")
   })
 
+  it("labels rows with runStatusLabel and gives a disabled reason", () => {
+    const reconnecting = buildInProgressRowModel(
+      { ...baseEntry, status: "streaming", live_run_id: null },
+      null, null, null, null, {},
+    )
+    expect(reconnecting.statusLabel).toBe("Reconnecting")
+    const noDb = buildInProgressRowModel({ ...baseEntry, db_path: "" }, null, null, null, null, {})
+    expect(noDb.canOpen).toBe(false)
+    expect(noDb.disabledReason).toBe("No database yet")
+  })
+
   it("uses done progress for terminal history status", () => {
     const entry = { ...baseEntry, status: "completed" }
     const model = buildInProgressRowModel(entry, null, null, null, null, {})
@@ -84,6 +100,22 @@ describe("buildInProgressRowModel", () => {
     expect(model.statusKey).toBe("awaiting_review")
     expect(model.rowIsRunning).toBe(false)
     expect(model.isCompletedLaneEligible).toBe(false)
+  })
+})
+
+describe("card metrics", () => {
+  it("hides the funnel until search has found records", () => {
+    expect(keyMetricText({ papersFound: 0, papersIncluded: 0 })).toBeNull()
+    expect(keyMetricText({ papersFound: null, papersIncluded: null })).toBeNull()
+    expect(keyMetricText({ papersFound: 1716, papersIncluded: 6 })).toBe("6 included")
+    expect(keyMetricText({ papersFound: 40, papersIncluded: null })).toBe("40 found")
+  })
+
+  it("truncates topics on a word boundary", () => {
+    expect(truncateTopic("short")).toBe("short")
+    const long = truncateTopic("What hospital-based and hospital-linked models of geriatric care work", 40)
+    expect(long.length).toBeLessThanOrEqual(40)
+    expect(long.endsWith("…")).toBe(true)
   })
 })
 
@@ -115,10 +147,10 @@ describe("buildRunCardModel", () => {
     })
     expect(model.variant).toBe("completed")
     expect(model.showProgressBar).toBe(false)
-    expect(model.showWorkflowBadge).toBe(false)
+    expect(model.showWorkflowBadge).toBe(true)
     expect(model.showNoteField).toBe(false)
     expect(model.papersFound).toBe(10)
-    expect(model.dateClassName).toContain("intent-success")
+    expect(model.statusLabel).toBe("Completed")
   })
 
   it("builds archived lane model with archived card styling", () => {

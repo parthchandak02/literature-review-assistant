@@ -1,4 +1,4 @@
-import { useEffect, Suspense, lazy } from "react"
+import { useEffect, useMemo, useRef, useState, Suspense, lazy } from "react"
 import {
   Activity,
   BarChart3,
@@ -9,11 +9,14 @@ import {
 import { Spinner } from "@/components/ui/feedback"
 import { ViewBoundary } from "@/components/ViewBoundary"
 import { RunChrome } from "@/components/run/RunChrome"
+import { RunGateBanner } from "@/components/run/RunGateBanner"
+import { explicitTabWorkflowId, resolveAutoRouteTab } from "@/components/run/runRouting"
 import { ActivityView } from "@/views/ActivityView"
 import type { ReviewEvent } from "@/lib/api"
 import { useHistoricalEvents } from "@/hooks/useHistoricalEvents"
 import type { CostStats } from "@/hooks/useCostStats"
 import { useRunChrome } from "@/hooks/useRunChrome"
+import { activeSubStatus, buildPhaseStates, formatSubStatus } from "@/lib/activityPhaseState"
 import type { DraftConfigContext } from "@/views/ConfigView"
 import type { ProsperoRegistration, ScreeningOverride } from "@/lib/api"
 import type { RunTab, SelectedRun } from "@/context/runSessionTypes"
@@ -41,6 +44,10 @@ const TAB_ITEMS: { id: RunTab; label: string; icon: React.ElementType }[] = [
   { id: "config", label: "Config", icon: FileCode2 },
   { id: "cost", label: "Cost", icon: BarChart3 },
 ]
+
+/** Workflow deep-linked with an explicit tab on page load; auto-routing skips it once. */
+let deepLinkedWorkflowId: string | null =
+  typeof window !== "undefined" ? explicitTabWorkflowId(window.location.pathname) : null
 
 function gateFailureReasons(outputs: Record<string, unknown>): string[] {
   const raw = outputs.gate_failure_reasons
@@ -154,12 +161,41 @@ export function RunView({
     isDone,
     isAwaitingProspero,
     isNeedsRevision,
+    gate,
   } = chrome
 
+  const [nowTick, setNowTick] = useState(() => Date.now())
   useEffect(() => {
-    if (!isAwaitingProspero || activeTab === "config") return
-    onTabChange("config")
-  }, [isAwaitingProspero, activeTab, onTabChange])
+    if (!isViewingLiveRun) return
+    const id = setInterval(() => setNowTick(Date.now()), 15000)
+    return () => clearInterval(id)
+  }, [isViewingLiveRun])
+  const subStatus = useMemo(() => {
+    if (!isViewingLiveRun || !chrome.isRunning) return null
+    const sub = activeSubStatus(buildPhaseStates(events, false), nowTick)
+    return sub ? formatSubStatus(sub) : null
+  }, [isViewingLiveRun, chrome.isRunning, events, nowTick])
+
+  const runKey = run.workflowId ?? run.runId
+  const routedRef = useRef<string | null>(null)
+  const suppressedRunRef = useRef<string | null>(null)
+
+  useEffect(() => {
+    if (deepLinkedWorkflowId && deepLinkedWorkflowId === run.workflowId) {
+      suppressedRunRef.current = runKey
+      deepLinkedWorkflowId = null
+    }
+    if (!gate) return
+    const routeKey = `${runKey}:${gate}`
+    if (routedRef.current === routeKey) return
+    routedRef.current = routeKey
+    const target = resolveAutoRouteTab({
+      gate,
+      activeTab,
+      explicitDeepLink: suppressedRunRef.current === runKey,
+    })
+    if (target) onTabChange(target)
+  }, [gate, runKey, run.workflowId, activeTab, onTabChange])
 
   return (
     <div className="flex flex-col gap-0 h-full">
@@ -171,7 +207,9 @@ export function RunView({
         onTabChange={onTabChange}
         isViewingLiveRun={isViewingLiveRun}
         status={status}
+        subStatus={subStatus}
       />
+      <RunGateBanner gate={gate} activeTab={activeTab} onTabChange={onTabChange} />
 
       {/* Tab content -- pb accounts for iOS/Chrome bottom safe area (home bar, bottom nav) */}
       <div

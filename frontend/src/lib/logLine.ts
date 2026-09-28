@@ -197,6 +197,18 @@ export function eventToLogEntry(ev: ReviewEvent): LogRenderEntry {
       })
     }
 
+    case "warn":
+      return finalize({
+        text: `[${fmtTs(ev.ts)}] WARN    ${ev.message ?? ""}`,
+        level: "warn",
+        severity: "warn",
+        kind: "status",
+        compactable: false,
+        groupKey: "warn",
+        isResumeRelated: false,
+        isResumeNoOp: false,
+      })
+
     case "screening_calibration": {
       const inc = Math.round(ev.include_threshold * 100)
       const exc = Math.round(ev.exclude_threshold * 100)

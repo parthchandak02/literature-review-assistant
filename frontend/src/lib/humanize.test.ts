@@ -91,7 +91,7 @@ describe("shortModelName", () => {
 describe("humanizeLogTag", () => {
   it("covers every tag emitted by logLine", () => {
     const tags = [
-      "PHASE", "DONE", "PROG", "TIMER", "...", "CALIB", "LLM", "SEARCH", "SRCHOV", "INCLUDE", "EXCLUDE",
+      "PHASE", "DONE", "PROG", "TIMER", "WARN", "...", "CALIB", "LLM", "SEARCH", "SRCHOV", "INCLUDE", "EXCLUDE",
       "AUTO", "PDF", "EXTRACT", "SYNTH", "RATELIMIT", "DB", "ERROR", "CANCEL", "FUNNEL", "QA", "BATCH", "CAP",
     ]
     for (const tag of tags) {

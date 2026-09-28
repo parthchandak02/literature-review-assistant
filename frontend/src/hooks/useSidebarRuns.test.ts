@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest"
 import type { HistoryEntry } from "@/lib/api"
 import {
   computeShouldShowStandaloneLiveCard,
+  laneOf,
   partitionHistory,
 } from "./useSidebarRuns"
 import type { LiveRun } from "@/components/sidebar/types"
@@ -65,24 +66,50 @@ describe("partitionHistory", () => {
   it("groups screening-review parked runs with other runs that need user input", () => {
     const history = [
       historyEntry({ workflow_id: "wf-review", status: "awaiting_review" }),
-      historyEntry({ workflow_id: "wf-done", status: "completed" }),
+      historyEntry({ workflow_id: "wf-failed", status: "failed" }),
     ]
     const partitions = partitionHistory(history)
     expect(partitions.prosperoPendingHistory.map((e) => e.workflow_id)).toEqual(["wf-review"])
+    expect(partitions.inProgressHistory.map((e) => e.workflow_id)).toEqual(["wf-failed"])
+  })
+
+  it("files finished runs into Completed even without the persisted flag (V3)", () => {
+    const history = [
+      historyEntry({ workflow_id: "wf-done", status: "completed" }),
+      historyEntry({ workflow_id: "wf-running", status: "running" }),
+      historyEntry({ workflow_id: "wf-live-done", status: "completed", live_run_id: "run-1" }),
+    ]
+    const partitions = partitionHistory(history)
+    expect(partitions.completedHistory.map((e) => e.workflow_id)).toEqual(["wf-done"])
+    expect(partitions.inProgressHistory.map((e) => e.workflow_id)).toEqual([
+      "wf-running",
+      "wf-live-done",
+    ])
+  })
+
+  it("keeps a finished run in In progress when the user moved it back", () => {
+    const history = [historyEntry({ workflow_id: "wf-done", status: "completed" })]
+    const partitions = partitionHistory(history, new Set(["wf-done"]))
+    expect(partitions.completedHistory).toHaveLength(0)
     expect(partitions.inProgressHistory.map((e) => e.workflow_id)).toEqual(["wf-done"])
+  })
+
+  it("lets the persisted Completed flag win over a stale pin", () => {
+    const entry = historyEntry({ workflow_id: "wf-x", status: "failed", is_completed_hidden: true })
+    expect(laneOf(entry, new Set(["wf-x"]))).toBe("completed")
   })
 
   it("treats config_ready and config_generating as prospero pending", () => {
     const history = [
       historyEntry({ workflow_id: "wf-gen", status: "config_generating" }),
       historyEntry({ workflow_id: "wf-ready", status: "config_ready" }),
-      historyEntry({ workflow_id: "wf-done", status: "completed" }),
+      historyEntry({ workflow_id: "wf-stale", status: "stale" }),
     ]
 
     const { prosperoPendingHistory, inProgressHistory } = partitionHistory(history)
 
     expect(prosperoPendingHistory.map((e) => e.workflow_id)).toEqual(["wf-gen", "wf-ready"])
-    expect(inProgressHistory.map((e) => e.workflow_id)).toEqual(["wf-done"])
+    expect(inProgressHistory.map((e) => e.workflow_id)).toEqual(["wf-stale"])
   })
 
   it("excludes archived rows from visible and completed partitions", () => {

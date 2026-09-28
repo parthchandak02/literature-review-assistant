@@ -1,4 +1,5 @@
 import { useState, type ReactNode } from "react"
+import { AlertTriangle } from "lucide-react"
 import { Spinner } from "@/components/ui/feedback"
 import {
   Dialog,
@@ -34,13 +35,23 @@ export function ConfirmDialog({
   onConfirm,
 }: ConfirmDialogProps) {
   const [pending, setPending] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const [wasOpen, setWasOpen] = useState(open)
+
+  if (open !== wasOpen) {
+    setWasOpen(open)
+    if (open) setError(null)
+  }
 
   async function handleConfirm() {
     if (pending) return
     setPending(true)
+    setError(null)
     try {
       await onConfirm()
       onOpenChange(false)
+    } catch (err) {
+      setError(err instanceof Error && err.message ? err.message : "Something went wrong. Try again.")
     } finally {
       setPending(false)
     }
@@ -51,8 +62,19 @@ export function ConfirmDialog({
       <DialogContent className="sm:max-w-md" onClick={(e) => e.stopPropagation()}>
         <DialogHeader>
           <DialogTitle>{title}</DialogTitle>
-          <DialogDescription>{description}</DialogDescription>
+          <DialogDescription asChild={typeof description !== "string"}>
+            {typeof description === "string" ? description : <div>{description}</div>}
+          </DialogDescription>
         </DialogHeader>
+        {error && (
+          <div
+            role="alert"
+            className="flex items-start gap-2 rounded-control border border-intent-danger-border bg-intent-danger-subtle px-3 py-2 text-sm text-intent-danger-text"
+          >
+            <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
+            <span>{error}</span>
+          </div>
+        )}
         <DialogFooter className="gap-2 sm:gap-0">
           <Button
             type="button"

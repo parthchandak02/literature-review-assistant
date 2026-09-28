@@ -1,80 +1,43 @@
-import { useState } from "react"
-import { ChevronDown } from "lucide-react"
+import { Check, ChevronDown, Copy } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { formatWorkflowId } from "@/lib/format"
-import type { FunnelStage } from "@/lib/funnelStages"
+import { resolveSummaryCounts, type RunCardMetricsInput } from "@/components/sidebar/historyRowModel"
 
 function fmtNum(n: number): string {
   return n.toLocaleString()
 }
 
-function resolveSummaryCounts(
-  papersFound: number | null | undefined,
-  papersIncluded: number | null | undefined,
-  funnelStages: FunnelStage[] | undefined,
-): { found: number | null; included: number | null } {
-  let found = papersFound ?? null
-  let included = papersIncluded ?? null
-
-  if (funnelStages != null && funnelStages.length > 0) {
-    if (found == null) found = funnelStages[0]?.count ?? null
-    const includedStage = funnelStages.find((s) => s.key === "included")
-    if (included == null && includedStage != null) included = includedStage.count
-  }
-
-  return { found, included }
-}
-
-function FunnelStageList({ stages }: { stages: FunnelStage[] }) {
+export function RunCardDetailsToggle({
+  expanded,
+  onToggle,
+  label,
+  controlsId,
+}: {
+  expanded: boolean
+  onToggle: () => void
+  label: string | null
+  controlsId: string
+}) {
   return (
-    <>
-      {stages.map((stage) => (
-        <span key={stage.key} className="flex items-baseline gap-1 leading-none">
-          <span className={cn("font-semibold tabular-nums", stage.colorClass)}>
-            {fmtNum(stage.count)}
-          </span>
-          <span className="text-muted font-normal">{stage.label}</span>
-        </span>
-      ))}
-    </>
+    <button
+      type="button"
+      onClick={onToggle}
+      aria-expanded={expanded}
+      aria-controls={controlsId}
+      aria-label={label ? `${label}. ${expanded ? "Hide" : "Show"} details` : `${expanded ? "Hide" : "Show"} details`}
+      className="relative z-10 inline-flex min-w-0 items-center gap-0.5 rounded-control px-1 -mx-1 text-muted hover:text-foreground transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+    >
+      {label && <span className="truncate font-medium tabular-nums">{label}</span>}
+      <ChevronDown
+        className={cn("h-3 w-3 shrink-0 transition-transform", expanded && "rotate-180")}
+        aria-hidden
+      />
+    </button>
   )
 }
 
-function SummaryLine({ found, included }: { found: number | null; included: number | null }) {
-  if (found != null && included != null) {
-    return (
-      <span className="flex items-baseline gap-1 leading-none min-w-0">
-        <span className="font-semibold tabular-nums text-intent-info">{fmtNum(found)}</span>
-        <span className="text-muted font-normal">found</span>
-        <span className="text-muted font-normal">→</span>
-        <span className="font-semibold tabular-nums text-intent-success">{fmtNum(included)}</span>
-        <span className="text-muted font-normal">included</span>
-      </span>
-    )
-  }
-
-  if (found != null) {
-    return (
-      <span className="flex items-baseline gap-1 leading-none">
-        <span className="font-semibold tabular-nums text-intent-info">{fmtNum(found)}</span>
-        <span className="text-muted font-normal">found</span>
-      </span>
-    )
-  }
-
-  if (included != null) {
-    return (
-      <span className="flex items-baseline gap-1 leading-none">
-        <span className="font-semibold tabular-nums text-intent-success">{fmtNum(included)}</span>
-        <span className="text-muted font-normal">included</span>
-      </span>
-    )
-  }
-
-  return null
-}
-
-export function RunCardMetrics({
+export function RunCardDetails({
+  id,
   papersFound,
   papersIncluded,
   funnelStages,
@@ -82,104 +45,59 @@ export function RunCardMetrics({
   workflowId,
   copiedWorkflowId,
   onCopyWorkflowId,
-}: {
-  papersFound?: number | null
-  papersIncluded?: number | null
-  funnelStages?: FunnelStage[]
-  cost?: number | null
+}: RunCardMetricsInput & {
+  id: string
   workflowId?: string | null
   copiedWorkflowId?: string | null
   onCopyWorkflowId?: (id: string) => void | Promise<void>
 }) {
-  const [expanded, setExpanded] = useState(false)
-  const hasFunnel = funnelStages != null && funnelStages.length > 0
   const { found, included } = resolveSummaryCounts(papersFound, papersIncluded, funnelStages)
-  const hasStats =
-    hasFunnel ||
-    found != null ||
-    included != null ||
-    (cost != null && cost > 0)
-  const hasWfId = workflowId != null && workflowId.length > 0
-
-  if (!hasStats && !hasWfId) return null
+  const hasFunnel = funnelStages != null && funnelStages.length > 0
+  const searchRan = found != null && found > 0
+  const copied = workflowId != null && copiedWorkflowId === workflowId
 
   return (
-    <div className="flex justify-between items-start gap-x-2 min-w-0 text-meta w-full">
+    <div id={id} className="flex items-start justify-between gap-2 min-w-0 text-meta">
       <div className="flex flex-col gap-y-0.5 min-w-0">
-        {expanded && hasFunnel ? (
-          <FunnelStageList stages={funnelStages!} />
-        ) : (
-          <div className="flex items-center gap-1 min-w-0">
-            <SummaryLine found={found} included={included} />
-            {hasFunnel && (
-              <button
-                type="button"
-                onClick={(e) => {
-                  e.stopPropagation()
-                  setExpanded(true)
-                }}
-                aria-label="Show funnel stages"
-                title="Show funnel stages"
-                className="shrink-0 flex items-center justify-center h-4 w-4 rounded text-muted hover:text-foreground transition-colors"
-              >
-                <ChevronDown className="h-3 w-3" />
-              </button>
+        {hasFunnel
+          ? funnelStages!.map((stage) => (
+              <div key={stage.key} className="flex items-baseline gap-1 leading-none">
+                <span className={cn("font-semibold tabular-nums", stage.colorClass)}>{fmtNum(stage.count)}</span>
+                <span className="text-muted">{stage.label}</span>
+              </div>
+            ))
+          : searchRan && (
+              <>
+                <div className="flex items-baseline gap-1 leading-none">
+                  <span className="font-semibold tabular-nums text-intent-info">{fmtNum(found!)}</span>
+                  <span className="text-muted">found</span>
+                </div>
+                {included != null && (
+                  <div className="flex items-baseline gap-1 leading-none">
+                    <span className="font-semibold tabular-nums text-intent-success">{fmtNum(included)}</span>
+                    <span className="text-muted">included</span>
+                  </div>
+                )}
+              </>
             )}
+        {cost != null && cost > 0 && (
+          <div className="flex items-baseline gap-1 leading-none">
+            <span className="font-semibold tabular-nums text-intent-warning">${cost.toFixed(3)}</span>
+            <span className="text-muted">cost</span>
           </div>
         )}
-        {expanded && hasFunnel && (
-          <button
-            type="button"
-            onClick={(e) => {
-              e.stopPropagation()
-              setExpanded(false)
-            }}
-            aria-label="Hide funnel stages"
-            title="Hide funnel stages"
-            className="self-start flex items-center gap-0.5 text-muted hover:text-foreground transition-colors"
-          >
-            <ChevronDown className="h-3 w-3 rotate-180" />
-            <span className="text-2xs font-medium">Less</span>
-          </button>
-        )}
       </div>
-
-      <div className="flex flex-col items-end gap-y-0.5 shrink-0">
-        {cost != null && cost > 0 && (
-          <span className="font-semibold text-intent-warning whitespace-nowrap">
-            ${cost.toFixed(3)}
-          </span>
-        )}
-        {hasWfId && (
-          onCopyWorkflowId ? (
-            <span
-              role="button"
-              tabIndex={0}
-              onClick={(e) => {
-                e.stopPropagation()
-                void onCopyWorkflowId(workflowId!)
-              }}
-              onKeyDown={(e) => {
-                if (e.key === "Enter" || e.key === " ") {
-                  e.stopPropagation()
-                  void onCopyWorkflowId(workflowId!)
-                }
-              }}
-              className="text-muted whitespace-nowrap hover:text-foreground transition-colors cursor-pointer"
-              title="Copy workflow ID"
-            >
-              {copiedWorkflowId === workflowId ? "Copied!" : formatWorkflowId(workflowId!)}
-            </span>
-          ) : (
-            <span
-              className="text-muted whitespace-nowrap"
-              title={workflowId ?? undefined}
-            >
-              {formatWorkflowId(workflowId!)}
-            </span>
-          )
-        )}
-      </div>
+      {workflowId && onCopyWorkflowId && (
+        <button
+          type="button"
+          onClick={() => void onCopyWorkflowId(workflowId)}
+          aria-label={copied ? "Workflow ID copied" : `Copy workflow ID ${formatWorkflowId(workflowId)}`}
+          className="relative z-10 inline-flex shrink-0 items-center gap-1 rounded-control px-1 text-muted hover:text-foreground transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        >
+          {copied ? <Check className="h-3 w-3" aria-hidden /> : <Copy className="h-3 w-3" aria-hidden />}
+          <span className="tabular-nums">{copied ? "Copied" : formatWorkflowId(workflowId)}</span>
+        </button>
+      )}
     </div>
   )
 }

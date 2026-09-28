@@ -19,8 +19,7 @@ export interface SidebarInProgressSectionProps {
   selectedWorkflowId: string | null
   openingId: string | null
   resumingId: string | null
-  archivingId: string | null
-  completingId: string | null
+  busyId: string | null
   wfIdCopied: string | null
   notes: Record<string, string>
   noteFlashCounters: Record<string, number>
@@ -30,8 +29,8 @@ export interface SidebarInProgressSectionProps {
   onCancel: () => void | Promise<void>
   onSelect: (entry: HistoryEntry) => void
   onResume: (entry: HistoryEntry) => void
-  onArchive: (workflowId: string) => Promise<void>
-  onComplete: (workflowId: string) => void
+  onArchive: (workflowId: string, topic?: string) => void
+  onMoveToCompleted: (workflowId: string) => void
   onCopyWorkflowId: (id: string) => Promise<void>
   onNoteChange: (workflowId: string, value: string) => void
   /** Session handlers passed through to row model builder. */
@@ -54,8 +53,7 @@ export function SidebarInProgressSection({
   selectedWorkflowId,
   openingId,
   resumingId,
-  archivingId,
-  completingId,
+  busyId,
   wfIdCopied,
   notes,
   noteFlashCounters,
@@ -66,7 +64,7 @@ export function SidebarInProgressSection({
   onSelect,
   onResume,
   onArchive,
-  onComplete,
+  onMoveToCompleted,
   onCopyWorkflowId,
   onNoteChange,
   sessionResume,
@@ -93,13 +91,12 @@ export function SidebarInProgressSection({
       wfIdCopied={wfIdCopied}
       noteValue={notes[entry.workflow_id] ?? ""}
       noteFlashKey={noteFlashCounters[entry.workflow_id] ?? 0}
-      archivingId={archivingId}
-      completingId={completingId}
+      busy={busyId === entry.workflow_id}
       onSelectEntry={onSelect}
       onCopyWorkflowId={onCopyWorkflowId}
       onNoteChange={(val) => onNoteChange(entry.workflow_id, val)}
       onArchive={onArchive}
-      onComplete={onComplete}
+      onMoveToCompleted={onMoveToCompleted}
       onResume={onResume}
       onCancel={onCancel}
     />
@@ -108,7 +105,7 @@ export function SidebarInProgressSection({
   return (
     <>
       {prosperoPendingHistory.length > 0 && (
-        <section className="mb-4">
+        <section className="mb-4" aria-label="Needs your input">
           {!collapsed && (
             <div className="flex items-center justify-between px-1 mb-1.5">
               <span className="label-caps font-semibold text-muted flex items-center gap-1.5">
@@ -123,20 +120,22 @@ export function SidebarInProgressSection({
         </section>
       )}
 
-    <section>
+    <section aria-label="In progress">
       {!collapsed && (
         <div className="flex items-center justify-between px-1 mb-1.5">
           <span className="label-caps font-semibold text-muted flex items-center gap-1.5">
             <span className="flex h-3.5 w-3.5 items-center justify-center rounded-[3px] border border-intent-primary-border bg-intent-primary-subtle text-intent-primary">
               <Clock className="h-2.5 w-2.5" />
             </span>
-            Reviews
+            In progress
           </span>
           <button
+            type="button"
             onClick={onRefresh}
             disabled={loadingHistory}
-            aria-label="Refresh history"
-            className="text-muted hover:text-foreground transition-colors"
+            aria-label="Refresh reviews"
+            title="Refresh reviews"
+            className="flex h-6 w-6 items-center justify-center rounded-control text-muted hover:text-foreground transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           >
             {loadingHistory ? (
               <Spinner size="sm" />
@@ -181,18 +180,22 @@ export function SidebarInProgressSection({
             onSelect={onSelectLiveRun}
             onCancel={onCancel}
             onArchive={onArchive}
-            archivingId={archivingId}
+            busy={busyId != null && busyId === liveRun.workflowId}
             onCopyWorkflowId={onCopyWorkflowId}
           />
         )}
         {inProgressHistory.map(renderHistoryRow)}
       </div>
 
+      {!collapsed && !loadingHistory && inProgressHistory.length === 0 && !shouldShowStandaloneLiveCard && prosperoPendingHistory.length > 0 && (
+        <p className="px-2 py-1.5 text-2xs text-muted">No reviews in progress</p>
+      )}
+
       {!collapsed && !loadingHistory && inProgressHistory.length === 0 && !shouldShowStandaloneLiveCard && prosperoPendingHistory.length === 0 && (
         <div className="flex flex-col items-center py-6 gap-2">
           <Clock className="h-6 w-6 text-border" />
           <p className="label-muted text-center">
-            Past reviews will appear here automatically.
+            Reviews you start will appear here.
           </p>
         </div>
       )}

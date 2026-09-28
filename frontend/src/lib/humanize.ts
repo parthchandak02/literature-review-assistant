@@ -122,6 +122,7 @@ export const LOG_TAG_GLOSSARY: Record<string, LogTagInfo> = {
   RATELIMIT: { label: "Rate limit", description: "Waiting for a model provider's rate limit to clear." },
   DB: { label: "Database", description: "The run database is ready to browse." },
   ERROR: { label: "Error", description: "Something failed. See the message for details." },
+  WARN: { label: "Warning", description: "Needs attention, but the run did not crash." },
   CANCEL: { label: "Cancelled", description: "The review was stopped." },
   FUNNEL: {
     label: "Screening funnel",

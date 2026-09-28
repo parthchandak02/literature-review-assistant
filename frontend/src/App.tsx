@@ -4,6 +4,7 @@ import { useNavigate } from "react-router-dom"
 import { Toaster, toast } from "sonner"
 import { AlertTriangle, Menu } from "lucide-react"
 import { Sidebar } from "@/components/Sidebar"
+import { MOBILE_MENU_BUTTON_ID } from "@/components/sidebar/sidebarLayout"
 import { SettingsDialog } from "@/components/SettingsDialog"
 import { RunSessionProvider } from "@/context/RunSessionProvider"
 import { queryClient } from "@/lib/queryClient"
@@ -203,7 +204,12 @@ function AppShell() {
 
   useEffect(() => {
     function handleKey(e: KeyboardEvent) {
-      if ((e.metaKey || e.ctrlKey) && e.key === "b") {
+      const target = e.target
+      const editable =
+        target instanceof HTMLElement &&
+        (target.isContentEditable || target.closest("input, textarea, select") !== null)
+      if (editable) return
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "b") {
         e.preventDefault()
         setSidebarCollapsed((v) => !v)
       }
@@ -406,8 +412,11 @@ function AppShell() {
           <div className="h-11 flex items-center gap-3 w-full min-w-0">
             {isMobile && (
               <button
+                id={MOBILE_MENU_BUTTON_ID}
                 onClick={() => setSidebarCollapsed(false)}
                 aria-label="Open menu"
+                aria-expanded={!sidebarCollapsed}
+                aria-haspopup="dialog"
                 className="flex items-center justify-center h-10 w-10 -ml-1 rounded-lg text-muted hover:text-foreground hover:bg-surface-2 transition-colors shrink-0"
               >
                 <Menu className="h-5 w-5" />

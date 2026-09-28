@@ -1,7 +1,61 @@
 import type { HistoryEntry } from "@/lib/api"
 import type { RunStatus } from "@/lib/constants"
-import { isProsperoPendingStatus, isReviewPendingStatus, resolveRunStatus } from "@/lib/constants"
+import {
+  isProsperoPendingStatus,
+  isReviewPendingStatus,
+  resolveRunStatus,
+  runStatusLabel,
+} from "@/lib/constants"
 import type { LiveRun } from "@/components/sidebar/types"
+
+/** Shorten a topic on a word boundary for dialogs and toasts. */
+export function truncateTopic(topic: string, max = 60): string {
+  const clean = topic.trim().replace(/\s+/g, " ")
+  if (clean.length <= max) return clean
+  const cut = clean.slice(0, max - 1)
+  const lastSpace = cut.lastIndexOf(" ")
+  return `${(lastSpace > max * 0.6 ? cut.slice(0, lastSpace) : cut).replace(/[\s,;:.-]+$/, "")}…`
+}
+
+function fmtNum(n: number): string {
+  return n.toLocaleString()
+}
+
+export function resolveSummaryCounts(
+  papersFound: number | null | undefined,
+  papersIncluded: number | null | undefined,
+  funnelStages: LiveRun["funnelStages"],
+): { found: number | null; included: number | null } {
+  let found = papersFound ?? null
+  let included = papersIncluded ?? null
+
+  if (funnelStages != null && funnelStages.length > 0) {
+    if (found == null) found = funnelStages[0]?.count ?? null
+    const includedStage = funnelStages.find((s) => s.key === "included")
+    if (included == null && includedStage != null) included = includedStage.count
+  }
+
+  return { found, included }
+}
+
+export interface RunCardMetricsInput {
+  papersFound?: number | null
+  papersIncluded?: number | null
+  funnelStages?: LiveRun["funnelStages"]
+  cost?: number | null
+}
+
+/** The one number a collapsed card shows: included count once search has run, else found. */
+export function keyMetricText({ papersFound, papersIncluded, funnelStages }: RunCardMetricsInput): string | null {
+  const { found, included } = resolveSummaryCounts(papersFound, papersIncluded, funnelStages)
+  if (found == null || found <= 0) return null
+  if (included != null) return `${fmtNum(included)} included`
+  return `${fmtNum(found)} found`
+}
+
+export function hasRunCardDetails(input: RunCardMetricsInput): boolean {
+  return keyMetricText(input) != null || (input.cost != null && input.cost > 0)
+}
 
 export type RunNavCardVariant = "live" | "in-progress" | "completed" | "archived"
 
@@ -33,6 +87,8 @@ export interface RunCardModel {
   dateClassName: string
   cardClassName: string
   statusLabel?: string
+  /** Why the card cannot be opened; shown as a subtitle and tooltip. */
+  disabledReason?: string
   animateStatus: boolean
 }
 
@@ -153,7 +209,10 @@ function buildInProgressCardModel(
     dateLabel: entry.created_at ?? undefined,
     dateClassName: "text-muted",
     cardClassName: "",
-    statusLabel: undefined,
+    statusLabel: isReconnectingRow
+      ? runStatusLabel("reconnecting")
+      : runStatusLabel(isLiveRow ? statusKey : entry.status),
+    disabledReason: entry.db_path ? undefined : "No database yet",
     animateStatus: rowIsRunning,
   }
 }
@@ -192,6 +251,7 @@ function buildLiveCardModel(
     dateLabel: liveRun.startedAt ?? "Now",
     dateClassName: "text-muted",
     cardClassName: "",
+    statusLabel: runStatusLabel(liveRun.status),
     animateStatus: isRunning,
   }
 }
@@ -202,10 +262,7 @@ function buildLaneCardModel(
   isSelected: boolean,
 ): RunCardModel {
   const statusKey = resolveRunStatus(entry.status)
-  const cardClassName =
-    variant === "completed"
-      ? "sidebar-card-hover relative min-h-[120px] opacity-90 bg-intent-success-subtle border-intent-success-border"
-      : "sidebar-card-hover relative min-h-[120px] sidebar-card-archived opacity-85"
+  const cardClassName = variant === "archived" ? "sidebar-card-archived" : ""
 
   return {
     variant,
@@ -225,16 +282,16 @@ function buildLaneCardModel(
     actionPadClass: "",
     progressValue: undefined,
     showProgressBar: false,
-    showWorkflowBadge: false,
+    showWorkflowBadge: true,
     showNoteField: false,
     papersFound: entry.papers_found,
     papersIncluded: entry.papers_included,
     funnelStages: undefined,
     cost: entry.total_cost,
     dateLabel: entry.created_at ?? undefined,
-    dateClassName:
-      variant === "completed" ? "text-intent-success-fg/60" : "text-muted",
+    dateClassName: "text-muted",
     cardClassName,
+    statusLabel: runStatusLabel(entry.status),
     animateStatus: false,
   }
 }

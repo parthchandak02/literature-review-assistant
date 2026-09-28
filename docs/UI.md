@@ -19,9 +19,13 @@ Frontend contracts and design rules for the research-ops dashboard (`frontend/sr
 ## Run tabs (`RunTab`)
 
 Rendered in `RunView.tsx` (`TAB_ITEMS`) in this order: `activity` (Activity), `results` (Results), `database` (Data), `config` (Config), `cost` (Cost). Ids and URLs are unchanged from the earlier order.  
-`review-screening` appears when status is `awaiting_review`.
+`review-screening` appears when status is `awaiting_review` and is placed second, directly after Activity (`orderRunTabs` in `components/run/runRouting.ts`).
+
+Tabs use `GlassTabs variant="underline"` (content-width, left-aligned). "Download submission package" sits on the same row, right-aligned.
 
 `GlassTabs` is an ARIA tablist: roving focus with Arrow Left/Right, Home, End; each tab `aria-controls` the `tabpanel-{id}` region in `RunView.tsx`.
+
+**Auto-routing** (`resolveAutoRouteTab` / `defaultTabForStatus` in `components/run/runRouting.ts`): when a run is opened on the default tab (Activity), `config_ready` and `awaiting_prospero` switch to Config and `awaiting_review` switches to `review-screening`. This runs once per run and gate. It is skipped for the workflow named in the page-load URL when that URL has an explicit tab (`/run/{id}/{tab}`), so deep links keep working. `parseRunUrl` is unchanged. Users can leave the gate tab freely.
 
 ## Results categories
 
@@ -40,8 +44,9 @@ Default: Manuscript if present, else Files.
 ## Run chrome
 
 - Topic breadcrumb in App bar
-- Single-line info strip (status, workflow id, funnel, cost link)
-- `GlassTabs` below strip
+- Single-line info strip, outcome first: status, outcome ("6 included of 1,716 records"), cost (neutral, 2 decimals, links to Cost), a "Funnel" popover with the full funnel as a vertical list, date, and a de-emphasised workflow id with a copy icon button ("Copied" announced via an sr-only live region; failures show an error toast). Separators are `aria-hidden` dividers, not literal characters
+- Underline `GlassTabs` below the strip, with the package download on the same row
+- "Waiting on you" banner (`RunGateBanner.tsx`, `role="status"`) below the chrome on every tab except the gate's action tab, for `config_ready` / `awaiting_prospero` (action tab Config) and `awaiting_review` (action tab `review-screening`). It states what is needed and has a primary CTA that switches to the action tab
 - Phase timeline on Activity tab only (no duplicate header chips)
 - Run status announced via `aria-live="polite"` in `RunChrome.tsx`
 - Finished runs show "Download submission package" (`SubmissionPackageButton`) in the chrome; Results Manuscript actions have an explicit "Package manuscript" (or "Rebuild package") step
@@ -49,9 +54,22 @@ Default: Manuscript if present, else Files.
 
 ## Sidebar
 
-- Settings button lives in the sidebar header (`SidebarHeader.tsx`)
-- "Needs your input": `config_generating`, `config_ready`, `awaiting_prospero`, `awaiting_review`; "Reviews": other visible runs
-- Stop run asks for confirmation (`ConfirmDialog` in `RunNavCard.tsx`)
+- Settings, theme toggle and the collapse button share one fixed footer row at the bottom, in both expanded and collapsed modes. The collapse tooltip shows the shortcut (Cmd/Ctrl+B). The shortcut is ignored while focus is in an input, textarea, select or contenteditable
+- Groups (`partitionHistory` / `laneOf` in `hooks/useSidebarRuns.ts`):
+  - "Needs your input": `config_generating`, `config_ready`, `awaiting_prospero`, `awaiting_review`
+  - "In progress": every other visible review
+  - "Completed": `is_completed_hidden`, or a finished (`done`) review with no live run, unless the user chose "Move to In progress". That choice is kept in `localStorage` (`sidebar-in-progress-pins`) because the API cannot tell "never filed" from "restored"
+  - "Archived": `is_archived`
+- Use the noun "review" in all sidebar copy. Empty lanes read "No completed reviews" / "No archived reviews". Lane toggles set `aria-expanded`. In collapsed mode the lanes show as icons with count badges, and `#NN` badges are tinted by status (`STATUS_VARIANT`)
+- `RunNavCard` has no nested interactive elements. The title is the single select button, and its `::after` overlay covers the card. Stop, Resume, the actions menu, the details toggle, copy-id and the note field are siblings above it (`relative z-10`)
+- A card shows the title (3 lines, full title in a tooltip), status, one key metric and the date. The metric is hidden until search has found records. Funnel, cost and workflow id sit behind the metric's details toggle
+- Status text comes from `runStatusLabel`; caps are CSS only
+- A card that cannot be opened shows why ("No database yet") as a subtitle and in its tooltip
+- The actions menu (`DropdownMenu`) holds Add note, Move to In progress, Move to Completed, Archive and, for archived reviews, Delete permanently
+- Archive and the Move to... actions apply at once, then show a sonner toast with Undo that restores the previous lane
+- Stop and Delete use `ConfirmDialog`. It shows `onConfirm` errors inline (`role="alert"`) and stays open. The delete dialog names the review and #id and lists what is removed: the run directory (database, manuscript, figures, submission package, PDFs, logs and artifacts) and the registry row
+- Mobile: the sidebar is a left `Sheet` (dialog role, focus trap, Esc). Focus returns to "Open menu" on close
+- Resize handle: `role="separator"` with `aria-valuenow`; arrow keys step 16px (Shift 64px), Home/End jump to 200/420, and double-click resets to 240
 
 ## Setup and state
 
@@ -178,7 +196,7 @@ Run before merging changes to `frontend/src/views/` or run navigation.
 
 ### Pipeline actions
 
-- [ ] Resume from Activity timeline
+- [ ] "Resume from…" menu on Activity; confirm lists re-run phases and prior spend
 - [ ] Stop run shows confirm dialog; "Keep running" cancels
 - [ ] Screening overrides survive reload; approve continues workflow
 - [ ] `needs_revision` run shows badge + Results banner

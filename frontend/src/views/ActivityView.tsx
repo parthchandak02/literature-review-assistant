@@ -1,14 +1,37 @@
-import { useCallback, useEffect, useMemo, useState } from "react"
-import { AlertTriangle } from "lucide-react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { eventToLogEntry } from "@/lib/logLine"
 import { fetchHistoricalReviewEvents } from "@/lib/api"
 import { shouldShowHistoricalLoading, shouldUsePrefetchedHistorical } from "@/lib/runSelection"
-import { PHASE_MILESTONES } from "@/lib/constants"
 import type { ReviewEvent } from "@/lib/api"
-import { buildPhaseStates, applyGateOverrides, isPhaseResumeSelectable } from "@/lib/activityPhaseState"
+import {
+  applyFailure,
+  applyGateOverrides,
+  buildPhaseStates,
+  failureSummary,
+  latestResumablePhase,
+  resumeOptions,
+} from "@/lib/activityPhaseState"
 import { detectAwaitingProspero, detectAwaitingReview } from "@/lib/phaseProgress"
+import { useDbCostDashboard } from "@/hooks/useDbCosts"
 import { PhaseTimeline } from "@/components/activity/PhaseTimeline"
 import { ActivityLogPanel } from "@/components/activity/ActivityLogPanel"
+import { FailureBanner } from "@/components/activity/FailureBanner"
+import { ResumeMenu } from "@/components/activity/ResumeMenu"
+import { ResumeConfirmDialog } from "@/components/activity/ResumeConfirmDialog"
+
+export const SERVER_UNREACHABLE_MESSAGE = "Can't reach the server."
+
+const FAILED_STATUSES = new Set(["failed", "error"])
+const RUNNING_STATUSES = new Set(["running", "streaming", "connecting"])
+
+function fetchErrorMessage(e: unknown): string {
+  const msg = e instanceof Error ? e.message : String(e)
+  return msg.toLowerCase().includes("failed to fetch") ? SERVER_UNREACHABLE_MESSAGE : msg
+}
+
+function prefersReducedMotion(): boolean {
+  return typeof window !== "undefined" && window.matchMedia?.("(prefers-reduced-motion: reduce)").matches === true
+}
 
 export interface ActivityViewProps {
   events: ReviewEvent[]
@@ -39,8 +62,8 @@ export function ActivityView({
   const [historicalEvents, setHistoricalEvents] = useState<ReviewEvent[]>([])
   const [loadingHistory, setLoadingHistory] = useState(false)
   const [fetchError, setFetchError] = useState<string | null>(null)
-  const [armedResumePhase, setArmedResumePhase] = useState<string | null>(null)
-  const [isSubmittingResume, setIsSubmittingResume] = useState(false)
+  const [confirmResumePhase, setConfirmResumePhase] = useState<string | null>(null)
+  const logRef = useRef<HTMLDivElement>(null)
 
   const hasPrefetchedHistorical = shouldUsePrefetchedHistorical(prefetchedHistoricalEvents)
   const isFallbackMode = allowHistoricalFallback && events.length === 0 && Boolean(runId)
@@ -53,12 +76,7 @@ export function ActivityView({
         const evs = await fetchHistoricalReviewEvents(wfId, id)
         setHistoricalEvents(evs)
       } catch (e) {
-        const msg = e instanceof Error ? e.message : String(e)
-        setFetchError(
-          msg.toLowerCase().includes("failed to fetch")
-            ? "Cannot reach backend. Start the server and try again."
-            : msg,
-        )
+        setFetchError(fetchErrorMessage(e))
         setHistoricalEvents([])
       } finally {
         setLoadingHistory(false)
@@ -85,12 +103,7 @@ export function ActivityView({
         if (!cancelled) setHistoricalEvents(evs)
       } catch (e) {
         if (!cancelled) {
-          const msg = e instanceof Error ? e.message : String(e)
-          setFetchError(
-            msg.toLowerCase().includes("failed to fetch")
-              ? "Cannot reach backend. Start the server and try again."
-              : msg,
-          )
+          setFetchError(fetchErrorMessage(e))
           setHistoricalEvents([])
         }
       } finally {
@@ -118,6 +131,7 @@ export function ActivityView({
     normalizedHistoricalStatus === "needs_revision" ||
     status === "done"
   const isRunning = status === "streaming" || status === "connecting"
+  const isFailed = status === "error" || (!isRunning && FAILED_STATUSES.has(normalizedHistoricalStatus))
   const awaitingProspero = detectAwaitingProspero({
     historicalStatus,
     status,
@@ -130,13 +144,21 @@ export function ActivityView({
     events: activeEvents,
     isRunning,
   })
-  const phaseStates = useMemo(
+  const gatedPhaseStates = useMemo(
     () =>
       applyGateOverrides(buildPhaseStates(activeEvents, completedWorkflow), {
         awaitingProspero,
         awaitingReview,
       }),
     [activeEvents, completedWorkflow, awaitingProspero, awaitingReview],
+  )
+  const failure = useMemo(
+    () => (isFailed ? failureSummary(activeEvents, gatedPhaseStates) : null),
+    [isFailed, activeEvents, gatedPhaseStates],
+  )
+  const phaseStates = useMemo(
+    () => (failure ? applyFailure(gatedPhaseStates, failure.phase) : gatedPhaseStates),
+    [failure, gatedPhaseStates],
   )
   const awaitingGateByMilestone = useMemo(
     () => ({
@@ -147,13 +169,8 @@ export function ActivityView({
   )
   const resumeBlockedReason = (() => {
     if (!onResumeFromPhase) return "Resume controls are not available for this run."
-    if (
-      isRunning ||
-      normalizedHistoricalStatus === "running" ||
-      normalizedHistoricalStatus === "streaming" ||
-      normalizedHistoricalStatus === "connecting"
-    ) {
-      return "Resume is unavailable while this workflow is running."
+    if (isRunning || RUNNING_STATUSES.has(normalizedHistoricalStatus)) {
+      return "Resume is unavailable while this run is in progress."
     }
     if (normalizedHistoricalStatus === "awaiting_review") {
       return "Approve screening first before resuming from later phases."
@@ -161,51 +178,46 @@ export function ActivityView({
     if (normalizedHistoricalStatus === "awaiting_prospero") {
       return "Complete PROSPERO registration first before resuming from later phases."
     }
+    if (!resumeModeActive) return "Resume is available once the run has finished or failed."
     return null
   })()
-  const canResumeEligibility = resumeBlockedReason === null
-  const canResumeFromTimeline = resumeModeActive && canResumeEligibility
-  const checkPhaseResumeSelectable = useCallback(
-    (phase: string) => isPhaseResumeSelectable(phase, phaseStates, completedWorkflow),
+  const canResume = resumeBlockedReason === null
+  const options = useMemo(
+    () => resumeOptions(phaseStates, completedWorkflow),
     [phaseStates, completedWorkflow],
   )
-  const armedMilestoneStartIdx = useMemo(() => {
-    if (!armedResumePhase) return -1
-    return PHASE_MILESTONES.findIndex((milestone) =>
-      milestone.phases.some((phase) => phase === armedResumePhase),
-    )
-  }, [armedResumePhase])
+  const failureResumePhase = canResume ? latestResumablePhase(phaseStates, completedWorkflow) : null
 
-  useEffect(() => {
-    if (!armedResumePhase) return
-    const timer = setTimeout(() => {
-      setArmedResumePhase(null)
-    }, 8000)
-    return () => clearTimeout(timer)
-  }, [armedResumePhase])
+  const costQuery = useDbCostDashboard(runId, { enabled: canResume && Boolean(runId) })
+  const costByPhase = costQuery.data?.by_phase ?? null
 
-  useEffect(() => {
-    if (resumeModeActive) return
-    setArmedResumePhase(null)
-  }, [resumeModeActive])
+  const requestResume = useCallback(
+    (phase: string) => {
+      if (!canResume) return
+      if (!options.some((option) => option.phase === phase && option.selectable)) return
+      setConfirmResumePhase(phase)
+    },
+    [canResume, options],
+  )
 
-  async function handlePhaseResumeTap(phase: string) {
-    if (!canResumeFromTimeline || isSubmittingResume) return
-    if (!checkPhaseResumeSelectable(phase)) return
-    if (armedResumePhase !== phase) {
-      setArmedResumePhase(phase)
-      return
-    }
-    setIsSubmittingResume(true)
-    try {
-      await onResumeFromPhase?.(phase)
-      setArmedResumePhase(null)
-    } catch {
-      setArmedResumePhase(null)
-    } finally {
-      setIsSubmittingResume(false)
-    }
-  }
+  const confirmResume = useCallback(
+    async (phase: string) => {
+      try {
+        await onResumeFromPhase?.(phase)
+      } catch {
+        // The resume handler reports its own errors.
+      }
+    },
+    [onResumeFromPhase],
+  )
+
+  const showInLog = useCallback(() => {
+    setSearchQuery("")
+    const el = logRef.current
+    if (!el) return
+    el.scrollIntoView?.({ block: "start", behavior: prefersReducedMotion() ? "auto" : "smooth" })
+    el.focus({ preventScroll: true })
+  }, [])
 
   const filtered = useMemo(() => {
     const q = searchQuery.trim().toLowerCase()
@@ -221,43 +233,61 @@ export function ActivityView({
 
   return (
     <div className="flex flex-col gap-4">
-      {status === "error" && (
-        <div className="flex items-start gap-2.5 bg-intent-danger-subtle border border-intent-danger-border rounded-panel px-4 py-3 text-sm text-intent-danger">
-          <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5" />
-          <div>
-            <span className="font-medium">Review failed. </span>
-            {(activeEvents.find((e) => e.type === "error") as { msg?: string } | undefined)?.msg ??
-              (activeEvents.find((e) => e.type === "done") as { outputs?: { error?: string } } | undefined)?.outputs?.error ??
-              "An unexpected error occurred."}
-          </div>
-        </div>
-      )}
+      {failure ? (
+        <FailureBanner
+          phase={failure.phase}
+          message={failure.message}
+          resumePhase={failureResumePhase}
+          onShowInLog={showInLog}
+          onResume={requestResume}
+        />
+      ) : null}
 
       <div className="flex flex-col gap-3 min-h-[480px]">
+        {onResumeFromPhase ? (
+          <ResumeMenu
+            options={options}
+            blockedReason={resumeBlockedReason}
+            onSelect={requestResume}
+          />
+        ) : null}
+
         <PhaseTimeline
           phaseStates={phaseStates}
           loading={effectiveLoadingHistory}
           completedWorkflow={completedWorkflow}
-          canResumeFromTimeline={canResumeFromTimeline}
-          isPhaseResumeSelectable={checkPhaseResumeSelectable}
-          armedResumePhase={armedResumePhase}
-          armedMilestoneStartIdx={armedMilestoneStartIdx}
+          showSubStatus={!completedWorkflow && !failure}
           awaitingGateByMilestone={awaitingGateByMilestone}
-          onResumeTap={handlePhaseResumeTap}
         />
 
-        <ActivityLogPanel
-          searchQuery={searchQuery}
-          onSearchQueryChange={setSearchQuery}
-          effectiveLoadingHistory={effectiveLoadingHistory}
-          eventCountLabel={eventCountLabel}
-          fetchError={fetchError}
-          filteredEvents={filtered}
-          runId={runId}
-          workflowId={workflowId}
-          onRetryHistorical={loadHistoricalEvents}
-        />
+        <div
+          ref={logRef}
+          tabIndex={-1}
+          className="flex flex-col flex-1 min-h-0 rounded-panel focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        >
+          <ActivityLogPanel
+            searchQuery={searchQuery}
+            onSearchQueryChange={setSearchQuery}
+            effectiveLoadingHistory={effectiveLoadingHistory}
+            eventCountLabel={eventCountLabel}
+            fetchError={fetchError}
+            filteredEvents={filtered}
+            runId={runId}
+            workflowId={workflowId}
+            onRetryHistorical={loadHistoricalEvents}
+          />
+        </div>
       </div>
+
+      <ResumeConfirmDialog
+        phase={canResume ? confirmResumePhase : null}
+        costByPhase={costByPhase}
+        costLoading={costQuery.isLoading}
+        onOpenChange={(open) => {
+          if (!open) setConfirmResumePhase(null)
+        }}
+        onConfirm={confirmResume}
+      />
     </div>
   )
 }

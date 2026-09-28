@@ -5,6 +5,7 @@ import type { SelectedRun } from "@/context/runSessionTypes"
 import { isNeedsRevisionStatus, resolveRunHeaderStatus } from "@/lib/constants"
 import { detectAwaitingProspero, detectAwaitingReview } from "@/lib/phaseProgress"
 import { computeFunnelStages, type FunnelStage } from "@/lib/funnelStages"
+import { resolveRunGate, type RunGate } from "@/components/run/runRouting"
 
 export interface RunChromeVM {
   statusLabel: string
@@ -13,6 +14,12 @@ export interface RunChromeVM {
   fallbackFound: number | null
   fallbackIncluded: number | null
   displayCost: number | null
+  /** Final included count for the outcome line ("6 included of 1,716 records"). */
+  outcomeIncluded: number | null
+  /** Records retrieved (first funnel stage, else papersFound). */
+  outcomeRecords: number | null
+  /** Human gate the run is parked on, if any. */
+  gate: RunGate | null
   isRunning: boolean
   isDone: boolean
   isCancelled: boolean
@@ -120,6 +127,19 @@ export function computeRunChrome(input: RunChromeInput): RunChromeVM {
   const fallbackFound = run.papersFound ?? null
   const fallbackIncluded = run.papersIncluded ?? null
 
+  const includedStage = displayFunnelStages.find((s) => s.key === "included")
+  const outcomeIncluded = includedStage?.count ?? (fallbackIncluded != null && fallbackIncluded > 0 ? fallbackIncluded : null)
+  const firstStage = displayFunnelStages.find((s) => s.key === "raw" || s.key === "deduped")
+  const outcomeRecords = firstStage?.count ?? (fallbackFound != null && fallbackFound > 0 ? fallbackFound : null)
+
+  const gate = resolveRunGate({
+    status,
+    historicalStatus: run.historicalStatus,
+    isAwaitingProspero,
+    isAwaitingReview,
+    isRunning,
+  })
+
   const total = (run.historicalCost ?? 0) + costStats.total_cost
   const displayCost = total > 0 ? total : null
 
@@ -164,6 +184,9 @@ export function computeRunChrome(input: RunChromeInput): RunChromeVM {
     fallbackFound,
     fallbackIncluded,
     displayCost,
+    outcomeIncluded,
+    outcomeRecords,
+    gate,
     isRunning,
     isDone,
     isCancelled,
