@@ -252,6 +252,13 @@ async def run_writing_setup(
                     self.phase = _phase
 
             _screening_decisions = [_SDStub(r[0], r[1]) for r in _sd_rows]
+            async with db.execute(
+                "SELECT COUNT(*) FROM screening_decisions WHERE workflow_id = ? AND reviewer_type = 'human_override'",
+                (state.workflow_id,),
+            ) as _hcur:
+                _human_row = await _hcur.fetchone()
+            if _human_row and _human_row[0]:
+                _screening_decisions.append(_SDStub("human_override", "phase_3_screening"))
         except Exception as _sd_err:
             logger.debug("WritingNode: could not fetch screening decisions: %s", _sd_err)
 

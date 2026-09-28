@@ -19,6 +19,7 @@ from fastapi.responses import FileResponse, StreamingResponse
 from src.config.loader import load_configs as _load_configs
 from src.export.submission_packager import package_submission
 from src.manuscript.readiness import compute_readiness_scorecard
+from src.models.papers import decode_html_entities
 from src.search.pdf_parse import is_pdf_bytes, path_is_valid_pdf
 from src.web.control_plane_service import ControlPlaneService
 from src.web.diagnostics_utils import summarize_phase_performance
@@ -460,8 +461,8 @@ async def get_papers_reference(run_id: str) -> dict[str, Any]:
             papers_out.append(
                 {
                     "paper_id": paper_id,
-                    "title": row["title"],
-                    "authors": authors_fmt,
+                    "title": decode_html_entities(row["title"] or ""),
+                    "authors": decode_html_entities(authors_fmt),
                     "year": row["year"],
                     "source_database": row["source_database"],
                     "doi": row["doi"] or entry.get("doi", ""),

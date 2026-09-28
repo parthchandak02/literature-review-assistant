@@ -94,8 +94,8 @@ Enforced by `scripts/check.py api` against Section 10.1 below. Update this table
 | GET | /api/run/{run_id}/papers-reference | Included papers list with PDF/TXT file availability flags |
 | GET | /api/run/{run_id}/papers/{paper_id}/file | Stream PDF or TXT file for a specific included paper |
 | POST | /api/run/{run_id}/fetch-pdfs | Retroactive full-text fetch for completed runs; returns `{attempted, succeeded, failed}` |
-| GET | /api/run/{run_id}/screening-summary | Human-in-the-loop screening summary (counts, sample decisions) |
-| POST | /api/run/{run_id}/approve-screening | Approve screening and unblock HumanReviewCheckpointNode |
+| GET | /api/run/{run_id}/screening-summary | Human-in-the-loop screening summary: one row per screened paper with its final decision (`final_decision`, `stage`, `exclusion_reason`, `decided_by`) plus `thresholds` |
+| POST | /api/run/{run_id}/approve-screening | Approve screening (idempotent overrides) and unblock HumanReviewCheckpointNode |
 | GET | /api/run/{run_id}/knowledge-graph | Force-directed knowledge graph nodes and edges for EvidenceNetworkViz |
 | GET | /api/run/{run_id}/prisma-checklist | PRISMA 2020 compliance checklist (item-by-item pass/fail/partial) |
 | GET | /api/run/{run_id}/prisma-diagram.png | Download latest PRISMA flow diagram PNG (`Cache-Control: no-store`) |

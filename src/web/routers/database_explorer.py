@@ -8,6 +8,7 @@ from typing import Any
 import aiosqlite
 from fastapi import APIRouter, HTTPException
 
+from src.models.papers import decode_html_entities
 from src.web.run_resolver import resolve_runtime_db
 
 router = APIRouter(tags=["database_explorer"])
@@ -101,7 +102,7 @@ async def get_papers_suggest(
                     "SELECT DISTINCT title FROM papers WHERE title LIKE ? AND title IS NOT NULL ORDER BY title LIMIT ?",
                     (like, limit),
                 ) as cur:
-                    suggestions = [row[0] for row in await cur.fetchall()]
+                    suggestions = [decode_html_entities(row[0]) for row in await cur.fetchall()]
             else:
                 async with db.execute(
                     "SELECT DISTINCT authors FROM papers WHERE authors LIKE ? AND authors IS NOT NULL LIMIT ?",
@@ -115,6 +116,7 @@ async def get_papers_suggest(
                         authors_list = _json.loads(raw) if raw.startswith("[") else [raw]
                         for a in authors_list:
                             name = (a.get("name") or a.get("raw_name") or str(a)) if isinstance(a, dict) else str(a)
+                            name = decode_html_entities(name)
                             if q.lower() in name.lower() and name not in seen:
                                 seen.add(name)
                                 suggestions.append(name)
@@ -255,8 +257,8 @@ async def get_papers_all(
                 papers.append(
                     {
                         "paper_id": row["paper_id"],
-                        "title": row["title"],
-                        "authors": authors_fmt,
+                        "title": decode_html_entities(row["title"] or ""),
+                        "authors": decode_html_entities(authors_fmt),
                         "year": row["year"],
                         "source_database": row["source_database"],
                         "doi": row["doi"],
@@ -314,7 +316,7 @@ async def get_db_tables(run_id: str) -> dict[str, Any]:
             papers_out.append(
                 {
                     "paper_id": row["paper_id"],
-                    "title": row["title"] or "",
+                    "title": decode_html_entities(row["title"] or ""),
                     "doi": row["doi"],
                     "extraction_source": extraction_source,
                     "outcomes": numeric_outcomes,

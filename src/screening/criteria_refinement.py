@@ -194,8 +194,12 @@ async def save_corrections(
     workflow_id: str,
     corrections: list[ScreeningCorrection],
 ) -> None:
-    """Persist human corrections to screening_corrections table."""
+    """Persist human corrections, replacing any earlier correction for the same paper."""
     for c in corrections:
+        await db.execute(
+            "DELETE FROM screening_corrections WHERE workflow_id = ? AND paper_id = ?",
+            (workflow_id, c.paper_id),
+        )
         await db.execute(
             """
             INSERT INTO screening_corrections

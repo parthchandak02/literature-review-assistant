@@ -44,6 +44,32 @@ _logger = logging.getLogger(__name__)
 
 _RESUMABLE_ATTACH_OVERRIDE_STATUSES = frozenset({"running", "stale", "awaiting_review", "awaiting_prospero"})
 
+_GATE_STATUS_MESSAGES: dict[str, str] = {
+    "config_generating": "Review config is being generated",
+    "config_ready": "Review config is ready; start the run to continue",
+    "awaiting_prospero": "Paused for PROSPERO registration",
+    "awaiting_review": "Paused for human review",
+    "needs_revision": "Run finished, but the manuscript audit failed; revision needed",
+}
+_WARN_GATE_STATUSES = frozenset({"needs_revision"})
+
+
+def attach_status_event(status: str, ts: str) -> dict[str, Any]:
+    """Synthetic event describing a non-completed workflow status on attach."""
+    gate_message = _GATE_STATUS_MESSAGES.get(status)
+    if gate_message is not None:
+        event_type = "warn" if status in _WARN_GATE_STATUSES else "status"
+        return {"type": event_type, "message": gate_message, "ts": ts}
+    return {
+        "type": "error",
+        "msg": (
+            "Workflow appears orphaned (no terminal event persisted)"
+            if status == "stale"
+            else f"Run ended with status: {status}"
+        ),
+        "ts": ts,
+    }
+
 
 @dataclass(frozen=True)
 class ResolvedWorkflow:
@@ -347,7 +373,8 @@ class RunLifecycleCoordinator:
                 evidence.get("source"),
             )
 
-        if effective_attach_status not in ("completed", "done"):
+        is_gate_status = effective_attach_status in _GATE_STATUS_MESSAGES
+        if effective_attach_status not in ("completed", "done") and not is_gate_status:
             record.error = f"Workflow {effective_attach_status}"
         if effective_attach_status not in ("completed", "done"):
             has_terminal = any(
@@ -355,15 +382,10 @@ class RunLifecycleCoordinator:
             )
             if not has_terminal:
                 record.event_log.append(
-                    {
-                        "type": "error",
-                        "msg": (
-                            "Workflow appears orphaned (no terminal event persisted)"
-                            if effective_attach_status == "stale"
-                            else f"Run ended with status: {effective_attach_status}"
-                        ),
-                        "ts": datetime.datetime.now(tz=datetime.UTC).isoformat(),
-                    }
+                    attach_status_event(
+                        effective_attach_status,
+                        datetime.datetime.now(tz=datetime.UTC).isoformat(),
+                    )
                 )
         self.set(run_id, record)
         schedule_runtime_db_manuscript_backfill(resolved.db_path)

@@ -65,6 +65,7 @@ class SectionLoopResult:
     sections_written: list[str] = field(default_factory=list)
     failed_sections: list[str] = field(default_factory=list)
     section_results_by_key: dict[str, object] = field(default_factory=dict)
+    placeholder_sections: set[str] = field(default_factory=set)
 
 
 async def run_section_writing_loop(
@@ -578,15 +579,32 @@ async def run_section_writing_loop(
 
     _abs_idx = SECTIONS.index("abstract") if "abstract" in SECTIONS else -1
     if _abs_idx >= 0 and not sections_written[_abs_idx].strip():
-        sections_written[_abs_idx] = build_empty_section_placeholder(
-            "abstract",
-            research_question=state.review.research_question,
-            prisma_sentence=_prisma_sentence,
-        ) or ""
+        sections_written[_abs_idx] = (
+            build_empty_section_placeholder(
+                "abstract",
+                research_question=state.review.research_question,
+                prisma_sentence=_prisma_sentence,
+                review=state.review,
+                grounding=grounding,
+            )
+            or ""
+        )
+        result.placeholder_sections.add("abstract")
+        _template_msg = "Abstract generation failed; using the data-derived template abstract."
+        logger.warning("WritingNode: %s", _template_msg)
+        if rc:
+            rc.log_status(_template_msg)
     _methods_idx = SECTIONS.index("methods") if "methods" in SECTIONS else -1
     if _methods_idx >= 0 and not sections_written[_methods_idx].strip():
         sections_written[_methods_idx] = (
-            "Two independent reviewers screened records with adjudication for disagreements. " + _prisma_sentence
+            build_empty_section_placeholder(
+                "methods",
+                research_question=state.review.research_question,
+                prisma_sentence=_prisma_sentence,
+                review=state.review,
+                grounding=grounding,
+            )
+            or ""
         )
 
     # --- Abstract structured validation ---

@@ -15,6 +15,7 @@ from fastapi.responses import FileResponse, StreamingResponse
 from sse_starlette.sse import EventSourceResponse
 
 from src.export.prisma_flow_export import build_prisma_flow_zip_bytes
+from src.models.papers import decode_html_entities
 from src.web.run_resolver import resolve_runtime_db
 from src.web.shared import (
     RunRequest,
@@ -114,7 +115,7 @@ async def get_knowledge_graph(run_id: str) -> dict:
             (_wf_id, _wf_id),
         ) as _nc:
             async for _nr in _nc:
-                _authors_raw = _nr[4] or ""
+                _authors_raw = decode_html_entities(_nr[4] or "")
                 _first_author = ""
                 if _authors_raw:
                     try:
@@ -130,7 +131,7 @@ async def get_knowledge_graph(run_id: str) -> dict:
                 nodes.append(
                     {
                         "id": _nr[0],
-                        "title": _nr[1] or "",
+                        "title": decode_html_entities(_nr[1] or ""),
                         "year": _nr[2],
                         "study_design": _nr[3] or "unknown",
                         "community_id": -1,

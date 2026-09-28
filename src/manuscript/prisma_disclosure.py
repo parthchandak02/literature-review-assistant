@@ -43,6 +43,7 @@ def _methodological_prisma_gaps(low: str) -> list[str]:
         and ("independent reviewers" not in low)
         and ("independent dual review" not in low)
         and ("two independent reviewers" not in low)
+        and ("automated reviewer" not in low)
     ):
         missing.append("selection_process_independent_reviewers")
     if "protocol registration" not in low and "registered" not in low:

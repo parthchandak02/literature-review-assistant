@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
+import html
 import re
 import uuid
 
 from nameparser import HumanName
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from wordfreq import zipf_frequency
 
 from src.models.enums import SourceCategory
@@ -56,6 +57,30 @@ _GENERIC_AUTHOR_PLACEHOLDERS: frozenset[str] = frozenset(
 )
 
 
+_MAX_UNESCAPE_PASSES = 5
+
+
+def decode_html_entities(text: str) -> str:
+    """Decode HTML entities, including double-encoded ones such as ``&amp;apos;``."""
+    for _ in range(_MAX_UNESCAPE_PASSES):
+        if "&" not in text:
+            break
+        decoded = html.unescape(text)
+        if decoded == text:
+            break
+        text = decoded
+    return text
+
+
+def decode_optional_html_entities(value: object) -> object:
+    """Decode strings and lists of strings; pass other values through unchanged."""
+    if isinstance(value, str):
+        return decode_html_entities(value)
+    if isinstance(value, list):
+        return [decode_html_entities(v) if isinstance(v, str) else v for v in value]
+    return value
+
+
 def _is_camelcase_compound(token: str) -> bool:
     """Return True if token is a stripped hyphenated compound word artifact.
 
@@ -95,6 +120,11 @@ class CandidatePaper(BaseModel):
     source_quality_tier: str | None = None
     source_peer_reviewed: bool | None = None
     source_open_index: bool | None = None
+
+    @field_validator("title", "authors", "abstract", "keywords", "journal", mode="before")
+    @classmethod
+    def _decode_entities(cls, value: object) -> object:
+        return decode_optional_html_entities(value)
 
 
 def compute_display_label(paper: CandidatePaper) -> str:

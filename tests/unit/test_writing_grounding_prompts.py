@@ -249,6 +249,6 @@ def test_grounding_block_screening_language_avoids_banned_terms() -> None:
     out = format_grounding_block(data).lower()
     assert "relevance pre-screen" in out
     assert "priority scoring" in out
-    assert "independent dual screening" in out
+    assert "two independent automated reviewers" in out
     for term in _BANNED_OUTPUT_TERMS:
         assert term not in out

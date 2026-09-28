@@ -9,6 +9,64 @@ from src.models import StructuredAbstractOutput
 _ABSTRACT_FIELDS = ("Background", "Objectives", "Methods", "Results", "Conclusions", "Keywords")
 _ANY_BRACKET_CITATION_RE = re.compile(r"\[[^\[\]\n]{1,120}\]")
 
+_AUX_WORDS = frozenset(
+    {"is", "are", "was", "were", "do", "does", "did", "can", "could", "should", "will", "would", "has", "have", "had"}
+)
+_PREPOSITIONS = frozenset({"of", "in", "on", "for", "among", "to", "with", "from", "by", "at", "about"})
+_WHAT_BE_RE = re.compile(r"^(?:what|which)\s+(?:is|are|was|were)\s+(.+)$", flags=re.IGNORECASE)
+_WHAT_KNOWN_RE = re.compile(r"^what\s+is\s+(?:currently\s+)?known\s+about\s+(.+)$", flags=re.IGNORECASE)
+_WHAT_NOUN_RE = re.compile(r"^(?:what|which)\s+([A-Za-z][\w-]*)\s+(.+)$", flags=re.IGNORECASE)
+_TRAILING_SUBQUESTION_RE = re.compile(
+    r"[,;]?\s+(?:and|or)\s+(?:how|what|which|whether|why|to what extent)\b.*$", flags=re.IGNORECASE
+)
+
+
+def question_to_objective_phrase(question: str) -> str | None:
+    """Turn a "What are the X?"-style research question into a noun phrase ("the X").
+
+    Returns None when the question cannot be rephrased safely (for example
+    inverted how/does/is questions), so callers can fall back to other data.
+    """
+    text = " ".join(str(question or "").split()).rstrip(" ?.!")
+    if not text:
+        return None
+    text = _TRAILING_SUBQUESTION_RE.sub("", text).rstrip(" ,;")
+    known = _WHAT_KNOWN_RE.match(text)
+    if known:
+        return f"current evidence on {known.group(1)}"
+    be = _WHAT_BE_RE.match(text)
+    noun_match = _WHAT_NOUN_RE.match(text)
+    if be:
+        phrase = be.group(1)
+    elif noun_match:
+        noun, rest = noun_match.group(1), noun_match.group(2)
+        first_rest = rest.split()[0].lower()
+        if noun.lower() in _AUX_WORDS or first_rest in _AUX_WORDS or first_rest in _PREPOSITIONS:
+            return None
+        phrase = f"the {noun} that {rest}"
+    else:
+        return None
+    if phrase.split()[0] in {"The", "A", "An", "These", "Those"}:
+        phrase = phrase[0].lower() + phrase[1:]
+    return phrase or None
+
+
+def review_objective_phrase(research_question: str, pico: object | None = None) -> str:
+    """Noun phrase describing what the review examined, safe to embed mid-sentence."""
+    phrase = question_to_objective_phrase(research_question)
+    if phrase:
+        return phrase
+    intervention = str(getattr(pico, "intervention", "") or "").strip().rstrip(".")
+    outcome = str(getattr(pico, "outcome", "") or "").strip().rstrip(".")
+    population = str(getattr(pico, "population", "") or "").strip().rstrip(".")
+    if intervention and outcome:
+        tail = f" in {population}" if population else ""
+        return f"the effects of {intervention} on {outcome}{tail}"
+    text = " ".join(str(research_question or "").split()).rstrip(" ?.!")
+    if text:
+        return f'the research question "{text}"'
+    return "the predefined research question"
+
 
 def _replace_or_append_abstract_field(content: str, field: str, value: str) -> str:
     pattern = re.compile(
@@ -37,7 +95,7 @@ def _ensure_structured_abstract(content: str, research_question: str) -> str:
     )
     defaults = {
         "Background": "This topic has important practical and implementation implications.",
-        "Objectives": f"This systematic review addressed {research_question}.",
+        "Objectives": f"This systematic review addressed {review_objective_phrase(research_question)}.",
         "Methods": (
             "Bibliographic databases were searched according to protocol, with "
             "eligibility screening and risk-of-bias assessment."

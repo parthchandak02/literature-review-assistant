@@ -380,6 +380,75 @@ class ScreeningRepo:
         rows = await cursor.fetchall()
         return {str(row[0]) for row in rows}
 
+    async def has_automated_fulltext_screening(self, workflow_id: str) -> bool:
+        """True when full-text screening produced any non-human decision for this workflow."""
+        cursor = await self.db.execute(
+            """
+            SELECT 1 FROM screening_decisions
+            WHERE workflow_id = ? AND stage = 'fulltext' AND reviewer_type != 'human_override'
+            LIMIT 1
+            """,
+            (workflow_id,),
+        )
+        return await cursor.fetchone() is not None
+
+    async def get_latest_ai_decision(self, workflow_id: str, paper_id: str) -> str | None:
+        """Most recent non-human screening decision for a paper, full-text stage first."""
+        cursor = await self.db.execute(
+            """
+            SELECT decision FROM screening_decisions
+            WHERE workflow_id = ? AND paper_id = ? AND reviewer_type != 'human_override'
+            ORDER BY CASE stage WHEN 'fulltext' THEN 0 ELSE 1 END, datetime(created_at) DESC, id DESC
+            LIMIT 1
+            """,
+            (workflow_id, paper_id),
+        )
+        row = await cursor.fetchone()
+        return str(row[0]) if row else None
+
+    async def apply_human_overrides(
+        self,
+        workflow_id: str,
+        overrides: list[tuple[str, str, str | None]],
+    ) -> str:
+        """Apply (paper_id, decision, reason) human overrides idempotently; return the stage written.
+
+        Overrides land on the stage the resume cohort is resolved from: full-text
+        when automated full-text screening ran, otherwise title/abstract. Writing
+        full-text rows for only the overridden papers would make resume treat
+        them as the whole cohort and drop every other title/abstract include.
+        """
+        stage = "fulltext" if await self.has_automated_fulltext_screening(workflow_id) else "title_abstract"
+        for paper_id, decision, reason in overrides:
+            await self.db.execute(
+                """
+                DELETE FROM screening_decisions
+                WHERE workflow_id = ? AND paper_id = ? AND stage = ? AND reviewer_type = 'human_override'
+                """,
+                (workflow_id, paper_id, stage),
+            )
+            await self.db.execute(
+                """
+                INSERT INTO screening_decisions
+                    (workflow_id, paper_id, stage, decision, reason, exclusion_reason, reviewer_type, confidence)
+                VALUES (?, ?, ?, ?, ?, NULL, 'human_override', 1.0)
+                """,
+                (workflow_id, paper_id, stage, decision, reason or "human override"),
+            )
+            await self.db.execute(
+                """
+                INSERT INTO dual_screening_results
+                    (workflow_id, paper_id, stage, agreement, final_decision, adjudication_needed)
+                VALUES (?, ?, ?, 1, ?, 0)
+                ON CONFLICT(workflow_id, paper_id, stage) DO UPDATE SET
+                    final_decision = excluded.final_decision,
+                    agreement = excluded.agreement,
+                    adjudication_needed = excluded.adjudication_needed
+                """,
+                (workflow_id, paper_id, stage, decision),
+            )
+        return stage
+
     async def get_title_abstract_include_ids(self, workflow_id: str) -> set[str]:
         """Paper IDs that passed title/abstract screening (include or uncertain).
 

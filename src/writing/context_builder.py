@@ -351,8 +351,8 @@ class WritingGroundingData(BaseModel):
     # Papers for which full text cannot be retrieved are excluded with reason
     # "Full text not retrievable" and counted in the PRISMA "Reports not retrieved" box.
     screening_method_description: str = (
-        "Two independent reviewers screened titles and abstracts, "
-        "with disagreements resolved by a third adjudicator. "
+        "Two independent automated reviewers screened titles and abstracts, "
+        "with automated adjudication of disagreements. "
         "Papers advancing from title/abstract screening underwent full-text eligibility "
         "assessment; full-text retrieval was attempted via a multi-tier open-access resolver "
         "(Unpaywall, Semantic Scholar, Europe PMC, CORE, PubMed Central). "
@@ -445,6 +445,35 @@ class WritingGroundingData(BaseModel):
     abstract_only_caution_threshold: float = 0.40
 
 
+def _screening_reviewer_setup(screening_decisions: list[object] | None) -> tuple[str, str, str]:
+    """Return (reviewers, adjudication, human_sentence) describing who actually screened.
+
+    Derived from phase_3_screening decision actors. With no actor data, falls back
+    to the pipeline's configured design: two independent automated reviewers with
+    automated adjudication. Never describes automated reviewers as human reviewers.
+    """
+    counts: dict[str, int] = {}
+    for d in screening_decisions or []:
+        if getattr(d, "phase", "") != "phase_3_screening":
+            continue
+        actor = str(getattr(d, "actor", "") or "")
+        counts[actor] = counts.get(actor, 0) + 1
+    a_count = counts.get("reviewer_a", 0)
+    b_count = counts.get("reviewer_b", 0)
+    human_count = counts.get("human", 0) + counts.get("human_override", 0)
+    adjudication = " with automated adjudication of disagreements"
+    if a_count and not b_count:
+        reviewers = "a single automated reviewer"
+        adjudication = ""
+    elif a_count and b_count < a_count:
+        reviewers = "a primary automated reviewer, with a second reviewer when confidence was low"
+        adjudication = ", and automated adjudication of disagreements"
+    else:
+        reviewers = "two independent automated reviewers"
+    human_sentence = " A human reviewer checked and could override screening decisions." if human_count else ""
+    return reviewers, adjudication, human_sentence
+
+
 def _build_screening_method_description(
     screening_decisions: list[object] | None,
     total_screened: int,
@@ -475,10 +504,15 @@ def _build_screening_method_description(
         else "Inter-rater reliability was not formally computed for this run."
     )
 
+    _reviewers, _adjudication, _human_sentence = _screening_reviewer_setup(screening_decisions)
+    _is_dual = not _reviewers.startswith("a single")
+    if not _is_dual:
+        _kappa_sentence = "Inter-rater reliability was not computed because each record had one reviewer."
+    _screened_by = f"Titles and abstracts were screened by {_reviewers}{_adjudication}.{_human_sentence}"
+
     if not screening_decisions:
         return (
-            "Independent dual screening was applied to titles and abstracts, "
-            "with disagreements resolved by a third adjudicator. "
+            f"{_screened_by} "
             f"Papers advancing from title/abstract screening underwent full-text eligibility "
             f"assessment; {_RESOLVER_TEXT}. "
             f"{_kappa_sentence}"
@@ -506,8 +540,8 @@ def _build_screening_method_description(
         threshold_pct = int(batch_screen_threshold * 100)
         _batch_kappa = (
             "Inter-rater reliability was measured using Cohen's kappa on the records evaluated by both reviewers."
-            if _kappa_usable
-            else "Inter-rater reliability was not formally computed for this run."
+            if _kappa_usable and _is_dual
+            else _kappa_sentence
         )
         _pre_screen = (
             f"First, automated pre-screening evaluated all {total_screened} records and excluded {pre_excluded} "
@@ -523,9 +557,9 @@ def _build_screening_method_description(
             f"{_pre_screen}"
             f"The priority scoring stage evaluated all {bm25_fwd} records and excluded "
             f"{batch_screen_excluded} records with low relevance scores (threshold < {threshold_pct}%), "
-            f"forwarding {batch_screen_forwarded} records for independent dual screening. "
-            f"Two independent reviewers then screened those {batch_screen_forwarded} records, "
-            "with a third reviewer resolving any disagreements. "
+            f"forwarding {batch_screen_forwarded} records for reviewer screening. "
+            f"{_reviewers[0].upper() + _reviewers[1:]} then screened those {batch_screen_forwarded} records"
+            f"{_adjudication}.{_human_sentence} "
             f"Papers advancing from title/abstract screening underwent full-text eligibility "
             f"assessment; {_RESOLVER_TEXT}. "
             f"{_batch_kappa}"
@@ -535,25 +569,23 @@ def _build_screening_method_description(
         _tiered_kappa = (
             f"Inter-rater reliability was measured using Cohen's kappa on the {llm_count} records "
             f"evaluated by the dual reviewers."
-            if _kappa_usable
-            else "Inter-rater reliability was not formally computed for this run."
+            if _kappa_usable and _is_dual
+            else _kappa_sentence
         )
         return (
             "Title and abstract screening used a tiered approach. "
             f"First, a relevance pre-screen evaluated all {total_screened} records, "
             f"excluding {kf_count} records with low relevance scores and routing {llm_count} "
-            "records for independent dual screening. "
-            f"Two independent reviewers then screened the {llm_count} "
-            "pre-filtered records, with a third reviewer resolving any disagreements. "
+            "records for reviewer screening. "
+            f"{_reviewers[0].upper() + _reviewers[1:]} then screened the {llm_count} "
+            f"pre-filtered records{_adjudication}.{_human_sentence} "
             f"Papers advancing from title/abstract screening underwent full-text eligibility "
             f"assessment; {_RESOLVER_TEXT}. "
             f"{_tiered_kappa}"
         )
     else:
-        # Symmetric dual-review: both reviewers assessed all (or nearly all) records
         return (
-            "Independent dual screening was applied to titles and abstracts, "
-            "with disagreements resolved by a third adjudicator. "
+            f"{_screened_by} "
             f"Papers advancing from title/abstract screening underwent full-text eligibility "
             f"assessment; {_RESOLVER_TEXT}. "
             f"{_kappa_sentence}"

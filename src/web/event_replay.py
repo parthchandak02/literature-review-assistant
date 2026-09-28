@@ -9,6 +9,7 @@ import aiosqlite
 
 from src.db.database import get_db
 from src.db.repositories import WorkflowRepository
+from src.models.papers import decode_html_entities
 from src.orchestration.phase_catalog import UI_TIMELINE_PHASE_ORDER
 from src.web.event_store import EventStore
 
@@ -113,9 +114,18 @@ async def load_checkpoints(db_path: str, workflow_id: str) -> dict[str, str]:
         return await WorkflowRepository(db).get_checkpoints(workflow_id)
 
 
+def decode_event_titles(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Decode HTML entities in paper titles persisted inside event payloads."""
+    for event in events:
+        title = event.get("title") if isinstance(event, dict) else None
+        if isinstance(title, str) and "&" in title:
+            event["title"] = decode_html_entities(title)
+    return events
+
+
 async def load_replay_events(db_path: str, workflow_id: str | None = None) -> list[dict[str, Any]]:
     """Load persisted events and align UI timeline phases with checkpoint truth."""
-    events = await EventStore().load(db_path)
+    events = decode_event_titles(await EventStore().load(db_path))
     wf_id = workflow_id or await resolve_workflow_id(db_path)
     if not wf_id:
         return events

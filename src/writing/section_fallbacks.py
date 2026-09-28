@@ -9,7 +9,11 @@ from src.models import (
     SectionBlock,
     StructuredSectionDraft,
 )
-from src.writing.abstract_utils import _abstract_body_word_count, _append_abstract_field_sentence
+from src.writing.abstract_utils import (
+    _abstract_body_word_count,
+    _append_abstract_field_sentence,
+    review_objective_phrase,
+)
 from src.writing.evidence_assembler import build_results_evidence_pack, build_results_section_fallback
 from src.writing.headings import SECTION_REQUIRED_SUBHEADINGS
 
@@ -18,10 +22,19 @@ if TYPE_CHECKING:
     from src.writing.context_builder import WritingGroundingData
 
 _SECTION_REQUIRED_SUBHEADINGS = SECTION_REQUIRED_SUBHEADINGS
-_DUAL_REVIEW_RE = re.compile(
-    r"\b(?:two\s+independent\s+reviewers?|dual\s+(?:review|screening)|independent\s+dual\s+screening)\b",
+_REVIEWER_SETUP_RE = re.compile(
+    r"\b(?:reviewers?|dual\s+(?:review|screening))\b",
     flags=re.IGNORECASE,
 )
+_GENERIC_SCREENING_SENTENCE = "Records were screened against the predefined eligibility criteria."
+
+
+def _methods_screening_sentence(grounding: WritingGroundingData | None) -> str:
+    """Reviewer description from run grounding; never assumes dual human review."""
+    description = str(getattr(grounding, "screening_method_description", "") or "").strip()
+    if _screening_method_describes_reviewers(description):
+        return description.rstrip(".") + "."
+    return _GENERIC_SCREENING_SENTENCE
 
 
 def _topic_scope_from_grounding(grounding: WritingGroundingData | None) -> str:
@@ -33,8 +46,8 @@ def _topic_scope_from_grounding(grounding: WritingGroundingData | None) -> str:
     return topic_scope or "the review question"
 
 
-def _screening_method_describes_dual_review(screening_method: str) -> bool:
-    return bool(screening_method and _DUAL_REVIEW_RE.search(screening_method))
+def _screening_method_describes_reviewers(screening_method: str) -> bool:
+    return bool(screening_method and _REVIEWER_SETUP_RE.search(screening_method))
 
 
 def _format_abstract_design_summary(study_design_counts: dict[str, int] | None) -> str:
@@ -47,9 +60,7 @@ def _format_abstract_design_summary(study_design_counts: dict[str, int] | None) 
     parts = [f"{label} (n={count})" for label, count in ordered if label and count > 0]
     if not parts:
         return "heterogeneous study designs"
-    if len(parts) == 1:
-        return parts[0]
-    return ", ".join(parts[:-1]) + f", and {parts[-1]}"
+    return _join_names(parts)
 
 
 def _expand_abstract_to_minimum_words(content: str, grounding: WritingGroundingData, minimum_words: int) -> str:
@@ -63,7 +74,7 @@ def _expand_abstract_to_minimum_words(content: str, grounding: WritingGroundingD
         (
             "Methods",
             f"Eligibility assessment covered {grounding.fulltext_assessed} retrieved reports after screening "
-            f"{grounding.total_screened} records across the configured databases.",
+            f"{grounding.total_screened} records across the searched databases.",
         ),
         (
             "Results",
@@ -99,8 +110,8 @@ def _build_minimum_compliant_abstract(
     grounding: WritingGroundingData,
     minimum_words: int,
 ) -> str:
-    research_question = str(review.research_question or "the review question").strip().rstrip("?")
-    databases = ", ".join(getattr(grounding, "databases_searched", []) or ["configured bibliographic databases"])
+    research_question = review_objective_phrase(review.research_question, getattr(review, "pico", None))
+    databases = ", ".join(getattr(grounding, "databases_searched", []) or ["bibliographic databases"])
     search_window = str(getattr(grounding, "search_eligibility_window", "") or "").strip()
     search_window_clause = f" across the eligibility window {search_window}" if search_window else ""
     screening_method = str(getattr(grounding, "screening_method_description", "") or "").strip()
@@ -177,13 +188,14 @@ def _build_deterministic_section_fallback(
         fallback_citations = [first]
     if section == "abstract":
         databases = (
-            ", ".join(getattr(grounding, "databases_searched", []) or []) or "configured bibliographic databases"
+            ", ".join(getattr(grounding, "databases_searched", []) or []) or "bibliographic databases"
         )
-        review_topic = str(
-            getattr(grounding, "research_question", "")
-            or getattr(grounding, "review_topic", "")
-            or "the review question"
-        ).strip()
+        grounding_question = str(getattr(grounding, "research_question", "") or "").strip()
+        review_topic = (
+            review_objective_phrase(grounding_question)
+            if grounding_question
+            else str(getattr(grounding, "review_topic", "") or "the review question").strip()
+        )
         screened = getattr(grounding, "total_screened", 0) if grounding is not None else 0
         assessed = getattr(grounding, "fulltext_assessed", 0) if grounding is not None else 0
         included = getattr(grounding, "total_included", 0) if grounding is not None else 0
@@ -453,7 +465,7 @@ def _build_selection_process_fallback_text(
         f"{assessed} were assessed for eligibility, and {included} studies were ultimately included."
     )
     screening_method = str(getattr(grounding, "screening_method_description", "") or "").strip()
-    if _screening_method_describes_dual_review(screening_method):
+    if _screening_method_describes_reviewers(screening_method):
         return f"{screening_method.rstrip('.')}. Of {screened} screened records, {funnel}"
     return (
         f"Records were screened against protocol eligibility criteria following the archived search strategy. "
@@ -464,28 +476,98 @@ def _build_selection_process_fallback_text(
 EMPTY_SECTION_PLACEHOLDER_FALLBACK_TYPE = "empty_section_placeholder"
 
 
-def _objective_sentence(research_question: str) -> str:
-    question = " ".join(str(research_question or "").split()).rstrip(" .")
-    if not question:
-        return "To synthesize the evidence addressing the review question."
-    if not question.endswith("?"):
-        question = f"{question}?"
-    return f"To answer the review question: {question}"
+_REVIEW_TYPE_LABELS = {"systematic": "systematic review", "scoping": "scoping review", "narrative": "narrative review"}
+_REVIEW_TYPE_AIMS = {
+    "systematic": "To identify, appraise, and synthesize studies on",
+    "scoping": "To map the available studies on",
+    "narrative": "To summarize studies on",
+}
 
 
-def build_empty_section_placeholder(section: str, *, research_question: str, prisma_sentence: str) -> str | None:
+def _join_names(names: list[str]) -> str:
+    cleaned = [str(name).strip() for name in names if str(name).strip()]
+    if len(cleaned) <= 2:
+        return " and ".join(cleaned)
+    return ", ".join(cleaned[:-1]) + f", and {cleaned[-1]}"
+
+
+def _placeholder_methods_sentence(review: ReviewConfig | None, grounding: WritingGroundingData | None) -> str:
+    databases = _join_names(list(getattr(grounding, "databases_searched", []) or []))
+    sentence = f"{databases} were searched" if databases else "Bibliographic databases were searched"
+    search_date = str(getattr(grounding, "search_date", "") or "").strip()
+    if search_date:
+        sentence += f" on {search_date}"
+    start = getattr(review, "date_range_start", None)
+    end = getattr(review, "date_range_end", None)
+    if start and end:
+        sentence += f" for studies published between {start} and {end}"
+    screening = str(getattr(grounding, "screening_method_description", "") or "").strip().rstrip(".")
+    screening = screening or "Records were screened against predefined eligibility criteria"
+    return f"{sentence}. {screening}."
+
+
+def _placeholder_conclusion_sentence(grounding: WritingGroundingData | None) -> str:
+    included = getattr(grounding, "total_included", None)
+    if included is None:
+        return "The included studies were synthesized narratively."
+    if int(included) == 0:
+        return "No studies met the eligibility criteria, so no conclusions about effects can be drawn."
+    direction = str(getattr(grounding, "synthesis_direction", "") or "").replace("_", " ").strip()
+    noun = "study" if int(included) == 1 else "studies"
+    if direction:
+        return (
+            f"Across the {included} included {noun}, the overall direction of evidence was {direction}; "
+            "this should be interpreted in light of the size of the evidence base."
+        )
+    return f"{included} {noun} met the eligibility criteria and were synthesized narratively."
+
+
+def build_template_abstract(
+    *,
+    research_question: str,
+    prisma_sentence: str,
+    review: ReviewConfig | None = None,
+    grounding: WritingGroundingData | None = None,
+) -> str:
+    """Deterministic structured abstract built from run data, used when model generation fails."""
+    review_type = str(getattr(getattr(review, "review_type", None), "value", "") or "systematic")
+    label = _REVIEW_TYPE_LABELS.get(review_type, "systematic review")
+    aim = _REVIEW_TYPE_AIMS.get(review_type, _REVIEW_TYPE_AIMS["systematic"])
+    phrase = review_objective_phrase(research_question, getattr(review, "pico", None))
+    results = prisma_sentence.strip()
+    if grounding is not None and getattr(grounding, "study_design_counts", None):
+        results = f"{results} Included evidence comprised {_format_abstract_design_summary(grounding.study_design_counts)}."
+    results = results.strip() or "Study selection counts were not available."
+    keywords = [str(k).strip() for k in (getattr(review, "keywords", None) or [])[:5] if str(k).strip()]
+    keywords_value = ", ".join(keywords) if keywords else label
+    return (
+        f"**Background:** This {label} brings together published evidence on {phrase}. "
+        f"**Objectives:** {aim} {phrase}. "
+        f"**Methods:** {_placeholder_methods_sentence(review, grounding)} "
+        f"**Results:** {results} "
+        f"**Conclusions:** {_placeholder_conclusion_sentence(grounding)} "
+        f"**Keywords:** {keywords_value}."
+    )
+
+
+def build_empty_section_placeholder(
+    section: str,
+    *,
+    research_question: str,
+    prisma_sentence: str,
+    review: ReviewConfig | None = None,
+    grounding: WritingGroundingData | None = None,
+) -> str | None:
     """Deterministic placeholder text for an empty section, or None if the section has none."""
     if section == "abstract":
-        return (
-            "**Background:** This systematic review synthesizes the available evidence on the review question. "
-            f"**Objectives:** {_objective_sentence(research_question)} "
-            "**Methods:** Bibliographic databases were searched using the configured protocol and settings. "
-            f"**Results:** {prisma_sentence} "
-            "**Conclusion:** Evidence synthesis was generated from included studies. "
-            "**Keywords:** systematic review, evidence synthesis, outcomes, implementation, methodology."
+        return build_template_abstract(
+            research_question=research_question,
+            prisma_sentence=prisma_sentence,
+            review=review,
+            grounding=grounding,
         )
     if section == "methods":
-        return "Two independent reviewers screened records with adjudication for disagreements. " + prisma_sentence
+        return f"{_methods_screening_sentence(grounding)} {prisma_sentence}".strip()
     return None
 
 

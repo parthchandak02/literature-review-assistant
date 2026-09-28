@@ -19,6 +19,7 @@ from src.orchestration.runners.writing.section_loop import SectionLoopResult, ru
 from src.orchestration.runners.writing.setup import load_narrative, run_writing_setup
 from src.orchestration.state import ReviewState
 from src.writing.prompts.sections import SECTIONS
+from src.writing.section_fallbacks import EMPTY_SECTION_PLACEHOLDER_FALLBACK_TYPE, resolve_section_manifest_outcome
 
 logger = logging.getLogger(__name__)
 _log = logging.getLogger(__name__)
@@ -76,6 +77,7 @@ async def run_writing_node(state: ReviewState, ctx: GraphRunContext[ReviewState]
     sections_written: list[str] = []
     _failed_sections: list[str] = []
     _section_results_by_key: dict[str, object] = {}
+    _placeholder_sections: set[str] = set()
 
     async def _save_writing_checkpoint(
         *,
@@ -147,6 +149,7 @@ async def run_writing_node(state: ReviewState, ctx: GraphRunContext[ReviewState]
             sections_written = loop_result.sections_written
             _failed_sections = loop_result.failed_sections
             _section_results_by_key = loop_result.section_results_by_key
+            _placeholder_sections = loop_result.placeholder_sections
 
     # --- Phase 3: Post-assembly (citation coverage, contradictions, manuscript, diagrams) ---
     await run_post_assembly(
@@ -244,15 +247,20 @@ async def run_writing_node(state: ReviewState, ctx: GraphRunContext[ReviewState]
             for _mi, _msec in enumerate(SECTIONS):
                 _mcontent = sections_written[_mi] if _mi < len(sections_written) else ""
                 _mresult = _section_results_by_key.get(_msec)
-                _missues = list(getattr(_mresult, "validation_issues", []) or [])
-                _mfallback = bool(getattr(_mresult, "fallback_used", False)) or _msec in (_failed_sections or [])
+                _mstatus, _mfallback, _missues = resolve_section_manifest_outcome(
+                    _msec,
+                    writer_fallback_used=bool(getattr(_mresult, "fallback_used", False)),
+                    validation_issues=list(getattr(_mresult, "validation_issues", []) or []),
+                    failed_sections=_failed_sections or [],
+                    placeholder_sections=_placeholder_sections,
+                )
                 manifest = WritingManifestRecord(
                     workflow_id=state.workflow_id,
                     section_key=_msec,
                     attempt_number=1,
                     grounding_hash=_grounding_hash,
                     citation_catalog_hash=_citation_catalog_hash,
-                    contract_status="failed" if _mfallback else ("warning" if _missues else "passed"),
+                    contract_status=_mstatus,
                     contract_issues=json.dumps(_missues),
                     fallback_used=_mfallback,
                     retry_count=int(getattr(_mresult, "validation_retries", 0) or 0),
@@ -266,7 +274,11 @@ async def run_writing_node(state: ReviewState, ctx: GraphRunContext[ReviewState]
                             workflow_id=state.workflow_id,
                             phase="phase_6_writing",
                             module="writing.section_writer",
-                            fallback_type="deterministic_section_fallback",
+                            fallback_type=(
+                                EMPTY_SECTION_PLACEHOLDER_FALLBACK_TYPE
+                                if _msec in _placeholder_sections
+                                else "deterministic_section_fallback"
+                            ),
                             reason=(
                                 f"section={_msec}; validation_retries="
                                 f"{int(getattr(_mresult, 'validation_retries', 0) or 0)}"
