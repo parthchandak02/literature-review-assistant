@@ -7,6 +7,8 @@ export interface ViewToolbarProps {
   children?: ReactNode
   /** h-9 toolbar (default false uses h-11). */
   dense?: boolean
+  /** "fixed" (default) pins h-9/h-11; "auto" lets content set the height with vertical padding. */
+  height?: "fixed" | "auto"
   bordered?: boolean
   sticky?: boolean
   className?: string
@@ -22,6 +24,7 @@ export function ViewToolbar({
   actions,
   children,
   dense = false,
+  height = "fixed",
   bordered = true,
   sticky = false,
   className,
@@ -34,7 +37,13 @@ export function ViewToolbar({
       style={style}
       className={cn(
         "glass-toolbar flex items-center gap-3 shrink-0",
-        dense ? "h-9 px-4" : "h-11 px-4",
+        height === "auto"
+          ? dense
+            ? "px-4 py-2"
+            : "px-4 py-3"
+          : dense
+            ? "h-9 px-4"
+            : "h-11 px-4",
         bordered && "border-b border-border/70",
         sticky && "sticky top-0 z-30",
         hasTitleRow && !children && "justify-between",

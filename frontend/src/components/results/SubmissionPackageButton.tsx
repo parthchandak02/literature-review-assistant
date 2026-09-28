@@ -56,13 +56,13 @@ export function SubmissionPackageButton({
   return (
     <Button
       type="button"
-      size="sm"
+      size="xs"
       variant="outline"
       onClick={() => void handleClick()}
       disabled={packaging}
       aria-busy={packaging}
       title="Build (if needed) and download the full submission package (.zip)"
-      className={cn("h-7 gap-1 text-xs", className)}
+      className={cn("gap-1", className)}
     >
       {packaging ? <Spinner size="sm" /> : <Download className="h-3 w-3" />}
       {packaging ? "Packaging..." : label}

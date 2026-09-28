@@ -59,9 +59,9 @@ export function NoteField({
         onClick={(e) => e.stopPropagation()}
         placeholder="Add a note..."
         className={cn(
-          "w-full bg-transparent resize-none text-[11px] leading-relaxed",
+          "w-full bg-transparent resize-none text-2xs leading-relaxed",
           "text-intent-warning/90 placeholder-muted",
-          "border-none outline-none focus:outline-none",
+          "border-none outline-none rounded-control focus-visible:ring-1 focus-visible:ring-ring",
           "scrollbar-none block",
           !expanded && "cursor-text overflow-hidden",
         )}
@@ -72,7 +72,7 @@ export function NoteField({
         }
       />
       {saveState !== "idle" && (
-        <span className="text-[10px] text-muted tabular-nums">
+        <span className="text-2xs text-muted tabular-nums">
           {saveState === "saving" ? "Saving..." : "Saved"}
         </span>
       )}

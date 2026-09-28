@@ -114,21 +114,21 @@ export function Pagination({ page, pageSize, total, onPrev, onNext }: Pagination
       </span>
       <div className="flex gap-1">
         <Button
-          size="sm"
+          size="icon"
           variant="outline"
           onClick={onPrev}
           disabled={!hasPrev}
-          className="h-9 w-9 p-0 border-border"
+          className="border-border"
           aria-label="Previous page"
         >
           <ChevronLeft className="h-3.5 w-3.5" />
         </Button>
         <Button
-          size="sm"
+          size="icon"
           variant="outline"
           onClick={onNext}
           disabled={!hasNext}
-          className="h-9 w-9 p-0 border-border"
+          className="border-border"
           aria-label="Next page"
         >
           <ChevronRight className="h-3.5 w-3.5" />

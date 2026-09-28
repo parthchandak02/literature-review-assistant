@@ -111,10 +111,10 @@ export function ScreeningPaperRow({ paper, override, onOverride }: ScreeningPape
             <div className="flex items-center gap-2 flex-wrap">
               <Button
                 onClick={(e) => { e.stopPropagation(); handleOverride("include") }}
-                size="sm"
+                size="xs"
                 variant={override?.decision === "include" ? "success" : "outline"}
                 className={cn(
-                  "h-7 px-2.5 text-xs",
+                  "px-2.5",
                   override?.decision !== "include" && "hover:border-intent-success-border"
                 )}
               >
@@ -122,10 +122,10 @@ export function ScreeningPaperRow({ paper, override, onOverride }: ScreeningPape
               </Button>
               <Button
                 onClick={(e) => { e.stopPropagation(); handleOverride("exclude") }}
-                size="sm"
+                size="xs"
                 variant={override?.decision === "exclude" ? "destructive" : "outline"}
                 className={cn(
-                  "h-7 px-2.5 text-xs",
+                  "px-2.5",
                   override?.decision !== "exclude" && "hover:border-intent-danger-border"
                 )}
               >
@@ -135,8 +135,8 @@ export function ScreeningPaperRow({ paper, override, onOverride }: ScreeningPape
                 <Button
                   onClick={(e) => { e.stopPropagation(); onOverride(null); setReason("") }}
                   variant="outline"
-                  size="sm"
-                  className="h-7 px-2.5 text-xs text-muted hover:text-foreground"
+                  size="xs"
+                  className="px-2.5 text-muted hover:text-foreground"
                 >
                   Clear Override
                 </Button>

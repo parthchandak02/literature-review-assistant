@@ -74,7 +74,7 @@ function KeyField({
         {envConfigured && (
           <span
             className={cn(
-              "inline-flex items-center gap-1 text-[10px] font-medium",
+              "inline-flex items-center gap-1 text-2xs font-medium",
               usingEnv ? "text-intent-success" : "text-muted",
             )}
             title={usingEnv ? "Runs use the key configured on the server" : "Browser value overrides the server key"}
@@ -84,7 +84,7 @@ function KeyField({
           </span>
         )}
         {hasValue && (
-          <span className="inline-flex items-center gap-1 text-[10px] text-intent-primary font-medium">
+          <span className="inline-flex items-center gap-1 text-2xs text-intent-primary font-medium">
             <Shield className="h-2.5 w-2.5" aria-hidden />
             Browser override
           </span>
@@ -162,7 +162,7 @@ export function ApiKeysPanel({ onValidityChange }: { onValidityChange?: (valid: 
     <div className="space-y-5">
       {/* Status summary */}
       {allValid ? (
-        <div className="flex items-center gap-2.5 px-3 py-2.5 rounded-xl bg-intent-success-subtle border border-intent-success-border text-xs text-intent-success">
+        <div className="flex items-center gap-2.5 px-3 py-2.5 rounded-panel bg-intent-success-subtle border border-intent-success-border text-xs text-intent-success">
           <CheckCircle2 className="h-3.5 w-3.5 shrink-0" aria-hidden />
           <span>
             All required keys configured.
@@ -170,7 +170,7 @@ export function ApiKeysPanel({ onValidityChange }: { onValidityChange?: (valid: 
           </span>
         </div>
       ) : (
-        <div className="flex items-center gap-2.5 px-3 py-2.5 rounded-xl bg-intent-warning-subtle border border-intent-warning-border text-xs text-intent-warning">
+        <div className="flex items-center gap-2.5 px-3 py-2.5 rounded-panel bg-intent-warning-subtle border border-intent-warning-border text-xs text-intent-warning">
           <span>
             Missing required key{missingRequired.length > 1 ? "s" : ""}:{" "}
             {missingRequired.map((k) => llmProviderLabel(k)).join(", ")}
@@ -184,7 +184,7 @@ export function ApiKeysPanel({ onValidityChange }: { onValidityChange?: (valid: 
           <h4 className="text-xs font-semibold text-foreground uppercase tracking-wide">
             LLM Providers
           </h4>
-          <span className="text-[10px] text-muted">
+          <span className="text-2xs text-muted">
             {configuredLlmCount}/{LLM_FIELDS.length} configured
           </span>
         </div>
@@ -217,7 +217,7 @@ export function ApiKeysPanel({ onValidityChange }: { onValidityChange?: (valid: 
           <h4 className="text-xs font-semibold text-foreground uppercase tracking-wide group-hover:text-foreground transition-colors">
             Search &amp; Data Sources
           </h4>
-          <span className="text-[10px] text-muted">
+          <span className="text-2xs text-muted">
             {configuredSearchCount}/{SEARCH_FIELDS.length} configured
           </span>
           <ChevronDown className={`h-3 w-3 text-muted transition-transform ${showSearch ? "rotate-180" : ""}`} />
@@ -243,7 +243,7 @@ export function ApiKeysPanel({ onValidityChange }: { onValidityChange?: (valid: 
         )}
       </div>
 
-      <p className="text-[11px] text-muted leading-relaxed">
+      <p className="text-2xs text-muted leading-relaxed">
         Keys configured on the server are used automatically and are never sent to the browser.
         Browser overrides are stored in this browser only and take precedence for runs you start here.
       </p>

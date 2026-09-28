@@ -60,7 +60,7 @@ export function SidebarCompletedArchivedSection({
       <button
         type="button"
         onClick={onToggleCompleted}
-        className="mb-1 w-full flex items-center justify-between px-1.5 py-1 rounded-md text-intent-success hover:text-intent-success-fg hover:bg-intent-success-subtle transition-colors"
+        className="mb-1 w-full flex items-center justify-between px-1.5 py-1 rounded-control text-intent-success hover:text-intent-success-fg hover:bg-intent-success-subtle transition-colors"
       >
         <span className="label-caps font-semibold flex items-center gap-1.5">
           <span className="flex h-3.5 w-3.5 items-center justify-center rounded-[3px] border border-intent-success-border bg-intent-success-subtle text-intent-success">
@@ -78,7 +78,7 @@ export function SidebarCompletedArchivedSection({
       {completedExpanded && (
         <div className="mb-2 mt-1 max-h-48 overflow-y-auto space-y-1.5 pr-0.5">
           {completedHistory.length === 0 ? (
-            <p className="px-2 py-1.5 text-[11px] text-intent-success/55">
+            <p className="px-2 py-1.5 text-2xs text-intent-success/55">
               No runs in completed.
             </p>
           ) : (
@@ -107,7 +107,7 @@ export function SidebarCompletedArchivedSection({
       <button
         type="button"
         onClick={onToggleArchived}
-        className="w-full flex items-center justify-between px-1.5 py-1 rounded-md text-muted hover:text-foreground hover:bg-surface-2/60 transition-colors"
+        className="w-full flex items-center justify-between px-1.5 py-1 rounded-control text-muted hover:text-foreground hover:bg-surface-2/60 transition-colors"
       >
         <span className="label-caps font-semibold flex items-center gap-1.5">
           <span className="flex h-3.5 w-3.5 items-center justify-center rounded-[3px] border border-intent-warning-border bg-intent-warning-subtle text-intent-warning">
@@ -125,7 +125,7 @@ export function SidebarCompletedArchivedSection({
       {archivedExpanded && (
         <div className="mt-1 max-h-48 overflow-y-auto space-y-1.5 pr-0.5">
           {archivedHistory.length === 0 ? (
-            <p className="px-2 py-1.5 text-[11px] text-muted">
+            <p className="px-2 py-1.5 text-2xs text-muted">
               No archived chats.
             </p>
           ) : (

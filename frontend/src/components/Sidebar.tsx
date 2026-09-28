@@ -166,7 +166,7 @@ export function Sidebar({
       {/* Backdrop: only shown on mobile when the drawer is open */}
       {isMobile && !collapsed && (
         <div
-          className="fixed inset-0 z-40 bg-black/60"
+          className="fixed inset-0 z-40 bg-scrim"
           onClick={onToggle}
           aria-hidden
         />

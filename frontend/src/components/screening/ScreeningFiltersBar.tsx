@@ -27,7 +27,7 @@ export function ScreeningFiltersBar({
           variant="ghost"
           size="sm"
           className={cn(
-            "px-3 h-8 text-xs font-medium border-b-2 -mb-px capitalize rounded-none",
+            "px-3 text-xs font-medium border-b-2 -mb-px capitalize rounded-none",
             filter === f
               ? "border-intent-primary text-intent-primary"
               : "border-transparent text-muted hover:text-foreground",

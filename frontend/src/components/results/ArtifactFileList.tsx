@@ -104,7 +104,7 @@ function FigureGridCard({ file }: { file: OutputFile }) {
   const [imgError, setImgError] = useState(false)
   const { icon: Icon, className: iconClass } = fileIcon(file)
   return (
-    <figure className="rounded-xl border border-border bg-card overflow-hidden">
+    <figure className="rounded-panel border border-border bg-card overflow-hidden">
       <div className="px-3 py-2 border-b border-border bg-surface-1/60 flex items-center justify-between gap-2">
         <figcaption className="flex items-center gap-2 min-w-0 text-sm font-medium text-foreground">
           <Icon className={`h-4 w-4 shrink-0 ${iconClass}`} />

@@ -78,7 +78,7 @@ export function DatabaseFiltersPopover({
           type="button"
           variant="secondary"
           size="sm"
-          className="h-8 gap-1.5 shrink-0 text-xs"
+          className="gap-1.5 shrink-0 text-xs"
         >
           <Filter className="h-3.5 w-3.5" />
           Filters
@@ -95,13 +95,13 @@ export function DatabaseFiltersPopover({
           align="start"
           sideOffset={6}
           className={cn(
-            "z-50 w-[min(100vw-2rem,20rem)] glass-panel-strong border border-border/80 rounded-xl",
+            "z-50 w-[min(100vw-2rem,20rem)] glass-panel-strong border border-border/80 rounded-panel",
             "shadow-2xl shadow-black/60 overflow-hidden",
           )}
         >
           <div className="px-3 py-2 border-b border-border/70 glass-toolbar">
             <div className="text-xs font-medium text-foreground">Filter papers</div>
-            <div className="text-[10px] text-muted">All filters apply together.</div>
+            <div className="text-2xs text-muted">All filters apply together.</div>
           </div>
           <div className="p-3 grid gap-2.5 max-h-[min(70vh,28rem)] overflow-y-auto">
             <FilterComboboxPopover

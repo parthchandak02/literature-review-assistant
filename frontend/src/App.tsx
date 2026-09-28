@@ -367,14 +367,6 @@ function AppShell() {
         className="relative isolate flex-1 h-full overflow-hidden overscroll-none flex flex-col transition-[margin-left] duration-200 ease-in-out"
         style={{ marginLeft: mainMargin }}
       >
-        {/* Ambient warm glow behind glass content (subtle orange balance to sidebar violet) */}
-        <div
-          className="pointer-events-none absolute inset-0 z-0"
-          aria-hidden
-          style={{
-            background: "var(--app-ambient-gradient)",
-          }}
-        />
         {!isOnline && (
           <div
             role="alert"
@@ -386,9 +378,8 @@ function AppShell() {
             </span>
             <Button
               type="button"
-              size="sm"
+              size="xs"
               variant="outline"
-              className="h-6 px-2 text-[11px]"
               onClick={() => void retryBackend()}
               disabled={checkingBackend}
             >

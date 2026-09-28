@@ -74,7 +74,7 @@ Note: sidebar SHL rows run in Sprint 2 and app-shell and settings rows in Sprint
 | ACT-07 | H | `RunView.tsx:159`, `RunChrome.tsx:190` | `awaiting_review` gets no redirect or banner, and its tab sits last. | Show a "Paused: 312 decisions need you → Review" banner on every tab and put the tab second. | 2 | todo | |
 | ACT-08 | M | `ActivityView.tsx:148-166` | `resumeBlockedReason` is computed but never shown. | Show it as an inline hint. | 2 | todo | |
 | ACT-09 | M | `ActivityView.tsx:224` | The failure banner shows the *first* error, has no role=alert, and offers no action. | Show "Failed in {phase}" with the last error, "Show in log" and "Resume from {phase}". | 2 | todo | |
-| ACT-10 | M | `lib/constants.ts:335` | Unknown statuses fall back to "Ready" (stale runs, config_generating). | Map through `STATUS_LABEL`. | 2 | todo | |
+| ACT-10 | M | `lib/constants.ts:335` | Unknown statuses fall back to "Ready" (stale runs, config_generating). | Map through `STATUS_LABEL`. | 2 | done | sprint-1 |
 | ACT-11 | M | `HorizontalStepper.tsx:95-139` | State is conveyed by colour and icon only, with no `aria-current` and no `<ol>`. | Add sr-only status text. | 2 | todo | |
 | ACT-12 | L | `ActivityView.tsx:57,90` | "Start the server" is developer copy. | "Can't reach the server. Retry". | 2 | todo | |
 | ACT-13 | L | `RunChrome.tsx:91-125` | Literal ` | ` and `>` separators are read aloud, "Copied" isn't announced, and cost is styled as a warning. | 2 | todo | |
@@ -110,7 +110,7 @@ Note: sidebar SHL rows run in Sprint 2 and app-shell and settings rows in Sprint
 | RES-12 | M | `ReferencesView.tsx:166-384` | The legend matches nothing on the cards, icon-only actions have no aria-label, and there's no search or sort. | Remove the legend, add labels and search, and add a "full text only" filter. | 5 | todo | |
 | RES-13 | M | `EvidenceNetworkViz.tsx:232,556` | Nodes aren't keyboard-reachable, and the detail panel renders below the fold. | Use `tabIndex` nodes and a right-column inspector. | 5 | todo | |
 | RES-14 | L | `EvidenceNetworkViz.tsx:216,431` | Arrows on symmetric edges, exported SVG loses its colours, and there's no cluster legend. | Draw arrows only for citations, inline colours on export, and add a legend. | 5 | todo | |
-| RES-15 | M | `constants.ts:23-40` vs `422-440` | Two label sets for the same phases ("Ext. Quality" vs "Extraction & Quality"). | Keep one `PHASE_LABELS` with a `short` field. | 5 | todo | |
+| RES-15 | M | `constants.ts:23-40` vs `422-440` | Two label sets for the same phases ("Ext. Quality" vs "Extraction & Quality"). | Keep one `PHASE_LABELS` with a `short` field. | 5 | done | sprint-1 |
 | RES-16 | L | multiple | "--" used as a dash in UI copy. | Use "·" or "–". | 5 | todo | |
 | DAT-01 | H | `database/PapersTable.tsx:34`, `ui/table.tsx:16` | No column sort and no `aria-sort`. | Sortable `Th` with a chevron. | 4 | todo | |
 | DAT-02 | H | `DatabaseView.tsx:210` | The Papers pagination renders below the *Outcomes* table. | Put the pager inside the Papers shell footer or toolbar. | 4 | todo | |
@@ -142,22 +142,41 @@ Note: sidebar SHL rows run in Sprint 2 and app-shell and settings rows in Sprint
 | CST-14 | L | `CostOpsToolbar.tsx:27` vs `ChartTableToggle.tsx` | The segmented control is duplicated. | Reuse one, with `role=group`. | 4 | todo | |
 | CST-15 | L | `CostView.tsx:444-491` | Validation diagnostics live on the Cost tab, with colour-only status and a silent cap at 8. | Move them to Quality, use Badges and "show all". | 4 | todo | |
 | CST-16 | L | `CostView.tsx:180,191` | Wrong empty copy for finished runs, and `max-w-4xl` leaves wide screens empty. | Choose copy by state and widen. | 4 | todo | |
-| DS-01 | H | `ui/button.tsx:8` | **`focus-visible:outline-none` kills the focus ring on every Button** (verified in the compiled CSS). The fallback ring is 1.8–2.0:1. | `focus-visible:ring-2 ring-ring ring-offset-2`, at full opacity. | 1 | todo | |
-| DS-02 | H | `tokens.css:52-65`, `theme-overrides.css:44-57` | Solid buttons fail contrast in dark mode: success 1.84, warning 1.61, danger 2.53, primary 3.86. | Add `--color-intent-*-solid` fill tokens (#7c3aed, #047857, #b45309, #b91c1c) or dark text on light fills. | 1 | todo | |
-| DS-03 | H | `tokens.css:25` | `--color-muted #71717a` gives 3.67:1 on surface-1, and it's the most-used secondary text colour at 10–11px. | Raise it to about #8b8b94 or lighter in dark mode. | 1 | todo | |
-| DS-04 | M | `theme-overrides.css:220-251` | Light badges: warning 2.86, success 3.32, danger 3.95. | Darker `--color-intent-*-text` for light mode. | 1 | todo | |
-| DS-05 | M | `components.css:12-74,351` | `glass-panel-strong` mixes in black even in light mode, so popovers look muddy grey. | Override the `background` shorthand, or mix with white. | 1 | todo | |
-| DS-06 | M | `tokens.css:179-191`, `base.css:42-87` | A dead, invalid ambient-gradient token, plus hard-coded rgb values in base. | Keep one source. | 1 | todo | |
-| DS-07 | M | `base.css:4-73` | A parallel legacy HSL token system drives borders and body colour. | Point base rules at the `--color-*` tokens and delete the aliases. | 1 | todo | |
-| DS-08 | M | 46 sites | `text-[10px]` / `text-[11px]` drift, and the `--text-micro` token is unused. | Add a `--text-2xs` (11px) floor and a 1.2 scale, and lint for arbitrary sizes. | 1 | todo | |
-| DS-09 | M | `button.tsx:27` plus 13 call sites | Heights h-5 through h-11 set via overrides. | Add `xs` and `icon-sm` sizes to cva and ban overrides. Default to h-9 given the density setting of 8. | 1 | todo | |
-| DS-10 | M | TSX (157 sites) | Five radius values are used ad hoc. | Map panel, control and pill to `@theme --radius-*`. | 1 | todo | |
-| DS-11 | M | `CostView.tsx:56`, `costOpsFormatters.ts:237`, `components.css:5-159` | Three stat-tile styles, copied card classes, and raw date inputs. | Build one `StatTile` primitive, alias the card classes, use `DateInput`. | 1 | todo | |
-| DS-12 | L | `base.css:90`, `components.css:441` | Two reduced-motion blocks, and spinners freeze. | Keep one block and give spinners a slow pulse. | 1 | todo | |
-| DS-13 | L | `theme-overrides.css:2-155` | All dark values duplicated, and some duplicate hues (community 0/6, phases 4/4b). | Keep a single source and use distinct hues. | 1 | todo | |
-| DS-14 | L | `feedback.tsx:72`, `tokens.css:22` | The empty-state icon is 1.3:1, and borders are 1.2–1.3:1. | Add `--color-border-strong` of at least 1.6:1. | 1 | todo | |
-| DS-15 | L | `ui/section.tsx:68-180` | Collapsible sections lack aria-expanded, and `!h-auto` hacks are used. | Add ARIA and an auto-height toolbar variant. | 1 | todo | |
+| DS-01 | H | `ui/button.tsx:8` | **`focus-visible:outline-none` kills the focus ring on every Button** (verified in the compiled CSS). The fallback ring is 1.8–2.0:1. | `focus-visible:ring-2 ring-ring ring-offset-2`, at full opacity. | 1 | done | sprint-1 |
+| DS-02 | H | `tokens.css:52-65`, `theme-overrides.css:44-57` | Solid buttons fail contrast in dark mode: success 1.84, warning 1.61, danger 2.53, primary 3.86. | Add `--color-intent-*-solid` fill tokens (#7c3aed, #047857, #b45309, #b91c1c) or dark text on light fills. | 1 | done | sprint-1 |
+| DS-03 | H | `tokens.css:25` | `--color-muted #71717a` gives 3.67:1 on surface-1, and it's the most-used secondary text colour at 10–11px. | Raise it to about #8b8b94 or lighter in dark mode. | 1 | done | sprint-1 |
+| DS-04 | M | `theme-overrides.css:220-251` | Light badges: warning 2.86, success 3.32, danger 3.95. | Darker `--color-intent-*-text` for light mode. | 1 | done | sprint-1 |
+| DS-05 | M | `components.css:12-74,351` | `glass-panel-strong` mixes in black even in light mode, so popovers look muddy grey. | Override the `background` shorthand, or mix with white. | 1 | done | sprint-1 |
+| DS-06 | M | `tokens.css:179-191`, `base.css:42-87` | A dead, invalid ambient-gradient token, plus hard-coded rgb values in base. | Keep one source. | 1 | done | sprint-1 |
+| DS-07 | M | `base.css:4-73` | A parallel legacy HSL token system drives borders and body colour. | Point base rules at the `--color-*` tokens and delete the aliases. | 1 | done | sprint-1 |
+| DS-08 | M | 46 sites | `text-[10px]` / `text-[11px]` drift, and the `--text-micro` token is unused. | Add a `--text-2xs` (11px) floor and a 1.2 scale, and lint for arbitrary sizes. | 1 | done | sprint-1 |
+| DS-09 | M | `button.tsx:27` plus 13 call sites | Heights h-5 through h-11 set via overrides. | Add `xs` and `icon-sm` sizes to cva and ban overrides. Default to h-9 given the density setting of 8. | 1 | done | sprint-1 |
+| DS-10 | M | TSX (157 sites) | Five radius values are used ad hoc. | Map panel, control and pill to `@theme --radius-*`. | 1 | done | sprint-1 |
+| DS-11 | M | `CostView.tsx:56`, `costOpsFormatters.ts:237`, `components.css:5-159` | Three stat-tile styles, copied card classes, and raw date inputs. | Build one `StatTile` primitive, alias the card classes, use `DateInput`. | 1 | done | sprint-1 |
+| DS-12 | L | `base.css:90`, `components.css:441` | Two reduced-motion blocks, and spinners freeze. | Keep one block and give spinners a slow pulse. | 1 | done | sprint-1 |
+| DS-13 | L | `theme-overrides.css:2-155` | All dark values duplicated, and some duplicate hues (community 0/6, phases 4/4b). | Keep a single source and use distinct hues. | 1 | done | sprint-1 |
+| DS-14 | L | `feedback.tsx:72`, `tokens.css:22` | The empty-state icon is 1.3:1, and borders are 1.2–1.3:1. | Add `--color-border-strong` of at least 1.6:1. | 1 | done | sprint-1 |
+| DS-15 | L | `ui/section.tsx:68-180` | Collapsible sections lack aria-expanded, and `!h-auto` hacks are used. | Add ARIA and an auto-height toolbar variant. | 1 | done | sprint-1 |
 
 ## Sprint logs
 
 _(append per sprint: landed, blocked, next)_
+
+### Sprint 1: Foundation (2026-09-28)
+**Landed**
+- **DS-01..15:** tokens (solid/text/border-strong/ring/scrim/2xs/radius), a single dark source, a Button focus ring and size scale, Badge contrast, and the StatTile, DropdownMenu, RadioGroup and Sheet primitives. The 46 arbitrary font sizes, 18 Button height overrides and about 43 radius usages were swept, and ESLint guardrails were added.
+- **ACT-10, RES-15:** `PHASE_META` is the single label source, `lib/humanize.ts` was added, the header status fallback was fixed, and labels are now sentence case.
+
+**Decisions**
+- The Retry button stays at h-7.
+- A scrim token was added.
+- Labels use sentence case.
+- `phasesInMilestone` dedupes aliases.
+- Status wins over the `is*` flags.
+
+**Follow-ups for later sprints**
+- Two phases both render as short label "Extraction" in the cost chart: `phase_4_extraction_quality` and `phase_4_extraction` (CST sprint).
+- Migrate consumers to `phaseLabel`, `shortModelName`, `humanizeStage` and `decodeHtmlEntities`. The file:line list is in the WS-C report, and the targets include logLine.ts, CostView.tsx, ScreeningPaperRow.tsx, PapersTable.tsx and EvidenceNetworkViz.tsx.
+- The SVG font sizes in EvidenceNetworkViz stay at 9/10px (RES sprint).
+
+**Next:** Sprint 2 (Status and safety). BE-01..03 is already in progress in a worktree.

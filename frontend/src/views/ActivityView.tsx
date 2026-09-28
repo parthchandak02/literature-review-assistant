@@ -222,7 +222,7 @@ export function ActivityView({
   return (
     <div className="flex flex-col gap-4">
       {status === "error" && (
-        <div className="flex items-start gap-2.5 bg-intent-danger-subtle border border-intent-danger-border rounded-xl px-4 py-3 text-sm text-intent-danger">
+        <div className="flex items-start gap-2.5 bg-intent-danger-subtle border border-intent-danger-border rounded-panel px-4 py-3 text-sm text-intent-danger">
           <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5" />
           <div>
             <span className="font-medium">Review failed. </span>

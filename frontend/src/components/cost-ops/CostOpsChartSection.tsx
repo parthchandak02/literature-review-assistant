@@ -75,7 +75,7 @@ export function CostOpsChartSection({
   }))
 
   return (
-    <div className="relative rounded-xl border border-border/80 bg-card/60">
+    <div className="relative rounded-panel border border-border/80 bg-card/60">
       <div className={sectionHeaderClass}>
         {title}
       </div>
@@ -91,12 +91,12 @@ export function CostOpsChartSection({
                 dataKey="axisLabel"
                 angle={-38}
                 textAnchor="end"
-                tick={{ fill: CHART_THEME.tickFill, fontSize: 9 }}
+                tick={{ fill: CHART_THEME.tickFill, fontSize: 11 }}
                 interval={0}
                 height={42}
               />
               <YAxis
-                tick={{ fill: CHART_THEME.tickFill, fontSize: 9 }}
+                tick={{ fill: CHART_THEME.tickFill, fontSize: 11 }}
                 tickFormatter={formatAxisCost}
                 width={52}
               />
@@ -159,7 +159,7 @@ export function CostOpsSpendSection({
   const denseAxis = chartData.length > 8
 
   return (
-    <div className="relative rounded-xl border border-border/80 bg-card/60">
+    <div className="relative rounded-panel border border-border/80 bg-card/60">
       <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border/80 px-2.5 py-1.5">
         <div className="text-xs font-semibold text-foreground">Spend over time</div>
         <div className={costOpsSegmentGroupClass}>
@@ -188,12 +188,12 @@ export function CostOpsSpendSection({
                 dataKey="axisLabel"
                 angle={denseAxis ? -32 : 0}
                 textAnchor={denseAxis ? "end" : "middle"}
-                tick={{ fill: CHART_THEME.tickFill, fontSize: 9 }}
+                tick={{ fill: CHART_THEME.tickFill, fontSize: 11 }}
                 interval={denseAxis ? "preserveStartEnd" : 0}
                 height={denseAxis ? 36 : 18}
               />
               <YAxis
-                tick={{ fill: CHART_THEME.tickFill, fontSize: 9 }}
+                tick={{ fill: CHART_THEME.tickFill, fontSize: 11 }}
                 tickFormatter={formatAxisCost}
                 width={52}
               />

@@ -20,25 +20,6 @@ export const PHASE_ORDER = [
 
 export type PhaseKey = (typeof PHASE_ORDER)[number]
 
-export const PHASE_LABELS: Record<string, string> = {
-  start: "Start",
-  phase_1_prospero_gate: "PROSPERO",
-  phase_2_search: "Search",
-  phase_3_screening: "Screening",
-  screening_calibration: "Threshold Calibration",
-  human_review_checkpoint: "Human Review Checkpoint",
-  fulltext_pdf_retrieval: "Full-Text PDF Retrieval",
-  citation_chasing: "Citation Chasing",
-  phase_4_extraction_quality: "Extraction & Quality",
-  phase_4b_embedding: "Embedding",
-  phase_5_synthesis: "Synthesis",
-  phase_5b_knowledge_graph: "Knowledge Graph",
-  phase_5c_pre_writing_gate: "Pre-Writing Gate",
-  phase_6_writing: "Writing",
-  phase_7_audit: "Audit",
-  finalize: "Finalize",
-}
-
 export const PHASE_MILESTONES = [
   {
     key: "start",
@@ -57,7 +38,7 @@ export const PHASE_MILESTONES = [
   },
   {
     key: "evidence",
-    label: "Evidence Build",
+    label: "Evidence build",
     phases: ["phase_4_extraction_quality", "phase_4b_embedding"],
   },
   {
@@ -78,38 +59,216 @@ export const PHASE_MILESTONES = [
 ] as const
 
 export type PhaseMilestoneKey = (typeof PHASE_MILESTONES)[number]["key"]
+export type MilestoneId = PhaseMilestoneKey
 
 export type PhaseMilestone = (typeof PHASE_MILESTONES)[number]
 
-/** Interleaved phases that belong to a parent milestone but are not in PHASE_ORDER. */
-export const INTERLEAVED_PHASE_MILESTONE: Record<string, PhaseMilestoneKey> = {
-  screening_calibration: "discovery",
-  human_review_checkpoint: "discovery",
-  citation_chasing: "discovery",
-  resume: "start",
-  phase_6_humanizer: "manuscript",
-  phase_6a_hyde: "manuscript",
-  phase_6a2_outline: "manuscript",
-  phase_6b_phase_a: "manuscript",
-  phase_6c_phase_b: "manuscript",
-  phase_6d_assembly: "manuscript",
-  phase_6e_concepts: "manuscript",
-  phase_6f_custom_diagrams: "manuscript",
+export interface PhaseMeta {
+  short: string
+  long: string
+  milestone: MilestoneId
 }
+
+/**
+ * Single source of truth for phase labels and milestone membership.
+ * Covers timeline phases, sub-phase checkpoints, and cost-record phase keys.
+ */
+const PHASE_META_TABLE = {
+  start: { short: "Start", long: "Start", milestone: "start" },
+  resume: { short: "Resume", long: "Resuming run", milestone: "start" },
+  phase_1_prospero_gate: { short: "PROSPERO", long: "PROSPERO registration", milestone: "prospero" },
+  phase_2_search: { short: "Search", long: "Literature search", milestone: "discovery" },
+  phase_3_screening: { short: "Screening", long: "Study screening", milestone: "discovery" },
+  screening_calibration: { short: "Calibration", long: "Threshold calibration", milestone: "discovery" },
+  screening_batch_ranker: { short: "Pre-ranking", long: "Batch relevance pre-ranking", milestone: "discovery" },
+  criteria_refinement: { short: "Criteria", long: "Criteria refinement", milestone: "discovery" },
+  human_review_checkpoint: { short: "Human review", long: "Human review checkpoint", milestone: "discovery" },
+  phase_3b_fulltext: { short: "Full-text screen", long: "Full-text screening", milestone: "discovery" },
+  fulltext_pdf_retrieval: { short: "PDF retrieval", long: "Full-text PDF retrieval", milestone: "discovery" },
+  citation_chasing: { short: "Citation chasing", long: "Citation chasing", milestone: "discovery" },
+  phase_3_screening_citation_chasing: {
+    short: "Citation chasing",
+    long: "Citation chasing screening",
+    milestone: "discovery",
+  },
+  phase_4_extraction_quality: {
+    short: "Extraction",
+    long: "Data extraction and quality appraisal",
+    milestone: "evidence",
+  },
+  phase_4_extraction: { short: "Extraction", long: "Data extraction", milestone: "evidence" },
+  phase_4_pdf_vision_table_extraction: {
+    short: "Table extraction",
+    long: "PDF table extraction (vision)",
+    milestone: "evidence",
+  },
+  quality_rob2: { short: "RoB 2", long: "Risk of bias (RoB 2)", milestone: "evidence" },
+  quality_robins_i: { short: "ROBINS-I", long: "Risk of bias (ROBINS-I)", milestone: "evidence" },
+  quality_casp: { short: "CASP", long: "Quality appraisal (CASP)", milestone: "evidence" },
+  quality_mmat: { short: "MMAT", long: "Quality appraisal (MMAT)", milestone: "evidence" },
+  phase_4b_embedding: { short: "Embedding", long: "Evidence indexing (embeddings)", milestone: "evidence" },
+  phase_5_synthesis: { short: "Synthesis", long: "Evidence synthesis", milestone: "synthesis" },
+  phase_5_narrative_direction: { short: "Narrative", long: "Narrative direction", milestone: "synthesis" },
+  phase_5b_knowledge_graph: { short: "Knowledge graph", long: "Knowledge graph", milestone: "synthesis" },
+  phase_5c_pre_writing_gate: {
+    short: "Pre-writing check",
+    long: "Pre-writing readiness check",
+    milestone: "synthesis",
+  },
+  phase_6_writing: { short: "Writing", long: "Manuscript writing", milestone: "manuscript" },
+  phase_6a_hyde: { short: "Query drafting", long: "Retrieval query drafting (HyDE)", milestone: "manuscript" },
+  phase_6_hyde: { short: "Query drafting", long: "Retrieval query drafting (HyDE)", milestone: "manuscript" },
+  phase_6a2_outline: { short: "Outline", long: "Section outlines", milestone: "manuscript" },
+  phase_6_writing_outline: { short: "Outline", long: "Section outlines", milestone: "manuscript" },
+  phase_6_rerank: { short: "Reranking", long: "Evidence reranking", milestone: "manuscript" },
+  phase_6b_phase_a: { short: "Core sections", long: "Drafting Abstract to Results", milestone: "manuscript" },
+  phase_6c_phase_b: {
+    short: "Discussion",
+    long: "Drafting Discussion and Conclusion",
+    milestone: "manuscript",
+  },
+  writing_contradiction_resolver: {
+    short: "Contradictions",
+    long: "Contradiction check",
+    milestone: "manuscript",
+  },
+  phase_6d_assembly: { short: "Assembly", long: "Manuscript assembly", milestone: "manuscript" },
+  phase_6e_concepts: { short: "Concept diagrams", long: "Concept diagrams", milestone: "manuscript" },
+  phase_6e_concept_diagram: { short: "Concept diagrams", long: "Concept diagrams", milestone: "manuscript" },
+  phase_6f_custom_diagrams: { short: "Custom diagrams", long: "Custom diagrams", milestone: "manuscript" },
+  phase_6f_custom_diagram_preparer: {
+    short: "Diagram planning",
+    long: "Custom diagrams: planning",
+    milestone: "manuscript",
+  },
+  phase_6f_custom_diagram_drawing: {
+    short: "Diagram drawing",
+    long: "Custom diagrams: drawing",
+    milestone: "manuscript",
+  },
+  phase_6f_custom_diagram_critic: {
+    short: "Diagram review",
+    long: "Custom diagrams: review",
+    milestone: "manuscript",
+  },
+  phase_6f_custom_diagram_placement: {
+    short: "Diagram placement",
+    long: "Custom diagrams: placement",
+    milestone: "manuscript",
+  },
+  phase_6_humanizer: { short: "Humanizer", long: "Humanizer pass", milestone: "manuscript" },
+  phase_7_audit: { short: "Audit", long: "Manuscript audit", milestone: "finalize" },
+  finalize: { short: "Finalize", long: "Finalize and export", milestone: "finalize" },
+} as const satisfies Record<string, PhaseMeta>
+
+export type PhaseId = keyof typeof PHASE_META_TABLE
+
+export const PHASE_META: Readonly<Record<PhaseId, PhaseMeta>> = PHASE_META_TABLE
+
+export const PHASE_IDS = Object.keys(PHASE_META) as PhaseId[]
+
+function labelMap(form: "short" | "long"): Record<string, string> {
+  return Object.fromEntries(PHASE_IDS.map((id) => [id, PHASE_META[id][form]]))
+}
+
+/** Long phase labels keyed by phase id. Derived from PHASE_META. */
+export const PHASE_LABELS: Record<string, string> = labelMap("long")
+
+/** Short phase labels keyed by phase id. Derived from PHASE_META. */
+export const PHASE_SHORT_LABELS: Record<string, string> = labelMap("short")
+
+export function isPhaseId(value: string): value is PhaseId {
+  return Object.prototype.hasOwnProperty.call(PHASE_META, value)
+}
+
+function normalizePhaseKey(raw: string): string {
+  return raw
+    .trim()
+    .replace(/([a-z0-9])([A-Z])/g, "$1_$2")
+    .toLowerCase()
+    .replace(/[\s\-./]+/g, "_")
+    .replace(/_+/g, "_")
+    .replace(/^_|_$/g, "")
+}
+
+const PHASE_IDS_BY_LENGTH = [...PHASE_IDS].sort((a, b) => b.length - a.length)
+
+/** Resolve a phase id, raw backend phase string, or cost-record key to a known PhaseId. */
+export function resolvePhaseId(raw: string | null | undefined): PhaseId | null {
+  if (!raw) return null
+  if (isPhaseId(raw)) return raw
+  const key = normalizePhaseKey(raw)
+  if (isPhaseId(key)) return key
+  return PHASE_IDS_BY_LENGTH.find((id) => key.startsWith(`${id}_`)) ?? null
+}
+
+const PHASE_NUMBER_MILESTONE: Record<string, MilestoneId> = {
+  "1": "prospero",
+  "2": "discovery",
+  "3": "discovery",
+  "4": "evidence",
+  "5": "synthesis",
+  "6": "manuscript",
+  "7": "finalize",
+}
+
+function milestoneIdForPhase(phase: string): MilestoneId | null {
+  const id = resolvePhaseId(phase)
+  if (id) return PHASE_META[id].milestone
+  const match = /^phase_(\d+)/.exec(normalizePhaseKey(phase))
+  return match ? (PHASE_NUMBER_MILESTONE[match[1]] ?? null) : null
+}
+
+function sentenceCaseSnake(value: string): string {
+  const words = value.split("_").filter(Boolean).join(" ")
+  return words ? words.charAt(0).toUpperCase() + words.slice(1) : ""
+}
+
+/**
+ * Human label for a phase id or raw backend phase string.
+ * Unknown keys drop the `phase_<n><x>_` / `quality_` prefix and are sentence-cased.
+ */
+export function phaseLabel(idOrRaw: string, form: "short" | "long" = "long"): string {
+  const id = resolvePhaseId(idOrRaw)
+  if (id) return PHASE_META[id][form]
+  const key = normalizePhaseKey(idOrRaw)
+  const stripped = key.replace(/^phase_\d+[a-z]?\d*_/, "").replace(/^quality_/, "")
+  return sentenceCaseSnake(stripped || key) || idOrRaw
+}
+
+/** Interleaved phases that belong to a parent milestone but are not in PHASE_MILESTONES[].phases. */
+export const INTERLEAVED_PHASE_MILESTONE: Record<string, PhaseMilestoneKey> = Object.fromEntries(
+  PHASE_IDS.filter(
+    (id) => !PHASE_MILESTONES.some((milestone) => (milestone.phases as readonly string[]).includes(id)),
+  ).map((id) => [id, PHASE_META[id].milestone]),
+)
 
 export function milestoneForPhase(phase: string): PhaseMilestone | null {
   const direct = PHASE_MILESTONES.find((milestone) =>
     milestone.phases.some((milestonePhase) => milestonePhase === phase),
   )
   if (direct) return direct
-
-  let milestoneKey = INTERLEAVED_PHASE_MILESTONE[phase]
-  if (!milestoneKey && phase.startsWith("phase_6_")) {
-    milestoneKey = "manuscript"
-  }
+  const milestoneKey = milestoneIdForPhase(phase)
   if (!milestoneKey) return null
-
   return PHASE_MILESTONES.find((milestone) => milestone.key === milestoneKey) ?? null
+}
+
+/**
+ * Every known phase in a milestone: its timeline phases first, then its sub-phases.
+ * Alias ids with identical labels collapse to the first (canonical checkpoint) id.
+ */
+export function phasesInMilestone(milestoneId: MilestoneId): PhaseId[] {
+  const milestone = PHASE_MILESTONES.find((m) => m.key === milestoneId)
+  if (!milestone) return []
+  const primary = milestone.phases as readonly PhaseId[]
+  const rest = PHASE_IDS.filter((id) => PHASE_META[id].milestone === milestoneId && !primary.includes(id))
+  const seen = new Set<string>()
+  return [...primary, ...rest].filter((id) => {
+    const key = `${PHASE_META[id].short}|${PHASE_META[id].long}`
+    if (seen.has(key)) return false
+    seen.add(key)
+    return true
+  })
 }
 
 export function milestoneLabelForPhase(phase: string): string {
@@ -156,11 +315,11 @@ export const STATUS_LABEL: Record<RunStatus, string> = {
   error: "Failed",
   cancelled: "Cancelled",
   stale: "Stale",
-  awaiting_review: "Awaiting Review",
+  awaiting_review: "Awaiting review",
   needs_revision: "Needs revision",
-  awaiting_prospero: "PROSPERO Pending",
-  config_generating: "Generating Config",
-  config_ready: "Config Ready",
+  awaiting_prospero: "PROSPERO pending",
+  config_generating: "Generating config",
+  config_ready: "Config ready",
 }
 
 import type { BadgeVariant } from "@/components/ui/badge"
@@ -311,11 +470,13 @@ export function resolveRunHeaderStatus(input: RunHeaderStatusInput): {
     isAwaitingProspero,
     isNeedsRevision,
   } = input
+  const resolved = resolveRunStatus(status)
   if (isAwaitingProspero && !isDone) {
-    return { label: STATUS_LABEL.awaiting_prospero, className: STATUS_TEXT.awaiting_prospero }
+    const key = resolved === "config_generating" || resolved === "config_ready" ? resolved : "awaiting_prospero"
+    return { label: STATUS_LABEL[key], className: STATUS_TEXT[key] }
   }
   if (isAwaitingReview && !isDone) {
-    return { label: "Awaiting Review", className: "text-intent-warning" }
+    return { label: STATUS_LABEL.awaiting_review, className: STATUS_TEXT.awaiting_review }
   }
   if (isRunning) {
     return { label: STATUS_LABEL.streaming, className: STATUS_TEXT.streaming }
@@ -332,7 +493,20 @@ export function resolveRunHeaderStatus(input: RunHeaderStatusInput): {
   if (status === "done" || isDone) {
     return { label: STATUS_LABEL.done, className: STATUS_TEXT.done }
   }
-  return { label: STATUS_LABEL.idle, className: STATUS_TEXT.idle }
+  return { label: runStatusLabel(status), className: STATUS_TEXT[resolved] }
+}
+
+/**
+ * Display label for any raw run status. Known aliases go through resolveRunStatus;
+ * unrecognised non-empty values are sentence-cased instead of collapsing to "Ready".
+ */
+export function runStatusLabel(raw: string | null | undefined): string {
+  const resolved = resolveRunStatus(raw)
+  const normalized = (raw ?? "").trim().toLowerCase()
+  if (resolved === "idle" && normalized && normalized !== "idle") {
+    return sentenceCaseSnake(normalizePhaseKey(normalized))
+  }
+  return STATUS_LABEL[resolved]
 }
 
 /** Recharts-friendly theme tokens (no hex in TSX). */
@@ -419,25 +593,8 @@ export function phaseColor(phase: string): string {
   return "var(--color-finalize)"
 }
 
-export const PHASE_LABEL_MAP: Record<string, string> = {
-  phase_1_prospero_gate: "PROSPERO",
-  phase_2_search: "Search",
-  phase_3_screening: "Screening",
-  screening_calibration: "Calibration",
-  fulltext_pdf_retrieval: "PDF Retrieval",
-  phase_4_extraction: "Extraction",
-  phase_4_extraction_quality: "Ext. Quality",
-  phase_4b_embedding: "Embedding",
-  phase_5_synthesis: "Synthesis",
-  phase_5b_knowledge_graph: "K. Graph",
-  phase_5c_pre_writing_gate: "Pre-Write",
-  phase_6_writing: "Writing",
-  phase_6_humanizer: "Humanizer",
-  quality_rob2: "RoB 2",
-  quality_robins_i: "ROBINS-I",
-  quality_casp: "CASP",
-  finalize: "Finalize",
-}
+/** Short phase labels (alias of PHASE_SHORT_LABELS, kept for existing callers). */
+export const PHASE_LABEL_MAP: Record<string, string> = PHASE_SHORT_LABELS
 
 // ---------------------------------------------------------------------------
 

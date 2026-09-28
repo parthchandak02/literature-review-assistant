@@ -7,7 +7,7 @@
  * Both use the canonical `.card-surface` and `.section-trigger` CSS utilities from
  * index.css so the visual language stays consistent across all views.
  */
-import { useState } from "react"
+import { useId, useState } from "react"
 import { ChevronDown, ChevronUp } from "lucide-react"
 import { cn } from "@/lib/utils"
 import type { LucideIcon } from "lucide-react"
@@ -52,6 +52,7 @@ export function CollapsibleSection({
   const [internalOpen, setInternalOpen] = useState(defaultOpen)
   const isControlled = controlledOpen !== undefined
   const open = isControlled ? controlledOpen : internalOpen
+  const bodyId = useId()
 
   function handleToggle() {
     if (isControlled) {
@@ -66,7 +67,10 @@ export function CollapsibleSection({
       <div className="flex items-center border-b-0">
         {/* Toggle button: icon + title + badge + description + chevron */}
         <button
+          type="button"
           onClick={handleToggle}
+          aria-expanded={open}
+          aria-controls={bodyId}
           className="flex flex-1 items-center justify-between px-4 py-3 glass-interactive min-w-0 text-left"
         >
           <div className="flex items-center gap-2 min-w-0">
@@ -95,11 +99,9 @@ export function CollapsibleSection({
         )}
       </div>
 
-      {open && (
-        <div className="border-t border-border/70">
-          {children}
-        </div>
-      )}
+      <div id={bodyId} hidden={!open} className="border-t border-border/70">
+        {open && children}
+      </div>
     </div>
   )
 }
@@ -177,7 +179,7 @@ export function PageSection({
   return (
     <div className={cn("card-surface overflow-hidden", className)}>
       <ViewToolbar
-        className="!h-auto py-3"
+        height="auto"
         title={
           <>
             {Icon && <Icon className="h-4 w-4 text-muted shrink-0" />}

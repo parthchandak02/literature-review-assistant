@@ -139,7 +139,7 @@ export function RunCardMetrics({
             className="self-start flex items-center gap-0.5 text-muted hover:text-foreground transition-colors"
           >
             <ChevronDown className="h-3 w-3 rotate-180" />
-            <span className="text-[10px] font-medium">Less</span>
+            <span className="text-2xs font-medium">Less</span>
           </button>
         )}
       </div>

@@ -124,7 +124,7 @@ export function CustomDiagramsCard({ outputs }: CustomDiagramsCardProps) {
 
 function DiagramFigure({ item, title }: { item: CustomDiagramItem; title: string }) {
   return (
-    <figure className="rounded-xl border border-border bg-card overflow-hidden">
+    <figure className="rounded-panel border border-border bg-card overflow-hidden">
       <div className="px-3 py-2 border-b border-border bg-surface-1/60">
         <figcaption className="text-sm font-medium text-foreground line-clamp-2" title={title}>
           Figure {item.index}. {title}
@@ -150,7 +150,7 @@ function EmptyCustomDiagrams({
   warnings: string[]
 }) {
   return (
-    <div className="rounded-xl border border-dashed border-border bg-surface-1/40 p-4 flex flex-col gap-3">
+    <div className="rounded-panel border border-dashed border-border bg-surface-1/40 p-4 flex flex-col gap-3">
       <div className="flex items-start gap-2 text-sm text-muted">
         <ImageIcon className="h-4 w-4 shrink-0 mt-0.5" />
         <p>
@@ -174,8 +174,8 @@ function EmptyCustomDiagrams({
       ) : null}
       <p className="text-xs text-muted">
         Resume the workflow from the writing phase after confirming{" "}
-        <code className="text-[11px]">GEMINI_API_KEY</code> is set and{" "}
-        <code className="text-[11px]">research_diagram_drawing</code> uses a Google image model.
+        <code className="text-2xs">GEMINI_API_KEY</code> is set and{" "}
+        <code className="text-2xs">research_diagram_drawing</code> uses a Google image model.
       </p>
     </div>
   )

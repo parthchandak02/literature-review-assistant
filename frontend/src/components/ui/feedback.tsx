@@ -101,10 +101,10 @@ export function FetchError({ message, onRetry, className }: FetchErrorProps) {
       <span className="flex-1">{message}</span>
       {onRetry && (
         <Button
-          size="sm"
+          size="xs"
           variant="ghost"
           onClick={onRetry}
-          className="h-5 px-2 text-[11px] text-intent-danger hover:text-intent-danger hover:bg-intent-danger-subtle shrink-0"
+          className="text-intent-danger hover:text-intent-danger hover:bg-intent-danger-subtle shrink-0"
         >
           Retry
         </Button>

@@ -177,7 +177,8 @@ export function QuestionStage({
           type="button"
           onClick={() => void handleGenerate()}
           disabled={!canGenerate}
-          className="w-full h-11 disabled:opacity-40 font-semibold gap-2 transition-colors"
+          size="lg"
+          className="w-full disabled:opacity-40 font-semibold gap-2 transition-colors"
         >
           <Sparkles className="h-4 w-4" />
           Generate Config
@@ -197,14 +198,14 @@ export function QuestionStage({
             }`}
             aria-hidden
           >
-            <span className="text-[10px] font-bold leading-none">✓</span>
+            <span className="text-2xs font-bold leading-none">✓</span>
           </span>
           <span className="min-w-0 flex-1">
             <span className="flex items-center gap-1.5 text-xs font-medium text-foreground">
               <HeartPulse className="h-3.5 w-3.5 text-intent-success shrink-0" />
               Health + SDG alignment
             </span>
-            <span className="mt-0.5 block text-[11px] text-muted leading-relaxed">
+            <span className="mt-0.5 block text-2xs text-muted leading-relaxed">
               Adds health-impact pathways and UN SDG alignment to the generated config.
             </span>
           </span>
@@ -232,7 +233,7 @@ export function QuestionStage({
           )}
 
           {showHistory && (
-            <div className="absolute left-0 top-full mt-1.5 z-20 w-[min(400px,calc(100vw-2rem))] max-h-[280px] overflow-y-auto glass-panel border border-border/80 rounded-xl shadow-xl">
+            <div className="absolute left-0 top-full mt-1.5 z-20 w-[min(400px,calc(100vw-2rem))] max-h-[280px] overflow-y-auto glass-panel border border-border/80 rounded-panel shadow-xl">
               <div className="px-3 py-2 border-b border-border">
                 <p className="text-xs text-muted">Select a completed run to reuse its config</p>
               </div>

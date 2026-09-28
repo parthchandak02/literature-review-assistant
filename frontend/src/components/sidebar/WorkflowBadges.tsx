@@ -9,7 +9,7 @@ export function CollapsedWorkflowBadge({
   if (!badge) {
     return (
       <span
-        className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-intent-danger-border bg-intent-danger-subtle text-[10px] font-bold text-intent-danger"
+        className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-intent-danger-border bg-intent-danger-subtle text-2xs font-bold text-intent-danger"
         title={workflowId ?? "Invalid workflow id"}
       >
         ERR
@@ -18,7 +18,7 @@ export function CollapsedWorkflowBadge({
   }
   return (
     <span
-      className="sidebar-wf-badge-collapsed inline-flex h-7 w-7 items-center justify-center rounded-md text-[15px] font-bold tabular-nums"
+      className="sidebar-wf-badge-collapsed inline-flex h-7 w-7 items-center justify-center rounded-md text-sm font-bold tabular-nums"
       title={workflowId ?? undefined}
     >
       #{badge}

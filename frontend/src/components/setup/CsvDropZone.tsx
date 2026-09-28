@@ -88,7 +88,7 @@ export function CsvDropZone({ file, onFile, mode, onModeChange }: CsvDropZonePro
                 role="radio"
                 aria-checked={mode === "supplementary"}
                 onClick={() => onModeChange("supplementary")}
-                className={`px-2.5 py-1 rounded-md text-xs font-medium transition-colors min-w-0 ${
+                className={`px-2.5 py-1 rounded-control text-xs font-medium transition-colors min-w-0 ${
                   mode === "supplementary"
                     ? "bg-intent-primary-subtle text-foreground shadow-sm ring-1 ring-intent-primary-border"
                     : "text-muted hover:text-foreground"
@@ -112,7 +112,7 @@ export function CsvDropZone({ file, onFile, mode, onModeChange }: CsvDropZonePro
                 role="radio"
                 aria-checked={mode === "masterlist"}
                 onClick={() => onModeChange("masterlist")}
-                className={`px-2.5 py-1 rounded-md text-xs font-medium transition-colors min-w-0 ${
+                className={`px-2.5 py-1 rounded-control text-xs font-medium transition-colors min-w-0 ${
                   mode === "masterlist"
                     ? "bg-intent-primary-subtle text-foreground shadow-sm ring-1 ring-intent-primary-border"
                     : "text-muted hover:text-foreground"
@@ -138,7 +138,7 @@ export function CsvDropZone({ file, onFile, mode, onModeChange }: CsvDropZonePro
           onDragLeave={() => setDragging(false)}
           onDrop={handleDrop}
           onClick={() => inputRef.current?.click()}
-          className={`flex flex-col items-center justify-center gap-2 px-4 py-6 rounded-xl border-2 border-dashed cursor-pointer transition-colors ${
+          className={`flex flex-col items-center justify-center gap-2 px-4 py-6 rounded-panel border-2 border-dashed cursor-pointer transition-colors ${
             dragging
               ? "border-intent-success/60 bg-intent-success-subtle"
               : "border-border bg-surface-2/50 hover:border-border hover:bg-surface-2"
@@ -157,7 +157,7 @@ export function CsvDropZone({ file, onFile, mode, onModeChange }: CsvDropZonePro
         </div>
       ) : (
         /* File info row */
-        <div className={`flex items-center gap-3 px-4 py-3 rounded-xl border ${
+        <div className={`flex items-center gap-3 px-4 py-3 rounded-panel border ${
           analysis?.valid
             ? "border-intent-success-border bg-intent-success-subtle"
             : analysis && !analysis.valid
@@ -186,7 +186,7 @@ export function CsvDropZone({ file, onFile, mode, onModeChange }: CsvDropZonePro
 
       {/* Validation panel */}
       {file && (
-        <div className="mt-2 rounded-xl border border-border bg-card/80 overflow-hidden">
+        <div className="mt-2 rounded-panel border border-border bg-card/80 overflow-hidden">
           {analysing && (
             <div className="flex items-center gap-2 px-4 py-3 text-xs text-muted">
               <Spinner size="sm" className="shrink-0" />

@@ -1,4 +1,4 @@
-import { PHASE_LABEL_MAP } from "@/lib/constants"
+import { phaseLabel } from "@/lib/constants"
 import { cn } from "@/lib/utils"
 
 export function toDateInputValue(date: Date): string {
@@ -58,13 +58,7 @@ export function formatInteger(value: number): string {
 }
 
 export function formatPhaseName(phase: string): string {
-  if (phase in PHASE_LABEL_MAP) return PHASE_LABEL_MAP[phase]
-  return phase
-    .replace(/^phase_\d+_/, "")
-    .replace(/^quality_/, "")
-    .split("_")
-    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
-    .join(" ")
+  return phaseLabel(phase, "short")
 }
 
 export type CostOpsSpendGranularity = "day" | "week" | "month"
@@ -233,7 +227,7 @@ export function formatCostGroupAxisLabel(
 
 export const fieldLabelClass = "space-y-1 text-xs"
 export const fieldControlClass =
-  "h-8 w-full min-w-0 rounded-md border border-border bg-card/90 px-2.5 text-xs text-foreground shadow-sm outline-none transition-colors hover:border-border focus:border-intent-primary"
+  "h-8 w-full min-w-0 rounded-control border border-border bg-card/90 px-2.5 text-xs text-foreground shadow-sm outline-none transition-colors hover:border-border focus:border-intent-primary focus-visible:ring-1 focus-visible:ring-ring"
 export const statCardClass = "rounded-lg border border-border/80 bg-card/60 px-2.5 py-2"
 export const sectionHeaderClass = "border-b border-border/80 px-2.5 py-1.5 text-xs font-semibold text-foreground"
 /** 3-up grid for cost breakdown panels; fits 6 sections in 2 rows on wide layouts */
@@ -243,9 +237,9 @@ export const costOpsSegmentGroupClass =
   "flex flex-wrap items-center gap-1 rounded-lg border border-border/80 bg-card/50 p-1 shrink-0"
 export function costOpsSegmentButtonClass(active: boolean): string {
   return cn(
-    "h-7 rounded-md px-2.5 text-xs shrink-0 inline-flex items-center gap-1.5 font-medium transition-colors",
+    "h-7 rounded-control px-2.5 text-xs shrink-0 inline-flex items-center gap-1.5 font-medium transition-colors",
     active
-      ? "bg-intent-primary text-primary-foreground shadow-sm"
+      ? "bg-intent-primary-solid text-intent-primary-solid-fg shadow-sm"
       : "text-foreground hover:bg-surface-3/80 hover:text-foreground",
   )
 }

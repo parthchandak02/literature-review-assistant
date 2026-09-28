@@ -13,13 +13,18 @@ interface GlassTabsProps<T extends string> {
   activeTab: T
   onTabChange: (tab: T) => void
   equalWidth?: boolean
+  /** "pill" (default) bordered glass tabs; "underline" compact content-width tabs. */
+  variant?: "pill" | "underline"
   className?: string
 }
+
+const FOCUS_RING =
+  "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
 
 function accentClasses(accent: "violet" | "amber", active: boolean): string {
   if (accent === "amber") {
     return active
-      ? "border-intent-warning/70 bg-intent-warning-subtle text-intent-warning"
+      ? "border-intent-warning/70 bg-intent-warning-subtle text-intent-warning-text"
       : "border-border/80 text-muted hover:text-intent-warning hover:border-intent-warning/40 hover:bg-intent-warning-subtle"
   }
   return active
@@ -27,13 +32,26 @@ function accentClasses(accent: "violet" | "amber", active: boolean): string {
     : "border-border/80 text-muted hover:text-foreground hover:border-intent-primary/40 hover:bg-surface-2/55"
 }
 
+function underlineAccentClasses(accent: "violet" | "amber", active: boolean): string {
+  if (accent === "amber") {
+    return active
+      ? "border-intent-warning text-intent-warning-text"
+      : "border-transparent text-muted hover:text-intent-warning-text hover:border-intent-warning/40"
+  }
+  return active
+    ? "border-intent-primary text-foreground"
+    : "border-transparent text-muted hover:text-foreground hover:border-border-strong"
+}
+
 export function GlassTabs<T extends string>({
   items,
   activeTab,
   onTabChange,
   equalWidth = false,
+  variant = "pill",
   className,
 }: GlassTabsProps<T>) {
+  const underline = variant === "underline"
   const tabRefs = useRef<Array<HTMLButtonElement | null>>([])
   const activeIndex = items.findIndex((item) => item.id === activeTab)
   const focusableIndex = activeIndex >= 0 ? activeIndex : 0
@@ -70,8 +88,9 @@ export function GlassTabs<T extends string>({
       aria-orientation="horizontal"
       onKeyDown={handleKeyDown}
       className={cn(
-        "items-center gap-2 overflow-x-auto scrollbar-none",
-        equalWidth
+        "items-center overflow-x-auto scrollbar-none",
+        underline ? "gap-4 border-b border-border" : "gap-2",
+        equalWidth && !underline
           ? "flex sm:grid sm:grid-flow-col sm:auto-cols-fr sm:w-full"
           : "flex",
         className,
@@ -95,11 +114,18 @@ export function GlassTabs<T extends string>({
             aria-controls={`tabpanel-${item.id}`}
             onClick={() => onTabChange(item.id)}
             className={cn(
-              "glass-interactive inline-flex items-center gap-1.5 rounded-lg border px-3 py-2 text-sm font-medium whitespace-nowrap shrink-0 transition-colors",
-              equalWidth
-                ? "min-w-[8.5rem] justify-center sm:min-w-0 sm:w-full"
-                : "",
-              accentClasses(accent, active),
+              "inline-flex items-center gap-1.5 text-sm font-medium whitespace-nowrap shrink-0 transition-colors",
+              FOCUS_RING,
+              underline
+                ? cn(
+                    "-mb-px rounded-t-control border-b-2 px-1 py-2",
+                    underlineAccentClasses(accent, active),
+                  )
+                : cn(
+                    "glass-interactive rounded-control border px-3 py-2",
+                    equalWidth ? "min-w-[8.5rem] justify-center sm:min-w-0 sm:w-full" : "",
+                    accentClasses(accent, active),
+                  ),
             )}
           >
             {Icon && <Icon className="h-3.5 w-3.5" aria-hidden />}

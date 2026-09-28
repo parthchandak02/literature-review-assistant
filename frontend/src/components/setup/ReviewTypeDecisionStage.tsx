@@ -118,7 +118,7 @@ export function ReviewTypeDecisionStage({ onComplete, onBack }: ReviewTypeDecisi
       )}
 
       {step === "unsure_pick" && (
-        <div className="glass-panel border border-border/80 rounded-xl p-5 space-y-4">
+        <div className="glass-panel border border-border/80 rounded-panel p-5 space-y-4">
           {SCOPING_VS_SYSTEMATIC_COPY}
           {resolveReviewType(answers) ? (
             <div className="rounded-lg border border-intent-primary-border/40 bg-intent-primary-subtle/40 px-3 py-2.5">
@@ -135,7 +135,8 @@ export function ReviewTypeDecisionStage({ onComplete, onBack }: ReviewTypeDecisi
           <div className="flex flex-col gap-2 sm:flex-row">
             <Button
               type="button"
-              className="flex-1 h-11 font-semibold"
+              size="lg"
+              className="flex-1 font-semibold"
               onClick={() =>
                 handleManualPick(resolveReviewType(answers) ?? "systematic")
               }
@@ -146,7 +147,8 @@ export function ReviewTypeDecisionStage({ onComplete, onBack }: ReviewTypeDecisi
               <Button
                 type="button"
                 variant="outline"
-                className="flex-1 h-11"
+                size="lg"
+                className="flex-1"
                 onClick={() =>
                   handleManualPick(resolveReviewType(answers) === "systematic" ? "scoping" : "systematic")
                 }
@@ -170,7 +172,7 @@ interface DecisionCardProps {
 
 function DecisionCard({ icon, question, hint, onAnswer }: DecisionCardProps) {
   return (
-    <div className="glass-panel border border-border/80 rounded-xl p-5 space-y-4">
+    <div className="glass-panel border border-border/80 rounded-panel p-5 space-y-4">
       <div className="flex items-start gap-3">
         <span className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-intent-primary-subtle border border-intent-primary-border/30">
           {icon}
@@ -181,13 +183,13 @@ function DecisionCard({ icon, question, hint, onAnswer }: DecisionCardProps) {
         </div>
       </div>
       <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
-        <Button type="button" className="h-10 font-medium" onClick={() => onAnswer("yes")}>
+        <Button type="button" size="lg" className="font-medium" onClick={() => onAnswer("yes")}>
           Yes
         </Button>
-        <Button type="button" variant="outline" className="h-10 font-medium" onClick={() => onAnswer("no")}>
+        <Button type="button" variant="outline" size="lg" className="font-medium" onClick={() => onAnswer("no")}>
           No
         </Button>
-        <Button type="button" variant="secondary" className="h-10 font-medium" onClick={() => onAnswer("unsure")}>
+        <Button type="button" variant="secondary" size="lg" className="font-medium" onClick={() => onAnswer("unsure")}>
           Not sure
         </Button>
       </div>

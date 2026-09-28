@@ -31,8 +31,9 @@ export function ScreeningApprovalBar({
         onClick={onApprove}
         disabled={approving}
         variant="warning"
+        size="lg"
         className={cn(
-          "h-10 px-4 rounded-lg text-sm",
+          "px-4",
           approving && "cursor-not-allowed",
         )}
       >

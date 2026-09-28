@@ -91,7 +91,7 @@ export function FilterComboboxPopover({
             )}
             aria-label={`Filter ${label}`}
           >
-            <span className="text-[10px] font-medium text-muted uppercase tracking-wide">
+            <span className="text-2xs font-medium text-muted uppercase tracking-wide">
               {label}
             </span>
             <span className={cn("text-xs truncate", value ? "text-foreground" : "text-muted")}>
@@ -120,7 +120,7 @@ export function FilterComboboxPopover({
           sideOffset={6}
           onInteractOutside={() => setOpen(false)}
           className={cn(
-            "z-50 w-56 glass-panel-strong border border-border/80 rounded-xl shadow-2xl shadow-black/60",
+            "z-50 w-56 glass-panel-strong border border-border/80 rounded-panel shadow-2xl shadow-black/60",
             "overflow-hidden",
           )}
         >
@@ -173,7 +173,7 @@ export function FilterComboboxPopover({
                       value={s}
                       onSelect={() => applyValue(s)}
                       className={cn(
-                        "text-xs text-foreground cursor-pointer rounded-md px-2 py-1.5",
+                        "text-xs text-foreground cursor-pointer rounded-control px-2 py-1.5",
                         "data-[selected=true]:bg-intent-primary-subtle data-[selected=true]:text-intent-primary",
                       )}
                     >

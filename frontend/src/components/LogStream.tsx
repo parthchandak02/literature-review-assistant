@@ -352,7 +352,7 @@ export const LogStream = forwardRef<LogStreamHandle, LogStreamProps>(function Lo
 
   if (events.length === 0) {
     return (
-      <div className="h-64 flex items-center justify-center text-sm text-muted bg-card border border-border rounded-xl">
+      <div className="h-64 flex items-center justify-center text-sm text-muted bg-card border border-border rounded-panel">
         Events will appear here once the review starts.
       </div>
     )
@@ -361,13 +361,13 @@ export const LogStream = forwardRef<LogStreamHandle, LogStreamProps>(function Lo
   return (
     <div
       ref={scrollContainerRef}
-      className="h-[clamp(22rem,calc(100dvh-20rem),40rem)] w-full rounded-xl border border-border bg-background overflow-y-auto"
+      className="h-[clamp(22rem,calc(100dvh-20rem),40rem)] w-full rounded-panel border border-border bg-background overflow-y-auto"
       role="log"
       aria-live="polite"
       aria-label="Event log"
       aria-atomic="false"
     >
-      <div className="font-mono text-[11px] flex flex-col p-4 gap-px leading-5">
+      <div className="font-mono text-2xs flex flex-col p-4 gap-px leading-5">
         {topPad > 0 && <div style={{ height: topPad }} />}
         {visibleItems.map((item) => {
           if (item.kind === "phase-sep") {
@@ -382,13 +382,13 @@ export const LogStream = forwardRef<LogStreamHandle, LogStreamProps>(function Lo
               >
                 <div className="flex items-center gap-2">
                   <div className="h-px flex-1 bg-border" />
-                  <span className="text-[10px] font-semibold tracking-widest uppercase text-intent-primary/80 shrink-0 px-1">
+                  <span className="text-2xs font-semibold tracking-widest uppercase text-intent-primary/80 shrink-0 px-1">
                     {item.label}
                   </span>
                   <div className="h-px flex-1 bg-border" />
                 </div>
                 {item.description ? (
-                  <div className="text-[10px] text-muted pl-0.5 pr-1 leading-snug">{item.description}</div>
+                  <div className="text-2xs text-muted pl-0.5 pr-1 leading-snug">{item.description}</div>
                 ) : null}
               </div>
             )
@@ -411,7 +411,7 @@ export const LogStream = forwardRef<LogStreamHandle, LogStreamProps>(function Lo
                 >
                   {/* Colored INCLUDE / EXCLUDE badge */}
                   <span className={cn(
-                    "shrink-0 font-bold text-[10px] tracking-wider uppercase select-none",
+                    "shrink-0 font-bold text-2xs tracking-wider uppercase select-none",
                     style.badgeClass,
                   )}>
                     {isInclude ? "INCLUDE" : "EXCLUDE"}
@@ -457,7 +457,7 @@ export const LogStream = forwardRef<LogStreamHandle, LogStreamProps>(function Lo
                 </span>
               </div>
               {errorEv?.traceback && (
-                <pre className="text-[10px] text-muted whitespace-pre-wrap break-all font-mono pl-4 border-l-2 border-intent-danger-border mt-1">
+                <pre className="text-2xs text-muted whitespace-pre-wrap break-all font-mono pl-4 border-l-2 border-intent-danger-border mt-1">
                   {errorEv.traceback}
                 </pre>
               )}

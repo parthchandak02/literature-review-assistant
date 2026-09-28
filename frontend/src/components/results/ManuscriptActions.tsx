@@ -177,9 +177,9 @@ export function ManuscriptActions({
           )}
           {exportState === "done" && (
             <Button
-              size="sm"
+              size="xs"
               onClick={() => { setExportState("idle"); void handleExport(true); }}
-              className="h-7 gap-1 text-xs bg-surface-2 hover:bg-surface-3 text-foreground hover:text-foreground border-0 shadow-none"
+              className="gap-1 bg-surface-2 hover:bg-surface-3 text-foreground hover:text-foreground border-0 shadow-none"
               title="Regenerate manuscript .tex and DOCX"
             >
               <RefreshCw className="h-3 w-3 text-intent-success" />
@@ -188,9 +188,10 @@ export function ManuscriptActions({
           )}
           {exportRunId && submissionReady && (
             <Button
-              size="sm"
+              size="xs"
+              variant="success"
               asChild
-              className="h-7 gap-1 text-xs bg-intent-success hover:bg-intent-success text-intent-success-fg border-0 shadow-none"
+              className="gap-1 border-0 shadow-none"
             >
               <a href={submissionZipUrl(exportRunId)} download title="Download full IEEE submission package">
                 <Download className="h-3 w-3" />

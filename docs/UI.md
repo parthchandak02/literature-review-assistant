@@ -83,6 +83,40 @@ Research-ops dashboard for technical users. Preserve violet accent, glass surfac
 - Use semantic classes: `bg-background`, `text-foreground`, `glass-panel*`, `Badge` variants
 - Light and dark parity required
 
+| Token | Use |
+|-------|-----|
+| `bg-intent-*-solid` / `text-intent-*-solid-fg` | Solid fills (buttons, active segments); text on them is >= 4.5:1 |
+| `text-intent-*-text` | Readable text on `bg-intent-*-subtle` (badges, alerts) |
+| `border-border-strong` | Borders that must meet 3:1 (inputs, focus-adjacent edges) |
+| `ring-ring` | Focus rings |
+| `bg-scrim` | Modal/sheet/drawer backdrops (`--color-scrim`) |
+| `text-2xs` | 11px, the minimum text size. Scale: `2xs`, `xs`, `sm`, `base`, `lg` |
+| `rounded-control` / `rounded-panel` / `rounded-pill` | Inputs and buttons / cards, dialogs, popovers / chips and badges |
+
+`rounded-full` stays for circles (dots, avatars, steppers). Chart tick `fontSize` is 11 minimum.
+
+### Button sizes
+
+Use the `size` prop, never a height class in `className`.
+
+| Size | Height |
+|------|--------|
+| `xs` | h-7 (dense rows, inline actions) |
+| `sm` | h-8 |
+| `default` | h-9 |
+| `lg` | h-10 (primary CTAs) |
+| `icon` / `icon-sm` | h-9 w-9 / h-8 w-8 |
+
+### Lint guardrails
+
+`frontend/eslint.config.js` (`no-restricted-syntax`, error) rejects:
+
+- Arbitrary font sizes (`text-[Npx]`)
+- `outline-none` without a `ring-*` or `outline-*` replacement in the same class string
+- A height class (`h-N`) in `<Button className>`
+
+A real exception needs `// eslint-disable-next-line no-restricted-syntax -- <reason>`.
+
 ### Component priority
 
 1. `components/ui/*` primitives
@@ -106,6 +140,8 @@ Research-ops dashboard for technical users. Preserve violet accent, glass surfac
 ---
 
 ## UI redesign tracker
+
+Item-level status for the current redesign: [docs/ux/TRACKER.md](ux/TRACKER.md).
 
 | Phase | Name | Status |
 |-------|------|--------|

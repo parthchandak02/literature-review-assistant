@@ -1,99 +1,21 @@
 @layer base {
-  /* Legacy shadcn-compatible aliases.
-   * Canonical design tokens live in tokens.css/theme-overrides.css. */
-  :root {
-    --background: 240 10% 3.9%;
-    --foreground: 0 0% 98%;
-    --card: 240 10% 3.9%;
-    --card-foreground: 0 0% 98%;
-    --popover: 240 10% 3.9%;
-    --popover-foreground: 0 0% 98%;
-    --primary: 263.4 70% 50.4%;
-    --primary-foreground: 210 40% 98%;
-    --secondary: 240 3.7% 15.9%;
-    --secondary-foreground: 0 0% 98%;
-    --muted: 240 3.7% 15.9%;
-    --muted-foreground: 240 5% 64.9%;
-    --accent: 240 3.7% 15.9%;
-    --accent-foreground: 0 0% 98%;
-    --destructive: 0 62.8% 30.6%;
-    --destructive-foreground: 0 0% 98%;
-    --border: 240 3.7% 15.9%;
-    --input: 240 3.7% 15.9%;
-    --ring: 263.4 70% 50.4%;
-    --radius: 0.5rem;
-  }
-
   * {
-    border-color: hsl(var(--border));
+    border-color: var(--color-border);
   }
 
   html:not([data-theme="light"]) {
     color-scheme: dark;
   }
 
-  html[data-theme="light"] {
-    color-scheme: light;
-  }
-
   body {
     background-color: var(--color-surface-0);
-    background-image:
-      radial-gradient(44% 34% at 14% 12%, rgb(139 92 246 / var(--ambient-violet-alpha)) 0%, rgb(139 92 246 / 0.03) 42%, transparent 72%),
-      radial-gradient(48% 36% at 84% 16%, rgb(251 146 60 / var(--ambient-orange-alpha)) 0%, rgb(251 146 60 / var(--ambient-orange-alpha-soft)) 38%, transparent 74%),
-      linear-gradient(180deg, #0b0b10 0%, #09090b 100%);
+    background-image: var(--app-background);
     background-attachment: fixed;
-    color: hsl(var(--foreground));
+    color: var(--color-foreground);
     font-feature-settings: "rlig" 1, "calt" 1;
     -webkit-font-smoothing: antialiased;
     -webkit-tap-highlight-color: transparent;
     touch-action: manipulation;
-  }
-
-  html[data-theme="light"] {
-    --background: 0 0% 99%;
-    --foreground: 0 0% 8%;
-    --card: 40 20% 96%;
-    --card-foreground: 0 0% 8%;
-    --popover: 0 0% 100%;
-    --popover-foreground: 0 0% 8%;
-    --primary: 263 45% 52%;
-    --primary-foreground: 0 0% 100%;
-    --secondary: 40 15% 92%;
-    --secondary-foreground: 0 0% 15%;
-    --muted: 40 10% 90%;
-    --muted-foreground: 25 5% 45%;
-    --accent: 40 15% 92%;
-    --accent-foreground: 0 0% 15%;
-    --destructive: 0 72% 51%;
-    --destructive-foreground: 0 0% 100%;
-    --border: 40 10% 88%;
-    --input: 40 10% 88%;
-    --ring: 263 45% 52%;
-  }
-
-  html[data-theme="light"] body {
-    background-image:
-      radial-gradient(44% 34% at 14% 12%, rgb(158 148 213 / var(--ambient-violet-alpha)) 0%, rgb(158 148 213 / 0.04) 42%, transparent 72%),
-      radial-gradient(48% 36% at 84% 16%, rgb(219 112 75 / var(--ambient-orange-alpha)) 0%, rgb(219 112 75 / var(--ambient-orange-alpha-soft)) 38%, transparent 74%),
-      linear-gradient(180deg, #fcfcfc 0%, #f3f3f3 100%);
-  }
-
-  html[data-theme="dark"] body {
-    background-color: var(--color-surface-0);
-    background-image:
-      radial-gradient(44% 34% at 14% 12%, rgb(139 92 246 / var(--ambient-violet-alpha)) 0%, rgb(139 92 246 / 0.03) 42%, transparent 72%),
-      radial-gradient(48% 36% at 84% 16%, rgb(251 146 60 / var(--ambient-orange-alpha)) 0%, rgb(251 146 60 / var(--ambient-orange-alpha-soft)) 38%, transparent 74%),
-      linear-gradient(180deg, #0b0b10 0%, #09090b 100%);
-  }
-
-  @media (prefers-reduced-motion: reduce) {
-    *, *::before, *::after {
-      animation-duration: 0ms !important;
-      animation-iteration-count: 1 !important;
-      transition-duration: 0ms !important;
-      scroll-behavior: auto !important;
-    }
   }
 }
 
@@ -120,4 +42,38 @@
 }
 ::-webkit-scrollbar-thumb:hover {
   background: var(--color-surface-4);
+}
+
+/*
+ * Reduced motion: the only block in the app. Unlayered so it wins over
+ * component and utility layers. Spinners keep a slow opacity pulse so
+ * loading state stays visible.
+ */
+@keyframes reduced-motion-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.45; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    transition-delay: 0ms !important;
+    scroll-behavior: auto !important;
+  }
+
+  .animate-spin {
+    animation: reduced-motion-pulse 2s ease-in-out infinite !important;
+  }
+
+  .status-pulse-ping {
+    animation: none !important;
+    opacity: 0.35;
+  }
+
+  .prospero-attention-border::before {
+    animation: none !important;
+    background: var(--color-intent-warning);
+  }
 }

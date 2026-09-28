@@ -238,9 +238,9 @@ export function ResultsView({
           {categoryIds.includes("quality") && activeCategory !== "quality" && (
             <Button
               type="button"
-              size="sm"
+              size="xs"
               variant="outline"
-              className="h-7 text-xs shrink-0"
+              className="shrink-0"
               onClick={() => setCategory("quality")}
             >
               View Quality

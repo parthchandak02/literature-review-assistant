@@ -242,7 +242,7 @@ export function CostView({ costStats, dbRunId, workflowId, isLive, isSSEConnecte
                   <XAxis
                     type="number"
                     tickFormatter={(v: number) => `$${v.toFixed(3)}`}
-                    tick={{ fill: CHART_THEME.tickFill, fontSize: 10 }}
+                    tick={{ fill: CHART_THEME.tickFill, fontSize: 11 }}
                     axisLine={false}
                     tickLine={false}
                   />
@@ -255,7 +255,7 @@ export function CostView({ costStats, dbRunId, workflowId, isLive, isSSEConnecte
                     tickLine={false}
                   />
                   <Tooltip content={<CostChartTooltip />} cursor={{ fill: CHART_THEME.cursorFill }} />
-                  <Bar dataKey="cost" radius={[0, 4, 4, 0]} label={{ position: "right", formatter: (v: unknown) => `$${(v as number).toFixed(4)}`, fill: "var(--color-muted-foreground)", fontSize: 10 }}>
+                  <Bar dataKey="cost" radius={[0, 4, 4, 0]} label={{ position: "right", formatter: (v: unknown) => `$${(v as number).toFixed(4)}`, fill: "var(--color-muted-foreground)", fontSize: 11 }}>
                     {chartData.map((entry) => (
                       <Cell
                         key={entry.fullPhase}
@@ -453,7 +453,7 @@ export function CostView({ costStats, dbRunId, workflowId, isLive, isSSEConnecte
               </div>
             )}
             {validationChecks.length > 0 && (
-              <div className="rounded-xl border border-border bg-card/70 overflow-hidden">
+              <div className="rounded-panel border border-border bg-card/70 overflow-hidden">
                 <div className="px-3 py-2 border-b border-border text-xs font-semibold text-muted">
                   Latest validation checks
                 </div>

@@ -72,7 +72,7 @@ export function SetupView({
             A review is already running. Starting a new review is disabled until it finishes or is stopped.
           </span>
           {onOpenLiveRun && (
-            <Button type="button" size="sm" variant="outline" className="h-7 text-xs" onClick={onOpenLiveRun}>
+            <Button type="button" size="xs" variant="outline" onClick={onOpenLiveRun}>
               <Activity className="h-3.5 w-3.5" />
               Open live run
             </Button>

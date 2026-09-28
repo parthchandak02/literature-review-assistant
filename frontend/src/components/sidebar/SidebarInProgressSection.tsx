@@ -148,7 +148,7 @@ export function SidebarInProgressSection({
       )}
 
       {historyError && !collapsed && (
-        <div className="px-2 py-1.5 mb-2 rounded-md bg-intent-danger-subtle border border-intent-danger-border text-[11px] text-intent-danger">
+        <div className="px-2 py-1.5 mb-2 rounded-md bg-intent-danger-subtle border border-intent-danger-border text-2xs text-intent-danger">
           {historyError}
         </div>
       )}

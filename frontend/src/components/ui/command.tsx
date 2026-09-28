@@ -28,7 +28,8 @@ const CommandInput = React.forwardRef<
     <CommandPrimitive.Input
       ref={ref}
       className={cn(
-        "flex h-10 w-full rounded-md bg-transparent py-3 text-sm outline-none",
+        // eslint-disable-next-line no-restricted-syntax -- input is always focused while the palette is open; the panel frames it
+        "flex h-10 w-full rounded-control bg-transparent py-3 text-sm outline-none",
         "placeholder:text-muted-foreground disabled:cursor-not-allowed disabled:opacity-50",
         className,
       )}
@@ -98,8 +99,9 @@ const CommandItem = React.forwardRef<
   <CommandPrimitive.Item
     ref={ref}
     className={cn(
+      // eslint-disable-next-line no-restricted-syntax -- cmdk items never take DOM focus; data-[selected] background is the indicator
       "relative flex cursor-default select-none items-center rounded-sm px-2 py-1.5 text-sm outline-none",
-      "data-[disabled=true]:pointer-events-none data-[selected=true]:bg-accent data-[selected=true]:text-accent-foreground data-[disabled=true]:opacity-50",
+      "data-[disabled=true]:pointer-events-none data-[selected=true]:bg-intent-primary-subtle data-[selected=true]:text-intent-primary-text data-[disabled=true]:opacity-50",
       className,
     )}
     {...props}

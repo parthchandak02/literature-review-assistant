@@ -61,7 +61,7 @@ export function SidebarHeader({ collapsed, isMobile, onGoHome, onToggle, onOpenS
           </span>
           {shouldShowFrontendBuildStamp() && (
             <span
-              className="text-[10px] font-mono text-muted tabular-nums whitespace-nowrap"
+              className="text-2xs font-mono text-muted tabular-nums whitespace-nowrap"
               title={`Frontend build ${FRONTEND_BUILD_STAMP}`}
             >
               {FRONTEND_BUILD_STAMP}

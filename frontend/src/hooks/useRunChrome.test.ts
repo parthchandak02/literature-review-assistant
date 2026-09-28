@@ -55,7 +55,7 @@ describe("computeRunChrome", () => {
 
     expect(vm.liveStatus).toBe("awaiting_prospero")
     expect(vm.isAwaitingProspero).toBe(true)
-    expect(vm.statusLabel).toBe("PROSPERO Pending")
+    expect(vm.statusLabel).toBe("PROSPERO pending")
   })
 
   it("merges historical DB cost with live SSE cost", () => {
@@ -98,7 +98,7 @@ describe("computeRunChrome", () => {
 
     expect(vm.isAwaitingProspero).toBe(false)
     expect(vm.isDone).toBe(true)
-    expect(vm.statusLabel).not.toBe("PROSPERO Pending")
+    expect(vm.statusLabel).not.toBe("PROSPERO pending")
   })
 
   it("overrides funnel included count from run.papersIncluded on done historical runs", () => {

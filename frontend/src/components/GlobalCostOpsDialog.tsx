@@ -150,25 +150,25 @@ export function CostsPanel() {
         <>
           <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
             <div className={cn(statCardClass, "min-w-0")}>
-              <div className="text-[10px] uppercase tracking-wide text-muted">Total cost</div>
+              <div className="text-2xs uppercase tracking-wide text-muted">Total cost</div>
               <div className="mt-0.5 text-sm font-semibold text-foreground tabular-nums truncate">
                 {totals ? formatUsd(totals.total_cost_usd) : "--"}
               </div>
             </div>
             <div className={cn(statCardClass, "min-w-0")}>
-              <div className="text-[10px] uppercase tracking-wide text-muted">Total calls</div>
+              <div className="text-2xs uppercase tracking-wide text-muted">Total calls</div>
               <div className="mt-0.5 text-sm font-semibold text-foreground tabular-nums truncate">
                 {totals ? formatInteger(totals.total_calls) : "--"}
               </div>
             </div>
             <div className={cn(statCardClass, "min-w-0")}>
-              <div className="text-[10px] uppercase tracking-wide text-muted">Input tokens</div>
+              <div className="text-2xs uppercase tracking-wide text-muted">Input tokens</div>
               <div className="mt-0.5 text-sm font-semibold text-foreground tabular-nums truncate">
                 {totals ? formatInteger(totals.total_tokens_in) : "--"}
               </div>
             </div>
             <div className={cn(statCardClass, "min-w-0")}>
-              <div className="text-[10px] uppercase tracking-wide text-muted">Workflows</div>
+              <div className="text-2xs uppercase tracking-wide text-muted">Workflows</div>
               <div className="mt-0.5 text-sm font-semibold text-foreground tabular-nums truncate">
                 {data ? formatInteger(data.workflow_count) : "--"}
               </div>

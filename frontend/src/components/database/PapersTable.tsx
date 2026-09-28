@@ -1,7 +1,8 @@
 import { AlertTriangle, ExternalLink } from "lucide-react"
-import { Badge } from "@/components/ui/badge"
+import { Badge, type BadgeVariant } from "@/components/ui/badge"
 import { Th, Td } from "@/components/ui/table"
 import { cn } from "@/lib/utils"
+import { humanizeSnake } from "@/lib/humanize"
 import type { PaperAllRow } from "@/lib/api"
 import { confidenceToVariant, screeningDecisionToVariant } from "@/lib/constants"
 
@@ -95,23 +96,19 @@ function TitleCell({ paper }: { paper: PaperAllRow }) {
   )
 }
 
+const PRIMARY_STATUS_VARIANT: Record<string, BadgeVariant> = {
+  primary: "success",
+  secondary_review: "danger",
+  protocol_only: "warning",
+}
+
 function PrimaryStatusCell({ value }: { value: string | null }) {
   const normalized = (value ?? "unknown").toLowerCase()
-  const color =
-    normalized === "primary"
-      ? "bg-intent-success-subtle text-intent-success border-intent-success-border"
-      : normalized === "secondary_review"
-        ? "bg-intent-danger-subtle text-intent-danger border-intent-danger-border"
-        : normalized === "protocol_only"
-          ? "bg-intent-warning-subtle text-intent-warning border-intent-warning-border"
-          : normalized === "non_empirical"
-            ? "bg-surface-2 text-foreground border-border"
-            : "bg-card/60 text-muted border-border"
   return (
     <Td>
-      <span className={cn("inline-block px-1.5 py-0.5 rounded text-[10px] font-medium border", color)}>
-        {normalized}
-      </span>
+      <Badge variant={PRIMARY_STATUS_VARIANT[normalized] ?? "neutral"} size="sm">
+        {humanizeSnake(normalized)}
+      </Badge>
     </Td>
   )
 }
@@ -147,21 +144,13 @@ function AssessmentSourceCell({ value }: { value: string | null }) {
   if (!value) {
     return <Td className="text-muted">--</Td>
   }
-  if (value === "heuristic") {
-    return (
-      <Td>
-        <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium bg-intent-warning-subtle text-intent-warning border border-intent-warning-border">
-          <AlertTriangle className="h-2.5 w-2.5" />
-          heuristic
-        </span>
-      </Td>
-    )
-  }
+  const heuristic = value === "heuristic"
   return (
     <Td>
-      <span className="inline-block px-1.5 py-0.5 rounded text-[10px] font-medium bg-surface-2 text-muted border border-border">
-        {value}
-      </span>
+      <Badge variant={heuristic ? "warning" : "neutral"} size="sm">
+        {heuristic && <AlertTriangle />}
+        {humanizeSnake(value)}
+      </Badge>
     </Td>
   )
 }

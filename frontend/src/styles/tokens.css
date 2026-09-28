@@ -1,7 +1,16 @@
-@theme {
+/*
+ * Canonical design tokens. This block is the dark theme (the default).
+ * Light-theme values live in theme-overrides.css under html[data-theme="light"].
+ * `static` keeps every variable in the emitted :root, including tokens that are
+ * only read from TS (inline var() styles, getComputedStyle).
+ */
+@theme static {
   --font-sans: "Inter Variable", "Inter", system-ui, -apple-system, sans-serif;
+
+  /* Type scale. 2xs (11px) is the minimum text size. */
+  --text-2xs: 0.6875rem;
+  --text-2xs--line-height: calc(1 / 0.6875);
   --text-xs: 0.75rem;
-  --text-micro: 0.625rem;
   --text-sm: 0.875rem;
   --text-base: 1rem;
   --text-lg: 1.125rem;
@@ -20,9 +29,11 @@
   --color-popover: #18181b;
   --color-popover-foreground: #fafafa;
   --color-border: #27272a;
+  --color-border-strong: #77777f;
   --color-input: #27272a;
   --color-ring: #8b5cf6;
-  --color-muted: #71717a;
+  --color-scrim: rgba(0, 0, 0, 0.6);
+  --color-muted: #8e8e98;
   --color-muted-foreground: #a1a1aa;
   --color-accent: #8b5cf6;
 
@@ -42,32 +53,47 @@
 
   /* ------------------------------------------------------------------ */
   /* Semantic intent tokens                                              */
-  /* Each intent has: base, fg, subtle (badge bg), border                */
+  /* base, fg, subtle (badge bg), border                                 */
+  /* text:     readable text on the subtle background (>= 4.5:1)          */
+  /* solid:    fill for solid buttons; solid-fg is its text (>= 4.5:1)    */
   /* ------------------------------------------------------------------ */
   --color-intent-primary: #8b5cf6;
   --color-intent-primary-fg: #f5f3ff;
   --color-intent-primary-subtle: rgba(139, 92, 246, 0.10);
   --color-intent-primary-border: rgba(139, 92, 246, 0.20);
+  --color-intent-primary-text: #c4b5fd;
+  --color-intent-primary-solid: #7c3aed;
+  --color-intent-primary-solid-fg: #ffffff;
 
   --color-intent-success: #34d399;
   --color-intent-success-fg: #f0fdf4;
   --color-intent-success-subtle: rgba(52, 211, 153, 0.10);
   --color-intent-success-border: rgba(52, 211, 153, 0.20);
+  --color-intent-success-text: #6ee7b7;
+  --color-intent-success-solid: #047857;
+  --color-intent-success-solid-fg: #ffffff;
 
   --color-intent-warning: #fbbf24;
   --color-intent-warning-fg: #fffbeb;
   --color-intent-warning-subtle: rgba(251, 191, 36, 0.10);
   --color-intent-warning-border: rgba(251, 191, 36, 0.20);
+  --color-intent-warning-text: #fcd34d;
+  --color-intent-warning-solid: #b45309;
+  --color-intent-warning-solid-fg: #ffffff;
 
   --color-intent-danger: #f87171;
   --color-intent-danger-fg: #fef2f2;
   --color-intent-danger-subtle: rgba(248, 113, 113, 0.10);
   --color-intent-danger-border: rgba(248, 113, 113, 0.20);
+  --color-intent-danger-text: #fca5a5;
+  --color-intent-danger-solid: #b91c1c;
+  --color-intent-danger-solid-fg: #ffffff;
 
   --color-intent-info: #60a5fa;
   --color-intent-info-fg: #eff6ff;
   --color-intent-info-subtle: rgba(96, 165, 250, 0.10);
   --color-intent-info-border: rgba(96, 165, 250, 0.20);
+  --color-intent-info-text: #93c5fd;
 
   --color-intent-active: #a78bfa;
   --color-intent-active-fg: #f5f3ff;
@@ -80,13 +106,14 @@
   --color-intent-neutral-border: rgba(161, 161, 170, 0.15);
 
   /* Phase colors (chart/source-of-truth tokens) */
+  --color-phase-1-prospero-gate: #818cf8;
   --color-phase-2-search: #3b82f6;
   --color-phase-3-screening: #8b5cf6;
   --color-screening-calibration: #a78bfa;
   --color-fulltext-pdf-retrieval: #c4b5fd;
   --color-phase-4-extraction: #f59e0b;
   --color-phase-4-extraction-quality: #d97706;
-  --color-phase-4b-embedding: #f59e0b;
+  --color-phase-4b-embedding: #d946ef;
   --color-phase-5-synthesis: #10b981;
   --color-phase-5b-knowledge-graph: #14b8a6;
   --color-phase-5c-pre-writing-gate: #0f766e;
@@ -110,13 +137,37 @@
   --glass-shadow-1: 0 1px 0 rgba(255, 255, 255, 0.02) inset;
   --glass-shadow-2: 0 10px 24px rgba(0, 0, 0, 0.34);
   --glass-shadow-3: 0 0 0 1px rgba(139, 92, 246, 0.18), 0 14px 32px rgba(0, 0, 0, 0.42);
+  /* Colour glass surfaces are deepened with: black in dark, white in light. */
+  --glass-shade: #000000;
+  --glass-tint: rgba(124, 58, 237, 0.08);
   --glass-blur-sm: 8px;
   --glass-blur-md: 12px;
   --glass-blur-lg: 18px;
   --glass-noise-opacity: 0.02;
-  --ambient-violet-alpha: 0.12;
-  --ambient-orange-alpha: 0.10;
-  --ambient-orange-alpha-soft: 0.04;
+
+  /* App background (body). Single source: --app-background. */
+  --ambient-violet: #8b5cf6;
+  --ambient-orange: #fb923c;
+  --ambient-violet-alpha: 12%;
+  --ambient-violet-alpha-soft: 3%;
+  --ambient-orange-alpha: 10%;
+  --ambient-orange-alpha-soft: 4%;
+  --ambient-base-start: #0b0b10;
+  --ambient-base-end: #09090b;
+  --app-background:
+    radial-gradient(
+      44% 34% at 14% 12%,
+      color-mix(in srgb, var(--ambient-violet) var(--ambient-violet-alpha), transparent) 0%,
+      color-mix(in srgb, var(--ambient-violet) var(--ambient-violet-alpha-soft), transparent) 42%,
+      transparent 72%
+    ),
+    radial-gradient(
+      48% 36% at 84% 16%,
+      color-mix(in srgb, var(--ambient-orange) var(--ambient-orange-alpha), transparent) 0%,
+      color-mix(in srgb, var(--ambient-orange) var(--ambient-orange-alpha-soft), transparent) 38%,
+      transparent 74%
+    ),
+    linear-gradient(180deg, var(--ambient-base-start) 0%, var(--ambient-base-end) 100%);
 
   /* Sidebar brand/system accents */
   --color-sidebar-brand-fg: #efe9ff;
@@ -131,10 +182,19 @@
   --color-sidebar-badge-bg: color-mix(in srgb, var(--color-surface-2) 80%, transparent);
   --color-sidebar-badge-border: color-mix(in srgb, var(--color-surface-3) 70%, transparent);
   --color-sidebar-badge-fg: color-mix(in srgb, var(--color-foreground) 90%, transparent);
+  --sidebar-ambient-gradient:
+    radial-gradient(
+      ellipse 80% 60% at 50% 110%,
+      color-mix(in srgb, var(--color-intent-active) 10%, transparent) 0%,
+      transparent 70%
+    );
 
-  /* Typography + layout semantic tokens */
+  /* Radius: control (inputs, buttons), panel (cards, dialogs), pill (chips) */
   --radius: 0.5rem;
+  --radius-control: 0.375rem;
   --radius-panel: 0.75rem;
+  --radius-pill: 9999px;
+
   --spacing-section: 1.5rem;
   --spacing-section-lg: 2rem;
 
@@ -166,7 +226,7 @@
   --color-graph-community-3: #d97706;
   --color-graph-community-4: #dc2626;
   --color-graph-community-5: #0891b2;
-  --color-graph-community-6: #7c3aed;
+  --color-graph-community-6: #db2777;
   --color-graph-community-7: #16a34a;
   --color-graph-community-8: #9333ea;
   --color-graph-community-9: #f59e0b;
@@ -175,24 +235,4 @@
   --color-graph-edge-shared-population: #fcd34d;
   --color-graph-edge-embedding-similarity: #d8b4fe;
   --color-graph-edge-citation: #f9a8d4;
-
-  --app-ambient-gradient:
-    radial-gradient(
-      52% 38% at 82% 14%,
-      color-mix(in srgb, var(--color-intent-warning) var(--ambient-orange-alpha), transparent) 0%,
-      color-mix(in srgb, var(--color-intent-warning) var(--ambient-orange-alpha-soft), transparent) 34%,
-      transparent 74%
-    ),
-    radial-gradient(
-      46% 34% at 10% 18%,
-      color-mix(in srgb, var(--color-intent-active) 6%, transparent) 0%,
-      color-mix(in srgb, var(--color-intent-active) 2%, transparent) 44%,
-      transparent 72%
-    );
-  --sidebar-ambient-gradient:
-    radial-gradient(
-      ellipse 80% 60% at 50% 110%,
-      color-mix(in srgb, var(--color-intent-active) 10%, transparent) 0%,
-      transparent 70%
-    );
 }

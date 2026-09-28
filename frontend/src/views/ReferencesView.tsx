@@ -48,7 +48,7 @@ function SourceBadge({ source }: { source: string }) {
   return (
     <span
       className={cn(
-        "glass-chip inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-mono",
+        "glass-chip inline-flex items-center px-1.5 py-0.5 rounded text-2xs font-mono",
         isAbstract
           ? "text-muted"
           : "text-intent-success border-intent-success-border",
@@ -169,7 +169,7 @@ export function ReferencesView({
               style={{ width: `${fetchProgressPercent}%` }}
             />
           </div>
-          <p className="text-[11px] text-muted text-right tabular-nums">
+          <p className="text-2xs text-muted text-right tabular-nums">
             {fetchProgress.current} / {fetchProgress.total} papers
             {fetchProgress.succeeded > 0 && (
               <span className="text-intent-success ml-1">
@@ -178,7 +178,7 @@ export function ReferencesView({
             )}
           </p>
           <p
-            className="text-[11px] text-muted text-right truncate"
+            className="text-2xs text-muted text-right truncate"
             title={fetchProgress.currentTitle}
           >
             {fetchProgress.currentTitle}
@@ -186,17 +186,17 @@ export function ReferencesView({
         </div>
       )}
       {fetching && !fetchProgress && (
-        <p className="text-[11px] text-muted text-right">Connecting...</p>
+        <p className="text-2xs text-muted text-right">Connecting...</p>
       )}
       {fetchResult && !fetching && (
-        <p className="text-[11px] text-muted text-right">
+        <p className="text-2xs text-muted text-right">
           Retrieved {fetchResult.succeeded} of {fetchResult.attempted} --{" "}
           {fetchResult.failed > 0 ? `${fetchResult.failed} unavailable` : "all found"}
           {fetchResult.skipped > 0 ? `, ${fetchResult.skipped} already saved` : ""}
         </p>
       )}
       {fetchError && !fetching && (
-        <p className="text-[11px] text-intent-danger text-right">{fetchError}</p>
+        <p className="text-2xs text-intent-danger text-right">{fetchError}</p>
       )}
     </div>
   ) : null
@@ -219,7 +219,7 @@ export function ReferencesView({
       }
       actions={
         <div className="flex flex-wrap items-center justify-end gap-x-3 gap-y-2">
-          <div className="flex items-center gap-3 text-[11px] text-muted">
+          <div className="flex items-center gap-3 text-2xs text-muted">
             <span className="inline-flex items-center gap-1">
               <span className="h-2 w-2 rounded-full bg-intent-success" />
               Full text
@@ -329,18 +329,18 @@ function PaperCard({ paper, index, runId }: PaperCardProps) {
           <div className="flex flex-wrap items-center gap-1.5 mt-2">
             <SourceBadge source={paper.retrieval_source} />
             {paper.source_database && (
-            <span className="glass-chip inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-mono text-muted">
+            <span className="glass-chip inline-flex items-center px-1.5 py-0.5 rounded text-2xs font-mono text-muted">
                 {paper.source_database}
               </span>
             )}
             {paper.file_type === "pdf" && (
-              <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[10px] font-mono bg-intent-info-subtle text-intent-info">
+              <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-2xs font-mono bg-intent-info-subtle text-intent-info">
                 <FileText className="h-2.5 w-2.5" />
                 PDF
               </span>
             )}
             {paper.file_type === "txt" && (
-              <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[10px] font-mono bg-intent-primary-subtle text-intent-primary">
+              <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-2xs font-mono bg-intent-primary-subtle text-intent-primary">
                 <FileText className="h-2.5 w-2.5" />
                 TXT
               </span>

@@ -112,7 +112,7 @@ describe("buildRenderItems milestone grouping", () => {
     ])
 
     expect(seps(items)).toHaveLength(1)
-    expect(seps(items)[0]).toMatchObject({ phase: "evidence", label: "Evidence Build" })
+    expect(seps(items)[0]).toMatchObject({ phase: "evidence", label: "Evidence build" })
     expect(events(items)).toHaveLength(1)
   })
 })

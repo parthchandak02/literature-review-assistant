@@ -162,7 +162,7 @@ export function RunNavCard({
           }}
           aria-label="More actions"
           title="More actions"
-          className="h-7 w-7 flex items-center justify-center rounded-md text-muted hover:text-foreground hover:bg-surface-2 transition-colors"
+          className="h-7 w-7 flex items-center justify-center rounded-control text-muted hover:text-foreground hover:bg-surface-2 transition-colors"
         >
           <MoreHorizontal className="h-3 w-3" />
         </button>
@@ -226,7 +226,7 @@ export function RunNavCard({
             }}
             aria-label="Stop run"
             title="Stop run"
-            className="flex items-center justify-center h-7 w-7 rounded-md bg-intent-danger hover:bg-intent-danger/85 text-intent-danger-fg transition-colors"
+            className="flex items-center justify-center h-7 w-7 rounded-control bg-intent-danger hover:bg-intent-danger/85 text-intent-danger-fg transition-colors"
           >
             <Square className="h-2.5 w-2.5 fill-current" />
           </button>
@@ -241,7 +241,7 @@ export function RunNavCard({
             aria-label="Resume from last checkpoint"
             title="Resume from last checkpoint"
             className={cn(
-              "flex items-center justify-center h-7 w-7 rounded-md border border-intent-primary-border bg-intent-primary-subtle text-intent-primary",
+              "flex items-center justify-center h-7 w-7 rounded-control border border-intent-primary-border bg-intent-primary-subtle text-intent-primary",
               "hover:border-intent-primary-border hover:bg-intent-primary-subtle hover:text-intent-primary-fg transition-colors",
               model.isResuming && "opacity-80 cursor-wait",
             )}
@@ -260,7 +260,7 @@ export function RunNavCard({
                     onArchive(workflowId)
                   }}
                   disabled={archivingId === workflowId}
-                  className="w-full text-left px-2.5 py-2 text-xs font-medium rounded-md transition-colors text-muted hover:text-intent-warning hover:bg-intent-warning-subtle flex items-center gap-2 disabled:opacity-50"
+                  className="w-full text-left px-2.5 py-2 text-xs font-medium rounded-control transition-colors text-muted hover:text-intent-warning hover:bg-intent-warning-subtle flex items-center gap-2 disabled:opacity-50"
                 >
                   <Archive className="h-3.5 w-3.5 shrink-0" />
                   Archive run
@@ -274,7 +274,7 @@ export function RunNavCard({
                     onComplete(workflowId)
                   }}
                   disabled={completingId === workflowId}
-                  className="w-full text-left px-2.5 py-2 text-xs font-medium rounded-md transition-colors text-intent-success hover:text-intent-success-fg hover:bg-intent-success-subtle flex items-center gap-2 disabled:opacity-50"
+                  className="w-full text-left px-2.5 py-2 text-xs font-medium rounded-control transition-colors text-intent-success hover:text-intent-success-fg hover:bg-intent-success-subtle flex items-center gap-2 disabled:opacity-50"
                 >
                   <Check className="h-3.5 w-3.5 shrink-0" />
                   Move to completed
@@ -288,7 +288,7 @@ export function RunNavCard({
                     onResume(model.entry!)
                   }}
                   disabled={model.isResuming}
-                  className="w-full text-left px-2.5 py-2 text-xs font-medium rounded-md transition-colors text-intent-primary hover:bg-intent-primary-subtle flex items-center gap-2 disabled:opacity-50"
+                  className="w-full text-left px-2.5 py-2 text-xs font-medium rounded-control transition-colors text-intent-primary hover:bg-intent-primary-subtle flex items-center gap-2 disabled:opacity-50"
                 >
                   <Play className="h-3.5 w-3.5 shrink-0" />
                   Resume run
@@ -306,7 +306,7 @@ export function RunNavCard({
             aria-label="Archive run"
             title="Archive run"
             className={cn(
-              "flex items-center justify-center h-7 w-7 rounded-md",
+              "flex items-center justify-center h-7 w-7 rounded-control",
               "text-muted hover:text-intent-warning hover:bg-intent-warning-subtle transition-colors",
               archivingId === workflowId && "opacity-50 cursor-wait",
             )}
@@ -324,7 +324,7 @@ export function RunNavCard({
             aria-label="Move to completed"
             title="Move to completed"
             className={cn(
-              "flex items-center justify-center h-7 w-7 rounded-md",
+              "flex items-center justify-center h-7 w-7 rounded-control",
               "text-intent-success hover:text-intent-success-fg hover:bg-intent-success-subtle transition-colors",
               completingId === workflowId && "opacity-50 cursor-wait",
             )}
@@ -358,7 +358,7 @@ export function RunNavCard({
             aria-label="Move run to archived"
             title="Move run to archived"
             className={cn(
-              "h-7 w-7 flex items-center justify-center rounded-md text-muted hover:text-intent-warning hover:bg-intent-warning-subtle transition-colors",
+              "h-7 w-7 flex items-center justify-center rounded-control text-muted hover:text-intent-warning hover:bg-intent-warning-subtle transition-colors",
               archivingId === entry.workflow_id && "opacity-50 cursor-wait",
             )}
           >
@@ -376,7 +376,7 @@ export function RunNavCard({
             aria-label="Restore completed run"
             title="Restore completed run"
             className={cn(
-              "h-7 w-7 flex items-center justify-center rounded-md text-intent-success/70 hover:text-intent-success-fg hover:bg-intent-success-subtle transition-colors",
+              "h-7 w-7 flex items-center justify-center rounded-control text-intent-success/70 hover:text-intent-success-fg hover:bg-intent-success-subtle transition-colors",
               restoringCompletedId === entry.workflow_id && "opacity-50 cursor-wait",
             )}
           >
@@ -394,7 +394,7 @@ export function RunNavCard({
             aria-label="Move run to completed"
             title="Move run to completed"
             className={cn(
-              "h-7 w-7 flex items-center justify-center rounded-md text-intent-success/80 hover:text-intent-success hover:bg-intent-success-subtle transition-colors",
+              "h-7 w-7 flex items-center justify-center rounded-control text-intent-success/80 hover:text-intent-success hover:bg-intent-success-subtle transition-colors",
               completingId === entry.workflow_id && "opacity-50 cursor-wait",
             )}
           >
@@ -416,7 +416,7 @@ export function RunNavCard({
             aria-label="Restore run"
             title="Restore run"
             className={cn(
-              "h-7 w-7 flex items-center justify-center rounded-md text-muted hover:text-intent-success hover:bg-intent-success-subtle transition-colors",
+              "h-7 w-7 flex items-center justify-center rounded-control text-muted hover:text-intent-success hover:bg-intent-success-subtle transition-colors",
               restoringId === entry.workflow_id && "opacity-50 cursor-wait",
             )}
           >
@@ -433,7 +433,7 @@ export function RunNavCard({
                 e.stopPropagation()
                 onDelete(entry.workflow_id)
               }}
-              className="w-full text-left px-2.5 py-2 text-xs font-medium rounded-md transition-colors text-intent-danger hover:text-intent-danger-fg hover:bg-intent-danger-subtle flex items-center gap-2"
+              className="w-full text-left px-2.5 py-2 text-xs font-medium rounded-control transition-colors text-intent-danger hover:text-intent-danger-fg hover:bg-intent-danger-subtle flex items-center gap-2"
             >
               <Trash2 className="h-3.5 w-3.5 shrink-0" />
               Delete permanently

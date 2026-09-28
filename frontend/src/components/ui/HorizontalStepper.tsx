@@ -62,7 +62,7 @@ function statusConnectorClass(status: StepperStepStatus): string {
 
 function statusLabelClass(status: StepperStepStatus): string {
   return cn(
-    "text-[10px] sm:text-[11px] text-center leading-tight font-medium px-0 mt-1.5",
+    "text-2xs text-center leading-tight font-medium px-0 mt-1.5",
     status === "done" && "text-foreground",
     status === "active" && "text-intent-active",
     (status === "awaiting" || status === "warning") && "text-intent-warning",
