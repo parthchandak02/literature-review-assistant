@@ -91,8 +91,16 @@ cmd_restart() {
   health_check() {
     require_cmd curl
     echo "==> health check"
-    curl -sf http://127.0.0.1:8001/api/health
-    echo
+    local attempt
+    for attempt in $(seq 1 30); do
+      if curl -sf http://127.0.0.1:8001/api/health; then
+        echo
+        return 0
+      fi
+      sleep 1
+    done
+    echo "API did not become healthy within 30s" >&2
+    return 1
   }
 
   if [[ "${STATUS_ONLY}" == true ]]; then
