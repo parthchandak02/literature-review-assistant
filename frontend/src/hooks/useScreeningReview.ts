@@ -1,11 +1,13 @@
-import { useCallback, useEffect, useMemo, useReducer } from "react"
+import { useCallback, useEffect, useMemo, useReducer, useRef } from "react"
 import { useQuery } from "@tanstack/react-query"
 import { fetchScreeningSummary } from "@/lib/api"
+import { automationBreakdown } from "@/lib/automationSteps"
 import type { ScreenedPaper, ScreeningOverride, ScreeningSummary } from "@/lib/api"
 import {
   buildRows,
   countFilterTabs,
   countFinalDecisions,
+  isAutomationRow,
   selectVisibleRows,
   type AiDecision,
   type HumanDecision,
@@ -112,6 +114,7 @@ export type ReviewAction =
   | { type: "setReason"; key: string; reason: string }
   | { type: "undo" }
   | { type: "resetOverrides" }
+  | { type: "hydrate"; overrides: OverrideMap }
   | { type: "focus"; key: string | null }
   | { type: "toggleExpanded"; key: string }
   | { type: "toggleSelected"; key: string }
@@ -205,6 +208,8 @@ export function reviewReducer(state: ReviewState, action: ReviewAction): ReviewS
       const undoStack = state.undoStack.slice(0, -1)
       return { ...state, overrides: state.undoStack[state.undoStack.length - 1], undoStack }
     }
+    case "hydrate":
+      return { ...state, overrides: action.overrides, undoStack: [], filterBasis: action.overrides }
     case "resetOverrides":
       if (state.overrides.size === 0 && state.undoStack.length === 0) return state
       return { ...state, overrides: new Map(), undoStack: [], filterBasis: new Map() }
@@ -257,13 +262,26 @@ export function moveFocus(visibleKeys: readonly string[], current: string | null
   return visibleKeys[nextIndex]
 }
 
-export function useScreeningReview(scopeId: string, papers: readonly ScreenedPaper[]) {
+export function useScreeningReview(
+  scopeId: string,
+  papers: readonly ScreenedPaper[],
+  { readOnly = false }: { readOnly?: boolean } = {},
+) {
   const storageKey = screeningOverridesStorageKey(scopeId)
-  const [state, dispatch] = useReducer(reviewReducer, storageKey, (key) => initialReviewState(readOverrides(key)))
+  const [state, dispatch] = useReducer(reviewReducer, storageKey, (key) =>
+    initialReviewState(readOnly ? new Map() : readOverrides(key)),
+  )
 
+  // Overrides load from storage only once the view is editable; until then nothing is written back.
+  const hydrated = useRef(!readOnly)
   useEffect(() => {
-    writeOverrides(storageKey, state.overrides)
-  }, [storageKey, state.overrides])
+    if (!readOnly && hydrated.current) writeOverrides(storageKey, state.overrides)
+  }, [readOnly, storageKey, state.overrides])
+  useEffect(() => {
+    if (readOnly || hydrated.current) return
+    hydrated.current = true
+    dispatch({ type: "hydrate", overrides: readOverrides(storageKey) })
+  }, [readOnly, storageKey])
 
   const rows = useMemo(() => buildRows(papers), [papers])
   const aiByKey = useMemo(() => new Map(rows.map((r) => [r.key, r.paper.decision])), [rows])
@@ -282,9 +300,14 @@ export function useScreeningReview(scopeId: string, papers: readonly ScreenedPap
   const finalCounts = useMemo(() => countFinalDecisions(rows, state.overrides), [rows, state.overrides])
   const tabCounts = useMemo(() => countFilterTabs(rows, state.overrides), [rows, state.overrides])
   const reviewedCount = useMemo(
-    () => rows.reduce((n, r) => n + (state.reviewed.has(r.key) || state.overrides.has(r.key) ? 1 : 0), 0),
+    () =>
+      rows.reduce(
+        (n, r) => n + (!isAutomationRow(r) && (state.reviewed.has(r.key) || state.overrides.has(r.key)) ? 1 : 0),
+        0,
+      ),
     [rows, state.reviewed, state.overrides],
   )
+  const automation = useMemo(() => automationBreakdown(rows.map((r) => r.automationStep)), [rows])
 
   const decide = useCallback(
     (keys: string[], decision: HumanDecision) => {
@@ -308,6 +331,7 @@ export function useScreeningReview(scopeId: string, papers: readonly ScreenedPap
     finalCounts,
     tabCounts,
     reviewedCount,
+    automation,
     decide,
     overrideList,
   }

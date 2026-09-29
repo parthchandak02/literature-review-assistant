@@ -19,11 +19,15 @@ Frontend contracts and design rules for the research-ops dashboard (`frontend/sr
 ## Run tabs (`RunTab`)
 
 Rendered in `RunView.tsx` (`TAB_ITEMS`) in this order: `activity` (Activity), `results` (Results), `database` (Data), `config` (Config), `cost` (Cost). Ids and URLs are unchanged from the earlier order.  
-`review-screening` appears when status is `awaiting_review` and is placed second, directly after Activity (`orderRunTabs` in `components/run/runRouting.ts`).
+`review-screening` is placed second, directly after Activity (`orderRunTabs` in `components/run/runRouting.ts`; `screeningTabFor` in `RunChrome.tsx`) whenever the run has screening decisions (`hasScreeningDecisions` in `hooks/useRunChrome.ts`: status `awaiting_review`, a `phase_3_screening` `phase_done` event, or PRISMA `records_screened > 0`). At `awaiting_review` it is the amber "Review Screening" tab and the page is editable. At any later status it is a neutral "Screening" tab and the page is read-only. It is hidden before screening (a deep link still shows it so a tab stays highlighted). Read-only means: a "Screening was approved; this is a read-only view of the final decisions" banner, no progress bar, approve bar, Include/Exclude, selection, overrides or decision shortcuts (only move, expand and help). Saved overrides are neither read nor written until the view is editable.
+
+The info strip is sans with `tabular-nums`; only the workflow id is mono.
 
 Tabs use `GlassTabs variant="underline"` (content-width, left-aligned). "Download submission package" sits on the same row, right-aligned.
 
 `GlassTabs` is an ARIA tablist: roving focus with Arrow Left/Right, Home, End; each tab `aria-controls` the `tabpanel-{id}` region in `RunView.tsx`.
+
+**Stalled config generation** (`lib/configGenerationStall.ts`): a `config_generating` run with no live stream (SSE or in-browser config stream) and no update for over an hour is "Stalled" in the sidebar card, the run header and the gate banner; Config shows "Config generation stopped responding" with Retry (in-session request) or "Start a new review with this question" (New review with the question prefilled).
 
 **Auto-routing** (`resolveAutoRouteTab` / `defaultTabForStatus` in `components/run/runRouting.ts`): when a run is opened on the default tab (Activity), `config_ready` and `awaiting_prospero` switch to Config and `awaiting_review` switches to `review-screening`. This runs once per run and gate. It is skipped for the workflow named in the page-load URL when that URL has an explicit tab (`/run/{id}/{tab}`), so deep links keep working. `parseRunUrl` is unchanged. Users can leave the gate tab freely.
 
@@ -65,7 +69,7 @@ The chrome "Download submission package" runs `ensureSubmissionPackage`: Build, 
 
 **Figures and Files**: figure cards (`FigureCard.tsx`) share download, "Preview unavailable" on load error, 4:3 thumbnails and click-to-zoom. Custom diagrams show real planned/saved counts from the brief pack or generation report. Previewable file rows use a toggle button with `aria-pressed`, separate from the download link.
 
-**Quality**: "Audit findings" (`AuditFindingsBlock.tsx`, anchor `#audit-findings`) is first. Data comes from `GET /api/run/{run_id}/manuscript-audit`: contract violations plus audit findings, sorted failures → warnings → notes with severity badges. With no audit record it links to `run_summary.json` and Files. The `needs_revision` banner's "View audit findings" opens it. Then GRADE and the evidence network (keyboard-reachable nodes, a right-column inspector on `lg`, cluster legend, arrows on citation edges only, and colours inlined on SVG export).
+**Quality**: "Audit findings" (`AuditFindingsBlock.tsx`, anchor `#audit-findings`) is first. Data comes from `GET /api/run/{run_id}/manuscript-audit`: contract violations plus audit findings, sorted failures → warnings → notes with severity badges. With no audit record it links to `run_summary.json` and Files. The `needs_revision` banner's "View audit findings" opens it. Then GRADE and the evidence network (keyboard-reachable nodes, a right-column inspector on `lg`, cluster legend, arrows on citation edges only, and colours inlined on SVG export). Node labels use the first author's family name (`src/utils/author_names.py`, mirrored by `lib/authorNames.ts`): "Given M. Family", "Family, Given", "Family GK", CJK and Vietnamese family-first names. After layout, `placeLabels` (`lib/graphLabelLayout.ts`) picks the slot around each node that least overlaps other labels, nodes, edges and the canvas edge.
 
 **References**: search (title, author, year, DOI, database), a "Full text only" toggle, and Clear filters (`referenceFilters.ts`). Titles are decoded with `decodeHtmlEntities`. Icon actions have `aria-label`s, and PDF fetch progress is a `role="progressbar"`.
 
@@ -84,8 +88,8 @@ The chrome "Download submission package" runs `ensureSubmissionPackage`: Build, 
 
 - Settings, theme toggle and the collapse button share one fixed footer row at the bottom, in both expanded and collapsed modes. The collapse tooltip shows the shortcut (Cmd/Ctrl+B). The shortcut is ignored while focus is in an input, textarea, select or contenteditable
 - Groups (`partitionHistory` / `laneOf` in `hooks/useSidebarRuns.ts`):
-  - "Needs your input": `config_generating`, `config_ready`, `awaiting_prospero`, `awaiting_review`
-  - "In progress": every other visible review
+  - "Needs your input": `config_ready`, `awaiting_prospero`, `awaiting_review`
+  - "In progress": every other visible review, including `config_generating`. A `config_generating` card with no live stream and no update for over an hour is Stalled: it shows a muted "Stalled" note and moves to "Needs your input" (`isConfigGenerationStalled` in `sidebar/historyRowModel.ts`)
   - "Completed": `lane_override: "completed"` (mirrored by `is_completed_hidden`), or a finished (`done`) review with no live run and no pin. "Move to In progress" sets `lane_override: "in_progress"` in the registry (`POST /api/history/{id}/lane`), so the choice follows the user across devices. Old `localStorage` pins (`sidebar-in-progress-pins`) are pushed to the server once and cleared; a server pin wins
   - "Archived": `is_archived`
 - Selecting a review from the sidebar opens its action tab every time, including re-clicking the review on screen: `awaiting_review` opens `review-screening`, PROSPERO and config gates open `config`, everything else opens `activity` (`sidebarSelectTab`). Deep links keep their tab
@@ -110,6 +114,7 @@ The chrome "Download submission package" runs `ensureSubmissionPackage`: Build, 
 - `AppErrorBoundary` offers "Reload this page" and "Go home", with the raw message under "Technical details". `ViewBoundary` offers "Try again", "Reload page" and "Copy details"
 - One `SettingsDialog`, owned by `SettingsProvider` (`context/SettingsContext.tsx`). Views open it with `useSettings().openSettings(tab)` and can watch `closedVersion` to re-check state when it closes; never render a second dialog
 - `FetchError` (`components/ui/feedback.tsx`): pass `onRetry` only when the handler refetches (label "Retry"), `onDismiss` when it only clears the error (label "Dismiss")
+- Data tab Papers table: while it can scroll further right, its scroll container fades at the right edge (`useEdgeFadeState`), and once scrolled the sticky Title column gets a right border and shadow. The title/abstract facet labels "uncertain" as "Uncertain (sent to full text)"
 - Data tab Outcomes table follows the Papers filters (URL state) and pages server-side via `/api/db/{run_id}/tables`; its caption says "Outcomes for N filtered papers" when filters are active
 - Builds for local verification go to a temp `--outDir` (FastAPI serves `frontend/dist` from disk, so building there is a production deploy)
 - Settings dialog uses `GlassTabs`, resets to `initialTab` on every open, and sizes per tab (about 560px for API keys, wide for Global costs)
@@ -234,7 +239,7 @@ Run before merging changes to `frontend/src/views/` or run navigation.
 - [ ] Tabs render Activity, Results, Data, Config, Cost; arrow keys move focus
 - [ ] All primary tabs load
 - [ ] Legacy `/quality` and `/references` URLs open Results
-- [ ] `review-screening` only when `awaiting_review`
+- [ ] `review-screening` in the tab list only when `awaiting_review`; a deep link on another status shows a read-only page under a neutral "Screening" tab
 
 ### Results
 

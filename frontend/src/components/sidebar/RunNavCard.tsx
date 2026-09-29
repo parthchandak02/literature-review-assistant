@@ -10,7 +10,7 @@ import {
   Trash2,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
-import { formatRunDate, formatShortDate } from "@/lib/format"
+import { formatRunDate, formatShortDate, formatWorkflowId } from "@/lib/format"
 import type { HistoryEntry } from "@/lib/api"
 import { RunStatusIndicator } from "@/components/run-status"
 import { Spinner } from "@/components/ui/feedback"
@@ -57,6 +57,13 @@ export interface RunNavCardProps {
   noteValue?: string
   noteFlashKey?: number
   onNoteChange?: (value: string) => void
+}
+
+/** Time of day only; the status row already shows the date. */
+function formatCreatedMeta(raw: string): string | null {
+  const parsed = new Date(raw.includes("T") ? raw : `${raw.replace(" ", "T")}Z`)
+  if (Number.isNaN(parsed.getTime())) return null
+  return parsed.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })
 }
 
 const iconButton =
@@ -112,6 +119,11 @@ export function RunNavCard({
   const dateTitle = !isNow && model.dateLabel ? formatRunDate(model.dateLabel) : undefined
 
   const statusLabel = model.statusLabel
+  const metaParts = [
+    workflowId ? formatWorkflowId(workflowId) : null,
+    !isNow && model.dateLabel ? formatCreatedMeta(model.dateLabel) : null,
+  ].filter(Boolean)
+  const metaText = metaParts.length > 0 ? metaParts.join(" · ") : null
 
   if (collapsed) {
     return (
@@ -155,6 +167,7 @@ export function RunNavCard({
   const showNote = Boolean(
     model.showNoteField && entry && onNoteChange && (noteValue.trim() !== "" || noteOpen),
   )
+  const readOnlyNote = !showNote ? (entry?.notes ?? "").trim() : ""
 
   const metricInput = {
     papersFound: model.papersFound,
@@ -196,7 +209,7 @@ export function RunNavCard({
                 !selectable && "cursor-not-allowed",
               )}
             >
-              <span className="line-clamp-3">{model.topic}</span>
+              <span className="line-clamp-2">{model.topic}</span>
             </button>
           </TooltipTrigger>
           <TooltipContent side="right" className="max-w-xs text-xs">
@@ -245,7 +258,11 @@ export function RunNavCard({
                 </button>
               </DropdownMenuTrigger>
               <DropdownMenuContent
+                side="bottom"
                 align="end"
+                sideOffset={4}
+                collisionPadding={8}
+                updatePositionStrategy="always"
                 className="min-w-44"
                 onCloseAutoFocus={(e) => {
                   if (!focusNoteOnMenuClose.current) return
@@ -298,6 +315,16 @@ export function RunNavCard({
         </div>
       </div>
 
+      {metaText && (
+        <p className="truncate px-2.5 pt-1 text-2xs tabular-nums text-muted">{metaText}</p>
+      )}
+
+      {readOnlyNote && (
+        <p className="truncate px-2.5 pt-1 text-2xs italic text-muted" title={readOnlyNote}>
+          {readOnlyNote}
+        </p>
+      )}
+
       {disabledReason && (
         <p id={disabledReasonId} className="px-2.5 pt-0.5 text-2xs text-muted">
           {disabledReason}
@@ -310,7 +337,7 @@ export function RunNavCard({
           animate={model.animateStatus}
           loading={model.isOpening}
           label={statusLabel}
-          className="min-w-0 shrink"
+          className="min-w-0 shrink text-xs"
         />
         {dateText && (
           <time

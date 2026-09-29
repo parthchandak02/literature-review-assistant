@@ -8,6 +8,8 @@ import pathlib
 import aiosqlite
 from fastapi import APIRouter, HTTPException
 
+from src.db.repos.screening import ScreeningRepo
+from src.models import PrismaAutomationStep
 from src.models.papers import clean_abstract, decode_html_entities
 from src.web.run_resolver import resolve_registry_entry, resolve_runtime_db
 from src.web.shared import ApproveScreeningRequest, ResumeRequest
@@ -103,9 +105,17 @@ async def _screening_thresholds(db: aiosqlite.Connection, workflow_id: str) -> d
         return None
 
 
+def _automation_step_value(step: PrismaAutomationStep | None) -> str | None:
+    return step.value if step is not None else None
+
+
 @router.get("/api/run/{run_id}/screening-summary")
 async def get_screening_summary(run_id: str) -> dict:
-    """Return every screened paper with its final decision (AI or human) for review."""
+    """Return every screened paper with its final decision (AI or human) for review.
+
+    ``automation_step`` is set when an automated step removed the paper before any reviewer
+    decision (same classification as the PRISMA "removed by automation tools" count).
+    """
     db_path = await resolve_runtime_db(run_id)
     if not pathlib.Path(db_path).exists():
         raise HTTPException(status_code=404, detail="Run database not found")
@@ -118,6 +128,7 @@ async def get_screening_summary(run_id: str) -> dict:
         cursor = await db.execute(_FINAL_DECISION_SQL, {"wf": workflow_id})
         rows = await cursor.fetchall()
         thresholds = await _screening_thresholds(db, workflow_id)
+        automation_steps = await ScreeningRepo(db).get_prisma_automation_steps(workflow_id)
 
     papers = []
     for row in rows:
@@ -138,6 +149,7 @@ async def get_screening_summary(run_id: str) -> dict:
                 "confidence": row["confidence"],
                 "exclusion_reason": row["exclusion_reason"],
                 "decided_by": row["reviewer_type"],
+                "automation_step": _automation_step_value(automation_steps.get(str(row["paper_id"]))),
             }
         )
     papers.sort(key=lambda p: (_DECISION_ORDER[p["final_decision"]], -(p["year"] or 0), p["paper_id"]))

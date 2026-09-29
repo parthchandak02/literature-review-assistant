@@ -1,4 +1,4 @@
-import { Suspense, lazy, useState } from "react"
+import { Suspense, lazy, useRef, useState } from "react"
 import { Key, BarChart3, X } from "lucide-react"
 import {
   Dialog,
@@ -11,7 +11,7 @@ import { GlassTabs } from "@/components/ui/glass-tabs"
 import { ApiKeysPanel } from "@/components/ApiKeysSection"
 import { LoadingPane } from "@/components/ui/feedback"
 import type { SettingsTab } from "@/context/SettingsContext"
-import { cn } from "@/lib/utils"
+import { useEdgeFade } from "@/hooks/useEdgeFade"
 
 export type { SettingsTab }
 
@@ -28,11 +28,6 @@ const TABS: { id: SettingsTab; label: string; icon: typeof Key }[] = [
   { id: "costs", label: "Global costs", icon: BarChart3 },
 ]
 
-const WIDTH_BY_TAB: Record<SettingsTab, string> = {
-  keys: "max-w-[35rem] w-[min(35rem,96vw)]",
-  costs: "max-w-7xl w-[min(80rem,96vw)]",
-}
-
 export function SettingsDialog({ open, onOpenChange, initialTab = "keys" }: SettingsDialogProps) {
   const [tab, setTab] = useState<SettingsTab>(initialTab)
   const [prevOpen, setPrevOpen] = useState(open)
@@ -45,9 +40,9 @@ export function SettingsDialog({ open, onOpenChange, initialTab = "keys" }: Sett
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
         aria-describedby={undefined}
-        className={cn("border-border bg-card p-0 text-foreground", WIDTH_BY_TAB[tab])}
+        className="flex h-[min(52rem,90dvh)] w-[min(56rem,96vw)] max-w-4xl flex-col gap-0 overflow-hidden border-border bg-card p-0 text-foreground"
       >
-        <DialogHeader className="border-b border-border px-5 py-3">
+        <DialogHeader className="shrink-0 border-b border-border px-5 py-3">
           <div className="flex items-center justify-between gap-4">
             <DialogTitle className="text-foreground">Settings</DialogTitle>
             <Button
@@ -65,20 +60,36 @@ export function SettingsDialog({ open, onOpenChange, initialTab = "keys" }: Sett
           <GlassTabs items={TABS} activeTab={tab} onTabChange={setTab} className="mt-2" />
         </DialogHeader>
 
-        <div
-          role="tabpanel"
-          id={`tabpanel-${tab}`}
-          aria-labelledby={`tab-${tab}`}
-          className="px-5 py-3 max-h-[82dvh] overflow-y-auto min-w-0"
-        >
-          {tab === "keys" && <ApiKeysPanel />}
-          {tab === "costs" && (
-            <Suspense fallback={<LoadingPane />}>
-              <CostsPanel />
-            </Suspense>
-          )}
-        </div>
+        <SettingsTabPanel tab={tab} />
       </DialogContent>
     </Dialog>
+  )
+}
+
+function SettingsTabPanel({ tab }: { tab: SettingsTab }) {
+  const bodyRef = useRef<HTMLDivElement | null>(null)
+  const bottomFade = useEdgeFade(bodyRef, "y")
+  return (
+    <div
+      ref={bodyRef}
+      role="tabpanel"
+      id={`tabpanel-${tab}`}
+      aria-labelledby={`tab-${tab}`}
+      style={bottomFade}
+      className="min-h-0 min-w-0 flex-1 overflow-y-auto px-5 pt-3 pb-6"
+    >
+      <div>
+        {tab === "keys" && (
+          <div className="mx-auto max-w-xl">
+            <ApiKeysPanel />
+          </div>
+        )}
+        {tab === "costs" && (
+          <Suspense fallback={<LoadingPane />}>
+            <CostsPanel />
+          </Suspense>
+        )}
+      </div>
+    </div>
   )
 }

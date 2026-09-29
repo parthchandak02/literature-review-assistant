@@ -33,7 +33,7 @@ function LaneIcon({ lane }: { lane: "completed" | "archived" }) {
       <Check className="h-2.5 w-2.5" aria-hidden />
     </span>
   ) : (
-    <span className="flex h-3.5 w-3.5 items-center justify-center rounded-[3px] border border-intent-warning-border bg-intent-warning-subtle text-intent-warning">
+    <span className="flex h-3.5 w-3.5 items-center justify-center rounded-[3px] border border-border bg-surface-2 text-muted">
       <Archive className="h-2.5 w-2.5" aria-hidden />
     </span>
   )
@@ -60,7 +60,7 @@ function CollapsedLaneButton({
         className={cn(
           "relative flex h-9 w-9 mx-auto items-center justify-center rounded-xl transition-colors hover:bg-surface-2/60",
           "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-          lane === "completed" ? "text-intent-success" : "text-intent-warning",
+          lane === "completed" ? "text-intent-success" : "text-muted hover:text-foreground",
         )}
       >
         <Icon className="h-4 w-4" aria-hidden />

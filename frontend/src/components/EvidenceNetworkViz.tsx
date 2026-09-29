@@ -15,7 +15,7 @@
  *   - Amber dashed outer ring on gap-related nodes
  */
 
-import { useState, useEffect, useRef, useCallback } from "react"
+import { useState, useEffect, useRef, useCallback, useMemo } from "react"
 import { Network, Download, X } from "lucide-react"
 import { fetchKnowledgeGraph } from "@/lib/api"
 import type { KnowledgeGraph, KnowledgeGraphNode, KnowledgeGraphEdge } from "@/lib/api"
@@ -23,7 +23,15 @@ import { Spinner, FetchError, EmptyState } from "@/components/ui/feedback"
 import { Button } from "@/components/ui/button"
 import { humanizeSnake } from "@/lib/humanize"
 import { cn } from "@/lib/utils"
-import { communityColor, lightThemeLookup, prepareSvgForExport } from "@/components/results/evidenceNetworkExport"
+import { familyName } from "@/lib/authorNames"
+import { estimateLabelWidth, placeLabels } from "@/lib/graphLabelLayout"
+import {
+  clusterName,
+  clusterNumber,
+  communityColor,
+  lightThemeLookup,
+  prepareSvgForExport,
+} from "@/components/results/evidenceNetworkExport"
 
 const EDGE_COLORS: Record<string, string> = {
   shared_outcome: "var(--color-graph-edge-shared-outcome)",
@@ -39,11 +47,18 @@ const GAP_TYPE_LABELS: Record<string, string> = {
   methodology_gap: "Methodology gap",
 }
 
+function authorShort(node: KnowledgeGraphNode): string {
+  const family = familyName(node.first_author)
+  if (!family) return ""
+  return `${family}${node.has_multiple_authors ? " et al." : ""}`
+}
+
 function nodeAriaLabel(node: KnowledgeGraphNode, isGap: boolean): string {
   const parts = [node.title]
-  if (node.first_author) parts.push(`${node.first_author}${node.has_multiple_authors ? " et al." : ""}`)
+  const author = authorShort(node)
+  if (author) parts.push(author)
   if (node.year) parts.push(String(node.year))
-  parts.push(`cluster ${node.community_id}`)
+  parts.push(`cluster ${clusterNumber(node.community_id)}`)
   if (isGap) parts.push("related to a research gap")
   return parts.join(", ")
 }
@@ -54,10 +69,8 @@ function truncateTitle(title: string, max = 18): string {
 
 function nodeLabel(node: KnowledgeGraphNode): string {
   const year = node.year ? ` (${node.year})` : ""
-  if (node.first_author) {
-    const suffix = node.has_multiple_authors ? " et al." : ""
-    return `${node.first_author}${suffix}${year}`
-  }
+  const author = authorShort(node)
+  if (author) return `${author}${year}`
   return truncateTitle(node.title, 22) + year
 }
 
@@ -162,6 +175,22 @@ function useForceLayout(
   return positions
 }
 
+const LABEL_GAP = 14
+const LABEL_FONT_SIZE = 10
+const LABEL_HEIGHT = 13
+const GAP_RING_OFFSET = 5
+
+const LABEL_HALO = {
+  stroke: "var(--color-graph-canvas)",
+  strokeWidth: 4,
+  strokeLinejoin: "round",
+  paintOrder: "stroke",
+} as const
+
+function nodeRadius(isSelected: boolean, isHovered: boolean): number {
+  return isSelected ? 12 : isHovered ? 10 : 7
+}
+
 interface GraphCanvasProps {
   graph: KnowledgeGraph
   width: number
@@ -176,6 +205,20 @@ function GraphCanvas({ graph, width, height, gapPaperIds, selectedId, onSelect, 
   const positions = useForceLayout(graph.nodes, graph.edges, width, height)
   const [hovered, setHovered] = useState<string | null>(null)
   const hasCitations = graph.edges.some((e) => e.rel_type === "citation")
+  const labelPlacements = useMemo(() => {
+    const labelNodes = graph.nodes.flatMap((n) => {
+      const p = positions.get(n.id)
+      if (!p) return []
+      const r = nodeRadius(false, false) + (gapPaperIds.has(n.id) ? GAP_RING_OFFSET : 0)
+      return [{ id: n.id, x: p.x, y: p.y, r, width: estimateLabelWidth(nodeLabel(n), LABEL_FONT_SIZE), height: LABEL_HEIGHT }]
+    })
+    const labelEdges = graph.edges.flatMap((e) => {
+      const a = positions.get(e.source)
+      const b = positions.get(e.target)
+      return a && b ? [{ x1: a.x, y1: a.y, x2: b.x, y2: b.y }] : []
+    })
+    return placeLabels(labelNodes, labelEdges, { width, height })
+  }, [graph.nodes, graph.edges, positions, width, height, gapPaperIds])
 
   if (!positions.size) {
     return (
@@ -240,7 +283,7 @@ function GraphCanvas({ graph, width, height, gapPaperIds, selectedId, onSelect, 
         const isHovered = hovered === node.id
         const isSelected = selectedId === node.id
         const isGap = gapPaperIds.has(node.id)
-        const nodeR = isSelected ? 12 : isHovered ? 10 : 7
+        const nodeR = nodeRadius(isSelected, isHovered)
 
         return (
           <g
@@ -269,7 +312,7 @@ function GraphCanvas({ graph, width, height, gapPaperIds, selectedId, onSelect, 
             {/* Gap highlight: amber dashed outer ring */}
             {isGap && (
               <circle
-                r={nodeR + 5}
+                r={nodeR + GAP_RING_OFFSET}
                 fill="none"
                 stroke="var(--color-intent-warning)"
                 strokeWidth={1.5}
@@ -287,48 +330,60 @@ function GraphCanvas({ graph, width, height, gapPaperIds, selectedId, onSelect, 
               strokeWidth={isSelected ? 2.5 : isHovered ? 1.5 : 0.8}
             />
 
-            {/* Always-visible author+year label below the node */}
-            <text
-              y={nodeR + 11}
-              textAnchor="middle"
-              fontSize={10}
-              fill="var(--color-graph-label)"
-              className="pointer-events-none select-none"
-              style={{ userSelect: "none" }}
-            >
-              {nodeLabel(node)}
-            </text>
-
-            {/* Hover tooltip: title + year above node */}
-            {isHovered && !isSelected && (
-              <>
-                <text
-                  y={-(nodeR + 14)}
-                  textAnchor="middle"
-                  fontSize={10}
-                  fill="var(--color-graph-tooltip)"
-                  className="pointer-events-none select-none"
-                  style={{ userSelect: "none" }}
-                >
-                  {node.title.length > 50 ? node.title.slice(0, 50) + "…" : node.title}
-                </text>
-                {node.year && (
-                  <text
-                    y={-(nodeR + 2)}
-                    textAnchor="middle"
-                    fontSize={9}
-                    fill="var(--color-graph-label)"
-                    className="pointer-events-none select-none"
-                    style={{ userSelect: "none" }}
-                  >
-                    {node.first_author ? `${node.first_author}${node.has_multiple_authors ? " et al." : ""}, ` : ""}{node.year}
-                  </text>
-                )}
-              </>
-            )}
           </g>
         )
       })}
+
+      {/* Labels sit above every node and edge, with a canvas-coloured halo so crossings stay legible */}
+      <g className="pointer-events-none select-none" style={{ userSelect: "none" }} aria-hidden>
+        {graph.nodes.map((node) => {
+          const pos = positions.get(node.id)
+          if (!pos) return null
+          const isHovered = hovered === node.id
+          const isSelected = selectedId === node.id
+          const nodeR = nodeRadius(isSelected, isHovered)
+          const placement = labelPlacements.get(node.id)
+          return (
+            <g key={node.id} transform={`translate(${pos.x},${pos.y})`}>
+              <text
+                x={placement?.dx ?? 0}
+                y={placement?.dy ?? nodeR + LABEL_GAP}
+                textAnchor="middle"
+                fontSize={LABEL_FONT_SIZE}
+                fill="var(--color-graph-label)"
+                {...LABEL_HALO}
+              >
+                {nodeLabel(node)}
+              </text>
+              {isHovered && !isSelected && (
+                <>
+                  <text
+                    y={-(nodeR + LABEL_GAP + 12)}
+                    textAnchor="middle"
+                    fontSize={10}
+                    fill="var(--color-graph-tooltip)"
+                    {...LABEL_HALO}
+                  >
+                    {node.title.length > 50 ? node.title.slice(0, 50) + "…" : node.title}
+                  </text>
+                  {node.year && (
+                    <text
+                      y={-(nodeR + LABEL_GAP)}
+                      textAnchor="middle"
+                      fontSize={9}
+                      fill="var(--color-graph-label)"
+                      {...LABEL_HALO}
+                    >
+                      {authorShort(node) ? `${authorShort(node)}, ` : ""}
+                      {node.year}
+                    </text>
+                  )}
+                </>
+              )}
+            </g>
+          )
+        })}
+      </g>
     </svg>
   )
 }
@@ -380,7 +435,7 @@ function DetailSidebar({ node, graph, gapPaperIds, onClose }: DetailSidebarProps
 
       {community && (
         <p className="text-intent-primary text-xs">
-          Cluster {node.community_id}: {community.label}
+          {clusterName(node.community_id, community.label)}
         </p>
       )}
 
@@ -615,7 +670,7 @@ export function EvidenceNetworkViz({ runId }: EvidenceNetworkVizProps) {
                       aria-hidden
                     />
                     <span className={cn("min-w-0 flex-1", selectedNode?.community_id === c.id ? "text-foreground" : "text-muted")}>
-                      {c.label || `Cluster ${c.id}`}
+                      {clusterName(c.id, c.label)}
                     </span>
                     <span className="shrink-0 tabular-nums text-muted">{c.paper_ids.length}</span>
                   </li>

@@ -4,6 +4,8 @@ import {
   buildPhaseCostRows,
   costEmptyHeading,
   costPerUnit,
+  describeModelGroup,
+  describeReviewGroup,
   formatCompact,
   formatShare,
   lastN,
@@ -11,7 +13,26 @@ import {
   phaseDisplayLabels,
   sortByCostDesc,
   withShare,
+  wrapLabel,
 } from "./costBreakdown"
+
+describe("wrapLabel", () => {
+  it("keeps short labels on one line", () => {
+    expect(wrapLabel("Diagram drawing", 26)).toEqual(["Diagram drawing"])
+  })
+
+  it("breaks model ids after hyphens instead of clipping them", () => {
+    expect(wrapLabel("gemini-3.1-flash-image-preview", 24)).toEqual(["gemini-3.1-flash-image-", "preview"])
+  })
+
+  it("wraps topics to two lines and ellipsizes the rest", () => {
+    const lines = wrapLabel("What are the multi-dimensional impacts of pickleball participation", 26)
+    expect(lines).toHaveLength(2)
+    expect(lines[0]).toBe("What are the multi-")
+    expect(lines[1].endsWith("…")).toBe(true)
+    expect(lines.every((l) => l.length <= 26)).toBe(true)
+  })
+})
 import { formatUsd } from "./costOpsFormatters"
 
 describe("sortByCostDesc", () => {
@@ -91,9 +112,9 @@ describe("formatCompact", () => {
 })
 
 describe("formatUsd", () => {
-  it("uses two decimals at or above a dollar and up to four below", () => {
+  it("uses two decimals at or above a dollar and exactly four below", () => {
     expect(formatUsd(12.345)).toBe("$12.35")
-    expect(formatUsd(0.41)).toBe("$0.41")
+    expect(formatUsd(0.41)).toBe("$0.4100")
     expect(formatUsd(0.01234)).toBe("$0.0123")
   })
 })
@@ -156,5 +177,32 @@ describe("mergePhaseAliases", () => {
     ])
     expect(rows).toHaveLength(1)
     expect(rows[0]).toMatchObject({ phase: "phase_6a_hyde", calls: 2, cost_usd: 2, share: 1 })
+  })
+})
+
+describe("cost group labels", () => {
+  it("shortens model ids and keeps the provider and full id", () => {
+    expect(describeModelGroup("fireworks:accounts/fireworks/models/deepseek-v4-pro-0813")).toEqual({
+      label: "deepseek-v4-pro",
+      sublabel: "Fireworks",
+      title: "fireworks:accounts/fireworks/models/deepseek-v4-pro-0813",
+    })
+  })
+
+  it("moves a release-channel suffix into the sublabel", () => {
+    expect(describeModelGroup("google:gemini-3.1-flash-image-preview")).toEqual({
+      label: "gemini-3.1-flash-image",
+      sublabel: "Google · preview",
+      title: "google:gemini-3.1-flash-image-preview",
+    })
+  })
+
+  it("uses the review topic with the id secondary, else the id", () => {
+    expect(describeReviewGroup("wf-0001", "Pickleball impacts")).toEqual({
+      label: "Pickleball impacts",
+      sublabel: "wf-0001",
+      title: "Pickleball impacts (wf-0001)",
+    })
+    expect(describeReviewGroup("wf-0009", undefined)).toEqual({ label: "wf-0009", title: "wf-0009" })
   })
 })

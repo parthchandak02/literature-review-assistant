@@ -11,6 +11,7 @@ from pydantic import BaseModel, Field, field_validator
 from wordfreq import zipf_frequency
 
 from src.models.enums import SourceCategory
+from src.utils.author_names import family_name
 
 # -----------------------------------------------------------------------
 # Label-derivation constants (single source of truth).
@@ -103,6 +104,9 @@ def decode_optional_html_entities(value: object) -> object:
     return value
 
 
+_SURNAME_PREFIX_RE = re.compile(r"^(?:Mc|Mac|O|D|Fitz)[A-Z][a-z]+$")
+
+
 def _is_camelcase_compound(token: str) -> bool:
     """Return True if token is a stripped hyphenated compound word artifact.
 
@@ -173,12 +177,12 @@ def compute_display_label(paper: CandidatePaper) -> str:
     # --- Step 1: Extract surname via nameparser ---
     author_token = ""
     if paper.authors:
-        parsed = HumanName(str(paper.authors[0]))
-        surname = re.sub(r"[^a-zA-Z]", "", parsed.last or "")
+        raw_family = family_name(paper.authors[0]) or HumanName(str(paper.authors[0])).last or ""
+        surname = re.sub(r"[^a-zA-Z]", "", raw_family)
         if (
             len(surname) >= 2
             and surname.lower() not in _GENERIC_AUTHOR_PLACEHOLDERS
-            and not _is_camelcase_compound(surname)
+            and (_SURNAME_PREFIX_RE.match(surname) or not _is_camelcase_compound(surname))
         ):
             author_token = surname
 

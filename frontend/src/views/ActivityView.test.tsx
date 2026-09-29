@@ -113,6 +113,9 @@ describe("ActivityView resume menu", () => {
     )
     await user.click(screen.getByRole("button", { name: /Resume from…/ }))
     const menu = await screen.findByRole("menu")
+    expect(within(menu).getByText("Resume from phase")).toBeInTheDocument()
+    expect(within(menu).getByRole("group", { name: "Discovery" })).toBeInTheDocument()
+    expect(within(menu).getAllByRole("group")).toHaveLength(6)
     expect(within(menu).getByRole("menuitem", { name: "Literature search" })).not.toHaveAttribute("data-disabled")
     expect(within(menu).getByRole("menuitem", { name: "Manuscript writing" })).toHaveAttribute("data-disabled")
 
@@ -120,10 +123,9 @@ describe("ActivityView resume menu", () => {
     const dialog = await screen.findByRole("dialog")
     const list = within(dialog).getByRole("list", { name: "Phases that will re-run" })
     const items = within(list).getAllByRole("listitem").map((el) => el.textContent)
-    expect(items[0]).toBe("Literature search")
-    expect(items).toContain("Study screening")
-    expect(items).toContain("Finalize and export")
-    expect(items).not.toContain("PROSPERO registration")
+    expect(items[0]).toBe("Discovery: Literature search, Study screening, Full-text PDF retrieval")
+    expect(items).toContain("Finalize: Manuscript audit, Finalize and export")
+    expect(items.join(" ")).not.toContain("PROSPERO")
     expect(await within(dialog).findByText("Previously spent on these phases: $2.00.")).toBeInTheDocument()
 
     await user.click(within(dialog).getByRole("button", { name: "Cancel" }))

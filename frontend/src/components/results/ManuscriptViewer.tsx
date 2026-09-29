@@ -77,7 +77,7 @@ function TocRail({
   return (
     <nav
       aria-label="Manuscript outline"
-      className="manuscript-toc hidden lg:block sticky top-14 self-start max-h-[calc(100vh-10rem)] overflow-y-auto"
+      className="manuscript-toc hidden lg:block sticky top-14 self-start min-w-0 max-h-[calc(100vh-10rem)] overflow-y-auto overflow-x-hidden"
     >
       <p className="label-caps pb-2 pl-2">Outline</p>
       <ul className="flex flex-col gap-px border-l border-border">
@@ -93,7 +93,7 @@ function TocRail({
                   onJump(h.slug)
                 }}
                 className={cn(
-                  "-ml-px block border-l-2 py-1 pr-2 text-xs leading-snug transition-colors",
+                  "-ml-px block border-l-2 py-1 pr-2 text-xs leading-snug whitespace-normal break-words [overflow-wrap:anywhere] transition-colors",
                   tocIndent(h.level),
                   active
                     ? "border-intent-primary text-foreground"

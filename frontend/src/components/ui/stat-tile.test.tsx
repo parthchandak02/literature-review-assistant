@@ -21,6 +21,18 @@ describe("StatTile", () => {
     expect(container.firstChild).toHaveClass("glass-panel", "min-w-0")
   })
 
+  it("wraps the sub-line fully instead of clamping or truncating", () => {
+    render(<StatTile label="Total cost" value="$1.20" sub="$0.2008 / included study · $0.7784 / 1k screened" />)
+    const sub = screen.getByText(/included study/)
+    expect(sub).not.toHaveClass("line-clamp-2")
+    expect(sub).not.toHaveClass("truncate")
+  })
+
+  it("uses valueTitle as the hover text for a compact value", () => {
+    render(<StatTile label="Tokens in" value="599.7K" valueTitle="599,747 tokens" />)
+    expect(screen.getByText("599.7K")).toHaveAttribute("title", "599,747 tokens")
+  })
+
   it("omits the sub-line when not provided", () => {
     const { container } = render(<StatTile label="Papers" value={42} />)
     expect(container.querySelectorAll(".label-muted")).toHaveLength(0)

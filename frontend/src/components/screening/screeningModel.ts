@@ -3,7 +3,7 @@ import type { ScreenedPaper, ScreeningOverride, ScreeningThresholds } from "@/li
 
 export type AiDecision = ScreenedPaper["decision"]
 export type HumanDecision = ScreeningOverride["decision"]
-export type ScreeningFilter = "all" | "include" | "exclude" | "uncertain" | "overridden"
+export type ScreeningFilter = "all" | "include" | "exclude" | "uncertain" | "overridden" | "automated"
 export type ScreeningSort = "confidence-asc" | "confidence-desc" | "title"
 export type OverrideMap = ReadonlyMap<string, ScreeningOverride>
 
@@ -13,6 +13,7 @@ export const SCREENING_FILTERS: readonly ScreeningFilter[] = [
   "exclude",
   "uncertain",
   "overridden",
+  "automated",
 ]
 
 export const SCREENING_FILTER_LABELS: Record<ScreeningFilter, string> = {
@@ -21,6 +22,7 @@ export const SCREENING_FILTER_LABELS: Record<ScreeningFilter, string> = {
   exclude: "Exclude",
   uncertain: "Uncertain",
   overridden: "Overridden",
+  automated: "Removed by automation",
 }
 
 export const SCREENING_SORT_LABELS: Record<ScreeningSort, string> = {
@@ -36,6 +38,8 @@ export interface ScreeningRowData {
   authors: string
   abstract: string
   reason: string
+  /** Set when an automated step removed the paper before any reviewer decision. */
+  automationStep: string | null
 }
 
 export function screeningRowDomId(key: string): string {
@@ -57,6 +61,7 @@ export function buildRows(papers: readonly ScreenedPaper[]): ScreeningRowData[] 
       authors: formatAuthorList(paper.authors),
       abstract: decodeHtmlEntities(paper.abstract).trim(),
       reason: decodeHtmlEntities(paper.reason).trim(),
+      automationStep: paper.automation_step || null,
     })
   }
   return rows
@@ -105,21 +110,59 @@ export function effectiveDecision(ai: AiDecision, override: ScreeningOverride | 
   return override ? override.decision : ai
 }
 
+export function isAutomationRow(row: ScreeningRowData): boolean {
+  return row.automationStep != null
+}
+
 export interface DecisionCounts {
+  /** Papers screened by reviewers (AI or human); excludes records removed by automation. */
   total: number
   include: number
   exclude: number
+  /** Reviewer excludes whose final stage is full text (the rest were excluded at title/abstract). */
+  excludeFulltext: number
+  /** Full-text excludes because no full text could be retrieved (PRISMA "not retrieved"). */
+  notRetrieved: number
   uncertain: number
+  /** Overrides across all rows, including rescued automation removals. */
   overridden: number
+  /** Records removed by automation tools before reviewer screening. */
+  automated: number
+  /** Automation removals a human has overridden to include. */
+  rescued: number
 }
 
-/** Counts of the decisions that will be sent on approval (AI decision unless overridden). */
+/**
+ * Final decisions that will be sent on approval (AI decision unless overridden). Reviewer
+ * counts cover reviewer-screened papers only; automation removals are counted separately.
+ */
 export function countFinalDecisions(rows: readonly ScreeningRowData[], overrides: OverrideMap): DecisionCounts {
-  const counts: DecisionCounts = { total: rows.length, include: 0, exclude: 0, uncertain: 0, overridden: 0 }
+  const counts: DecisionCounts = {
+    total: 0,
+    include: 0,
+    exclude: 0,
+    excludeFulltext: 0,
+    notRetrieved: 0,
+    uncertain: 0,
+    overridden: 0,
+    automated: 0,
+    rescued: 0,
+  }
   for (const row of rows) {
     const override = overrides.get(row.key)
-    counts[effectiveDecision(row.paper.decision, override)] += 1
     if (override) counts.overridden += 1
+    if (isAutomationRow(row)) {
+      counts.automated += 1
+      if (override?.decision === "include") counts.rescued += 1
+      continue
+    }
+    counts.total += 1
+    const decision = effectiveDecision(row.paper.decision, override)
+    counts[decision] += 1
+    if (decision === "exclude" && row.paper.stage === "fulltext") {
+      if (!override && row.paper.exclusion_reason === "no_full_text") counts.notRetrieved += 1
+      else counts.excludeFulltext += 1
+    }
   }
   return counts
 }
@@ -130,22 +173,31 @@ export function countFilterTabs(
   overrides: OverrideMap,
 ): Record<ScreeningFilter, number> {
   const counts: Record<ScreeningFilter, number> = {
-    all: rows.length,
+    all: 0,
     include: 0,
     exclude: 0,
     uncertain: 0,
     overridden: 0,
+    automated: 0,
   }
   for (const row of rows) {
-    counts[row.paper.decision] += 1
     if (overrides.has(row.key)) counts.overridden += 1
+    if (isAutomationRow(row)) {
+      counts.automated += 1
+      continue
+    }
+    counts.all += 1
+    counts[row.paper.decision] += 1
   }
   return counts
 }
 
+/** All/Include/Exclude/Uncertain cover reviewer-screened papers; automation removals have their own tab. */
 export function matchesFilter(row: ScreeningRowData, filter: ScreeningFilter, overrides: OverrideMap): boolean {
-  if (filter === "all") return true
   if (filter === "overridden") return overrides.has(row.key)
+  if (filter === "automated") return isAutomationRow(row)
+  if (isAutomationRow(row)) return false
+  if (filter === "all") return true
   return row.paper.decision === filter
 }
 
@@ -200,15 +252,18 @@ export function approvalSummaryText(counts: DecisionCounts): string {
     counts.overridden === 0
       ? "no overrides"
       : `${pluralize(counts.overridden, "override")} will be applied`
+  const included = counts.include + counts.rescued
+  const automated =
+    counts.automated > 0 ? `, ${counts.automated - counts.rescued} removed by automation` : ""
   return (
-    `${counts.include} included, ${counts.uncertain} uncertain → ${UNCERTAIN_OUTCOME}, ` +
-    `${counts.exclude} excluded, ${overrides}. Extraction will start and incur model cost.`
+    `${included} included, ${counts.uncertain} uncertain → ${UNCERTAIN_OUTCOME}, ` +
+    `${counts.exclude} excluded${automated}, ${overrides}. Extraction will start and incur model cost.`
   )
 }
 
 export function summaryLine(counts: DecisionCounts): string {
   return [
-    pluralize(counts.total, "paper"),
+    `${counts.total} screened by reviewers`,
     `${counts.include} include`,
     `${counts.exclude} exclude`,
     `${counts.uncertain} uncertain`,

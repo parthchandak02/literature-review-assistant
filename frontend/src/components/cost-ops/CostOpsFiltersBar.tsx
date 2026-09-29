@@ -59,26 +59,28 @@ export function CostOpsFiltersBar({
               ))}
             </div>
           )}
-          <label className={cn(fieldLabelClass, "min-w-[8.5rem]")}>
-            <span className="text-muted">Start</span>
-            <input
-              type="date"
-              value={startDate}
-              disabled={preset === "all"}
-              onChange={(event) => onStartDateChange(event.target.value)}
-              className={cn(fieldControlClass, preset === "all" && "opacity-60")}
-            />
-          </label>
-          <label className={cn(fieldLabelClass, "min-w-[8.5rem]")}>
-            <span className="text-muted">End</span>
-            <input
-              type="date"
-              value={endDate}
-              disabled={preset === "all"}
-              onChange={(event) => onEndDateChange(event.target.value)}
-              className={cn(fieldControlClass, preset === "all" && "opacity-60")}
-            />
-          </label>
+          <div className="flex items-end gap-2">
+            <label className={cn(fieldLabelClass, "w-[8.5rem]")}>
+              <span className="text-muted">Start</span>
+              <input
+                type="date"
+                value={startDate}
+                disabled={preset === "all"}
+                onChange={(event) => onStartDateChange(event.target.value)}
+                className={cn(fieldControlClass, preset === "all" && "opacity-60")}
+              />
+            </label>
+            <label className={cn(fieldLabelClass, "w-[8.5rem]")}>
+              <span className="text-muted">End</span>
+              <input
+                type="date"
+                value={endDate}
+                disabled={preset === "all"}
+                onChange={(event) => onEndDateChange(event.target.value)}
+                className={cn(fieldControlClass, preset === "all" && "opacity-60")}
+              />
+            </label>
+          </div>
         </div>
 
         <CostOpsToolbar

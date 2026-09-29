@@ -10,13 +10,27 @@ from typing import Any, Literal
 
 import aiosqlite
 
+from src.db.repos.papers import PapersRepo
+from src.db.repos.screening import ScreeningRepo
 from src.models.papers import decode_html_entities
 
 NONE_SENTINEL = "__none__"
 
+# Derived title/abstract value for records an automated step removed before any reviewer decision.
+REMOVED_BY_AUTOMATION = "removed_by_automation"
+AUTOMATION_TABLE = "temp.paper_automation_steps"
+# Derived title/abstract values for stored records that never reached screening.
+DUPLICATE = "duplicate"
+SUPERSEDED = "superseded"
+ORIGIN_TABLE = "temp.paper_unscreened_origin"
+TA_DECISION_EXPR = (
+    f"CASE WHEN au.step IS NOT NULL THEN '{REMOVED_BY_AUTOMATION}' "
+    "WHEN uo.origin IS NOT NULL THEN uo.origin ELSE ta.final_decision END"
+)
+
 PRIMARY_STATUS_EXPR = "COALESCE(er.primary_study_status, json_extract(er.data, '$.primary_study_status'), 'unknown')"
 
-FROM_CLAUSE = """
+FROM_CLAUSE = f"""
     FROM papers p
     LEFT JOIN dual_screening_results ta
       ON p.paper_id = ta.paper_id AND ta.stage = 'title_abstract'
@@ -26,13 +40,17 @@ FROM_CLAUSE = """
       ON p.paper_id = er.paper_id
     LEFT JOIN rob_assessments ra
       ON p.paper_id = ra.paper_id
+    LEFT JOIN {AUTOMATION_TABLE} au
+      ON p.paper_id = au.paper_id
+    LEFT JOIN {ORIGIN_TABLE} uo
+      ON p.paper_id = uo.paper_id
 """
 
 SORT_COLUMNS: dict[str, str] = {
     "title": "p.title COLLATE NOCASE",
     "year": "p.year",
     "source": "p.source_database COLLATE NOCASE",
-    "ta_decision": "ta.final_decision",
+    "ta_decision": TA_DECISION_EXPR,
     "ft_decision": "ft.final_decision",
     "primary_status": PRIMARY_STATUS_EXPR,
     "confidence": "CAST(json_extract(er.data, '$.extraction_confidence') AS REAL)",
@@ -41,7 +59,7 @@ SORT_COLUMNS: dict[str, str] = {
 FacetField = Literal["ta_decision", "ft_decision", "primary_status", "year", "source", "country"]
 
 FACET_COLUMNS: dict[str, str] = {
-    "ta_decision": "ta.final_decision",
+    "ta_decision": TA_DECISION_EXPR,
     "ft_decision": "ft.final_decision",
     "primary_status": PRIMARY_STATUS_EXPR,
     "year": "p.year",
@@ -50,7 +68,7 @@ FACET_COLUMNS: dict[str, str] = {
 }
 
 _CATEGORICAL_COLUMNS: dict[str, str] = {
-    "ta_decision": "ta.final_decision",
+    "ta_decision": TA_DECISION_EXPR,
     "ft_decision": "ft.final_decision",
     "primary_status": PRIMARY_STATUS_EXPR,
     "source": "p.source_database",
@@ -60,12 +78,114 @@ _CATEGORICAL_COLUMNS: dict[str, str] = {
 SELECT_COLUMNS = f"""
     p.paper_id, p.title, p.authors, p.year, p.abstract,
     p.source_database, p.doi, p.url, p.country, p.journal,
-    ta.final_decision AS ta_decision,
+    {TA_DECISION_EXPR} AS ta_decision,
+    au.step AS automation_step,
     ft.final_decision AS ft_decision,
     {PRIMARY_STATUS_EXPR} AS primary_study_status,
     er.data AS extraction_data,
     ra.assessment_data AS rob_assessment_data
 """
+
+
+async def _temp_table_exists(db: aiosqlite.Connection, table: str) -> bool:
+    async with db.execute(
+        "SELECT 1 FROM sqlite_temp_master WHERE type = 'table' AND name = ?", (table.split(".", 1)[1],)
+    ) as cur:
+        return await cur.fetchone() is not None
+
+
+async def ensure_automation_steps(db: aiosqlite.Connection) -> None:
+    """Materialise per-paper derived classifications for this connection (idempotent).
+
+    Automation steps come from ScreeningRepo.get_prisma_automation_steps and unscreened
+    origins from classify_unscreened_records, so the Data tab matches the PRISMA counts.
+    """
+    if await _temp_table_exists(db, AUTOMATION_TABLE):
+        return
+    await db.execute(f"CREATE TEMP TABLE {AUTOMATION_TABLE.split('.', 1)[1]} (paper_id TEXT PRIMARY KEY, step TEXT)")
+    await db.execute(f"CREATE TEMP TABLE {ORIGIN_TABLE.split('.', 1)[1]} (paper_id TEXT PRIMARY KEY, origin TEXT)")
+    async with db.execute("SELECT workflow_id FROM workflows LIMIT 1") as cur:
+        row = await cur.fetchone()
+    if row is None:
+        return
+    workflow_id = str(row[0])
+    steps = await ScreeningRepo(db).get_prisma_automation_steps(workflow_id)
+    if steps:
+        await db.executemany(
+            f"INSERT INTO {AUTOMATION_TABLE} (paper_id, step) VALUES (?, ?)",
+            [(paper_id, step.value) for paper_id, step in steps.items()],
+        )
+    origins = await classify_unscreened_records(db, workflow_id, set(steps))
+    if origins:
+        await db.executemany(
+            f"INSERT INTO {ORIGIN_TABLE} (paper_id, origin) VALUES (?, ?)",
+            list(origins.items()),
+        )
+
+
+async def classify_unscreened_records(
+    db: aiosqlite.Connection, workflow_id: str, automated: set[str]
+) -> dict[str, str]:
+    """Label stored records that never reached screening as `superseded` or `duplicate`.
+
+    superseded: stored by a connector's first search before a low-recall retry replaced its
+    search_results row (decision_log `search_low_recall_retry`); PRISMA counts only the retry.
+    Labelled only when the source's stored count exceeds its search_results count by exactly
+    that many records.
+    duplicate: the remaining unscreened records, labelled only when their count equals
+    workflows.dedup_count (the PRISMA `duplicates_removed` value).
+    """
+    async with db.execute(
+        """
+        SELECT p.paper_id, p.source_database, p.created_at FROM papers p
+        WHERE NOT EXISTS (SELECT 1 FROM screening_decisions s WHERE s.paper_id = p.paper_id)
+          AND NOT EXISTS (
+            SELECT 1 FROM dual_screening_results d
+            WHERE d.paper_id = p.paper_id AND d.final_decision IS NOT NULL
+          )
+        """
+    ) as cur:
+        unscreened = [(str(r[0]), r[1], r[2]) for r in await cur.fetchall() if str(r[0]) not in automated]
+    if not unscreened:
+        return {}
+
+    origins: dict[str, str] = {}
+    async with db.execute(
+        "SELECT rationale, MAX(created_at) FROM decision_log "
+        "WHERE workflow_id = ? AND decision_type = 'search_low_recall_retry' GROUP BY rationale",
+        (workflow_id,),
+    ) as cur:
+        retries = {str(r[0]).split(":", 1)[0].strip(): r[1] for r in await cur.fetchall() if r[1]}
+    if retries:
+        papers_repo = PapersRepo(db)
+        databases, other = await papers_repo.get_search_counts_by_category(workflow_id)
+        identified = {**databases, **other}
+        for source, retried_at in retries.items():
+            candidates = [pid for pid, src, created in unscreened if src == source and created and created < retried_at]
+            async with db.execute("SELECT COUNT(*) FROM papers WHERE source_database = ?", (source,)) as cur:
+                stored = int((await cur.fetchone())[0])  # type: ignore[index]
+            if candidates and stored - identified.get(source, 0) == len(candidates):
+                origins.update(dict.fromkeys(candidates, SUPERSEDED))
+
+    remaining = [pid for pid, _, _ in unscreened if pid not in origins]
+    dedup_count = await PapersRepo(db).get_dedup_count(workflow_id)
+    if remaining and dedup_count and len(remaining) == dedup_count:
+        origins.update(dict.fromkeys(remaining, DUPLICATE))
+    return origins
+
+
+async def automation_step_for(db: aiosqlite.Connection, paper_id: str) -> str | None:
+    await ensure_automation_steps(db)
+    async with db.execute(f"SELECT step FROM {AUTOMATION_TABLE} WHERE paper_id = ?", (paper_id,)) as cur:
+        row = await cur.fetchone()
+    return str(row[0]) if row else None
+
+
+async def unscreened_origin_for(db: aiosqlite.Connection, paper_id: str) -> str | None:
+    await ensure_automation_steps(db)
+    async with db.execute(f"SELECT origin FROM {ORIGIN_TABLE} WHERE paper_id = ?", (paper_id,)) as cur:
+        row = await cur.fetchone()
+    return str(row[0]) if row else None
 
 
 class InvalidQueryError(ValueError):
@@ -196,6 +316,7 @@ def row_to_paper(row: aiosqlite.Row) -> dict[str, Any]:
         "url": row["url"],
         "country": row["country"],
         "ta_decision": row["ta_decision"],
+        "automation_step": row["automation_step"],
         "ft_decision": row["ft_decision"],
         "primary_study_status": row["primary_study_status"],
         "extraction_confidence": _json_field(row["extraction_data"], "extraction_confidence"),
@@ -214,6 +335,7 @@ async def fetch_papers_page(
 ) -> tuple[int, list[dict[str, Any]]]:
     order = order_by(sort, direction)
     where, params = filters.where()
+    await ensure_automation_steps(db)
     async with db.execute(
         f"SELECT {SELECT_COLUMNS} {FROM_CLAUSE} {where} {order} LIMIT ? OFFSET ?",
         (*params, limit, offset),
@@ -226,6 +348,7 @@ async def fetch_papers_page(
 
 async def fetch_facet_counts(db: aiosqlite.Connection, filters: PaperFilters) -> dict[str, list[dict[str, Any]]]:
     """Counts per value for each facet, applying every active filter except the facet's own."""
+    await ensure_automation_steps(db)
     counts: dict[str, list[dict[str, Any]]] = {}
     for name, column in FACET_COLUMNS.items():
         where, params = filters.where(exclude=name)
@@ -260,6 +383,7 @@ async def fetch_outcome_tables(
     params: list[Any] = []
     if filters.is_active():
         where, params = filters.where()
+        await ensure_automation_steps(db)
         restrict = f"AND x.paper_id IN (SELECT p.paper_id {FROM_CLAUSE} {where})"
     async with db.execute(
         f"""
@@ -332,6 +456,7 @@ EXPORT_COLUMNS = [
     "url",
     "country",
     "ta_decision",
+    "automation_step",
     "ft_decision",
     "primary_study_status",
     "extraction_confidence",
@@ -344,6 +469,7 @@ async def fetch_export_rows(
 ) -> list[dict[str, Any]]:
     order = order_by(sort, direction)
     where, params = filters.where()
+    await ensure_automation_steps(db)
     async with db.execute(f"SELECT {SELECT_COLUMNS} {FROM_CLAUSE} {where} {order}", params) as cur:
         rows = await cur.fetchall()
     out: list[dict[str, Any]] = []
@@ -531,6 +657,8 @@ async def fetch_paper_detail(db: aiosqlite.Connection, paper_id: str) -> dict[st
         "journal": paper["journal"],
         "abstract": decode_html_entities(paper["abstract"] or "") or None,
         "keywords": keywords,
+        "automation_step": await automation_step_for(db, paper_id),
+        "unscreened_origin": await unscreened_origin_for(db, paper_id),
         "screening": screening,
         "extraction": extraction,
         "quality": quality,

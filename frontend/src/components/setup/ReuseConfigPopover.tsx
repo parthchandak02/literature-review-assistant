@@ -36,7 +36,7 @@ export function ReuseConfigPopover({ history, onSelect, loadingHistoryId, disabl
           side="bottom"
           align="start"
           sideOffset={6}
-          className="z-50 w-[min(400px,calc(100vw-2rem))] overflow-hidden glass-panel-strong border border-border/80 rounded-panel shadow-xl"
+          className="z-50 w-[min(400px,calc(100vw-2rem))] overflow-hidden bg-card border border-border/80 rounded-panel shadow-xl"
         >
           <Command className="bg-transparent">
             <CommandInput

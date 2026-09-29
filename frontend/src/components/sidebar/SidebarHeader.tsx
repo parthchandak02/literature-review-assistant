@@ -1,4 +1,4 @@
-import { BookMarked, Settings } from "lucide-react"
+import { BookMarked, Settings, X } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { FRONTEND_BUILD_STAMP, shouldShowFrontendBuildStamp } from "@/lib/buildStamp"
 import { ViewToolbar } from "@/components/ui/view-toolbar"
@@ -67,6 +67,17 @@ export function SidebarHeader({ collapsed, isMobile, onGoHome, onToggle }: Sideb
           )}
         </span>
       </button>
+      {isMobile && (
+        <button
+          type="button"
+          onClick={onToggle}
+          aria-label="Close menu"
+          title="Close menu"
+          className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-muted transition-colors hover:bg-surface-2/60 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        >
+          <X className="h-4 w-4" aria-hidden />
+        </button>
+      )}
     </ViewToolbar>
   )
 }

@@ -11,8 +11,12 @@ from fastapi.responses import Response
 
 from src.models.papers import decode_html_entities
 from src.web.papers_query import (
+    AUTOMATION_TABLE,
+    ORIGIN_TABLE,
+    TA_DECISION_EXPR,
     InvalidQueryError,
     PaperFilters,
+    ensure_automation_steps,
     fetch_export_rows,
     fetch_facet_counts,
     fetch_outcome_tables,
@@ -42,9 +46,13 @@ async def _fetch_papers_facets(db: aiosqlite.Connection) -> dict[str, Any]:
         sources = [row[0] for row in await cur.fetchall()]
     async with db.execute("SELECT DISTINCT country FROM papers WHERE country IS NOT NULL ORDER BY country") as cur:
         countries = [row[0] for row in await cur.fetchall()]
+    await ensure_automation_steps(db)
     async with db.execute(
-        "SELECT DISTINCT final_decision FROM dual_screening_results "
-        "WHERE stage = 'title_abstract' AND final_decision IS NOT NULL ORDER BY final_decision"
+        f"SELECT DISTINCT {TA_DECISION_EXPR} AS value FROM papers p "
+        "LEFT JOIN dual_screening_results ta ON p.paper_id = ta.paper_id AND ta.stage = 'title_abstract' "
+        f"LEFT JOIN {AUTOMATION_TABLE} au ON p.paper_id = au.paper_id "
+        f"LEFT JOIN {ORIGIN_TABLE} uo ON p.paper_id = uo.paper_id "
+        "WHERE value IS NOT NULL ORDER BY value"
     ) as cur:
         ta_decisions = [row[0] for row in await cur.fetchall()]
     async with db.execute(

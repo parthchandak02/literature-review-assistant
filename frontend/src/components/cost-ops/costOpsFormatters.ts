@@ -40,22 +40,56 @@ export function toApiEnd(date: string): string | undefined {
   return date ? `${date} 23:59:59` : undefined
 }
 
+/** 2 decimals from $1, exactly 4 below (no trimming), and "$0.00" for zero. */
 export function formatUsd(value: number): string {
+  if (!Number.isFinite(value) || value === 0) return "$0.00"
+  const digits = Math.abs(value) >= 1 ? 2 : 4
+  return new Intl.NumberFormat("en-US", {
+    style: "currency",
+    currency: "USD",
+    minimumFractionDigits: digits,
+    maximumFractionDigits: digits,
+  }).format(value)
+}
+
+/**
+ * One USD format for a whole table or chart: 4 decimals when any non-zero value is
+ * below $1, otherwise 2. Keeps "$1.20" from sitting next to "$0.4097".
+ */
+export function usdFormatterFor(values: readonly number[]): (value: number) => string {
+  const needsPrecision = values.some((v) => Number.isFinite(v) && v !== 0 && Math.abs(v) < 1)
+  const formatter = new Intl.NumberFormat("en-US", {
+    style: "currency",
+    currency: "USD",
+    minimumFractionDigits: needsPrecision ? 4 : 2,
+    maximumFractionDigits: needsPrecision ? 4 : 2,
+  })
+  return (value: number) => formatter.format(Number.isFinite(value) ? value : 0)
+}
+
+/** Axis ticks are round numbers, so trailing zeros are trimmed down to 2 decimals. */
+export function formatAxisCost(value: number): string {
   return new Intl.NumberFormat("en-US", {
     style: "currency",
     currency: "USD",
     minimumFractionDigits: 2,
-    maximumFractionDigits: Math.abs(value) >= 1 ? 2 : 4,
+    maximumFractionDigits: 4,
   }).format(value)
 }
 
-export function formatAxisCost(value: number): string {
-  return formatUsd(value)
+const NICE_STEPS = [1, 2, 2.5, 5, 10]
+
+/** Evenly spaced ticks from 0 that cover `max` with about `target` intervals. */
+export function niceCostTicks(max: number, target = 4): number[] {
+  if (!Number.isFinite(max) || max <= 0) return [0]
+  const rough = max / Math.max(target, 1)
+  const magnitude = 10 ** Math.floor(Math.log10(rough))
+  const step = (NICE_STEPS.find((s) => s * magnitude >= rough) ?? 10) * magnitude
+  const count = Math.ceil(max / step - 1e-9)
+  return Array.from({ length: count + 1 }, (_, i) => Number((i * step).toPrecision(12)))
 }
 
-export function formatInteger(value: number): string {
-  return new Intl.NumberFormat("en-US").format(value)
-}
+export { formatCount as formatInteger } from "@/lib/format"
 
 export function formatPhaseName(phase: string): string {
   return phaseLabel(phase, "short")
@@ -199,8 +233,8 @@ export const fieldControlClass =
   "h-8 w-full min-w-0 rounded-control border border-border bg-card/90 px-2.5 text-xs text-foreground shadow-sm outline-none transition-colors hover:border-border focus:border-intent-primary focus-visible:ring-1 focus-visible:ring-ring"
 export const statCardClass = "rounded-lg border border-border/80 bg-card/60 px-2.5 py-2"
 export const sectionHeaderClass = "border-b border-border/80 px-2.5 py-1.5 text-xs font-semibold text-foreground"
-/** 3-up grid for cost breakdown panels; fits 6 sections in 2 rows on wide layouts */
-export const costOpsGridClass = "grid gap-2 grid-cols-1 md:grid-cols-3"
+/** Breakdown grid sized by its container (the Settings dialog is narrower than the page). */
+export const costOpsGridClass = "grid gap-2 grid-cols-1 @2xl:grid-cols-2 @6xl:grid-cols-3"
 /** 2-up grid for the per-run ops panel (phases + models). */
 export const costOpsPairGridClass = "grid gap-2 grid-cols-1 md:grid-cols-2"
 /** Shared segmented control chrome for presets, view mode, and actions */

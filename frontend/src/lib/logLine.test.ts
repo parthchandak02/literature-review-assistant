@@ -68,9 +68,42 @@ describe("eventToLogEntry labels", () => {
 
   it("shortens model paths and keeps the full path in detail", () => {
     const entry = eventToLogEntry(apiCall())
-    expect(entry.message).toContain("| deepseek-v4-pro")
+    expect(entry.message).toContain("· deepseek-v4-pro")
     expect(entry.message).not.toContain("accounts/fireworks")
     expect(entry.detail).toBe("Model: fireworks:accounts/fireworks/models/deepseek-v4-pro-0813")
+  })
+
+  it("formats API calls as readable segments and drops the implied success status", () => {
+    const entry = eventToLogEntry(
+      apiCall({
+        source: "writing",
+        call_type: "llm_outline",
+        latency_ms: 8401,
+        tokens_in: 10315,
+        tokens_out: 1092,
+        cost_usd: 0.0179,
+      }),
+    )
+    expect(entry.message).toBe("Writing · outline · deepseek-v4-pro · 8.4s · 10.3K in / 1.1K out · $0.0179")
+    expect(entry.level).toBe("dim")
+    expect(entry.text).toContain("success | writing | llm_outline")
+    expect(entry.text).toContain("8401ms")
+  })
+
+  it("keeps acronyms, section names and skips a call type that repeats the source", () => {
+    const rag = eventToLogEntry(
+      apiCall({ source: "writing", call_type: "rag_retrieval", section_name: "methods", latency_ms: 39370, tokens_in: 0, cost_usd: null }),
+    )
+    expect(rag.message).toBe("Writing · RAG retrieval · deepseek-v4-pro · methods section · 39.4s")
+    const writing = eventToLogEntry(apiCall({ source: "writing", call_type: "writing", latency_ms: 120, tokens_in: 0, cost_usd: 0 }))
+    expect(writing.message).toBe("Writing · deepseek-v4-pro · 120ms")
+  })
+
+  it("leads with the status and uses the error style for failed calls", () => {
+    const entry = eventToLogEntry(apiCall({ status: "failed" }))
+    expect(entry.message.startsWith("Failed · Screening · screen")).toBe(true)
+    expect(entry.level).toBe("error")
+    expect(entry.severity).toBe("error")
   })
 
   it("humanizes unknown event types in the default case", () => {

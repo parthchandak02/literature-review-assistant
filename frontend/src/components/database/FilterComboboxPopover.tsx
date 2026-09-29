@@ -117,7 +117,7 @@ export function FilterComboboxPopover({
           sideOffset={6}
           onInteractOutside={() => setOpen(false)}
           className={cn(
-            "z-50 w-56 glass-panel-strong border border-border/80 rounded-panel shadow-2xl shadow-black/60",
+            "z-50 w-56 bg-card border border-border/80 rounded-panel shadow-2xl shadow-black/60",
             "overflow-hidden",
           )}
         >

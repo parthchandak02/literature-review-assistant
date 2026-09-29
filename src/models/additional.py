@@ -8,7 +8,7 @@ from datetime import UTC, datetime
 from pydantic import BaseModel, Field
 
 from src.models.config import PICOConfig
-from src.models.enums import GRADECertainty
+from src.models.enums import GRADECertainty, PrismaAutomationStep
 
 _logger = logging.getLogger(__name__)
 
@@ -52,10 +52,13 @@ class PRISMACounts(BaseModel):
     total_identified_databases: int
     total_identified_other: int
     duplicates_removed: int
-    # Records excluded before LLM screening by automated pre-filter (BM25 ranking
-    # auto-exclusion or keyword hard-gate). PRISMA 2020 labels this as
-    # "Records removed before screening: Automation tools (n=X)".
+    # Every record excluded by an automated, non-reviewer step before reviewer
+    # screening (metadata filter, rule-based pre-filter, keyword/BM25 ranking,
+    # batch pre-ranker). PRISMA 2020: "Records removed before screening:
+    # automation tools". automation_breakdown sums to automation_excluded.
     automation_excluded: int = 0
+    automation_breakdown: dict[PrismaAutomationStep, int] = Field(default_factory=dict)
+    # Records that reached reviewer screening: after_dedup - automation_excluded.
     records_screened: int
     records_excluded_screening: int
     reports_sought: int
@@ -85,10 +88,21 @@ class PRISMACounts(BaseModel):
                 f"expected={expected_after_dedup}"
             )
 
-        if not (
-            self.records_screened == self.records_excluded_screening + self.reports_sought
-            or self.automation_excluded > 0
+        if self.records_after_deduplication > 0 and (
+            self.records_after_deduplication - self.automation_excluded != self.records_screened
         ):
+            violations.append(
+                f"after_dedup - automation != screened: "
+                f"{self.records_after_deduplication} - {self.automation_excluded} != {self.records_screened}"
+            )
+
+        if sum(self.automation_breakdown.values()) != self.automation_excluded and self.automation_breakdown:
+            violations.append(
+                f"automation breakdown sum {sum(self.automation_breakdown.values())} "
+                f"!= automation_excluded {self.automation_excluded}"
+            )
+
+        if self.records_screened != self.records_excluded_screening + self.reports_sought:
             violations.append(
                 f"screened != excluded_screening + sought: "
                 f"{self.records_screened} != {self.records_excluded_screening} + {self.reports_sought}"
@@ -110,6 +124,15 @@ class PRISMACounts(BaseModel):
             if strict:
                 raise ValueError(msg)
         return self.arithmetic_valid
+
+
+class PrismaCountsSidecar(BaseModel):
+    """prisma_counts.json written beside the PRISMA figure: the counts it was drawn from."""
+
+    version: int
+    generated_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    figure: str
+    counts: PRISMACounts
 
 
 class ProtocolDocument(BaseModel):

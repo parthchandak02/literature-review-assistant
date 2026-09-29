@@ -54,9 +54,13 @@ function KeyField({
   const isEmail = !!field.email
   const inputId = `api-key-${field.id}`
   const hintId = `${inputId}-hint`
-  const serverPlaceholder = `${isEmail ? "Using server value" : "Using server key"}${envMasked ? ` (${envMasked})` : ""}`
+  const serverHintId = `${inputId}-server`
+  const serverLead = isEmail ? "Using server value" : "Using server key"
   const error = validateApiKeyValue(field.id, value)
-  const formatHint = field.prefix ? `Starts with ${field.prefix}` : null
+  const maskedShowsPrefix = Boolean(
+    usingEnv && field.prefix && envMasked.toLowerCase().startsWith(field.prefix.toLowerCase()),
+  )
+  const showFormatHint = Boolean(field.prefix) && !maskedShowsPrefix
 
   return (
     <div className="group">
@@ -95,17 +99,34 @@ function KeyField({
           type={isEmail ? "email" : show ? "text" : "password"}
           value={value}
           onChange={(e) => onChange(e.target.value)}
-          placeholder={usingEnv ? serverPlaceholder : field.placeholder}
+          placeholder={usingEnv ? "" : field.placeholder}
           autoComplete="off"
           spellCheck={false}
           aria-invalid={error ? true : undefined}
-          aria-describedby={error || formatHint ? hintId : undefined}
+          aria-describedby={
+            [usingEnv ? serverHintId : null, error || showFormatHint ? hintId : null].filter(Boolean).join(" ") || undefined
+          }
           className={cn(
-            "h-9 text-xs bg-background border-border/80 text-foreground placeholder:text-muted focus-visible:ring-intent-primary",
-            isEmail ? (hasValue ? "pr-9" : "") : hasValue ? "pr-16" : "pr-9",
+            "h-9 font-mono text-xs bg-background border-border/80 text-foreground placeholder:text-muted focus-visible:ring-intent-primary",
+            hasValue && (isEmail ? "pr-9" : "pr-16"),
             error && "border-intent-warning-border",
           )}
         />
+        {usingEnv && (
+          <span
+            id={serverHintId}
+            className="pointer-events-none absolute inset-y-0 left-3 right-3 flex items-center text-xs text-muted"
+          >
+            <span className="truncate">
+              {serverLead}
+              {envMasked && (
+                <>
+                  {" "}(<code className="font-mono">{envMasked}</code>)
+                </>
+              )}
+            </span>
+          </span>
+        )}
         <div className="absolute right-1.5 top-1/2 -translate-y-1/2 flex items-center gap-0.5">
           {hasValue && (
             <button
@@ -118,7 +139,7 @@ function KeyField({
               <X className="h-3.5 w-3.5" aria-hidden />
             </button>
           )}
-          {!isEmail && (
+          {!isEmail && hasValue && (
             <button
               type="button"
               onClick={() => setShow((v) => !v)}
@@ -131,14 +152,15 @@ function KeyField({
           )}
         </div>
       </div>
-      {(error || formatHint) && (
-        <p
-          id={hintId}
-          className={cn("mt-1 text-2xs", error ? "text-intent-warning-text" : "text-muted")}
-        >
-          {error ?? formatHint}
+      {error ? (
+        <p id={hintId} className="mt-1 text-2xs text-intent-warning-text">
+          {error}
         </p>
-      )}
+      ) : showFormatHint ? (
+        <p id={hintId} className="mt-1 text-2xs text-muted">
+          Starts with <code className="font-mono">{field.prefix}</code>
+        </p>
+      ) : null}
     </div>
   )
 }
@@ -226,10 +248,7 @@ export function ApiKeysPanel({ onValidityChange }: { onValidityChange?: (valid: 
       {allValid ? (
         <div className="flex items-center gap-2.5 px-3 py-2.5 rounded-panel bg-intent-success-subtle border border-intent-success-border text-xs text-intent-success">
           <CheckCircle2 className="h-3.5 w-3.5 shrink-0" aria-hidden />
-          <span>
-            All required keys configured.
-            {envStatus?.server_ready && " Server .env is active."}
-          </span>
+          <span>All required keys configured.</span>
         </div>
       ) : (
         <div

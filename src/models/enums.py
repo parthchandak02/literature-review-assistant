@@ -24,6 +24,16 @@ class ReviewerType(str, Enum):
     BATCH_RANKER = "batch_ranker"  # batch LLM pre-ranking pass (single call, multiple papers)
 
 
+class PrismaAutomationStep(str, Enum):
+    """Automated, non-reviewer steps that remove records before reviewer screening."""
+
+    METADATA_FILTER = "metadata_filter"
+    RULE_PREFILTER = "rule_prefilter"
+    KEYWORD_RANKING = "keyword_ranking"
+    BATCH_PRERANKER = "batch_preranker"
+    UNCLASSIFIED = "unclassified"
+
+
 class RiskOfBiasJudgment(str, Enum):
     LOW = "low"
     SOME_CONCERNS = "some_concerns"

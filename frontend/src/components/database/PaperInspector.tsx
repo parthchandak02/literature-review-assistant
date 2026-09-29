@@ -11,6 +11,7 @@ import {
 } from "@/components/ui/sheet"
 import { useDbPaperDetail } from "@/hooks/useDbPapers"
 import type { PaperDetail, PaperScreeningStage } from "@/lib/api/db"
+import { automationStepLabel, DUPLICATE_RECORD, SUPERSEDED_RECORD } from "@/lib/automationSteps"
 import { confidenceToVariant, screeningDecisionToVariant } from "@/lib/constants"
 import { decodeHtmlEntities, humanizeSnake, humanizeSource, humanizeStage } from "@/lib/humanize"
 import { PRIMARY_STATUS_VARIANT, paperLink } from "./paperColumns"
@@ -118,11 +119,15 @@ function PaperDetailBody({ detail }: { detail: PaperDetail }) {
 
       <Section title="Screening">
         {detail.screening.length === 0 ? (
-          <p className="text-xs text-muted">Not screened yet.</p>
+          <p className="text-xs text-muted">{unscreenedOriginNote(detail.unscreened_origin)}</p>
         ) : (
           <div className="grid gap-3">
             {detail.screening.map((stage) => (
-              <ScreeningStage key={stage.stage} stage={stage} />
+              <ScreeningStage
+                key={stage.stage}
+                stage={stage}
+                automationStep={stage.stage === "title_abstract" ? (detail.automation_step ?? null) : null}
+              />
             ))}
           </div>
         )}
@@ -213,12 +218,16 @@ function PaperDetailBody({ detail }: { detail: PaperDetail }) {
   )
 }
 
-function ScreeningStage({ stage }: { stage: PaperScreeningStage }) {
+function ScreeningStage({ stage, automationStep }: { stage: PaperScreeningStage; automationStep: string | null }) {
   return (
     <div className="grid gap-1.5 rounded-control border border-border p-2.5">
       <div className="flex items-center justify-between gap-2">
         <span className="text-xs font-medium text-foreground">{humanizeStage(stage.stage)}</span>
-        {stage.final_decision ? (
+        {automationStep ? (
+          <Badge size="sm" variant="neutral">
+            Auto-removed · {automationStepLabel(automationStep)}
+          </Badge>
+        ) : stage.final_decision ? (
           <Badge size="sm" variant={screeningDecisionToVariant(stage.final_decision)}>
             {humanizeSnake(stage.final_decision)}
           </Badge>
@@ -226,6 +235,11 @@ function ScreeningStage({ stage }: { stage: PaperScreeningStage }) {
           <span className="text-2xs text-muted">No final decision</span>
         )}
       </div>
+      {automationStep && (
+        <span className="text-2xs text-muted" data-testid="inspector-automation-step">
+          Removed by automation ({automationStepLabel(automationStep)}) before any reviewer decision.
+        </span>
+      )}
       {stage.adjudication_needed && (
         <span className="text-2xs text-intent-warning-text">Reviewers disagreed; adjudicated.</span>
       )}
@@ -254,4 +268,11 @@ function ScreeningStage({ stage }: { stage: PaperScreeningStage }) {
       )}
     </div>
   )
+}
+
+function unscreenedOriginNote(origin: string | null | undefined): string {
+  if (origin === DUPLICATE_RECORD) return "Duplicate: removed by deduplication before screening."
+  if (origin === SUPERSEDED_RECORD)
+    return "Superseded search result: a broader retry of this search replaced it, so it was never screened."
+  return "Not screened yet."
 }

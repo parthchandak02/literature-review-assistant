@@ -8,7 +8,10 @@ import aiosqlite
 
 from src.models import (
     CohortMembershipRecord,
+    ExclusionReason,
     PrimaryStudyStatus,
+    PrismaAutomationStep,
+    ReviewerType,
     ScreeningDecision,
     ScreeningDecisionType,
 )
@@ -19,7 +22,26 @@ _NON_PRIMARY_EXTRACTION_STATUSES = (
     PrimaryStudyStatus.NON_EMPIRICAL.value,
 )
 
+_AUTOMATED_REVIEWER_TYPES = (ReviewerType.KEYWORD_FILTER.value, ReviewerType.BATCH_RANKER.value)
+_KEYWORD_RANKING_REASONS = frozenset({ExclusionReason.LOW_RELEVANCE_SCORE.value, ExclusionReason.KEYWORD_FILTER.value})
+
 _logger = logging.getLogger(__name__)
+
+
+def classify_automation_step(
+    reviewer_type: str | None,
+    exclusion_reason: str | None,
+    reason: str | None,
+) -> PrismaAutomationStep:
+    """Map one automated title/abstract exclusion row to its PRISMA automation step."""
+    code = (exclusion_reason or "").strip().lower()
+    if reviewer_type == ReviewerType.BATCH_RANKER.value or code == ExclusionReason.BATCH_SCREENED_LOW.value:
+        return PrismaAutomationStep.BATCH_PRERANKER
+    if (reason or "").strip().lower().startswith("metadata pre-filter"):
+        return PrismaAutomationStep.METADATA_FILTER
+    if code in _KEYWORD_RANKING_REASONS:
+        return PrismaAutomationStep.KEYWORD_RANKING
+    return PrismaAutomationStep.RULE_PREFILTER
 
 
 class ScreeningRepo:
@@ -237,6 +259,52 @@ class ScreeningRepo:
             ft_assessed = expected_assessed
 
         return ta_screened, ta_excluded, ft_sought, reports_not_retrieved, ft_assessed, exclusion_reasons
+
+    async def get_prisma_automation_steps(self, workflow_id: str) -> dict[str, PrismaAutomationStep]:
+        """Map each record removed by automation before reviewer screening to its step.
+
+        A record counts once, under its latest automated title/abstract exclusion,
+        when it never received a reviewer, adjudicator or human decision.
+        """
+        placeholders = ",".join("?" for _ in _AUTOMATED_REVIEWER_TYPES)
+        cursor = await self.db.execute(
+            f"""
+            WITH reviewed AS (
+                SELECT DISTINCT paper_id
+                FROM screening_decisions
+                WHERE workflow_id = ? AND stage = 'title_abstract'
+                  AND reviewer_type NOT IN ({placeholders})
+            ),
+            automated AS (
+                SELECT
+                    paper_id,
+                    reviewer_type,
+                    exclusion_reason,
+                    reason,
+                    ROW_NUMBER() OVER (PARTITION BY paper_id ORDER BY id DESC) AS rn
+                FROM screening_decisions
+                WHERE workflow_id = ? AND stage = 'title_abstract'
+                  AND decision = 'exclude'
+                  AND reviewer_type IN ({placeholders})
+                  AND paper_id NOT IN (SELECT paper_id FROM reviewed)
+            )
+            SELECT paper_id, reviewer_type, exclusion_reason, reason
+            FROM automated
+            WHERE rn = 1
+            """,
+            (workflow_id, *_AUTOMATED_REVIEWER_TYPES, workflow_id, *_AUTOMATED_REVIEWER_TYPES),
+        )
+        return {
+            str(paper_id): classify_automation_step(reviewer_type, exclusion_reason, reason)
+            for paper_id, reviewer_type, exclusion_reason, reason in await cursor.fetchall()
+        }
+
+    async def get_prisma_automation_breakdown(self, workflow_id: str) -> dict[PrismaAutomationStep, int]:
+        """Per-step counts of records removed by automation tools (PRISMA 2020)."""
+        breakdown: dict[PrismaAutomationStep, int] = {}
+        for step in (await self.get_prisma_automation_steps(workflow_id)).values():
+            breakdown[step] = breakdown.get(step, 0) + 1
+        return breakdown
 
     async def get_processed_paper_ids(self, workflow_id: str, stage: str) -> set[str]:
         cursor = await self.db.execute(

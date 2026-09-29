@@ -1,197 +1,172 @@
-import type { ReviewEvent } from "./api"
+import type { PrismaLiveCounts, ReviewEvent } from "./api"
+
+export type FunnelStageKind = "count" | "removed"
 
 export interface FunnelStage {
   key: string
   label: string
   count: number
   colorClass: string
+  kind?: FunnelStageKind
+}
+
+type Summary = Record<string, unknown> | null | undefined
+
+function summaryNumber(summary: Summary, key: string): number | null {
+  const value = summary?.[key]
+  if (value == null) return null
+  const n = Number(value)
+  return Number.isFinite(n) ? n : null
+}
+
+function lastPhaseSummary(events: ReviewEvent[], phase: string): Summary {
+  let summary: Summary = null
+  for (const e of events) {
+    if (e.type === "phase_done" && e.phase === phase) summary = e.summary as Summary
+  }
+  return summary
 }
 
 /**
- * Derive the paper funnel stages from the SSE event stream.
+ * Derive the screening funnel from the event stream using the PRISMA 2020
+ * definitions of the backend builder (`src/prisma/diagram.py::build_prisma_counts`):
  *
- * The full screening pipeline has eight stages derivable from stored events:
- *
- *   1. Raw searched       -- sum of connector_result.records (pre-dedup)
- *   2. After dedup        -- phase_done("phase_2_search").summary.papers
- *   3. After metadata     -- screening_prefilter_done.after_metadata
- *   4. BM25 selected      -- screening_prefilter_done.to_llm
- *                            (fallback: max progress.total for phase_3_screening)
- *                            These are the top-k papers selected by BM25 ranking,
- *                            which feed into the batch LLM pre-ranker.
- *   5. To dual-reviewer   -- batch_screen_done.forwarded
- *                            Papers that passed the batch LLM pre-ranker (score >= threshold).
- *                            Present only when batch ranking is enabled.
- *   6. Full-text assess   -- unique paper_ids in screening_decision where stage="fulltext"
- *   7. Final included     -- phase_done("phase_3_screening").summary.included
- *                            (live: count unique screening_decision includes)
- *   8. Via citation chase -- phase_done("citation_chasing").summary.chased_included
- *                            Only shown when > 0 additional papers were added via citation chasing.
- *
- * Stages are omitted when their count equals the previous stage (no meaningful
- * filter occurred) or when the count is not yet known.
+ *   identified   = phase_2_search.total_records (else last success per connector)
+ *   duplicates   = phase_2_search.dedup
+ *   automation   = every automated exclusion before reviewer screening:
+ *                  screening_prefilter_done.metadata_rejected (metadata filter)
+ *                  + screening_prefilter_done.automation_excluded (rule-based pre-filter, keyword ranking)
+ *                  + batch_screen_done.excluded (batch pre-ranker)
+ *   screened     = records after dedup - automation (records that reached reviewer screening)
+ *   sought       = phase_3_screening.fulltext_sought (else unique full-text decisions)
+ *   not retrieved= phase_3_screening.fulltext_not_retrieved
+ *   assessed     = phase_3_screening.fulltext_retrieved (else sought - not retrieved)
+ *   included     = canonicalIncluded when known, else phase_3_screening.included
  */
-export function computeFunnelStages(events: ReviewEvent[]): FunnelStage[] {
-  // --- Stage 1: raw searched ---
-  let rawSearched = 0
+export function computeFunnelStages(events: ReviewEvent[], canonicalIncluded: number | null = null): FunnelStage[] {
+  const recordsByConnector = new Map<string, number>()
   for (const e of events) {
     if (e.type === "connector_result" && e.status === "success") {
-      rawSearched += e.records ?? 0
+      recordsByConnector.set(e.name, e.records ?? 0)
     }
   }
+  let connectorTotal = 0
+  for (const records of recordsByConnector.values()) connectorTotal += records
 
-  // --- Stage 2: after dedup ---
-  let deduped: number | null = null
+  const search = lastPhaseSummary(events, "phase_2_search")
+  const screening = lastPhaseSummary(events, "phase_3_screening")
+  const citation = lastPhaseSummary(events, "citation_chasing")
+
+  const afterDedup = summaryNumber(search, "papers")
+  const identified = summaryNumber(search, "total_records") ?? (connectorTotal > 0 ? connectorTotal : afterDedup)
+  const duplicates =
+    summaryNumber(search, "dedup") ?? (identified != null && afterDedup != null ? identified - afterDedup : null)
+
+  let batchExcluded: number | null = null
+  let prefilterExcluded: number | null = null
   for (const e of events) {
-    if (e.type === "phase_done" && e.phase === "phase_2_search") {
-      const s = e.summary as Record<string, unknown> | null | undefined
-      if (s?.papers != null) deduped = Number(s.papers)
+    const payload = e as unknown as Record<string, unknown>
+    if (e.type === "batch_screen_done" && payload.excluded != null) {
+      batchExcluded = Number(payload.excluded) || 0
     }
-  }
-
-  // --- Stages 3 & 4: from the new prefilter event ---
-  let afterMetadata: number | null = null
-  let toLlm: number | null = null
-  for (const e of events) {
     if (e.type === "screening_prefilter_done") {
-      afterMetadata = e.after_metadata
-      toLlm = e.to_llm
+      prefilterExcluded = (Number(payload.metadata_rejected) || 0) + (Number(payload.automation_excluded) || 0)
     }
   }
+  const screeningStarted =
+    batchExcluded != null ||
+    prefilterExcluded != null ||
+    screening != null ||
+    events.some((e) => e.type === "screening_decision")
+  const automation = (prefilterExcluded ?? 0) + (batchExcluded ?? 0)
+  const screened = afterDedup != null && screeningStarted ? Math.max(0, afterDedup - automation) : null
 
-  // Fallback for stage 4: max total seen in progress events for phase_3_screening.
-  // This fires only after the first LLM paper begins, so it may lag by a few seconds.
-  if (toLlm == null) {
-    let maxProgressTotal = 0
-    for (const e of events) {
-      if (e.type === "progress" && e.phase === "phase_3_screening") {
-        if (e.total > maxProgressTotal) maxProgressTotal = e.total
-      }
-    }
-    if (maxProgressTotal > 0) toLlm = maxProgressTotal
-  }
-
-  // --- Stage 4b: batch LLM pre-ranker -> forwarded to dual-reviewer ---
-  // Present only when batch_screen_done event exists (batch_screen_enabled=true).
-  let toDualReview: number | null = null
-  let capOverflowForwarded = 0
+  const fulltextIds = new Set<string>()
   for (const e of events) {
-    if (e.type === "batch_screen_done") {
-      const bs = e as unknown as Record<string, number>
-      if (bs.forwarded != null) toDualReview = bs.forwarded
-    }
-    if (e.type === "screening_cap_overflow") {
-      const ov = e as unknown as Record<string, number>
-      capOverflowForwarded += ov.overflow_forwarded ?? 0
-    }
+    if (e.type === "screening_decision" && e.stage === "fulltext") fulltextIds.add(e.paper_id)
   }
-  if (toDualReview != null && capOverflowForwarded > 0) {
-    toDualReview += capOverflowForwarded
-  }
+  const sought = summaryNumber(screening, "fulltext_sought") ?? (fulltextIds.size > 0 ? fulltextIds.size : null)
+  const notRetrieved = summaryNumber(screening, "fulltext_not_retrieved")
+  const assessed =
+    summaryNumber(screening, "fulltext_retrieved") ??
+    (sought != null && notRetrieved != null ? Math.max(0, sought - notRetrieved) : null)
 
-  // --- Stage 5: full-text assessed ---
-  // Count unique paper_ids that have entered the full-text screening stage.
-  const fulltextPaperIds = new Set<string>()
-  for (const e of events) {
-    if (e.type === "screening_decision" && e.stage === "fulltext") {
-      fulltextPaperIds.add(e.paper_id)
-    }
-  }
-  const fulltextAssessed = fulltextPaperIds.size > 0 ? fulltextPaperIds.size : null
-
-  // --- Stage 6: included ---
-  // Prefer the terminal phase_done count; fall back to fulltext-stage decisions.
-  let included: number | null = null
-  for (const e of events) {
-    if (e.type === "phase_done" && e.phase === "phase_3_screening") {
-      const s = e.summary as Record<string, unknown> | null | undefined
-      if (s?.included != null) included = Number(s.included)
-    }
-  }
+  let included = canonicalIncluded ?? summaryNumber(screening, "included")
   if (included == null) {
-    // First fallback: fulltext stage only, matching backend include semantics
-    // (include OR uncertain after fulltext adjudication).
-    const fulltextFinalDecision = new Map<string, string>()
+    const fulltextFinal = new Map<string, string>()
     for (const e of events) {
-      if (e.type === "screening_decision" && e.stage === "fulltext") {
-        fulltextFinalDecision.set(e.paper_id, e.decision)
-      }
+      if (e.type === "screening_decision" && e.stage === "fulltext") fulltextFinal.set(e.paper_id, e.decision)
     }
-    const fulltextCount = [...fulltextFinalDecision.values()].filter(
-      (d) => d === "include" || d === "uncertain",
-    ).length
-    if (fulltextCount > 0) {
-      included = fulltextCount
-    } else {
-      // Legacy fallback for early-stage live runs where no fulltext decisions exist yet.
-      const lastDecision = new Map<string, string>()
-      for (const e of events) {
-        if (e.type === "screening_decision") {
-          lastDecision.set(e.paper_id, e.decision)
-        }
-      }
-      const liveCount = [...lastDecision.values()].filter((d) => d === "include" || d === "uncertain").length
-      if (liveCount > 0) included = liveCount
-    }
+    const n = [...fulltextFinal.values()].filter((d) => d === "include" || d === "uncertain").length
+    if (n > 0) included = n
   }
 
-  // --- Stage 7: citation chasing additions ---
-  // Papers found via citation chasing that passed screening. Only shown when > 0.
-  // These papers are already counted within `included`; this stage surfaces that
-  // citation chasing contributed additional papers beyond the main dual-reviewer pass.
-  let chasedIncluded: number | null = null
-  for (const e of events) {
-    if (e.type === "phase_done" && e.phase === "citation_chasing") {
-      const s = e.summary as Record<string, unknown> | null | undefined
-      if (s?.chased_included != null) {
-        const n = Number(s.chased_included)
-        if (n > 0) chasedIncluded = n
-      }
-    }
-  }
+  const chased = summaryNumber(citation, "chased_included")
+  return buildFunnelStages({ identified, duplicates, afterDedup, automation, screened, sought, notRetrieved, assessed, included, chased })
+}
 
-  // --- Build stage array, omitting unknown counts and no-op filters ---
+interface FunnelValues {
+  identified: number | null
+  duplicates: number | null
+  afterDedup: number | null
+  automation: number
+  screened: number | null
+  sought: number | null
+  notRetrieved: number | null
+  assessed: number | null
+  included: number | null
+  chased: number | null
+}
+
+function buildFunnelStages(v: FunnelValues): FunnelStage[] {
   const stages: FunnelStage[] = []
-
-  const push = (
-    key: string,
-    label: string,
-    count: number | null,
-    colorClass: string,
-    prevCount: number | null,
-  ) => {
-    if (count == null || count <= 0) return
-    // Omit if this stage did not filter anything relative to previous.
-    if (prevCount != null && count === prevCount) return
-    stages.push({ key, label, count, colorClass })
+  const count = (key: string, label: string, n: number | null, colorClass: string) => {
+    if (n == null || n <= 0) return
+    stages.push({ key, label, count: n, colorClass, kind: "count" })
   }
-
-  // Use deduped as the primary "start" count; fall back to raw if dedup not done yet.
-  const startCount = deduped ?? (rawSearched > 0 ? rawSearched : null)
-
-  // Show raw only when it meaningfully differs from deduped (duplicates were removed).
-  if (rawSearched > 0 && deduped != null && rawSearched !== deduped) {
-    stages.push({ key: "raw", label: "retrieved", count: rawSearched, colorClass: "text-intent-info" })
+  const removed = (key: string, label: string, n: number | null) => {
+    if (n == null || n <= 0) return
+    stages.push({ key, label, count: n, colorClass: "text-muted", kind: "removed" })
   }
+  const { screened, sought, assessed, included } = v
 
-  if (startCount != null && startCount > 0) {
-    const prevCount = rawSearched > 0 && deduped != null && rawSearched !== deduped ? rawSearched : null
-    push("deduped", "deduped", startCount, "text-intent-info", prevCount)
+  count("identified", "identified", v.identified, "text-intent-info")
+  removed("duplicates", "duplicates removed", v.duplicates)
+  if (screened == null) count("deduped", "after duplicates removed", v.afterDedup, "text-intent-info")
+  removed("automation", "removed by automation", screened != null ? v.automation : null)
+  count("screened", "screened", screened, "text-intent-primary")
+  removed("excluded_ta", "excluded at title/abstract", screened != null && sought != null ? screened - sought : null)
+  count("sought", "sought for retrieval", sought, "text-intent-active")
+  removed("not_retrieved", "not retrieved", assessed != null ? v.notRetrieved : null)
+  count("assessed", "assessed for eligibility", assessed, "text-intent-warning")
+  removed("excluded_ft", "excluded at full text", assessed != null && included != null ? assessed - included : null)
+  count("included", "included", included, "text-intent-success")
+  if (v.chased != null && v.chased > 0) {
+    stages.push({ key: "chased", label: "+ chased", count: v.chased, colorClass: "text-intent-info", kind: "count" })
   }
-
-  push("after_metadata", "filtered", afterMetadata, "text-intent-primary", startCount)
-  // "ranked" = top-k from keyword/BM25 ranking, fed into the batch LLM pre-ranker.
-  push("to_llm", "ranked", toLlm, "text-intent-primary", afterMetadata ?? startCount)
-  // "screened" = papers that passed the batch LLM pre-ranker threshold.
-  push("to_dual_review", "screened", toDualReview, "text-intent-active", toLlm ?? afterMetadata ?? startCount)
-  push("fulltext", "eligible", fulltextAssessed, "text-intent-warning", toDualReview ?? toLlm ?? afterMetadata ?? startCount)
-  push("included", "included", included, "text-intent-success", fulltextAssessed ?? toLlm ?? afterMetadata ?? startCount)
-
-  // Citation chasing is additive (not a filter), so bypass the prev-count deduplication
-  // by pushing directly. Only shown when citation chasing found at least one paper.
-  if (chasedIncluded != null && chasedIncluded > 0) {
-    stages.push({ key: "chased", label: "+ chased", count: chasedIncluded, colorClass: "text-intent-info" })
-  }
-
   return stages
+}
+
+/**
+ * Funnel from the backend PRISMA builder (GET /api/run/{run_id}/prisma-counts) for
+ * completed or non-live runs, so the popover always matches the figure.
+ * `chased` comes from the event stream (citation chasing is not a PRISMA box).
+ */
+export function computeFunnelStagesFromPrismaCounts(counts: PrismaLiveCounts, chased: number | null = null): FunnelStage[] {
+  return buildFunnelStages({
+    identified: counts.total_identified_databases + counts.total_identified_other,
+    duplicates: counts.duplicates_removed,
+    afterDedup: counts.records_after_deduplication,
+    automation: counts.automation_excluded,
+    screened: counts.records_screened,
+    sought: counts.reports_sought,
+    notRetrieved: counts.reports_not_retrieved,
+    assessed: counts.reports_assessed,
+    included: counts.total_included,
+    chased,
+  })
+}
+
+export function chasedFromEvents(events: ReviewEvent[]): number | null {
+  return summaryNumber(lastPhaseSummary(events, "citation_chasing"), "chased_included")
 }

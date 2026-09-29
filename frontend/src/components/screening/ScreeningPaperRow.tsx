@@ -5,7 +5,14 @@ import { humanizeSource, humanizeStage } from "@/lib/humanize"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import type { ScreeningOverride } from "@/lib/api"
-import { ConfidenceMeter, DecisionBadge, OverrideBadge } from "./screeningBadges"
+import {
+  AutomationBadge,
+  ConfidenceMeter,
+  DecisionBadge,
+  DecisionButton,
+  OverrideBadge,
+  type DecisionSource,
+} from "./screeningBadges"
 import { ROW_DATA_ATTRIBUTE } from "./screeningKeyboard"
 import {
   effectiveDecision,
@@ -29,6 +36,7 @@ export interface ScreeningPaperRowProps {
   onToggleExpanded: (key: string) => void
   onToggleSelected: (key: string) => void
   onFocusRow: (key: string) => void
+  readOnly?: boolean
 }
 
 export const ScreeningPaperRow = memo(function ScreeningPaperRow({
@@ -43,11 +51,13 @@ export const ScreeningPaperRow = memo(function ScreeningPaperRow({
   onToggleExpanded,
   onToggleSelected,
   onFocusRow,
+  readOnly = false,
 }: ScreeningPaperRowProps) {
-  const { key, paper, title, authors, abstract, reason } = row
+  const { key, paper, title, authors, abstract, reason, automationStep } = row
   const rowId = screeningRowDomId(key)
   const detailsId = `${rowId}-details`
   const finalDecision = effectiveDecision(paper.decision, override)
+  const decisionSource: DecisionSource = override || isHumanDecision(paper) ? "human" : "ai"
   const innerTab = focused ? 0 : -1
   const displayTitle = title || "(no title)"
   const meta = [paper.year ? String(paper.year) : null, paper.source_database ? humanizeSource(paper.source_database) : null].filter(Boolean).join(" · ")
@@ -68,14 +78,16 @@ export const ScreeningPaperRow = memo(function ScreeningPaperRow({
       )}
     >
       <div role="gridcell" className="flex flex-wrap sm:flex-nowrap items-start gap-x-3 gap-y-2 px-3 py-2.5">
-        <input
-          type="checkbox"
-          tabIndex={innerTab}
-          checked={selected}
-          onChange={() => onToggleSelected(key)}
-          aria-label={`Select ${displayTitle}`}
-          className="mt-1 size-4 shrink-0 accent-intent-primary cursor-pointer"
-        />
+        {!readOnly && (
+          <input
+            type="checkbox"
+            tabIndex={innerTab}
+            checked={selected}
+            onChange={() => onToggleSelected(key)}
+            aria-label={`Select ${displayTitle}`}
+            className="mt-1 size-4 shrink-0 accent-intent-primary cursor-pointer"
+          />
+        )}
         <button
           type="button"
           tabIndex={innerTab}
@@ -100,42 +112,47 @@ export const ScreeningPaperRow = memo(function ScreeningPaperRow({
             )}
           </span>
         </button>
-        <div className="flex items-center gap-2 shrink-0 flex-wrap w-full pl-7 sm:w-auto sm:pl-0 sm:justify-end">
-          <DecisionBadge decision={paper.decision} prefix={isHumanDecision(paper) ? "Human" : "AI"} />
+        <div
+          className={cn(
+            "flex items-center gap-2 shrink-0 flex-wrap w-full sm:w-auto sm:pl-0 sm:justify-end",
+            readOnly ? "pl-5" : "pl-7",
+          )}
+        >
+          {automationStep ? (
+            <AutomationBadge step={automationStep} />
+          ) : (
+            <DecisionBadge decision={paper.decision} prefix={isHumanDecision(paper) ? "Human" : "AI"} />
+          )}
           {override && <OverrideBadge decision={override.decision} />}
           <ConfidenceMeter confidence={paper.confidence} />
+          {!readOnly && (
           <div className="flex items-center gap-1" role="group" aria-label="Your decision">
-            <Button
-              type="button"
-              size="xs"
+            <DecisionButton
+              decision="include"
+              pressed={finalDecision === "include"}
+              source={decisionSource}
               tabIndex={innerTab}
-              variant={finalDecision === "include" ? "success" : "outline"}
-              aria-pressed={finalDecision === "include"}
-              title="Include (i)"
               onClick={() => onDecide(key, "include")}
-            >
-              Include
-            </Button>
-            <Button
-              type="button"
-              size="xs"
+            />
+            <DecisionButton
+              decision="exclude"
+              pressed={finalDecision === "exclude"}
+              source={decisionSource}
               tabIndex={innerTab}
-              variant={finalDecision === "exclude" ? "destructive" : "outline"}
-              aria-pressed={finalDecision === "exclude"}
-              title="Exclude (e)"
               onClick={() => onDecide(key, "exclude")}
-            >
-              Exclude
-            </Button>
+            />
           </div>
+          )}
         </div>
       </div>
 
       {expanded && (
-        <div role="gridcell" id={detailsId} className="px-4 pb-4 pt-3 ml-7 border-t border-border space-y-3">
+        <div role="gridcell" id={detailsId} className={cn("px-4 pb-4 pt-3 border-t border-border space-y-3", readOnly ? "ml-5" : "ml-7")}>
           {reason && (
             <section>
-              <h4 className="text-xs font-semibold text-muted mb-1">AI reason</h4>
+              <h4 className="text-xs font-semibold text-muted mb-1">
+                {automationStep ? "Automation reason" : "AI reason"}
+              </h4>
               <p className="text-sm text-foreground leading-relaxed whitespace-pre-line">{reason}</p>
             </section>
           )}
@@ -177,7 +194,7 @@ export const ScreeningPaperRow = memo(function ScreeningPaperRow({
               </>
             )}
           </dl>
-          {override && (
+          {override && !readOnly && (
             <div className="flex items-center gap-2 pt-2 border-t border-border">
               <Input
                 aria-label="Reason for override"

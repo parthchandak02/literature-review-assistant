@@ -1,6 +1,7 @@
 import { ArrowUpDown, Search, Undo2 } from "lucide-react"
-import { cn } from "@/lib/utils"
+import { formatCount } from "@/lib/format"
 import { Button } from "@/components/ui/button"
+import { FilterChip } from "@/components/ui/filter-chip"
 import { Input } from "@/components/ui/input"
 import {
   DropdownMenu,
@@ -38,6 +39,7 @@ export interface ScreeningFiltersBarProps {
   onBulkClear: () => void
   onUndo: () => void
   onHelpOpenChange: (open: boolean) => void
+  readOnly?: boolean
 }
 
 export function ScreeningFiltersBar({
@@ -58,6 +60,7 @@ export function ScreeningFiltersBar({
   onBulkClear,
   onUndo,
   onHelpOpenChange,
+  readOnly = false,
 }: ScreeningFiltersBarProps) {
   const allVisibleSelected = visibleCount > 0 && selectedVisibleCount === visibleCount
   const someVisibleSelected = selectedVisibleCount > 0 && !allVisibleSelected
@@ -65,25 +68,19 @@ export function ScreeningFiltersBar({
   return (
     <div className="space-y-2">
       <div className="flex items-center gap-2 flex-wrap">
-        <div role="group" aria-label="Filter by decision" className="flex items-center gap-1 flex-wrap">
-          {SCREENING_FILTERS.map((f) => (
-            <Button
-              key={f}
-              type="button"
-              size="xs"
-              variant="ghost"
-              aria-pressed={filter === f}
-              onClick={() => onFilterChange(f)}
-              className={cn(
-                "border",
-                filter === f
-                  ? "border-intent-primary-border bg-intent-primary-subtle text-intent-primary-text"
-                  : "border-transparent",
-              )}
-            >
+        <div role="group" aria-label="Filter by final decision" className="flex items-center gap-1 flex-wrap">
+          <span aria-hidden className="text-xs text-muted pr-1">
+            Final decision
+          </span>
+          {SCREENING_FILTERS.filter(
+            (f) =>
+              (f !== "automated" || counts.automated > 0 || filter === f) &&
+              (!readOnly || f !== "overridden" || filter === f),
+          ).map((f) => (
+            <FilterChip key={f} active={filter === f} onClick={() => onFilterChange(f)}>
               {SCREENING_FILTER_LABELS[f]}
-              <span className="tabular-nums text-muted">{counts[f]}</span>
-            </Button>
+              <span className="tabular-nums text-muted">{formatCount(counts[f])}</span>
+            </FilterChip>
           ))}
         </div>
         <div className="relative flex-1 min-w-48">
@@ -117,6 +114,7 @@ export function ScreeningFiltersBar({
       </div>
 
       <div className="flex items-center gap-2 flex-wrap text-xs">
+        {!readOnly && (
         <label className="flex items-center gap-2 px-3 text-muted cursor-pointer">
           <input
             type="checkbox"
@@ -130,7 +128,8 @@ export function ScreeningFiltersBar({
           />
           Select all matching
         </label>
-        {selectedCount > 0 && (
+        )}
+        {!readOnly && selectedCount > 0 && (
           <>
             <span className="text-muted tabular-nums">{selectedCount} selected</span>
             <Button type="button" size="xs" variant="outline" onClick={() => onBulkDecide("include")}>
@@ -145,11 +144,13 @@ export function ScreeningFiltersBar({
           </>
         )}
         <div className="ml-auto flex items-center gap-1">
-          <Button type="button" size="xs" variant="ghost" disabled={!canUndo} onClick={onUndo} title="Undo (u)">
-            <Undo2 aria-hidden />
-            Undo
-          </Button>
-          <ScreeningShortcutsHelp open={helpOpen} onOpenChange={onHelpOpenChange} />
+          {!readOnly && (
+            <Button type="button" size="xs" variant="ghost" disabled={!canUndo} onClick={onUndo} title="Undo (u)">
+              <Undo2 aria-hidden />
+              Undo
+            </Button>
+          )}
+          <ScreeningShortcutsHelp open={helpOpen} onOpenChange={onHelpOpenChange} readOnly={readOnly} />
         </div>
       </div>
     </div>

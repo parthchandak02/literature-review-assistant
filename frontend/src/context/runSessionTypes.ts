@@ -26,6 +26,8 @@ export interface SelectedRun {
   startedAt: Date | null
   /** Populated from HistoryEntry for historical runs; null for live runs. */
   createdAt?: string | null
+  /** Last registry update (HistoryEntry.updated_at) for historical runs. */
+  updatedAt?: string | null
   papersFound?: number | null
   papersIncluded?: number | null
   historicalCost?: number | null

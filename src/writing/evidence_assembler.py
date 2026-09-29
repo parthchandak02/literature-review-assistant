@@ -9,7 +9,7 @@ from pydantic import BaseModel, Field
 
 from src.extraction.inference_utils import _is_substantive_finding, result_not_extractable_text
 from src.models import SectionBlock, StructuredSectionDraft
-from src.writing.context_builder import StudySummary, WritingGroundingData
+from src.writing.context_builder import StudySummary, WritingGroundingData, automation_removal_prefix
 from src.writing.section_validation import has_excessive_comma_list
 
 _NON_ALNUM_RE = re.compile(r"[^a-z0-9]+")
@@ -202,7 +202,8 @@ def build_results_evidence_pack(grounding: WritingGroundingData | None) -> Resul
         )
 
     selection_sentence = (
-        f"The review screened {grounding.total_screened} records, sought {grounding.fulltext_sought} full-text reports, "
+        automation_removal_prefix(grounding)
+        + f"The review screened {grounding.total_screened} records, sought {grounding.fulltext_sought} full-text reports, "
         f"did not retrieve {grounding.fulltext_not_retrieved}, assessed {grounding.fulltext_assessed} reports for "
         f"eligibility, and included {grounding.total_included} studies."
     )

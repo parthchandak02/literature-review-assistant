@@ -14,6 +14,7 @@ import {
   PHASE_LABEL_MAP,
   PHASE_LABELS,
   phaseLabel,
+  phaseTitle,
   PHASE_META,
   PHASE_MILESTONES,
   PHASE_ORDER,
@@ -213,7 +214,12 @@ describe("phaseLabel", () => {
   it("returns long labels by default and short on request", () => {
     expect(phaseLabel("phase_4_extraction_quality")).toBe("Data extraction and quality appraisal")
     expect(phaseLabel("phase_4_extraction_quality", "short")).toBe("Extraction + quality")
-    expect(phaseLabel("phase_6_humanizer")).toBe("Humanizer pass")
+    expect(phaseLabel("phase_6_humanizer")).toBe("Style polish")
+    expect(phaseLabel("phase_6_humanizer", "short")).toBe("Style polish")
+    expect(phaseLabel("phase_4b_embedding")).toBe("Evidence indexing")
+    expect(phaseLabel("quality_casp", "short")).toBe("CASP")
+    expect(phaseTitle("quality_casp")).toBe("Critical Appraisal Skills Programme")
+    expect(phaseTitle("phase_2_search")).toBeUndefined()
     expect(phaseLabel("quality_mmat")).toBe("Quality appraisal (MMAT)")
     expect(phaseLabel("phase_6f_custom_diagrams")).toBe("Custom diagrams")
   })

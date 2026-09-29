@@ -2,6 +2,20 @@
 // Shared date/number formatting utilities
 // ---------------------------------------------------------------------------
 
+const COUNT_FORMATTER = new Intl.NumberFormat("en-US", { maximumFractionDigits: 0 })
+const COMPACT_FORMATTER = new Intl.NumberFormat("en-US", { notation: "compact", maximumFractionDigits: 1 })
+
+/** Count with thousands separators: 2237 -> "2,237". */
+export function formatCount(value: number): string {
+  return Number.isFinite(value) ? COUNT_FORMATTER.format(value) : "--"
+}
+
+/** Compact count: 599747 -> "599.7K". Below 1,000 it matches formatCount. */
+export function formatCompact(value: number): string {
+  if (!Number.isFinite(value)) return "--"
+  return Math.abs(value) < 1000 ? formatCount(value) : COMPACT_FORMATTER.format(value)
+}
+
 /**
  * Format a workflow UUID for compact display.
  * Returns "wf-XXXXXXXX" (prefix + first 8 hex chars) so IDs are easy to
@@ -37,7 +51,7 @@ export function formatCollapsedWorkflowBadge(id: string | null | undefined): str
  * SQLite timestamps are stored without "T" and without timezone suffix;
  * we treat them as UTC by appending "Z".
  */
-function parseDate(raw: string): Date {
+export function parseDate(raw: string): Date {
   return new Date(raw.includes("T") ? raw : raw.replace(" ", "T") + "Z")
 }
 

@@ -85,7 +85,12 @@ export function CsvDropZone({ file, onFile, mode, onModeChange }: CsvDropZonePro
   }
 
   return (
-    <CollapsibleSection icon={FileText} title="CSV import (optional)" defaultOpen={false}>
+    <CollapsibleSection
+      icon={FileText}
+      title="CSV import (optional)"
+      defaultOpen={false}
+      className="rounded-lg border-border bg-card shadow-none"
+    >
       <div className="p-4 space-y-3">
         <p className="text-xs text-muted leading-relaxed">
           Add a Scopus-style spreadsheet to enrich the automated search, or to replace it with your own list.

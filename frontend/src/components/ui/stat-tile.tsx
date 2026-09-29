@@ -7,12 +7,14 @@ export interface StatTileProps extends Omit<React.HTMLAttributes<HTMLDivElement>
   label: React.ReactNode
   value: React.ReactNode
   sub?: React.ReactNode
+  /** Hover text for the value, e.g. the exact count behind a compact "599.7K". */
+  valueTitle?: string
   iconClassName?: string
   valueClassName?: string
 }
 
 const StatTile = React.forwardRef<HTMLDivElement, StatTileProps>(
-  ({ icon: Icon, label, value, sub, iconClassName, valueClassName, className, ...props }, ref) => (
+  ({ icon: Icon, label, value, sub, valueTitle, iconClassName, valueClassName, className, ...props }, ref) => (
     <div
       ref={ref}
       className={cn("glass-panel rounded-panel border p-4 min-w-0 flex flex-col gap-1", className)}
@@ -28,11 +30,15 @@ const StatTile = React.forwardRef<HTMLDivElement, StatTileProps>(
           "min-w-0 truncate text-2xl font-semibold text-foreground tabular-nums",
           valueClassName,
         )}
-        title={typeof value === "string" ? value : undefined}
+        title={valueTitle ?? (typeof value === "string" ? value : undefined)}
       >
         {value}
       </div>
-      {sub != null && <div className="label-muted min-w-0 truncate">{sub}</div>}
+      {sub != null && (
+        <div className="label-muted min-w-0 [overflow-wrap:anywhere]">
+          {sub}
+        </div>
+      )}
     </div>
   ),
 )

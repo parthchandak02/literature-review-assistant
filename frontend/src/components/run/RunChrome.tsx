@@ -1,10 +1,11 @@
 import { Suspense, lazy, useEffect, useRef, useState } from "react"
-import { AlertTriangle, Check, ClipboardCheck, Copy } from "lucide-react"
+import { AlertTriangle, Check, Copy } from "lucide-react"
 import { toast } from "sonner"
 import { cn } from "@/lib/utils"
 import { formatRunDate, formatWorkflowId } from "@/lib/format"
 import { LiveStreamStatus } from "@/components/run-status"
 import { GlassTabs } from "@/components/ui/glass-tabs"
+import { useEdgeFade } from "@/hooks/useEdgeFade"
 import { Button } from "@/components/ui/button"
 import { ViewToolbar } from "@/components/ui/view-toolbar"
 import { NEEDS_REVISION_EXPLANATION } from "@/lib/constants"
@@ -13,6 +14,7 @@ import type { RunChromeVM } from "@/hooks/useRunChrome"
 import type { RunTab, SelectedRun } from "@/context/runSessionTypes"
 import { RunFunnelPopover } from "./RunFunnelPopover"
 import { orderRunTabs } from "./runRouting"
+import { screeningTabFor } from "./screeningTab"
 import { formatChromeCost, formatOutcome } from "./runChromeFormat"
 
 const SubmissionPackageButton = lazy(() =>
@@ -27,13 +29,6 @@ export interface RunChromeTabItem {
   id: RunTab
   label: string
   icon: React.ElementType
-}
-
-const REVIEW_SCREENING_TAB = {
-  id: "review-screening" as RunTab,
-  label: "Review Screening",
-  icon: ClipboardCheck,
-  accent: "amber" as const,
 }
 
 export interface RunChromeProps {
@@ -109,12 +104,14 @@ export function RunChrome({
     isAwaitingReview,
     isNeedsRevision,
   } = chrome
+  const metaRef = useRef<HTMLDivElement | null>(null)
+  const metaFadeStyle = useEdgeFade(metaRef)
   const canDownloadPackage = isDone && !isRunning && Boolean(run.runId) && run.runId !== "draft"
   const outcome = formatOutcome(outcomeIncluded, outcomeRecords)
   const workflowId = run.workflowId ?? run.runId
   const tabs = orderRunTabs<RunChromeTabItem & { accent?: "violet" | "amber" }>(
     tabItems,
-    isAwaitingReview ? REVIEW_SCREENING_TAB : null,
+    screeningTabFor({ isAwaitingReview, hasScreeningDecisions: chrome.hasScreeningDecisions, activeTab }),
   )
 
   return (
@@ -123,10 +120,15 @@ export function RunChrome({
       className="!h-auto shrink-0 flex-col items-stretch gap-0 !px-0 py-0"
       style={{ touchAction: "pan-x" }}
     >
-      <div className="flex items-center justify-between gap-3 px-6 pt-2 pb-1 text-meta w-full min-w-0">
-        <div className="flex items-center gap-2.5 min-w-0 overflow-x-auto scrollbar-none">
+      <div className="flex items-center justify-between gap-3 px-6 pt-2 pb-1 font-sans text-xs tabular-nums text-muted w-full min-w-0">
+        <div
+          ref={metaRef}
+          style={metaFadeStyle}
+          className="flex items-center gap-2.5 min-w-0 overflow-x-auto scrollbar-none"
+          data-testid="run-meta-strip"
+        >
           <span
-            className={cn("font-semibold shrink-0", statusClass)}
+            className={cn("font-sans text-xs font-semibold shrink-0", statusClass)}
             aria-live="polite"
             aria-atomic="true"
             title={isNeedsRevision ? NEEDS_REVISION_EXPLANATION : undefined}

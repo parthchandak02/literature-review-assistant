@@ -33,6 +33,20 @@ export interface ArtifactFileListProps {
   figuresOnly?: boolean
   /** When true, skip the Figures section (document groups only). */
   hideFigures?: boolean
+  /** When true, drop PROSPERO registration docs (a dedicated downloads card already lists them). */
+  hideProsperoRegistration?: boolean
+}
+
+const PROSPERO_REGISTRATION_RE = /(^|\/)doc_prospero_registration\.[a-z]+$/i
+
+function FileLabel({ file }: { file: OutputFile }) {
+  const showFileName = file.fileName && file.fileName !== file.label
+  return (
+    <span className="flex min-w-0 flex-col" title={file.fileName ?? file.label}>
+      <span className="text-sm text-foreground [overflow-wrap:anywhere]">{file.label}</span>
+      {showFileName && <span className="truncate font-mono text-2xs text-muted">{file.fileName}</span>}
+    </span>
+  )
 }
 
 function FileRow({ file }: { file: OutputFile }) {
@@ -41,10 +55,10 @@ function FileRow({ file }: { file: OutputFile }) {
     <div className="flex items-center justify-between gap-2">
       <span className="flex items-center gap-2 min-w-0">
         <Icon className={`h-4 w-4 shrink-0 ${iconClass}`} />
-        <span className="text-sm truncate text-foreground">{file.label}</span>
+        <FileLabel file={file} />
       </span>
       <Button size="sm" variant="outline" asChild className={`shrink-0 ${RESULTS_DOWNLOAD_BTN_CLS}`}>
-        <a href={resolveFileUrl(file.path)} download={file.label} className="gap-1.5">
+        <a href={resolveFileUrl(file.path)} download={file.fileName ?? file.label} className="gap-1.5">
           <Download className="h-3.5 w-3.5" />
           Download
         </a>
@@ -80,10 +94,15 @@ function SelectableDocRow({
         className="flex flex-1 items-center gap-2 min-w-0 rounded-md px-2 py-1.5 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
       >
         <Icon className={`h-4 w-4 shrink-0 ${iconClass}`} />
-        <span className="text-sm truncate text-foreground">{file.label}</span>
+        <FileLabel file={file} />
       </button>
       <Button size="sm" variant="outline" asChild className={`shrink-0 ${RESULTS_DOWNLOAD_BTN_CLS}`}>
-        <a href={resolveFileUrl(file.path)} download={file.label} className="gap-1.5" aria-label={`Download ${file.label}`}>
+        <a
+          href={resolveFileUrl(file.path)}
+          download={file.fileName ?? file.label}
+          className="gap-1.5"
+          aria-label={`Download ${file.label}`}
+        >
           <Download className="h-3.5 w-3.5" />
           Download
         </a>
@@ -99,7 +118,7 @@ function FigureFileCard({ file }: { file: OutputFile }) {
     <FigureCard
       src={url}
       downloadHref={url}
-      downloadName={file.label}
+      downloadName={file.fileName ?? file.label}
       title={file.label}
       icon={<Icon className={`h-4 w-4 shrink-0 ${iconClass}`} />}
       showImage={file.isRasterImage}
@@ -127,6 +146,7 @@ function buildGroupedDocs(
         key: REFERENCE_PAPERS_ZIP_KEY,
         path: refZipPath,
         label: "Reference papers only (ZIP)",
+        fileName: "studies-files.zip",
         isRasterImage: false,
         isLatex: false,
         isMarkdown: false,
@@ -201,13 +221,16 @@ export function ArtifactFileList({
   submissionFocusToken = 0,
   figuresOnly = false,
   hideFigures = false,
+  hideProsperoRegistration = false,
 }: ArtifactFileListProps) {
   const [selectedFile, setSelectedFile] = useState<OutputFile | null>(null)
 
   const allFiles = collectFiles(outputs)
-  const files = excludePaths
-    ? allFiles.filter((f) => !excludePaths.has(f.path))
-    : allFiles
+  const files = allFiles.filter(
+    (f) =>
+      !excludePaths?.has(f.path)
+      && !(hideProsperoRegistration && PROSPERO_REGISTRATION_RE.test(f.path)),
+  )
   const docs = files.filter((f) => !f.isRasterImage && !isFigurePath(f.path))
   const figs = files.filter((f) => isFigurePath(f.path))
   const previewableDocs = docs.filter(isPreviewableFile)
@@ -286,11 +309,11 @@ export function ArtifactFileList({
   }
 
   return (
-    <div className="flex flex-col lg:flex-row gap-4 min-h-[400px]">
-      <div className="flex flex-col min-w-0 lg:w-72 xl:w-80 lg:shrink-0 lg:max-h-[70vh] lg:overflow-y-auto">
+    <div className="grid grid-cols-1 gap-4 min-h-[400px] lg:grid-cols-[minmax(18rem,26rem)_minmax(0,1fr)]">
+      <div className="flex flex-col min-w-0 lg:max-h-[70vh] lg:overflow-y-auto lg:pr-1">
         {listContent}
       </div>
-      <div className="flex-1 min-w-0 lg:border-l lg:border-border lg:pl-4">
+      <div className="min-w-0 lg:border-l lg:border-border lg:pl-4">
         <FilePreview file={selectedFile} />
       </div>
     </div>

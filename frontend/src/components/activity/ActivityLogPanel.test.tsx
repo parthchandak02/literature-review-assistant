@@ -48,7 +48,7 @@ describe("ActivityLogPanel", () => {
     expect(log).toHaveTextContent("phase_start,status,warn,error,screening_decision")
     expect(screen.getByRole("button", { name: "All" })).toHaveAttribute("aria-pressed", "true")
 
-    await userEvent.click(screen.getByRole("button", { name: "Warnings+" }))
+    await userEvent.click(screen.getByRole("button", { name: "Warnings & errors" }))
     expect(screen.getByTestId("log-stream")).toHaveTextContent("phase_start,warn,error")
     expect(screen.getByText("2 of 5 events")).toBeInTheDocument()
 
@@ -63,9 +63,26 @@ describe("ActivityLogPanel", () => {
   it("offers Show all when a severity filter has no matches", async () => {
     renderPanel({ filteredEvents: EVENTS.slice(0, 2) })
     await userEvent.click(screen.getByRole("button", { name: "Errors" }))
-    expect(screen.getByText("No errors yet.")).toBeInTheDocument()
+    expect(screen.getByText("No errors in this run.")).toBeInTheDocument()
     await userEvent.click(screen.getByRole("button", { name: "Show all events" }))
     expect(screen.getByTestId("log-stream")).toBeInTheDocument()
+  })
+
+  it("says yet for an empty filter while the run is live", async () => {
+    renderPanel({ filteredEvents: EVENTS.slice(0, 2), isLive: true })
+    await userEvent.click(screen.getByRole("button", { name: "Errors" }))
+    expect(screen.getByText("No errors yet.")).toBeInTheDocument()
+  })
+
+  it("fills only the selected chip", async () => {
+    renderPanel()
+    await userEvent.click(screen.getByRole("button", { name: "Errors" }))
+    expect(screen.getByRole("button", { name: "Errors" }).className).toContain("bg-intent-primary-subtle")
+    for (const name of ["All", "Decisions"]) {
+      const chip = screen.getByRole("button", { name })
+      expect(chip.className).not.toContain("bg-intent-primary-subtle")
+      expect(chip.className).not.toMatch(/hover:bg-|focus:bg-/)
+    }
   })
 
   it("shows a no-match message with Clear for an empty search", async () => {

@@ -83,6 +83,7 @@ class GradeSoFRow(BaseModel):
     other_considerations: str
     certainty: GRADECertainty
     effect_summary: str
+    starting_certainty: GRADECertainty | None = None
 
 
 class GradeSoFTable(BaseModel):

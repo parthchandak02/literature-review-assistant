@@ -3,7 +3,7 @@ import { EmptyState, FetchError } from "@/components/ui/feedback"
 import { GlassTableShell } from "@/components/ui/glass-table-shell"
 import { ViewToolbar } from "@/components/ui/view-toolbar"
 import { Pagination, Th, Td } from "@/components/ui/table"
-import { decodeHtmlEntities, humanizeSnake } from "@/lib/humanize"
+import { decodeHtmlEntities, humanizeRetrievalSource } from "@/lib/humanize"
 import { cn } from "@/lib/utils"
 import type { ExtractedTablesResponse } from "@/lib/api/db"
 import { formatCi, formatPValue, formatStat, outcomesCaption } from "./outcomeFormat"
@@ -37,7 +37,7 @@ export function OutcomesTable({
     .flatMap((paper) =>
       paper.outcomes.map((outcome) => ({
         paperTitle: decodeHtmlEntities(paper.title),
-        source: humanizeSnake(paper.extraction_source),
+        source: humanizeRetrievalSource(paper.extraction_source),
         name: typeof outcome.name === "string" ? outcome.name : "Outcome",
         effect: formatStat(outcome.effect_size),
         ci: formatCi(outcome.ci_lower, outcome.ci_upper),

@@ -16,7 +16,7 @@ import {
 } from "@/lib/logFollow"
 import { milestoneForPhase, PHASE_MILESTONES, type PhaseMilestone } from "@/lib/constants"
 import type { ReviewEvent } from "@/lib/api"
-import { eventToLogEntry } from "@/lib/logLine"
+import { eventToLogEntry, fmtTs } from "@/lib/logLine"
 import type { LogLevel } from "@/lib/logLine"
 import type { LogRenderEntry } from "@/lib/logLine"
 
@@ -30,7 +30,7 @@ const SKIP_EVENT_TYPES = new Set(["workflow_id_ready", "heartbeat"])
 // ---------------------------------------------------------------------------
 
 type RenderItem =
-  | { kind: "phase-sep"; phase: string; label: string; description?: string; key: string }
+  | { kind: "phase-sep"; phase: string; label: string; description?: string; ts?: string; key: string }
   | { kind: "event"; ev: ReviewEvent; key: string }
 
 function stableStringify(value: unknown): string {
@@ -110,6 +110,14 @@ function resolveEventMilestone(
   return null
 }
 
+function nextEventTs(events: ReviewEvent[], from: number): string | undefined {
+  for (let j = from + 1; j < events.length; j++) {
+    const ts = "ts" in events[j] ? (events[j] as { ts?: string }).ts : undefined
+    if (ts) return ts
+  }
+  return undefined
+}
+
 // eslint-disable-next-line react-refresh/only-export-components -- pure helper tested alongside LogStream
 export function buildRenderItems(events: ReviewEvent[]): RenderItem[] {
   const items: RenderItem[] = []
@@ -146,6 +154,7 @@ export function buildRenderItems(events: ReviewEvent[]): RenderItem[] {
         phase: milestone.key,
         label: milestone.label,
         description: desc,
+        ts: desc ? ts || nextEventTs(events, i) : undefined,
         key: `sep-${milestone.key}-${evKey}-${ts}`,
       })
       currentMilestoneKey = milestone.key
@@ -205,6 +214,7 @@ function decisionStyle(level: LogLevel): { rowClass: string; tagClass: string; t
 
 const EXPAND_THRESHOLD = 240
 const END_THRESHOLD_PX = 24
+const LOG_HEADER_PX = 32
 const ROW_GRID =
   "grid grid-cols-1 gap-x-2 @md:grid-cols-[4.75rem_8.5rem_minmax(0,1fr)] items-start"
 const FOCUS_RING =
@@ -285,17 +295,29 @@ function LogRow({
   )
 }
 
-function PhaseSeparator({ label, description }: { label: string; description?: string }) {
+const PHASE_LABEL_CLASS = "font-semibold tracking-widest uppercase text-intent-primary"
+
+const PHASE_TAG = humanizeLogTag("PHASE")
+
+function PhaseSeparator({ label, description, ts }: { label: string; description?: string; ts?: string }) {
+  const time = fmtTs(ts)
   return (
-    <div className="flex flex-col gap-0.5 pt-3 pb-1">
-      <div className="flex items-center gap-2">
-        <div className="h-px flex-1 bg-border" aria-hidden />
-        <span className="text-xs font-semibold tracking-widest uppercase text-intent-primary shrink-0 px-1">
-          {label}
-        </span>
+    <div className="pt-3">
+      <div className="flex items-center gap-2 pb-1">
+        <span className={cn(PHASE_LABEL_CLASS, "shrink-0")}>{label}</span>
         <div className="h-px flex-1 bg-border" aria-hidden />
       </div>
-      {description ? <div className="text-xs text-muted pl-0.5 pr-1">{description}</div> : null}
+      {description ? (
+        <div className={cn(ROW_GRID, "py-px text-muted")}>
+          <div className="flex items-baseline gap-2 min-w-0 @md:contents">
+            <span className="tabular-nums">{time ? `[${time}]` : ""}</span>
+            <span className="truncate" title={PHASE_TAG.description || undefined}>
+              {PHASE_TAG.label}
+            </span>
+          </div>
+          <span className="min-w-0 [overflow-wrap:anywhere]">{description}</span>
+        </div>
+      ) : null}
     </div>
   )
 }
@@ -372,6 +394,7 @@ export const LogStream = forwardRef<LogStreamHandle, LogStreamProps>(function Lo
     getItemKey: (i) => renderItems[i]?.key ?? i,
     overscan: 12,
     paddingStart: 4,
+    scrollPaddingStart: LOG_HEADER_PX,
     paddingEnd: 16,
     anchorTo: "end",
     followOnAppend: followActive,
@@ -439,14 +462,22 @@ export const LogStream = forwardRef<LogStreamHandle, LogStreamProps>(function Lo
   const showPill = autoScroll && !follow.following
 
   return (
-    <div className="relative">
+    <div className="relative [--log-header-h:2rem]">
       {headerLabel && (
         <div
           data-testid="log-current-phase"
-          className="pointer-events-none absolute inset-x-px top-px z-10 rounded-t-panel border-b border-border bg-surface-1 shadow-sm px-4 py-1 font-mono text-xs"
+          className="pointer-events-none absolute inset-x-px top-px z-10 rounded-t-panel"
         >
-          <span className="sr-only">Current phase: </span>
-          <span className="font-semibold tracking-widest uppercase text-intent-primary">{headerLabel}</span>
+          <div className="flex h-(--log-header-h) items-center gap-2 rounded-t-panel bg-background px-4 font-mono text-xs leading-5">
+            <span className="sr-only">Current phase: </span>
+            <span className={cn(PHASE_LABEL_CLASS, "shrink-0")}>{headerLabel}</span>
+            <div className="h-px flex-1 bg-border" aria-hidden />
+          </div>
+          <div
+            data-testid="log-current-phase-fade"
+            className="h-6 bg-linear-to-b from-background from-35% via-background/70 to-transparent"
+            aria-hidden
+          />
         </div>
       )}
 
@@ -477,7 +508,7 @@ export const LogStream = forwardRef<LogStreamHandle, LogStreamProps>(function Lo
                   data-phase={item.kind === "phase-sep" ? item.phase : undefined}
                 >
                   {item.kind === "phase-sep" ? (
-                    <PhaseSeparator label={item.label} description={item.description} />
+                    <PhaseSeparator label={item.label} description={item.description} ts={item.ts} />
                   ) : (
                     <LogRow
                       entry={eventToLogEntry(item.ev)}

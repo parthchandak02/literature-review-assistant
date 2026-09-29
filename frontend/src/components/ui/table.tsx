@@ -1,3 +1,4 @@
+import type { ReactNode } from "react"
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
 import { ChevronDown, ChevronLeft, ChevronRight, ChevronUp, ChevronsUpDown } from "lucide-react"
@@ -163,6 +164,8 @@ interface PaginationProps {
   onNext: () => void
   /** Noun after the count, e.g. "papers". */
   itemLabel?: string
+  /** Inline hint rendered after the count, e.g. an InfoHint. */
+  labelHint?: ReactNode
   pageSizeOptions?: readonly number[]
   onPageSizeChange?: (size: number) => void
   className?: string
@@ -182,6 +185,7 @@ export function Pagination({
   onPrev,
   onNext,
   itemLabel,
+  labelHint,
   pageSizeOptions,
   onPageSizeChange,
   className,
@@ -192,9 +196,12 @@ export function Pagination({
 
   return (
     <div className={cn("flex flex-wrap items-center justify-between gap-2 text-xs text-muted", className)}>
-      <span className="tabular-nums" aria-live="polite">
-        {formatPageRange(page, pageSize, total)}
-        {itemLabel ? ` ${itemLabel}` : ""}
+      <span className="inline-flex items-center gap-1">
+        <span className="tabular-nums" aria-live="polite">
+          {formatPageRange(page, pageSize, total)}
+          {itemLabel ? ` ${itemLabel}` : ""}
+        </span>
+        {labelHint}
       </span>
       <div className="flex items-center gap-3">
         {pageSizeOptions && onPageSizeChange && (

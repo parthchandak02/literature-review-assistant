@@ -4,6 +4,7 @@ import {
   PHASE_ORDER,
   RESUME_PHASE_ORDER,
   phaseLabel,
+  phaseTitle,
   resolvePhaseId,
   type MilestoneId,
 } from "@/lib/constants"
@@ -314,6 +315,7 @@ export function priorCostForPhases(
 export interface ResumeOption {
   phase: ResumePhase
   label: string
+  title?: string
   selectable: boolean
 }
 
@@ -324,6 +326,7 @@ export function resumeOptions(
   return RESUME_PHASE_ORDER.map((phase) => ({
     phase,
     label: phaseLabel(phase, "long"),
+    title: phaseTitle(phase),
     selectable: isPhaseResumeSelectable(phase, phaseStates, completedWorkflow),
   }))
 }

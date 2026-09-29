@@ -4,19 +4,22 @@ import { cva, type VariantProps } from "class-variance-authority"
 
 import { cn } from "@/lib/utils"
 
+const solidDisabled =
+  "border border-transparent disabled:border-border disabled:bg-surface-2 disabled:text-muted disabled:opacity-100 disabled:shadow-none"
+
 const buttonVariants = cva(
   "inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-control text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:pointer-events-none disabled:opacity-50 glass-interactive [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0",
   {
     variants: {
       variant: {
         default:
-          "bg-intent-primary-solid text-intent-primary-solid-fg hover:bg-intent-primary-solid/90",
+          `bg-intent-primary-solid text-intent-primary-solid-fg hover:bg-intent-primary-solid/90 ${solidDisabled}`,
         destructive:
-          "bg-intent-danger-solid text-intent-danger-solid-fg hover:bg-intent-danger-solid/90",
+          `bg-intent-danger-solid text-intent-danger-solid-fg hover:bg-intent-danger-solid/90 ${solidDisabled}`,
         success:
-          "bg-intent-success-solid text-intent-success-solid-fg hover:bg-intent-success-solid/90",
+          `bg-intent-success-solid text-intent-success-solid-fg hover:bg-intent-success-solid/90 ${solidDisabled}`,
         warning:
-          "bg-intent-warning-solid text-intent-warning-solid-fg hover:bg-intent-warning-solid/90",
+          `bg-intent-warning-solid text-intent-warning-solid-fg hover:bg-intent-warning-solid/90 ${solidDisabled}`,
         outline:
           "glass-panel border-border text-foreground hover:text-foreground",
         secondary:

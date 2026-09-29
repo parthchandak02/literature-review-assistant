@@ -1,11 +1,7 @@
 import { Check, ChevronDown, Copy } from "lucide-react"
 import { cn } from "@/lib/utils"
-import { formatWorkflowId } from "@/lib/format"
+import { formatCount as fmtNum, formatWorkflowId } from "@/lib/format"
 import { resolveSummaryCounts, type RunCardMetricsInput } from "@/components/sidebar/historyRowModel"
-
-function fmtNum(n: number): string {
-  return n.toLocaleString()
-}
 
 export function RunCardDetailsToggle({
   expanded,

@@ -1,3 +1,4 @@
+import { isConfigGenerationStalled } from "@/lib/configGenerationStall"
 import { useCallback, useEffect, useRef, useState } from "react"
 import { useQueryClient } from "@tanstack/react-query"
 import { toast } from "sonner"
@@ -56,8 +57,11 @@ export function partitionHistory(history: HistoryEntry[]): SidebarHistoryPartiti
     else if (lane === "completed") completedHistory.push(entry)
     else visibleHistory.push(entry)
   }
+  // A config still generating is work in progress; once it has stalled it needs the user.
   const needsInput = (entry: HistoryEntry) =>
-    isProsperoPendingStatus(entry.status) || isReviewPendingStatus(entry.status)
+    (isProsperoPendingStatus(entry.status) && entry.status.toLowerCase() !== "config_generating")
+    || isReviewPendingStatus(entry.status)
+    || isConfigGenerationStalled(entry, false)
 
   return {
     prosperoPendingHistory: visibleHistory.filter(needsInput),

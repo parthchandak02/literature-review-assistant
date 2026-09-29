@@ -18,9 +18,12 @@ import {
 } from "@/components/cost-ops/costOpsFormatters"
 import type { ChartTableMode } from "@/components/cost-ops/ChartTableToggle"
 import { cn } from "@/lib/utils"
+import { useHistory } from "@/hooks/useHistory"
 import { CostOpsFiltersBar } from "@/components/cost-ops/CostOpsFiltersBar"
+import { describeReviewGroup, formatCompact } from "@/components/cost-ops/costBreakdown"
 import {
   CostOpsGroupSection,
+  CostOpsModelSection,
   CostOpsPhaseSection,
   CostOpsSpendSection,
   CostsLoadingState,
@@ -36,6 +39,11 @@ export function CostsPanel() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [data, setData] = useState<HistoryCostAggregatesResponse | null>(null)
+  const historyQuery = useHistory({ refetchInterval: false })
+  const topicByWorkflow = useMemo(
+    () => new Map((historyQuery.data ?? []).map((entry) => [entry.workflow_id, entry.topic])),
+    [historyQuery.data],
+  )
   const activeRequestRef = useRef(0)
   const activeAbortRef = useRef<AbortController | null>(null)
 
@@ -99,7 +107,7 @@ export function CostsPanel() {
   const totals = data?.totals
 
   return (
-    <div className="space-y-2.5">
+    <div className="@container space-y-2.5">
       <CostOpsFiltersBar
         preset={preset}
         startDate={startDate}
@@ -151,8 +159,11 @@ export function CostsPanel() {
             </div>
             <div className={cn(statCardClass, "min-w-0")}>
               <div className="text-2xs uppercase tracking-wide text-muted">Input tokens</div>
-              <div className="mt-0.5 text-sm font-semibold text-foreground tabular-nums truncate">
-                {totals ? formatInteger(totals.total_tokens_in) : "--"}
+              <div
+                className="mt-0.5 text-sm font-semibold text-foreground tabular-nums truncate"
+                title={totals ? `${formatInteger(totals.total_tokens_in)} tokens` : undefined}
+              >
+                {totals ? formatCompact(totals.total_tokens_in) : "--"}
               </div>
             </div>
             <div className={cn(statCardClass, "min-w-0")}>
@@ -171,9 +182,16 @@ export function CostsPanel() {
               viewMode={chartTableMode}
             />
             <div className={costOpsGridClass}>
-              <CostOpsGroupSection title="Top reviews" rows={data?.by_workflow ?? []} viewMode={chartTableMode} />
+              <CostOpsGroupSection
+                className="@2xl:col-span-2 @6xl:col-span-1"
+                title="Top reviews"
+                labelHeader="Review"
+                rows={data?.by_workflow ?? []}
+                viewMode={chartTableMode}
+                describeGroup={(id) => describeReviewGroup(id, topicByWorkflow.get(id))}
+              />
               <CostOpsPhaseSection title="Top phases" rows={data?.by_phase ?? []} viewMode={chartTableMode} />
-              <CostOpsGroupSection title="Top models" rows={data?.by_model ?? []} viewMode={chartTableMode} />
+              <CostOpsModelSection title="Top models" rows={data?.by_model ?? []} viewMode={chartTableMode} />
             </div>
           </div>
         </div>

@@ -1,8 +1,9 @@
 import { useState, type ReactNode } from "react"
-import { AlertTriangle } from "lucide-react"
+import { AlertTriangle, X } from "lucide-react"
 import { Spinner } from "@/components/ui/feedback"
 import {
   Dialog,
+  DialogClose,
   DialogContent,
   DialogDescription,
   DialogFooter,
@@ -60,7 +61,14 @@ export function ConfirmDialog({
   return (
     <Dialog open={open} onOpenChange={(next) => { if (!pending) onOpenChange(next) }}>
       <DialogContent className="sm:max-w-md" onClick={(e) => e.stopPropagation()}>
-        <DialogHeader>
+        <DialogClose
+          disabled={pending}
+          className="absolute right-4 top-4 rounded-control p-1 text-muted transition-colors hover:text-foreground disabled:pointer-events-none disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+        >
+          <X className="h-4 w-4" aria-hidden />
+          <span className="sr-only">Close</span>
+        </DialogClose>
+        <DialogHeader className="pr-6">
           <DialogTitle>{title}</DialogTitle>
           <DialogDescription asChild={typeof description !== "string"}>
             {typeof description === "string" ? description : <div>{description}</div>}

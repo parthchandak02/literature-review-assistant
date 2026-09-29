@@ -1,6 +1,7 @@
 import type { ReviewEvent } from "@/lib/api"
 import { PHASE_LABELS, humanizeReason, phaseLabel } from "@/lib/constants"
-import { decodeHtmlEntities, humanizeSnake, shortModelName } from "@/lib/humanize"
+import { formatCompact } from "@/lib/format"
+import { decodeHtmlEntities, humanizeIdentifier, humanizeSnake, shortModelName } from "@/lib/humanize"
 
 // ---------------------------------------------------------------------------
 // Timestamp helpers
@@ -118,14 +119,78 @@ export function truncateWithEllipsis(text: string, max: number): string {
 }
 
 // ---------------------------------------------------------------------------
+// API-call rows
+// ---------------------------------------------------------------------------
+
+type ApiCallEvent = Extract<ReviewEvent, { type: "api_call" }>
+
+function isSuccessStatus(status: string | null | undefined): boolean {
+  const s = (status ?? "").trim().toLowerCase()
+  return s === "" || s === "success" || s === "ok"
+}
+
+/** 8401 -> "8.4s", 120 -> "120ms". */
+export function formatLatency(ms: number): string {
+  if (ms < 1000) return `${Math.round(ms)}ms`
+  return `${(ms / 1000).toFixed(1)}s`
+}
+
+function formatCallCost(usd: number): string {
+  return `$${usd.toFixed(usd >= 1 ? 2 : 4)}`
+}
+
+function callTypeLabel(source: string, callType: string): string | null {
+  const stripped = callType.replace(/^llm_/i, "")
+  if (!stripped || stripped.toLowerCase() === source.toLowerCase()) return null
+  const label = humanizeIdentifier(stripped)
+  return /^[A-Z]{2,}/.test(label) ? label : label.toLowerCase()
+}
+
+/** `Writing · outline · deepseek-v4-pro · 8.4s · 10.3K in / 1.1K out · $0.0179`, prefixed with the status on failure. */
+export function formatApiCallMessage(ev: ApiCallEvent): string {
+  const source = ev.source ?? ""
+  const parts: string[] = []
+  if (!isSuccessStatus(ev.status)) parts.push(humanizeSnake(ev.status))
+  if (source) parts.push(humanizeIdentifier(source))
+  const callType = ev.call_type ? callTypeLabel(source, ev.call_type) : null
+  if (callType) parts.push(callType)
+  const model = ev.model ? shortModelName(ev.model).name : ""
+  if (model) parts.push(model)
+  if (ev.section_name) parts.push(`${humanizeSnake(ev.section_name).toLowerCase()} section`)
+  if (ev.latency_ms != null) parts.push(formatLatency(ev.latency_ms))
+  if (ev.tokens_in != null && ev.tokens_in > 0) {
+    parts.push(`${formatCompact(ev.tokens_in)} in / ${formatCompact(ev.tokens_out ?? 0)} out`)
+  }
+  if (ev.cost_usd != null && ev.cost_usd > 0) parts.push(formatCallCost(ev.cost_usd))
+  return parts.join(" · ")
+}
+
+function apiCallRawTokens(ev: ApiCallEvent): string {
+  return [
+    ev.status,
+    ev.source,
+    ev.call_type,
+    ev.model,
+    ev.section_name,
+    ev.latency_ms != null ? `${ev.latency_ms}ms` : null,
+  ]
+    .filter(Boolean)
+    .join(" | ")
+}
+
+// ---------------------------------------------------------------------------
 // Event -> log line conversion
 // ---------------------------------------------------------------------------
 
 export function eventToLogEntry(ev: ReviewEvent): LogRenderEntry {
   const finalize = (
-    data: Omit<LogRenderEntry, "eventType" | "text" | "ts"> & { tsRaw: string | null | undefined },
+    data: Omit<LogRenderEntry, "eventType" | "text" | "ts"> & {
+      tsRaw: string | null | undefined
+      /** Extra raw tokens appended to `text` so search matches backend ids. */
+      searchText?: string
+    },
   ): LogRenderEntry => {
-    const { tsRaw, ...rest } = data
+    const { tsRaw, searchText, ...rest } = data
     const ts = tsRaw ? fmtTs(tsRaw) : ""
     const message = normalizeDoiText(rest.message)
     const tagText = rest.subTag ? `${rest.tag} [${rest.subTag}]` : rest.tag
@@ -134,7 +199,7 @@ export function eventToLogEntry(ev: ReviewEvent): LogRenderEntry {
       ts,
       message,
       detail: rest.detail ? normalizeDoiText(rest.detail) : undefined,
-      text: `[${ts || "--:--:--"}] ${tagText} ${message}`,
+      text: `[${ts || "--:--:--"}] ${tagText} ${message}${searchText ? ` ${searchText}` : ""}`,
       eventType: ev.type,
     }
   }
@@ -266,18 +331,15 @@ export function eventToLogEntry(ev: ReviewEvent): LogRenderEntry {
     }
 
     case "api_call": {
-      const tokStr =
-        ev.tokens_in != null && ev.tokens_in > 0
-          ? ` | ${ev.tokens_in} in / ${ev.tokens_out ?? 0} out tokens`
-          : ""
-      const model = ev.model ? shortModelName(ev.model).name : ""
+      const ok = isSuccessStatus(ev.status)
       return finalize({
         tsRaw: ev.ts,
         tag: "LLM",
-        message: `${ev.status.toUpperCase()} ${ev.source} | ${ev.call_type}${model ? " | " + model : ""}${ev.section_name ? " | section " + ev.section_name : ""}${ev.latency_ms != null ? " | " + ev.latency_ms + "ms" : ""}${tokStr}${ev.cost_usd != null && ev.cost_usd > 0 ? " | $" + ev.cost_usd.toFixed(4) : ""}`,
+        message: formatApiCallMessage(ev),
+        searchText: apiCallRawTokens(ev),
         detail: ev.model ? `Model: ${ev.model}` : undefined,
-        level: ev.status === "success" ? "dim" : "error",
-        severity: ev.status === "success" ? "dim" : "error",
+        level: ok ? "dim" : "error",
+        severity: ok ? "dim" : "error",
         kind: "llm",
         phase: ev.phase,
         compactable: false,
@@ -455,7 +517,7 @@ export function eventToLogEntry(ev: ReviewEvent): LogRenderEntry {
           ? "Paused at PROSPERO gate. Enter registration on the Config tab to continue."
           : outputStatus === "awaiting_review"
             ? "Paused for human screening review."
-            : "Review complete."
+            : "Review complete"
       return finalize({
         tsRaw: eventTs(ev),
         tag: "DONE",
@@ -611,7 +673,7 @@ export type LogSeverityFilter = "all" | "warnings" | "errors" | "decisions"
 
 export const LOG_SEVERITY_FILTERS: { id: LogSeverityFilter; label: string }[] = [
   { id: "all", label: "All" },
-  { id: "warnings", label: "Warnings+" },
+  { id: "warnings", label: "Warnings & errors" },
   { id: "errors", label: "Errors" },
   { id: "decisions", label: "Decisions" },
 ]

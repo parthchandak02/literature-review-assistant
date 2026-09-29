@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest"
 import {
   buildInProgressRowModel,
   buildRunCardModel,
+  CONFIG_GENERATING_STALL_MS,
+  isConfigGenerationStalled,
   keyMetricText,
   truncateTopic,
 } from "./historyRowModel"
@@ -32,6 +34,43 @@ const liveRun: LiveRun = {
   papersFound: 20,
   papersIncluded: 5,
 }
+
+describe("isConfigGenerationStalled", () => {
+  const created = "2026-01-01T00:00:00Z"
+  const t0 = Date.parse(created)
+  const gen = { ...baseEntry, status: "config_generating", created_at: created, updated_at: null }
+
+  it("flags config_generating with no live stream after an hour", () => {
+    expect(isConfigGenerationStalled(gen, false, t0 + CONFIG_GENERATING_STALL_MS + 1)).toBe(true)
+    expect(isConfigGenerationStalled(gen, false, t0 + CONFIG_GENERATING_STALL_MS - 1)).toBe(false)
+  })
+
+  it("never flags a live stream or another status", () => {
+    const late = t0 + 3 * CONFIG_GENERATING_STALL_MS
+    expect(isConfigGenerationStalled(gen, true, late)).toBe(false)
+    expect(isConfigGenerationStalled({ ...gen, live_run_id: "run-1" }, false, late)).toBe(false)
+    expect(isConfigGenerationStalled({ ...gen, status: "config_ready" }, false, late)).toBe(false)
+  })
+
+  it("reads SQLite timestamps as UTC", () => {
+    const sqlite = { ...gen, created_at: "2026-01-01 00:00:00" }
+    expect(isConfigGenerationStalled(sqlite, false, t0 + CONFIG_GENERATING_STALL_MS + 1)).toBe(true)
+    expect(isConfigGenerationStalled(sqlite, false, t0 + CONFIG_GENERATING_STALL_MS - 1)).toBe(false)
+  })
+
+  it("uses updated_at when present", () => {
+    const updated = new Date(t0 + 2 * CONFIG_GENERATING_STALL_MS).toISOString()
+    expect(isConfigGenerationStalled({ ...gen, updated_at: updated }, false, t0 + 2.5 * CONFIG_GENERATING_STALL_MS)).toBe(false)
+  })
+
+  it("shows Stalled as the card status", () => {
+    const model = buildInProgressRowModel(gen, null, null, null, null, {})
+    expect(model.statusLabel).toBe("Stalled")
+    expect(model.statusKey).toBe("stale")
+    expect(model.isResumable).toBe(false)
+    expect(buildInProgressRowModel(baseEntry, null, null, null, null, {}).statusLabel).not.toBe("Stalled")
+  })
+})
 
 describe("buildInProgressRowModel", () => {
   it("marks live row and uses live metrics", () => {

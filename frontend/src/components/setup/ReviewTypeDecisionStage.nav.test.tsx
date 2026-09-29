@@ -7,12 +7,20 @@ import { ReviewTypeDecisionStage } from "./ReviewTypeDecisionStage"
 import { decisionStepPosition, formatDecisionStepPosition } from "./reviewTypeDecisionLogic"
 
 describe("ReviewTypeDecisionStage navigation", () => {
+  it("styles the three answers identically so none looks preselected", () => {
+    render(<ReviewTypeDecisionStage onComplete={vi.fn()} onCancel={vi.fn()} />)
+    const [yes, no, unsure] = ["Yes", "No", "Not sure"].map((name) => screen.getByRole("button", { name }))
+    expect(yes.className).toBe(no.className)
+    expect(unsure.className).toBe(no.className)
+  })
+
   it("shows a step counter and goes back to the previous question", async () => {
     const user = userEvent.setup()
     const onCancel = vi.fn()
     render(<ReviewTypeDecisionStage onComplete={vi.fn()} onCancel={onCancel} />)
 
     expect(screen.getByText("Step 1 of up to 3")).toBeInTheDocument()
+    expect(screen.queryByRole("button", { name: "Back" })).not.toBeInTheDocument()
     await user.click(screen.getByRole("button", { name: "No" }))
     expect(screen.getByText("Step 2 of 3")).toBeInTheDocument()
     expect(screen.getByText("Is it focused on a treatment, exposure, diagnosis, or outcome?")).toBeInTheDocument()
@@ -25,8 +33,8 @@ describe("ReviewTypeDecisionStage navigation", () => {
     await user.click(screen.getByRole("button", { name: "Back" }))
     expect(screen.getByText("Is your research question broad?")).toBeInTheDocument()
 
-    await user.click(screen.getByRole("button", { name: "Back" }))
-    expect(onCancel).toHaveBeenCalledTimes(1)
+    expect(screen.queryByRole("button", { name: "Back" })).not.toBeInTheDocument()
+    expect(onCancel).not.toHaveBeenCalled()
   })
 
   it("does not use the IEDO acronym in visible copy", () => {

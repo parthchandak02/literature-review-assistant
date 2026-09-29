@@ -8,6 +8,7 @@ extraction records), ensuring GRADE is data-driven and not hard-coded to zero.
 
 from __future__ import annotations
 
+import re
 from collections.abc import Sequence
 
 from src.models import (
@@ -53,6 +54,10 @@ def _truncate_at_word_boundary(text: str, limit: int) -> str:
     return value[:cutoff].rstrip() + "..."
 
 
+def _count_phrase(count: int, noun: str) -> str:
+    return f"{count} {noun}" if count == 1 else f"{count} {noun}s"
+
+
 def _level_phrase(level: int) -> str:
     return {0: "no levels", 1: "one level", 2: "two levels"}.get(level, f"{level} levels")
 
@@ -77,8 +82,16 @@ def _sanitize_effect_summary(text: str) -> str:
     value = value.replace("Imprecision downgrade=0", "No downgrade for imprecision")
     value = value.replace("worst-case across", "based on the highest concern across")
     value = value.replace("assessments).", "assessments.")
+    value = re.sub(r"\b1 assessments\b", "1 assessment", value)
     value = " ".join(part.strip() for part in value.split())
     return value.strip(" .") + "."
+
+
+def _effect_summary(justification: str | None, limit: int | None) -> str:
+    if not justification:
+        return ""
+    text = _sanitize_effect_summary(justification)
+    return text if limit is None else _truncate_at_word_boundary(text, limit)
 
 
 def _generic_assessment_justification() -> str:
@@ -196,10 +209,10 @@ class GradeAssessor:
         if rob_downgrade > 0:
             parts.append(
                 f"Downgraded {_level_phrase(rob_downgrade)} for risk of bias based on the highest concern across "
-                f"{len(rob_assessments)} assessments."
+                f"{_count_phrase(len(rob_assessments), 'assessment')}."
             )
         else:
-            parts.append(f"No downgrade for risk of bias across {len(rob_assessments)} assessments.")
+            parts.append(f"No downgrade for risk of bias across {_count_phrase(len(rob_assessments), 'assessment')}.")
         if imprecision_downgrade > 0:
             parts.append(
                 f"Downgraded {_level_phrase(imprecision_downgrade)} for imprecision because total N was {total_n}."
@@ -463,6 +476,7 @@ def _outcome_display_name(raw_name: str, placeholder_index: int) -> str:
 def build_sof_table(
     assessments: list[GRADEOutcomeAssessment],
     topic: str = "Systematic Review",
+    effect_summary_limit: int | None = 120,
 ) -> GradeSoFTable:
     """Build a GRADE Summary of Findings table from a list of outcome assessments.
 
@@ -511,9 +525,8 @@ def build_sof_table(
                 imprecision=_DOWNGRADE_LABEL.get(a.imprecision_downgrade, "not serious"),
                 other_considerations="; ".join(other) if other else "none",
                 certainty=a.final_certainty,
-                effect_summary=_truncate_at_word_boundary(_sanitize_effect_summary(a.justification), 120)
-                if a.justification
-                else "",
+                starting_certainty=a.starting_certainty,
+                effect_summary=_effect_summary(a.justification, effect_summary_limit),
             )
         )
     return GradeSoFTable(topic=topic, rows=rows)

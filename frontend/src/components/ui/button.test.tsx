@@ -23,6 +23,46 @@ describe("Button", () => {
     expect(buttonVariants({ variant: "warning" })).toContain("text-intent-warning-solid-fg")
   })
 
+  it.each(["default", "destructive", "success", "warning"] as const)(
+    "disabled %s renders as an inert neutral surface, not a faded fill",
+    (variant) => {
+      render(
+        <Button variant={variant} disabled>
+          Start
+        </Button>,
+      )
+      const button = screen.getByRole("button", { name: "Start" })
+      expect(button).toBeDisabled()
+      const cls = button.className.split(/\s+/)
+      expect(cls).toEqual(
+        expect.arrayContaining([
+          "disabled:bg-surface-2",
+          "disabled:text-muted",
+          "disabled:border-border",
+          "disabled:opacity-100",
+          "disabled:pointer-events-none",
+        ]),
+      )
+      expect(cls).not.toContain("disabled:opacity-50")
+    },
+  )
+
+  it("keeps the faded disabled style for non-solid variants", () => {
+    render(
+      <Button variant="outline" disabled>
+        Cancel
+      </Button>,
+    )
+    const cls = screen.getByRole("button", { name: "Cancel" }).className.split(/\s+/)
+    expect(cls).toContain("disabled:opacity-50")
+    expect(cls).not.toContain("disabled:bg-surface-2")
+  })
+
+  it("passes aria-disabled through for focusable disabled buttons", () => {
+    render(<Button aria-disabled="true">Soft</Button>)
+    expect(screen.getByRole("button", { name: "Soft" })).toHaveAttribute("aria-disabled", "true")
+  })
+
   it.each([
     ["xs", "h-7"],
     ["sm", "h-8"],

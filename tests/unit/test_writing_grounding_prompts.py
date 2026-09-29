@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from src.models import PrismaAutomationStep
 from src.models.additional import PRISMACounts
 from src.writing.context_builder import WritingGroundingData, build_writing_grounding, format_grounding_block
 from src.writing.prompts.sections import (
@@ -155,7 +156,7 @@ def test_conclusion_prompt_enforces_hedging_when_required() -> None:
     assert "low or very low GRADE certainty" in prompt
 
 
-def test_build_writing_grounding_zeros_automation_when_screened_gap_is_zero() -> None:
+def test_build_writing_grounding_uses_builder_automation_counts_verbatim() -> None:
     prisma = PRISMACounts(
         databases_records={"pubmed": 100},
         other_sources_records={},
@@ -163,8 +164,13 @@ def test_build_writing_grounding_zeros_automation_when_screened_gap_is_zero() ->
         total_identified_other=0,
         duplicates_removed=0,
         automation_excluded=83,
-        records_screened=100,
-        records_excluded_screening=85,
+        automation_breakdown={
+            PrismaAutomationStep.METADATA_FILTER: 3,
+            PrismaAutomationStep.KEYWORD_RANKING: 70,
+            PrismaAutomationStep.BATCH_PRERANKER: 10,
+        },
+        records_screened=17,
+        records_excluded_screening=2,
         reports_sought=15,
         reports_not_retrieved=0,
         reports_assessed=15,
@@ -172,6 +178,7 @@ def test_build_writing_grounding_zeros_automation_when_screened_gap_is_zero() ->
         studies_included_qualitative=15,
         studies_included_quantitative=0,
         arithmetic_valid=True,
+        records_after_deduplication=100,
     )
     grounding = build_writing_grounding(
         prisma_counts=prisma,
@@ -183,6 +190,14 @@ def test_build_writing_grounding_zeros_automation_when_screened_gap_is_zero() ->
     assert grounding.records_after_deduplication == 100
     assert grounding.automation_excluded == 83
     assert grounding.total_screened == 17
+    assert grounding.records_excluded_screening == 2
+    assert grounding.automation_breakdown == ["metadata filter n=3", "keyword ranking n=70", "batch pre-ranker n=10"]
+    block = format_grounding_block(grounding)
+    assert (
+        "Records removed by automation tools before reviewer screening: 83 "
+        "(metadata filter n=3; keyword ranking n=70; batch pre-ranker n=10)"
+    ) in block
+    assert "Records screened (reached reviewer title/abstract screening): 17" in block
 
 
 def test_grounding_block_mentions_primary_fulltext_reasons() -> None:

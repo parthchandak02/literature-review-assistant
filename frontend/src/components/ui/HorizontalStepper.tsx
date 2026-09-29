@@ -54,7 +54,7 @@ function statusCircleClass(status: StepperStepStatus): string {
     status === "active" && "bg-intent-active-subtle border-intent-active-border text-intent-active",
     status === "awaiting" && "bg-intent-warning-subtle border-intent-warning-border text-intent-warning",
     status === "warning" && "bg-intent-warning-subtle border-intent-warning-border text-intent-warning",
-    status === "skipped" && "bg-intent-info-subtle border-intent-info-border text-intent-info",
+    status === "skipped" && "bg-surface-2 border-dashed border-border-strong text-muted",
     status === "error" && "bg-intent-danger-subtle border-intent-danger-border text-intent-danger",
     status === "pending" && "bg-card border-border-strong text-muted",
   )
@@ -64,13 +64,28 @@ function isCompleteStatus(status: StepperStepStatus): boolean {
   return status === "done" || status === "warning" || status === "skipped"
 }
 
+function isDoneStatus(status: StepperStepStatus): boolean {
+  return status === "done" || status === "warning"
+}
+
+const ALL_COMPLETE = "All steps complete"
+
+function stepperCaption(steps: StepperStep[], activeIndex: number): string | null {
+  if (steps.length === 0 || activeIndex >= 0) return null
+  if (steps.every((step) => isDoneStatus(step.status))) return ALL_COMPLETE
+  if (!steps.every((step) => isCompleteStatus(step.status))) return null
+  const done = steps.filter((step) => isDoneStatus(step.status)).length
+  const skipped = steps.length - done
+  return `${done} of ${steps.length} steps complete · ${skipped} skipped`
+}
+
 function statusLabelClass(status: StepperStepStatus): string {
   return cn(
     "text-2xs text-center leading-tight font-medium mt-1.5",
     status === "done" && "text-foreground",
     status === "active" && "text-intent-active",
     (status === "awaiting" || status === "warning") && "text-intent-warning",
-    status === "skipped" && "text-intent-info",
+    status === "skipped" && "text-muted",
     status === "error" && "text-intent-danger",
     status === "pending" && "text-muted",
   )
@@ -101,6 +116,13 @@ function Connector({ filled }: { filled: boolean }) {
   )
 }
 
+function lastStartedIndex(steps: StepperStep[]): number {
+  for (let i = steps.length - 1; i >= 0; i--) {
+    if (steps[i].status !== "pending") return i
+  }
+  return 0
+}
+
 function isActiveStatus(status: StepperStepStatus): boolean {
   return status === "active" || status === "awaiting" || status === "error"
 }
@@ -126,6 +148,8 @@ export function HorizontalStepper({
   }
 
   const activeIndex = steps.findIndex((step) => isActiveStatus(step.status))
+  const caption = stepperCaption(steps, activeIndex)
+  const labelIndex = activeIndex >= 0 ? activeIndex : caption ? -1 : lastStartedIndex(steps)
 
   return (
     <div className="overflow-hidden py-2 sm:py-3">
@@ -133,6 +157,7 @@ export function HorizontalStepper({
         {steps.map((step, i) => {
           const isLast = i === steps.length - 1
           const isCurrent = i === activeIndex
+          const showMobileLabel = i === labelIndex
           const next = steps[i + 1]
           const filled = isCompleteStatus(step.status) && Boolean(next) && next.status !== "pending"
           return (
@@ -146,7 +171,7 @@ export function HorizontalStepper({
                 <StepIcon status={step.status} />
               </span>
               <span className={statusLabelClass(step.status)}>
-                <span className={cn(!isCurrent && "max-sm:sr-only")}>{step.label}</span>
+                <span className={cn(!showMobileLabel && "max-sm:sr-only")}>{step.label}</span>
                 <span className="sr-only">, {step.srStatus ?? SR_STATUS[step.status]}</span>
               </span>
               {step.subStatus ? (
@@ -159,6 +184,17 @@ export function HorizontalStepper({
           )
         })}
       </ol>
+      {caption ? (
+        <p
+          className={cn(
+            "sm:hidden mt-1 text-center text-2xs font-medium",
+            caption === ALL_COMPLETE ? "text-intent-success" : "text-muted",
+          )}
+          aria-hidden
+        >
+          {caption}
+        </p>
+      ) : null}
     </div>
   )
 }

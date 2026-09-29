@@ -10,7 +10,7 @@ export function buildTopicRoutingText(stepMetadata: Record<string, unknown>): st
 }
 
 export function getFallbackStepLabel(fallbackSkipped: boolean, fallbackDegraded: boolean): string {
-  if (fallbackSkipped) return "Fallback not needed"
+  if (fallbackSkipped) return "Fallback (not needed)"
   if (fallbackDegraded) return "Web search unavailable, used model knowledge"
   return "Fallback (standby)"
 }

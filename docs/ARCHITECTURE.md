@@ -132,6 +132,8 @@ Search/corpus, screening, extraction/cohort, synthesis/graph, writing/manuscript
 - **Costs:** `cost_records`
 - **Registry:** use `db_path` from registry rows; do not guess paths
 - **Cross-artifact facts:** `build_review_facts()` assembles PRISMA counts, `included_primary` ids, and kappa. Consumers: pre-writing gate, writing setup, audit runner, manuscript contracts, readiness, PRISMA flow export. `validate_cross_artifact()` mismatches become a blocking `review_facts_cross_artifact` check (gate/readiness) or contract violation.
+- **PRISMA automation definition:** "Records removed by automation tools" = every record excluded by an automated, non-reviewer step before reviewer screening (metadata filter, rule-based pre-filter, keyword/BM25 ranking, batch pre-ranker), counted once per record from `screening_decisions` (`ScreeningRepo.get_prisma_automation_steps`). "Records screened" = records that reached reviewer screening = after dedup − automation. `build_prisma_counts` enforces the arithmetic strictly; figure, writing grounding, PRISMA export, funnel popover and Cost "per 1k screened" all use this definition.
+- **PRISMA figure sidecar:** `render_prisma_diagram` writes `prisma_counts.json` (`PrismaCountsSidecar`, versioned) beside `fig_prisma_flow.png`. `GET /api/run/{run_id}/prisma-counts` compares it to live counts; `scripts/regenerate_prisma.py` redraws figure + sidecar without LLM calls.
 - **Jev decisions:** `jev_decisions` table (created in `src/db/database.py` migrations), one row per Jev call with mode/latency/tokens/cost in `details_json`.
 
 ### Resume and rewind

@@ -17,7 +17,7 @@ const DropdownMenuSub = DropdownMenuPrimitive.Sub
 const DropdownMenuRadioGroup = DropdownMenuPrimitive.RadioGroup
 
 const menuSurface =
-  "z-50 min-w-[8rem] overflow-hidden glass-panel-strong rounded-panel border border-border p-1 text-foreground shadow-lg data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95"
+  "z-50 min-w-[8rem] overflow-hidden bg-card rounded-panel border border-border p-1 text-foreground shadow-lg data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95"
 
 const menuItem =
   // eslint-disable-next-line no-restricted-syntax -- Radix roving focus; focus:bg-surface-2 is the indicator

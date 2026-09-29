@@ -71,9 +71,4 @@
     animation: none !important;
     opacity: 0.35;
   }
-
-  .prospero-attention-border::before {
-    animation: none !important;
-    background: var(--color-intent-warning);
-  }
 }

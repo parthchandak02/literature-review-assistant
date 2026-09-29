@@ -30,6 +30,7 @@ import {
 } from "@/components/ui/tooltip"
 import { RunView } from "@/views/RunView"
 import type { ScreeningOverride } from "@/lib/api"
+import { setPendingSetupQuestion } from "@/lib/pendingSetupQuestion"
 
 const SetupView = lazy(() => import("@/views/SetupView").then((m) => ({ default: m.SetupView })))
 
@@ -152,6 +153,7 @@ function AppShell() {
     handleRegenerateProsperoDocs,
     handleApproveScreeningAndResume,
     handleSelectLiveRun,
+    handleNewReview,
     openDraftRunShell,
   } = useRunSessionActions()
 
@@ -366,6 +368,10 @@ function AppShell() {
           void handleRegenerateProsperoDrafts()
         }}
         onApproveScreeningAndResume={handleApproveScreeningAndResumeWrapper}
+        onStartNewReviewWithQuestion={(question) => {
+          setPendingSetupQuestion(question)
+          handleNewReview()
+        }}
       />
     )
   }

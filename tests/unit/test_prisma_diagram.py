@@ -7,7 +7,12 @@ from pathlib import Path
 from unittest.mock import patch
 
 from src.models import PRISMACounts
-from src.prisma.diagram import _map_counts_to_library_format, render_prisma_diagram
+from src.prisma.diagram import (
+    _format_source_label,
+    _map_counts_to_library_format,
+    _positive_breakdown,
+    render_prisma_diagram,
+)
 
 
 def test_map_counts_to_library_format_lists_per_database_breakdown() -> None:
@@ -142,3 +147,32 @@ def test_prisma_arithmetic_validation() -> None:
         arithmetic_valid=True,
     )
     assert valid.arithmetic_valid is True
+
+
+def test_source_labels_use_proper_database_names() -> None:
+    """Identification box must print each database's own name, not a title-cased id."""
+    raw = {
+        "arxiv": 300,
+        "core": 100,
+        "crossref": 500,
+        "europepmc": 35,
+        "ieee_xplore": 3,
+        "openalex": 102,
+        "pubmed": 64,
+        "scopus": 111,
+        "semantic_scholar": 500,
+        "dblp": 0,
+    }
+    assert list(_positive_breakdown(raw)) == [
+        "arXiv",
+        "CORE",
+        "Crossref",
+        "Europe PMC",
+        "IEEE Xplore",
+        "OpenAlex",
+        "PubMed",
+        "Scopus",
+        "Semantic Scholar",
+    ]
+    assert _format_source_label("Europe_PMC") == "Europe PMC"
+    assert _format_source_label("ARXIV") == "arXiv"

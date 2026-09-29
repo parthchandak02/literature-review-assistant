@@ -18,6 +18,8 @@ export interface ScreenedPaper {
   exclusion_reason?: string | null
   /** reviewer_type of the deciding row, e.g. human_override, adjudicator, screening_reviewer_a. */
   decided_by?: string | null
+  /** PRISMA automation step when an automated step removed the paper before any reviewer decision. */
+  automation_step?: string | null
 }
 
 export interface ScreeningThresholds {

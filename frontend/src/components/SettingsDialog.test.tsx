@@ -38,11 +38,12 @@ describe("SettingsDialog", () => {
     expect(await screen.findByTestId("costs-panel")).toBeInTheDocument()
   })
 
-  it("uses a narrow dialog for keys and a wide one for costs", async () => {
+  it("keeps one dialog width across tabs", async () => {
     render(<SettingsDialog open onOpenChange={() => {}} />)
     const dialog = screen.getByRole("dialog")
-    expect(dialog.className).toContain("max-w-[35rem]")
+    const keysClass = dialog.className
+    expect(keysClass).toContain("max-w-4xl")
     await userEvent.click(screen.getByRole("tab", { name: "Global costs" }))
-    expect(dialog.className).toContain("max-w-7xl")
+    expect(dialog.className).toBe(keysClass)
   })
 })

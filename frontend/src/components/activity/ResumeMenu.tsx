@@ -3,11 +3,31 @@ import { Button } from "@/components/ui/button"
 import {
   DropdownMenu,
   DropdownMenuContent,
+  DropdownMenuGroup,
   DropdownMenuItem,
   DropdownMenuLabel,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import type { ResumeOption } from "@/lib/activityPhaseState"
+import { milestoneForPhase } from "@/lib/constants"
+
+interface ResumeOptionGroup {
+  key: string
+  label: string
+  options: ResumeOption[]
+}
+
+function groupOptions(options: ResumeOption[]): ResumeOptionGroup[] {
+  const groups: ResumeOptionGroup[] = []
+  for (const option of options) {
+    const milestone = milestoneForPhase(option.phase)
+    const key = milestone?.key ?? option.phase
+    const last = groups[groups.length - 1]
+    if (last && last.key === key) last.options.push(option)
+    else groups.push({ key, label: milestone?.label ?? option.label, options: [option] })
+  }
+  return groups
+}
 
 export interface ResumeMenuProps {
   options: ResumeOption[]
@@ -43,15 +63,27 @@ export function ResumeMenu({ options, blockedReason, disabled = false, onSelect 
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end" className="min-w-56">
-          <DropdownMenuLabel>Re-run from phase</DropdownMenuLabel>
-          {options.map((option) => (
-            <DropdownMenuItem
-              key={option.phase}
-              disabled={!option.selectable}
-              onSelect={() => onSelect(option.phase)}
-            >
-              {option.label}
-            </DropdownMenuItem>
+          <DropdownMenuLabel>Resume from phase</DropdownMenuLabel>
+          {groupOptions(options).map((group) => (
+            <DropdownMenuGroup key={group.key} aria-labelledby={`resume-group-${group.key}`}>
+              <div
+                id={`resume-group-${group.key}`}
+                className="px-2 pt-2 pb-0.5 text-2xs font-semibold text-muted"
+              >
+                {group.label}
+              </div>
+              {group.options.map((option) => (
+                <DropdownMenuItem
+                  key={option.phase}
+                  className="pl-5"
+                  disabled={!option.selectable}
+                  onSelect={() => onSelect(option.phase)}
+                  title={option.title}
+                >
+                  {option.label}
+                </DropdownMenuItem>
+              ))}
+            </DropdownMenuGroup>
           ))}
         </DropdownMenuContent>
       </DropdownMenu>

@@ -1,4 +1,5 @@
-import { useRef, type KeyboardEvent } from "react"
+import { useCallback, useEffect, useRef, type KeyboardEvent } from "react"
+import { useEdgeFade } from "@/hooks/useEdgeFade"
 import { cn } from "@/lib/utils"
 
 interface GlassTabItem<T extends string> {
@@ -17,6 +18,8 @@ interface GlassTabsProps<T extends string> {
   variant?: "pill" | "underline"
   className?: string
 }
+
+const SCROLL_INSET = 24
 
 const FOCUS_RING =
   "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
@@ -52,9 +55,47 @@ export function GlassTabs<T extends string>({
   className,
 }: GlassTabsProps<T>) {
   const underline = variant === "underline"
+  const listRef = useRef<HTMLDivElement | null>(null)
   const tabRefs = useRef<Array<HTMLButtonElement | null>>([])
   const activeIndex = items.findIndex((item) => item.id === activeTab)
   const focusableIndex = activeIndex >= 0 ? activeIndex : 0
+  const fadeStyle = useEdgeFade(listRef)
+
+  const scrollActiveIntoView = useCallback(() => {
+    const list = listRef.current
+    const tab = activeIndex >= 0 ? tabRefs.current[activeIndex] : null
+    if (!list || !tab || list.scrollWidth <= list.clientWidth) return
+    const listLeft = list.getBoundingClientRect().left
+    const startOf = (el: HTMLElement) => el.getBoundingClientRect().left - listLeft + list.scrollLeft
+    const start = startOf(tab)
+    const end = start + tab.offsetWidth
+    let target = list.scrollLeft
+    if (start < target + SCROLL_INSET) target = start - SCROLL_INSET
+    else if (end > target + list.clientWidth - SCROLL_INSET) target = end - list.clientWidth + SCROLL_INSET
+    const cut = tabRefs.current.find((el) => el && startOf(el) < target && startOf(el) + el.offsetWidth > target)
+    if (cut && cut !== tab) {
+      const cutEnd = startOf(cut) + cut.offsetWidth
+      if (end <= cutEnd + list.clientWidth) target = cutEnd
+    }
+    list.scrollLeft = Math.max(0, target)
+  }, [activeIndex])
+
+  useEffect(() => {
+    scrollActiveIntoView()
+    const list = listRef.current
+    if (!list) return
+    // Layout can shift after mount (fonts, sidebar); keep the active tab visible when it does.
+    let active = true
+    void document.fonts?.ready.then(() => {
+      if (active) scrollActiveIntoView()
+    })
+    const observer = typeof ResizeObserver !== "undefined" ? new ResizeObserver(() => scrollActiveIntoView()) : null
+    observer?.observe(list)
+    return () => {
+      active = false
+      observer?.disconnect()
+    }
+  }, [scrollActiveIntoView, items.length])
 
   function handleKeyDown(event: KeyboardEvent<HTMLDivElement>) {
     if (items.length === 0) return
@@ -84,15 +125,17 @@ export function GlassTabs<T extends string>({
 
   return (
     <div
+      ref={listRef}
+      style={fadeStyle}
       role="tablist"
       aria-orientation="horizontal"
       onKeyDown={handleKeyDown}
       className={cn(
         "items-center overflow-x-auto scrollbar-none",
-        underline ? "gap-4 border-b border-border" : "gap-2",
+        underline ? "gap-3 border-b border-border sm:gap-4" : "gap-2",
         equalWidth && !underline
           ? "flex sm:grid sm:grid-flow-col sm:auto-cols-fr sm:w-full"
-          : "flex",
+          : "flex after:block after:w-6 after:shrink-0 after:content-['']",
         className,
       )}
     >
@@ -128,7 +171,7 @@ export function GlassTabs<T extends string>({
                   ),
             )}
           >
-            {Icon && <Icon className="h-3.5 w-3.5" aria-hidden />}
+            {Icon && <Icon className={cn("h-3.5 w-3.5", underline && "max-sm:hidden")} aria-hidden />}
             <span>{item.label}</span>
           </button>
         )

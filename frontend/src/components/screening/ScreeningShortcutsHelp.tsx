@@ -1,7 +1,7 @@
 import * as Popover from "@radix-ui/react-popover"
 import { Keyboard } from "lucide-react"
 import { Button } from "@/components/ui/button"
-import { SCREENING_SHORTCUTS } from "./screeningKeyboard"
+import { READ_ONLY_SCREENING_SHORTCUTS, SCREENING_SHORTCUTS } from "./screeningKeyboard"
 
 function Kbd({ children }: { children: string }) {
   return (
@@ -14,16 +14,28 @@ function Kbd({ children }: { children: string }) {
 export interface ScreeningShortcutsHelpProps {
   open: boolean
   onOpenChange: (open: boolean) => void
+  readOnly?: boolean
 }
 
-export function ScreeningShortcutsHelp({ open, onOpenChange }: ScreeningShortcutsHelpProps) {
+export function ScreeningShortcutsHelp({ open, onOpenChange, readOnly = false }: ScreeningShortcutsHelpProps) {
+  const shortcuts = readOnly ? READ_ONLY_SCREENING_SHORTCUTS : SCREENING_SHORTCUTS
   return (
     <Popover.Root open={open} onOpenChange={onOpenChange}>
       <Popover.Trigger asChild>
         <Button type="button" variant="ghost" size="xs" aria-label="Keyboard shortcuts">
           <Keyboard aria-hidden />
           <span className="hidden sm:inline">
-            <Kbd>j</Kbd>/<Kbd>k</Kbd> move · <Kbd>i</Kbd>/<Kbd>e</Kbd> decide · <Kbd>?</Kbd> more
+            <Kbd>j</Kbd>/<Kbd>k</Kbd> move ·{" "}
+            {readOnly ? (
+              <>
+                <Kbd>Enter</Kbd> expand
+              </>
+            ) : (
+              <>
+                <Kbd>i</Kbd>/<Kbd>e</Kbd> decide
+              </>
+            )}{" "}
+            · <Kbd>?</Kbd> more
           </span>
         </Button>
       </Popover.Trigger>
@@ -33,11 +45,11 @@ export function ScreeningShortcutsHelp({ open, onOpenChange }: ScreeningShortcut
           align="end"
           sideOffset={6}
           aria-label="Keyboard shortcuts"
-          className="z-50 w-64 glass-panel-strong border border-border rounded-panel p-3 shadow-lg"
+          className="z-50 w-64 bg-card border border-border rounded-panel p-3 shadow-lg outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
         >
           <p className="text-xs font-semibold text-foreground mb-2">Keyboard shortcuts</p>
           <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1.5 text-xs">
-            {SCREENING_SHORTCUTS.map(({ keys, label }) => (
+            {shortcuts.map(({ keys, label }) => (
               <div key={label} className="contents">
                 <dt className="flex items-center gap-1">
                   {keys.map((k) => (

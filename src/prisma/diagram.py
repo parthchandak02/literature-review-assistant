@@ -9,7 +9,8 @@ from typing import TYPE_CHECKING, Any
 import matplotlib.patches as mpatches
 import matplotlib.pyplot as plt
 
-from src.models import PRISMACounts
+from src.models import PrismaAutomationStep, PRISMACounts
+from src.prisma.sidecar import write_prisma_counts_sidecar
 
 if TYPE_CHECKING:
     from src.db.repositories import WorkflowRepository
@@ -31,6 +32,14 @@ _EXCLUSION_REASON_LABELS: dict[str, str] = {
 }
 
 _SOURCE_LABEL_OVERRIDES: dict[str, str] = {
+    "arxiv": "arXiv",
+    "core": "CORE",
+    "crossref": "Crossref",
+    "europepmc": "Europe PMC",
+    "europe pmc": "Europe PMC",
+    "ieee": "IEEE Xplore",
+    "ieeexplore": "IEEE Xplore",
+    "semanticscholar": "Semantic Scholar",
     "scopus": "Scopus",
     "ieee xplore": "IEEE Xplore",
     "semantic scholar": "Semantic Scholar",
@@ -50,6 +59,31 @@ def _format_source_label(name: str) -> str:
     if normalized in _SOURCE_LABEL_OVERRIDES:
         return _SOURCE_LABEL_OVERRIDES[normalized]
     return name.replace("_", " ").strip().title()
+
+
+AUTOMATION_STEP_LABELS: dict[PrismaAutomationStep, str] = {
+    PrismaAutomationStep.METADATA_FILTER: "metadata filter",
+    PrismaAutomationStep.RULE_PREFILTER: "rule-based pre-filter",
+    PrismaAutomationStep.KEYWORD_RANKING: "keyword ranking",
+    PrismaAutomationStep.BATCH_PRERANKER: "batch pre-ranker",
+    PrismaAutomationStep.UNCLASSIFIED: "other automated step",
+}
+
+
+def automation_breakdown_lines(counts: PRISMACounts) -> list[str]:
+    """Automation steps with n>0 in pipeline order, e.g. ["metadata filter n=17", ...]."""
+    return [
+        f"{label} n={counts.automation_breakdown[step]:,}"
+        for step, label in AUTOMATION_STEP_LABELS.items()
+        if counts.automation_breakdown.get(step, 0) > 0
+    ]
+
+
+def automation_box_label(counts: PRISMACounts) -> str:
+    """Figure label for the automation box, with the per-step breakdown."""
+    head = f"Records removed by automation tools (n={counts.automation_excluded:,})"
+    lines = automation_breakdown_lines(counts)
+    return head + (":\n  " + "\n  ".join(lines) if lines else "")
 
 
 def _positive_breakdown(raw: dict[str, int]) -> dict[str, int]:
@@ -82,13 +116,6 @@ def _map_counts_to_library_format(
     ):
         excluded_reasons = {"None identified": 0}
 
-    records_after_dedup = counts.total_identified_databases + counts.total_identified_other - counts.duplicates_removed
-    automation_removed = (
-        counts.automation_excluded
-        if counts.automation_excluded > 0
-        else max(0, records_after_dedup - counts.records_screened)
-    )
-
     database_breakdown = _positive_breakdown(counts.databases_records)
     other_breakdown = _positive_breakdown(counts.other_sources_records)
     combined_identification = {**database_breakdown, **other_breakdown}
@@ -105,7 +132,12 @@ def _map_counts_to_library_format(
         },
         "removed_before_screening": {
             "duplicates": counts.duplicates_removed,
-            "automation": automation_removed,
+            "automation": counts.automation_excluded,
+            "automation_breakdown": {
+                label: counts.automation_breakdown[step]
+                for step, label in AUTOMATION_STEP_LABELS.items()
+                if counts.automation_breakdown.get(step, 0) > 0
+            },
             "other": 0,
         },
         "records": {
@@ -191,6 +223,10 @@ def _render_fallback(counts: PRISMACounts, path: Path) -> Path:
     _draw_arrow(ax, 2.1, y + box_h + gap, 2.1, y + box_h)
 
     y -= box_h + gap
+    _draw_box(ax, 1.0, y - box_h, 3.2, box_h * 1.5, automation_box_label(counts), fontsize=7)
+    _draw_arrow(ax, 2.1, y + box_h + gap, 2.1, y + box_h)
+
+    y -= box_h + gap
     _draw_box(ax, 1.0, y - box_h, 3.2, box_h, f"Records screened (n={counts.records_screened})", fontsize=9)
     _draw_arrow(ax, 2.1, y + box_h + gap, 2.1, y + box_h)
 
@@ -269,22 +305,22 @@ def _render_with_library(
     ).plot(filename=str(path), show=False)
 
 
-def render_prisma_diagram(counts: PRISMACounts, output_path: str) -> Path:
-    """Render PRISMA 2020 two-column flow diagram to PNG."""
+def render_prisma_diagram(counts: PRISMACounts, output_path: str | Path) -> Path:
+    """Render PRISMA 2020 two-column flow diagram to PNG and write prisma_counts.json beside it."""
     path = Path(output_path)
     path.parent.mkdir(parents=True, exist_ok=True)
     db_registers, included, other_methods = _map_counts_to_library_format(counts)
 
     try:
         _render_with_library(db_registers, included, other_methods, path)
-        return path
     except ImportError:
         _ensure_colrev_stub()
         try:
             _render_with_library(db_registers, included, other_methods, path)
-            return path
         except ImportError:
-            return _render_fallback(counts, path)
+            _render_fallback(counts, path)
+    write_prisma_counts_sidecar(counts, path)
+    return path
 
 
 def reasons_sum_matches_excluded(reasons: dict[str, int], excluded_total: int) -> bool:
@@ -303,7 +339,12 @@ async def build_prisma_counts(
 
     PRISMA 2020 arithmetic (two-stage screening with full-text gate):
 
+        automation_excluded    = records removed by automated, non-reviewer steps
+                                 before reviewer screening (metadata filter,
+                                 rule-based pre-filter, keyword ranking, batch
+                                 pre-ranker); see get_prisma_automation_breakdown
         records_screened       = records_after_dedup - automation_excluded
+                                 (records that reached reviewer screening)
         records_excluded_screening = records_screened - reports_sought
         reports_sought         = title/abstract survivors forwarded to full-text
         reports_not_retrieved  = papers sought but full text unavailable
@@ -320,7 +361,7 @@ async def build_prisma_counts(
     """
     databases, other = await repo.get_search_counts_by_category(workflow_id)
     (
-        records_screened,
+        ta_rows,
         _records_excluded_screening_raw,
         _reports_sought_raw,
         _reports_not_retrieved_raw,
@@ -332,17 +373,6 @@ async def build_prisma_counts(
     total_other = sum(other.values())
     total_id = total_db + total_other
     records_after_dedup = total_id - dedup_count
-
-    # Use records_after_dedup as the canonical screened count when it is
-    # consistent; fall back to the DB value if they diverge (e.g. mid-run).
-    if records_screened == 0 and records_after_dedup > 0:
-        records_screened = records_after_dedup
-    # Safety cap: records_screened cannot exceed records_after_dedup because you
-    # cannot screen more papers than exist after deduplication. If the DB value is
-    # inflated (e.g. older runs where batch_screened_low rows were counted in
-    # ta_screened before the repository fix), cap it here to keep arithmetic valid.
-    if records_after_dedup > 0 and records_screened > records_after_dedup:
-        records_screened = records_after_dedup
 
     included_total = included_qualitative + included_quantitative
 
@@ -368,16 +398,12 @@ async def build_prisma_counts(
         reports_excluded_with_reasons = {}
         excluded_total = 0
 
+    automation_breakdown = await repo.get_prisma_automation_breakdown(workflow_id)
+    if not automation_breakdown and 0 < ta_rows < records_after_dedup:
+        automation_breakdown = {PrismaAutomationStep.UNCLASSIFIED: records_after_dedup - ta_rows}
+    automation_excluded = min(sum(automation_breakdown.values()), max(0, records_after_dedup))
+    records_screened = max(0, records_after_dedup - automation_excluded)
     records_excluded_screening = max(0, records_screened - reports_sought)
-    # Prefer the structured count emitted by the batch ranker (batch_screen_done
-    # event) because dual_screening_results stores batch-excluded papers too,
-    # making the row-count gap always 0 even when hundreds were auto-excluded.
-    # Fall back to arithmetic gap when the event is absent (older runs / CSV mode).
-    _batch_event = await repo.get_last_event_of_type(workflow_id, "batch_screen_done")
-    _batch_excluded: int = 0
-    if _batch_event and isinstance(_batch_event, dict):
-        _batch_excluded = int(_batch_event.get("excluded", 0))
-    automation_excluded = _batch_excluded if _batch_excluded > 0 else max(0, records_after_dedup - records_screened)
     reasons_valid = reasons_sum_matches_excluded(reports_excluded_with_reasons, excluded_total)
     if not reasons_valid:
         _logger.error(
@@ -388,7 +414,8 @@ async def build_prisma_counts(
             reports_excluded_with_reasons,
         )
     arithmetic_valid = (
-        (records_screened == records_after_dedup or automation_excluded > 0)
+        records_screened + automation_excluded == records_after_dedup
+        and sum(automation_breakdown.values()) == automation_excluded
         and records_screened == records_excluded_screening + reports_sought
         and reports_sought == reports_not_retrieved + reports_assessed
         and reports_assessed == excluded_total + included_total
@@ -402,6 +429,7 @@ async def build_prisma_counts(
         total_identified_other=total_other,
         duplicates_removed=dedup_count,
         automation_excluded=automation_excluded,
+        automation_breakdown=automation_breakdown,
         records_screened=records_screened,
         records_excluded_screening=records_excluded_screening,
         reports_sought=reports_sought,

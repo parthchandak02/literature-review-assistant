@@ -67,6 +67,8 @@ export interface PhaseMeta {
   short: string
   long: string
   milestone: MilestoneId
+  /** Expansion of an abbreviation in the label, shown as a tooltip. */
+  description?: string
 }
 
 /**
@@ -80,7 +82,7 @@ const PHASE_META_TABLE = {
   phase_2_search: { short: "Search", long: "Literature search", milestone: "discovery" },
   phase_3_screening: { short: "Screening", long: "Study screening", milestone: "discovery" },
   screening_calibration: { short: "Calibration", long: "Threshold calibration", milestone: "discovery" },
-  screening_batch_ranker: { short: "Pre-ranking", long: "Batch relevance pre-ranking", milestone: "discovery" },
+  screening_batch_ranker: { short: "Relevance pre-screen", long: "Relevance pre-screen (batch)", milestone: "discovery" },
   criteria_refinement: { short: "Criteria", long: "Criteria refinement", milestone: "discovery" },
   human_review_checkpoint: { short: "Human review", long: "Human review checkpoint", milestone: "discovery" },
   phase_3b_fulltext: { short: "Full-text screen", long: "Full-text screening", milestone: "discovery" },
@@ -104,9 +106,19 @@ const PHASE_META_TABLE = {
   },
   quality_rob2: { short: "RoB 2", long: "Risk of bias (RoB 2)", milestone: "evidence" },
   quality_robins_i: { short: "ROBINS-I", long: "Risk of bias (ROBINS-I)", milestone: "evidence" },
-  quality_casp: { short: "CASP", long: "Quality appraisal (CASP)", milestone: "evidence" },
-  quality_mmat: { short: "MMAT", long: "Quality appraisal (MMAT)", milestone: "evidence" },
-  phase_4b_embedding: { short: "Embedding", long: "Evidence indexing (embeddings)", milestone: "evidence" },
+  quality_casp: {
+    short: "CASP",
+    long: "Quality appraisal (CASP)",
+    milestone: "evidence",
+    description: "Critical Appraisal Skills Programme",
+  },
+  quality_mmat: {
+    short: "MMAT",
+    long: "Quality appraisal (MMAT)",
+    milestone: "evidence",
+    description: "Mixed Methods Appraisal Tool",
+  },
+  phase_4b_embedding: { short: "Embedding", long: "Evidence indexing", milestone: "evidence" },
   phase_5_synthesis: { short: "Synthesis", long: "Evidence synthesis", milestone: "synthesis" },
   phase_5_narrative_direction: { short: "Narrative", long: "Narrative direction", milestone: "synthesis" },
   phase_5b_knowledge_graph: { short: "Knowledge graph", long: "Knowledge graph", milestone: "synthesis" },
@@ -120,7 +132,7 @@ const PHASE_META_TABLE = {
   phase_6_hyde: { short: "Query drafting", long: "Retrieval query drafting (HyDE)", milestone: "manuscript" },
   phase_6a2_outline: { short: "Outline", long: "Section outlines", milestone: "manuscript" },
   phase_6_writing_outline: { short: "Outline", long: "Section outlines", milestone: "manuscript" },
-  phase_6_rerank: { short: "Reranking", long: "Evidence reranking", milestone: "manuscript" },
+  phase_6_rerank: { short: "Evidence reranking", long: "Evidence reranking", milestone: "manuscript" },
   phase_6b_phase_a: { short: "Core sections", long: "Drafting Abstract to Results", milestone: "manuscript" },
   phase_6c_phase_b: {
     short: "Discussion",
@@ -156,7 +168,7 @@ const PHASE_META_TABLE = {
     long: "Custom diagrams: placement",
     milestone: "manuscript",
   },
-  phase_6_humanizer: { short: "Humanizer", long: "Humanizer pass", milestone: "manuscript" },
+  phase_6_humanizer: { short: "Style polish", long: "Style polish", milestone: "manuscript" },
   phase_7_audit: { short: "Audit", long: "Manuscript audit", milestone: "finalize" },
   finalize: { short: "Finalize", long: "Finalize and export", milestone: "finalize" },
 } as const satisfies Record<string, PhaseMeta>
@@ -248,6 +260,12 @@ export function phaseLabel(idOrRaw: string, form: "short" | "long" = "long"): st
   const key = normalizePhaseKey(idOrRaw)
   const stripped = key.replace(/^phase_\d+[a-z]?\d*_/, "").replace(/^quality_/, "")
   return sentenceCaseSnake(stripped || key) || idOrRaw
+}
+
+/** Tooltip text for a phase label that abbreviates a tool name (e.g. CASP), else undefined. */
+export function phaseTitle(idOrRaw: string): string | undefined {
+  const id = resolvePhaseId(idOrRaw)
+  return id ? PHASE_META[id].description : undefined
 }
 
 /** Interleaved phases that belong to a parent milestone but are not in PHASE_MILESTONES[].phases. */
@@ -632,7 +650,7 @@ export function isNeedsRevisionStatus(raw: string | null | undefined): boolean {
 }
 
 export const NEEDS_REVISION_EXPLANATION =
-  "The run finished, but the manuscript audit gate flagged issues that need revision. Results are available; open Results › Quality › Audit findings to see what to fix."
+  "The run finished, but the manuscript audit gate flagged issues that need revision. Results are available; open Results › Quality › Final manuscript checks to see what to fix."
 
 /** True when a run is parked at an external human gate (not actively streaming). */
 export function isParkedGateStatus(raw: string | null | undefined): boolean {

@@ -11,6 +11,18 @@ function events(items: ReturnType<typeof buildRenderItems>) {
 }
 
 describe("buildRenderItems milestone grouping", () => {
+  it("gives a phase description the timestamp of its phase_start, else the next event", () => {
+    const withTs = buildRenderItems([
+      { type: "phase_start", phase: "phase_7_audit", description: "Running audit...", total: null, ts: "2026-03-12T00:00:05Z" },
+    ])
+    expect(seps(withTs)[0]).toEqual(expect.objectContaining({ description: "Running audit...", ts: "2026-03-12T00:00:05Z" }))
+    const withoutTs = buildRenderItems([
+      { type: "phase_start", phase: "phase_7_audit", description: "Running audit...", total: null, ts: "" },
+      { type: "status", message: "Audit done", ts: "2026-03-12T00:00:09Z" },
+    ])
+    expect(seps(withoutTs)[0]).toEqual(expect.objectContaining({ ts: "2026-03-12T00:00:09Z" }))
+  })
+
   it("opens Start separator for pre-phase events", () => {
     const items = buildRenderItems([
       { type: "db_ready", ts: "2026-03-12T00:00:00Z" },

@@ -167,6 +167,24 @@ describe("RunNavCard actions menu", () => {
     expect(await screen.findByPlaceholderText("Add a note...")).toBeInTheDocument()
   })
 
+  it("shows a muted workflow id and created time line", () => {
+    renderHistoryCard({ workflow_id: "wf-0004" })
+    expect(screen.getByText(/^wf-0004 · .+\d{1,2}:\d{2}/)).toBeInTheDocument()
+  })
+
+  it("shows a read-only note on lane cards", () => {
+    const model = buildRunCardModel({
+      source: "lane",
+      entry: { ...baseEntry, notes: "Pilot for the India grant" },
+      variant: "completed",
+      isSelected: false,
+    })
+    renderWithProvider(
+      <RunNavCard model={model} collapsed={false} wfIdCopied={null} onCopyWorkflowId={async () => {}} />,
+    )
+    expect(screen.getByText("Pilot for the India grant")).toBeInTheDocument()
+  })
+
   it("uses the shared status label instead of hard-coded caps", () => {
     renderHistoryCard({ status: "streaming", live_run_id: null })
     expect(screen.getByText("Reconnecting")).toBeInTheDocument()

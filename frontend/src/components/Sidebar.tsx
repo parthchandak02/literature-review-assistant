@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react"
-import { ChevronLeft, ChevronRight, Plus, X } from "lucide-react"
+import { ChevronLeft, ChevronRight, Plus } from "lucide-react"
 import { cn } from "@/lib/utils"
 import {
   historyFetchErrorMessage,
@@ -292,32 +292,32 @@ export function Sidebar({
           />
         )}
         <ThemeToggle className="shrink-0" />
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <button
-              type="button"
-              onClick={onToggle}
-              aria-label={isMobile ? "Close menu" : collapsed ? "Expand sidebar" : "Collapse sidebar"}
-              aria-keyshortcuts={isMobile ? undefined : "Meta+B Control+B"}
-              className={cn(
-                "flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-muted transition-colors",
-                "hover:bg-surface-2/60 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-                !railCollapsed && "ml-auto",
-              )}
-            >
-              {isMobile ? (
-                <X className="h-4 w-4" aria-hidden />
-              ) : collapsed ? (
-                <ChevronRight className="h-4 w-4" aria-hidden />
-              ) : (
-                <ChevronLeft className="h-4 w-4" aria-hidden />
-              )}
-            </button>
-          </TooltipTrigger>
-          <TooltipContent side={railCollapsed ? "right" : "top"} className="text-xs">
-            {isMobile ? "Close menu" : `${collapsed ? "Expand" : "Collapse"} sidebar (${shortcut})`}
-          </TooltipContent>
-        </Tooltip>
+        {!isMobile && (
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                type="button"
+                onClick={onToggle}
+                aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
+                aria-keyshortcuts="Meta+B Control+B"
+                className={cn(
+                  "flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-muted transition-colors",
+                  "hover:bg-surface-2/60 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                  !railCollapsed && "ml-auto",
+                )}
+              >
+                {collapsed ? (
+                  <ChevronRight className="h-4 w-4" aria-hidden />
+                ) : (
+                  <ChevronLeft className="h-4 w-4" aria-hidden />
+                )}
+              </button>
+            </TooltipTrigger>
+            <TooltipContent side={railCollapsed ? "right" : "top"} className="text-xs">
+              {`${collapsed ? "Expand" : "Collapse"} sidebar (${shortcut})`}
+            </TooltipContent>
+          </Tooltip>
+        )}
       </div>
     </>
   )

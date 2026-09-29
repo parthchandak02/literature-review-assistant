@@ -60,11 +60,11 @@ vi.mock("@/lib/api", async (importOriginal) => {
 
 vi.mock("sonner", () => ({ toast: { error: vi.fn(), success: vi.fn() } }))
 
-function renderView(onApprove?: (o: unknown[]) => Promise<void>) {
+function renderView(onApprove?: (o: unknown[]) => Promise<void>, readOnly = false) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   return render(
     <QueryClientProvider client={client}>
-      <ScreeningReviewView runId="run-1" workflowId="wf-1" onApproveAndResume={onApprove} />
+      <ScreeningReviewView runId="run-1" workflowId="wf-1" onApproveAndResume={onApprove} readOnly={readOnly} />
     </QueryClientProvider>,
   )
 }
@@ -78,13 +78,121 @@ describe("ScreeningReviewView", () => {
     fetchScreeningSummary.mockClear()
   })
 
+  it("is read-only once screening was approved", async () => {
+    sessionStorage.setItem(
+      screeningOverridesStorageKey("wf-1"),
+      JSON.stringify([{ paper_id: "p2", decision: "exclude" }]),
+    )
+    const user = userEvent.setup()
+    renderView(vi.fn(async () => {}), true)
+    const row = await rowFor("Paper Two")
+    expect(screen.getByTestId("screening-read-only-banner")).toHaveTextContent(
+      "Screening was approved; this is a read-only view of the final decisions",
+    )
+    expect(screen.queryByRole("progressbar")).toBeNull()
+    expect(screen.queryByText(/Reviewed \d+ of/)).toBeNull()
+    expect(screen.queryByTestId("screening-approval-bar")).toBeNull()
+    expect(screen.queryByRole("button", { name: /Approve screening/ })).toBeNull()
+    expect(within(row).queryByRole("button", { name: "Include" })).toBeNull()
+    expect(within(row).queryByRole("checkbox")).toBeNull()
+    expect(within(row).queryByText(/Override:/)).toBeNull()
+    expect(screen.queryByLabelText("Select all matching")).toBeNull()
+    expect(screen.queryByRole("button", { name: /Undo/ })).toBeNull()
+    expect(screen.queryByRole("button", { name: /^Overridden/ })).toBeNull()
+
+    row.focus()
+    await user.keyboard("e")
+    expect(within(row).queryByText(/Override:/)).toBeNull()
+    await user.keyboard("{Enter}")
+    expect(within(row).getByRole("button", { name: /Paper Two/ })).toHaveAttribute("aria-expanded", "true")
+    expect(sessionStorage.getItem(screeningOverridesStorageKey("wf-1"))).toContain("p2")
+  })
+
+  it("loads saved overrides once the gate turns editable", async () => {
+    sessionStorage.setItem(
+      screeningOverridesStorageKey("wf-1"),
+      JSON.stringify([{ paper_id: "p2", decision: "exclude" }]),
+    )
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    const view = (readOnly: boolean) => (
+      <QueryClientProvider client={client}>
+        <ScreeningReviewView runId="run-1" workflowId="wf-1" readOnly={readOnly} />
+      </QueryClientProvider>
+    )
+    const { rerender } = render(view(true))
+    await rowFor("Paper Two")
+    rerender(view(false))
+    expect(within(await rowFor("Paper Two")).getByText("Override: Exclude")).toBeInTheDocument()
+    expect(sessionStorage.getItem(screeningOverridesStorageKey("wf-1"))).toContain("p2")
+  })
+
   it("shows live counts and sorts lowest confidence first", async () => {
     renderView()
-    expect(await screen.findByText("3 papers · 1 include · 1 exclude · 1 uncertain · 0 overridden")).toBeInTheDocument()
+    expect(await screen.findByTestId("screening-reviewer-line")).toHaveTextContent(
+      "3 screened by reviewers · 1 include · 1 exclude · 1 uncertain · 0 overridden",
+    )
+    expect(screen.queryByTestId("screening-automation-line")).not.toBeInTheDocument()
+    expect(screen.queryByRole("button", { name: /Removed by automation/ })).not.toBeInTheDocument()
     expect(screen.getByText("Reviewed 0 of 3")).toBeInTheDocument()
     expect(screen.getByText(/Calibrated on this run: .* 85% confident to include/)).toBeInTheDocument()
     const rows = screen.getAllByRole("row")
     expect(rows.map((r) => r.getAttribute("aria-label"))).toEqual(["Paper One", "Paper Two", "Paper Three"])
+  })
+
+  it("keeps automation removals out of reviewer counts and lets them be rescued", async () => {
+    const automated = (paper_id: string, title: string, automation_step: string) =>
+      paper({
+        paper_id,
+        title,
+        decision: "exclude",
+        final_decision: "exclude",
+        confidence: null,
+        decided_by: "keyword_filter",
+        automation_step,
+      })
+    fetchScreeningSummary.mockResolvedValueOnce({
+      ...summary,
+      total: 6,
+      papers: [
+        ...summary.papers,
+        automated("a1", "Auto One", "keyword_ranking"),
+        automated("a2", "Auto Two", "keyword_ranking"),
+        automated("a3", "Auto Three", "metadata_filter"),
+        paper({ paper_id: "f1", title: "Full Text Out", decision: "exclude", stage: "fulltext", confidence: 0.9 }),
+      ],
+    })
+    const user = userEvent.setup()
+    const onApprove = vi.fn(async () => {})
+    renderView(onApprove)
+    await rowFor("Paper One")
+    expect(screen.getByTestId("screening-reviewer-line")).toHaveTextContent(
+      "4 screened by reviewers · 1 include · 2 exclude (1 title/abstract, 1 full text) · 1 uncertain · 0 overridden",
+    )
+    expect(screen.getByTestId("screening-automation-line")).toHaveTextContent("Removed by automation 3")
+    expect(screen.getByText("Reviewed 0 of 4")).toBeInTheDocument()
+    expect(screen.getByRole("button", { name: /^All\s*4$/ })).toBeInTheDocument()
+    expect(screen.getByRole("button", { name: /^Exclude\s*2$/ })).toBeInTheDocument()
+    expect(screen.getAllByRole("row")).toHaveLength(4)
+
+    await user.click(screen.getByRole("button", { name: /^Removed by automation\s*3$/ }))
+    expect(screen.getAllByRole("row").map((r) => r.getAttribute("aria-label"))).toEqual([
+      "Auto One",
+      "Auto Three",
+      "Auto Two",
+    ])
+    const row = await rowFor("Auto Three")
+    expect(within(row).getByText(/Auto-removed · metadata filter/)).toBeInTheDocument()
+    await user.click(within(row).getByRole("button", { name: "Include" }))
+    expect(screen.getByTestId("screening-automation-line")).toHaveTextContent("Removed by automation 3 (1 rescued)")
+    expect(screen.getByText("Reviewed 0 of 4")).toBeInTheDocument()
+
+    await user.click(screen.getByRole("button", { name: /Approve screening/ }))
+    const dialog = await screen.findByRole("dialog")
+    expect(dialog).toHaveTextContent("2 included")
+    expect(dialog).toHaveTextContent("2 excluded")
+    expect(dialog).toHaveTextContent("2 removed by automation")
+    await user.click(within(dialog).getByRole("button", { name: "Approve and start extraction" }))
+    expect(onApprove).toHaveBeenCalledWith([{ paper_id: "a3", decision: "include" }])
   })
 
   it("shows who decided and why a paper was excluded, and lets it be rescued", async () => {

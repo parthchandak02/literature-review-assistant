@@ -47,7 +47,20 @@ function isRowTarget(target: EventTarget | null): boolean {
   return isElement(target) && target.hasAttribute(ROW_DATA_ATTRIBUTE)
 }
 
-export function shortcutFor(event: ShortcutEventLike): ShortcutCommand | null {
+const READ_ONLY_COMMANDS: ReadonlySet<ShortcutCommand["type"]> = new Set(["move", "expand", "help"])
+
+export const READ_ONLY_SCREENING_SHORTCUTS = SCREENING_SHORTCUTS.filter(
+  (s) => !["Include", "Exclude", "Undo last change", "Select or deselect"].includes(s.label),
+)
+
+/** Shortcut for the event; a read-only view only moves, expands and shows help. */
+export function shortcutFor(event: ShortcutEventLike, readOnly = false): ShortcutCommand | null {
+  const command = rawShortcutFor(event)
+  if (command && readOnly && !READ_ONLY_COMMANDS.has(command.type)) return null
+  return command
+}
+
+function rawShortcutFor(event: ShortcutEventLike): ShortcutCommand | null {
   if (event.metaKey || event.ctrlKey || event.altKey) return null
   if (isTypingTarget(event.target)) return null
   switch (event.key) {

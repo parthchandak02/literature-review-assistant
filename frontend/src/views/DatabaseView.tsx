@@ -16,6 +16,7 @@ import { Button } from "@/components/ui/button"
 import { FetchError, EmptyState, LoadingPane } from "@/components/ui/feedback"
 import { GlassTableShell } from "@/components/ui/glass-table-shell"
 import { ViewToolbar } from "@/components/ui/view-toolbar"
+import { InfoHint } from "@/components/ui/info-hint"
 import { LiveStreamStatus } from "@/components/run-status"
 import { TableSkeleton, Pagination } from "@/components/ui/table"
 import {
@@ -26,6 +27,8 @@ import {
   useDbPapersFacets,
 } from "@/hooks/useDbPapers"
 import { PAGE_SIZE_OPTIONS, useDbFilters, type PageSize } from "@/hooks/useDbFilters"
+import { usePrismaCounts } from "@/hooks/usePrismaCounts"
+import { storedRecordsReconciliation } from "@/components/database/storedRecords"
 import { papersExportUrl } from "@/lib/api/db"
 
 interface DatabaseViewProps {
@@ -49,7 +52,7 @@ function RunStateBadges({ isLive, isDone }: { isLive: boolean; isDone: boolean }
       {isLive && <LiveStreamStatus mode="compact" />}
       {isDone && (
         <Badge variant="success" size="sm">
-          Complete
+          Run complete
         </Badge>
       )}
     </>
@@ -78,6 +81,9 @@ function DatabaseViewBody({ runId, isDone, dbAvailable, isLive, isSSEConnected }
   const error = papersQuery.isError ? papersFetchErrorMessage(papersQuery.error) : null
   const hasBootstrapped = papersQuery.isFetched && outcomesQuery.isFetched
   const filterCount = table.activeFilterCount
+  const prismaQuery = usePrismaCounts(runId, { enabled: dbAvailable && !isLive })
+  const reconciliation =
+    filterCount === 0 ? storedRecordsReconciliation(total, facetsQuery.data, prismaQuery.data?.live) : null
 
   const { setPage } = table
   useEffect(() => {
@@ -161,8 +167,12 @@ function DatabaseViewBody({ runId, isDone, dbAvailable, isLive, isSSEConnected }
   return (
     <div className="flex flex-col gap-4">
       <GlassTableShell>
-        <ViewToolbar bordered height="auto" className="flex-wrap gap-3 py-2">
-          <div className="flex min-w-0 flex-1 flex-col gap-2">
+        <ViewToolbar
+          bordered
+          height="auto"
+          className="flex-col items-stretch gap-2 py-2 sm:flex-row sm:flex-wrap sm:items-center sm:gap-3"
+        >
+          <div className="flex min-w-0 flex-col gap-2 sm:flex-1">
             <FacetFilters
               filters={filters}
               facets={facetsQuery.data}
@@ -184,7 +194,7 @@ function DatabaseViewBody({ runId, isDone, dbAvailable, isLive, isSSEConnected }
               onClearAll={table.clearAllFilters}
             />
           </div>
-          <div className="ml-auto flex shrink-0 items-center gap-2">
+          <div className="flex shrink-0 items-center justify-end gap-2 sm:ml-auto">
             <ColumnsMenu
               visible={visibleColumns}
               empty={empty}
@@ -208,7 +218,14 @@ function DatabaseViewBody({ runId, isDone, dbAvailable, isLive, isSSEConnected }
             page={page}
             pageSize={pageSize}
             total={total}
-            itemLabel={total === 1 ? "paper" : "papers"}
+            itemLabel={total === 1 ? "stored record" : "stored records"}
+            labelHint={
+              <InfoHint label="About stored records">
+                {reconciliation ??
+                  "Stored records can include superseded search results and duplicates, so this count can differ from the PRISMA numbers. Clear the filters to see how the totals reconcile."}{" "}
+                PRISMA counts are in Results › Figures.
+              </InfoHint>
+            }
             pageSizeOptions={PAGE_SIZE_OPTIONS}
             onPageSizeChange={(size) => table.setPageSize(size as PageSize)}
             onPrev={() => table.setPage(page - 1)}

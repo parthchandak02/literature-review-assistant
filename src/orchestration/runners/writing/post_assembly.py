@@ -587,7 +587,12 @@ async def run_post_assembly(
                 ),
                 FlowchartPhase(
                     label="After Deduplication",
-                    count=prisma_counts.records_screened + prisma_counts.records_excluded_screening,
+                    count=prisma_counts.records_after_deduplication,
+                    sublabel=(
+                        f"{prisma_counts.automation_excluded} removed by automation tools"
+                        if prisma_counts.automation_excluded > 0
+                        else None
+                    ),
                 ),
                 FlowchartPhase(
                     label="Title/Abstract Screening",

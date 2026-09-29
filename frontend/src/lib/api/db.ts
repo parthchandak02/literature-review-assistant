@@ -10,7 +10,10 @@ export interface PaperAllRow {
   doi: string | null
   url: string | null
   country: string | null
+  /** `removed_by_automation` when an automated step removed the record before reviewer screening;
+   * `duplicate` or `superseded` for stored records that never reached screening. */
   ta_decision: string | null
+  automation_step?: string | null
   ft_decision: string | null
   primary_study_status: string | null
   extraction_confidence: number | null
@@ -122,6 +125,9 @@ export interface PaperDetail {
   journal: string | null
   abstract: string | null
   keywords: string[]
+  automation_step?: string | null
+  /** `duplicate` or `superseded` for stored records that never reached screening. */
+  unscreened_origin?: string | null
   screening: PaperScreeningStage[]
   extraction: PaperExtractionSummary | null
   quality: PaperQualitySummary | null
@@ -139,13 +145,19 @@ export interface PapersAllResponseWithFacets extends PapersAllResponse {
   facets: PapersFacets
 }
 
+/** Mirrors `GradeSoFRow` in src/models/quality.py. */
 export interface GradeSofRow {
-  outcome: string
-  studies: number | null
-  participants: number | null
-  effect: string
+  outcome_name: string
+  n_studies: number | null
+  study_design: string | null
+  risk_of_bias: string | null
+  inconsistency: string | null
+  indirectness: string | null
+  imprecision: string | null
+  other_considerations: string | null
   certainty: string
-  reasons: string[]
+  effect_summary: string | null
+  starting_certainty?: string | null
 }
 
 export interface GradeSofResponse {
@@ -331,6 +343,41 @@ export function prosperoFormDocxUrl(runId: string): string {
 
 export function prosperoFormMarkdownUrl(runId: string): string {
   return `${API_BASE}/run/${encodeURIComponent(runId)}/prospero-form.md`
+}
+
+/** Backend PRISMACounts (src/models/additional.py), as served by /prisma-counts. */
+export interface PrismaLiveCounts {
+  total_identified_databases: number
+  total_identified_other: number
+  duplicates_removed: number
+  records_after_deduplication: number
+  automation_excluded: number
+  automation_breakdown: Record<string, number>
+  records_screened: number
+  records_excluded_screening: number
+  reports_sought: number
+  reports_not_retrieved: number
+  reports_assessed: number
+  reports_excluded_with_reasons: Record<string, number>
+  total_included: number
+  arithmetic_valid: boolean
+}
+
+export interface PrismaCountsResponse {
+  workflow_id: string
+  live: PrismaLiveCounts
+  sidecar: { version: number; generated_at: string; figure: string; counts: PrismaLiveCounts } | null
+  /** null when the run has no prisma_counts.json sidecar (figure predates sidecars). */
+  figure_stale: boolean | null
+}
+
+export async function fetchPrismaCounts(runId: string): Promise<PrismaCountsResponse | null> {
+  try {
+    return await apiFetch<PrismaCountsResponse>(`/run/${encodeURIComponent(runId)}/prisma-counts`)
+  } catch (err) {
+    if (err instanceof APIResponseError && err.status === 404) return null
+    throw err
+  }
 }
 
 export function prismaFlowZipUrl(runId: string): string {

@@ -134,3 +134,25 @@ def test_grade_sof_row_model_roundtrip():
     assert row.certainty == GRADECertainty.HIGH
     d = row.model_dump()
     assert d["outcome_name"] == "Test outcome"
+
+
+def test_build_sof_table_singular_assessment_and_full_summary() -> None:
+    justification = (
+        "Downgraded one level for risk of bias based on the highest concern across 1 assessments. "
+        "Downgraded one level for imprecision because total N was 61. "
+        "Indirectness should be reviewed manually because directness was not assessed automatically."
+    )
+    assessment = _make_assessment().model_copy(update={"justification": justification})
+    full = build_sof_table([assessment], effect_summary_limit=None).rows[0].effect_summary
+    assert "across 1 assessment." in full
+    assert "1 assessments" not in full
+    assert full.endswith("assessed automatically.")
+    assert build_sof_table([assessment]).rows[0].effect_summary.endswith("...")
+
+
+def test_build_sof_table_exposes_starting_certainty() -> None:
+    assessment = _make_assessment(study_designs="cross_sectional", final_certainty=GRADECertainty.LOW).model_copy(
+        update={"starting_certainty": GRADECertainty.LOW, "risk_of_bias_downgrade": 0}
+    )
+    row = build_sof_table([assessment]).rows[0]
+    assert row.starting_certainty == GRADECertainty.LOW

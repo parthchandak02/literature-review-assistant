@@ -87,3 +87,48 @@ describe("ConfigView draft editor", () => {
     expect(onPrepareProspero).toHaveBeenCalledWith("research_question: x\n")
   })
 })
+
+describe("ConfigView without a saved config", () => {
+  function renderSaved(historicalStatus: string | null) {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response("not found", { status: 404 }))
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    return render(
+      <QueryClientProvider client={client}>
+        <ConfigView workflowId="wf-9" historicalStatus={historicalStatus} />
+      </QueryClientProvider>,
+    )
+  }
+
+  afterEach(() => vi.restoreAllMocks())
+
+  it("shows a generating state for config_generating runs", async () => {
+    renderSaved("config_generating")
+    expect(await screen.findByText("Generating the review config…")).toBeInTheDocument()
+    expect(screen.queryByText(/Older CLI runs/)).not.toBeInTheDocument()
+  })
+
+  it("replaces the spinner with a restart action when generation stalled", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response("not found", { status: 404 }))
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    const onStartNewReviewWithQuestion = vi.fn()
+    render(
+      <QueryClientProvider client={client}>
+        <ConfigView
+          workflowId="wf-9"
+          historicalStatus="config_generating"
+          isConfigStalled
+          onStartNewReviewWithQuestion={onStartNewReviewWithQuestion}
+        />
+      </QueryClientProvider>,
+    )
+    expect(await screen.findByText("Config generation stopped responding")).toBeInTheDocument()
+    expect(screen.queryByText("Generating the review config…")).not.toBeInTheDocument()
+    await userEvent.click(screen.getByRole("button", { name: "Start a new review with this question" }))
+    expect(onStartNewReviewWithQuestion).toHaveBeenCalledTimes(1)
+  })
+
+  it("keeps the legacy copy for other runs", async () => {
+    renderSaved("completed")
+    expect(await screen.findByText(/Older CLI runs may not have review.yaml persisted/)).toBeInTheDocument()
+  })
+})

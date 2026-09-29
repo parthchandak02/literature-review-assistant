@@ -34,6 +34,24 @@ describe("ConfirmDialog", () => {
     expect(screen.getByRole("button", { name: "Delete permanently" })).toBeEnabled()
   })
 
+  it("has a Close control alongside Cancel", async () => {
+    const user = userEvent.setup()
+    const onOpenChange = vi.fn()
+    render(
+      <ConfirmDialog
+        open
+        onOpenChange={onOpenChange}
+        title="Archive?"
+        description="Moves it to Archived."
+        confirmLabel="Archive"
+        onConfirm={vi.fn()}
+      />,
+    )
+    expect(screen.getByRole("button", { name: "Cancel" })).toBeInTheDocument()
+    await user.click(screen.getByRole("button", { name: "Close" }))
+    expect(onOpenChange).toHaveBeenCalledWith(false)
+  })
+
   it("closes after a successful confirm", async () => {
     const user = userEvent.setup()
     const onOpenChange = vi.fn()

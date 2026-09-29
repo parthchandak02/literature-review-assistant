@@ -5,6 +5,21 @@ export function communityColor(communityId: number): string {
   return `var(--color-graph-community-${index})`
 }
 
+/** Community ids are 0-based; people count clusters from 1. */
+export function clusterNumber(communityId: number): number {
+  return communityId + 1
+}
+
+const GENERIC_CLUSTER_LABEL = /^cluster\s+\d+$/i
+
+/** "Cluster 1" for the generic fallback label (backend numbers from 0), else "Cluster 1: <label>" or the label alone. */
+export function clusterName(communityId: number, label: string | null | undefined, withNumber = true): string {
+  const text = (label ?? "").trim()
+  const numbered = `Cluster ${clusterNumber(communityId)}`
+  if (!text || GENERIC_CLUSTER_LABEL.test(text)) return numbered
+  return withNumber ? `${numbered}: ${text}` : text
+}
+
 const VAR_RE = /var\(\s*(--[\w-]+)\s*(?:,\s*([^()]*(?:\([^()]*\))?[^()]*))?\)/g
 
 export function inlineCssVars(value: string, lookup: (name: string) => string): string {

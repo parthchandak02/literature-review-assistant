@@ -36,6 +36,11 @@ export interface ConfigViewProps {
   onSaveProsperoRegistration?: (registration: ProsperoRegistration) => void | Promise<void>
   onRegenerateProsperoDrafts?: () => void | Promise<void>
   onStartWithoutRegistration?: () => void | Promise<void>
+  historicalStatus?: string | null
+  /** Config generation stopped responding (shared stall rule, lib/configGenerationStall). */
+  isConfigStalled?: boolean
+  /** Fallback when no in-session retry exists: New review with the same question. */
+  onStartNewReviewWithQuestion?: () => void
 }
 
 export interface DraftConfigContext {
@@ -71,6 +76,9 @@ export function ConfigView({
   onSaveProsperoRegistration,
   onRegenerateProsperoDrafts,
   onStartWithoutRegistration,
+  historicalStatus = null,
+  isConfigStalled = false,
+  onStartNewReviewWithQuestion,
 }: ConfigViewProps) {
   const isDraft = draftConfig !== null
   const isPastedDraft = isDraft && draftConfig.request === null
@@ -88,6 +96,7 @@ export function ConfigView({
     isLoading: loading,
     error: queryError,
   } = useRunConfig(workflowId, { enabled: !isDraft && Boolean(workflowId) })
+  const isGeneratingStatus = (historicalStatus ?? "").trim().toLowerCase() === "config_generating"
   const error = queryError
     ? (queryError instanceof Error ? queryError.message : "Failed to load config")
     : !loading && yamlContent === null && workflowId && !isDraft
@@ -138,7 +147,7 @@ export function ConfigView({
         detail,
         status,
       }
-    })
+    }).filter((step) => !(step.key === "web_research_fallback" && step.status === "skipped"))
   }, [draftActiveStepIndex, draftConfig, generationSummary, isDraft, reviewType])
 
   const showProsperoGate = isAwaitingProspero || prosperoPrepareInProgress
@@ -175,6 +184,42 @@ export function ConfigView({
         sub="Workflow ID is not assigned yet. Config will be available shortly."
         className="py-12"
       />
+    )
+  }
+
+  const canRetryInSession = Boolean(draftConfig?.request && onRetryDraftGeneration)
+  if (isConfigStalled && !draftGenerating && !yamlContent && !draftYaml.trim()) {
+    return (
+      <div role="status" className="flex flex-col items-center justify-center gap-3 py-12 text-center">
+        <AlertTriangle className="size-6 text-intent-warning" aria-hidden />
+        <p className="text-sm font-medium text-foreground">Config generation stopped responding</p>
+        <p className="max-w-sm text-xs leading-relaxed text-muted">
+          {canRetryInSession
+            ? "No progress for over an hour. Retry to generate the config again."
+            : "No progress for over an hour. Start a new review with the same question to generate the config again."}
+        </p>
+        {canRetryInSession ? (
+          <Button type="button" size="sm" onClick={onRetryDraftGeneration}>
+            Retry config generation
+          </Button>
+        ) : onStartNewReviewWithQuestion ? (
+          <Button type="button" size="sm" onClick={onStartNewReviewWithQuestion}>
+            Start a new review with this question
+          </Button>
+        ) : null}
+      </div>
+    )
+  }
+
+  if (isGeneratingStatus && !yamlContent && !isDraft) {
+    return (
+      <div role="status" className="flex flex-col items-center justify-center gap-3 py-12 text-center">
+        <Spinner size="xl" className="text-intent-active" />
+        <p className="text-sm font-medium text-foreground">Generating the review config…</p>
+        <p className="max-w-xs text-xs leading-relaxed text-muted">
+          The config appears here once generation finishes.
+        </p>
+      </div>
     )
   }
 
@@ -217,15 +262,14 @@ export function ConfigView({
           ) : null}
 
           <div className="card-surface overflow-hidden">
-            <ViewToolbar
-              className="!h-auto py-3"
-              title={<h3 className="text-sm font-semibold text-foreground">Review Config (YAML)</h3>}
-              actions={
+            <ViewToolbar height="auto">
+              <div className="flex min-w-0 flex-1 flex-col gap-0.5 sm:flex-row sm:items-center sm:justify-between sm:gap-3">
+                <h3 className="text-sm font-semibold text-foreground">Review Config (YAML)</h3>
                 <span className="text-xs text-muted">
                   {isDraft ? "Generated live before launch" : "Timestamped config used for this run"}
                 </span>
-              }
-            />
+              </div>
+            </ViewToolbar>
             <div className="px-4 py-4 space-y-3">
               {isDraft && draftConfig?.generationError && (
                 <div className="rounded-md border border-intent-warning-border bg-intent-warning-subtle p-3 text-xs text-intent-warning">

@@ -66,14 +66,10 @@ export function ReviewTypeDecisionStage({ onComplete, onCancel }: ReviewTypeDeci
   }
 
   function handleBack() {
-    if (frames.length > 1) {
-      setFrames((prev) => prev.slice(0, -1))
-      return
-    }
-    onCancel?.()
+    setFrames((prev) => (prev.length > 1 ? prev.slice(0, -1) : prev))
   }
 
-  const canGoBack = frames.length > 1 || Boolean(onCancel)
+  const canGoBack = frames.length > 1
 
   return (
     <div className="glass-panel border border-border/80 rounded-panel p-5 space-y-4" role="group" aria-label="Review type decision guide">
@@ -152,6 +148,12 @@ interface DecisionQuestionProps {
   onAnswer: (answer: TriState) => void
 }
 
+const ANSWERS: ReadonlyArray<{ value: TriState; label: string }> = [
+  { value: "yes", label: "Yes" },
+  { value: "no", label: "No" },
+  { value: "unsure", label: "Not sure" },
+]
+
 function DecisionQuestion({ icon, question, hint, onAnswer }: DecisionQuestionProps) {
   return (
     <div className="space-y-4">
@@ -164,16 +166,19 @@ function DecisionQuestion({ icon, question, hint, onAnswer }: DecisionQuestionPr
           <p className="text-xs text-muted leading-relaxed">{hint}</p>
         </div>
       </div>
-      <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
-        <Button type="button" size="lg" className="font-medium" onClick={() => onAnswer("yes")}>
-          Yes
-        </Button>
-        <Button type="button" variant="outline" size="lg" className="font-medium" onClick={() => onAnswer("no")}>
-          No
-        </Button>
-        <Button type="button" variant="secondary" size="lg" className="font-medium" onClick={() => onAnswer("unsure")}>
-          Not sure
-        </Button>
+      <div className="grid grid-cols-1 gap-2 sm:grid-cols-3" role="group" aria-label="Your answer">
+        {ANSWERS.map(({ value, label }) => (
+          <Button
+            key={value}
+            type="button"
+            variant="outline"
+            size="lg"
+            className="font-medium"
+            onClick={() => onAnswer(value)}
+          >
+            {label}
+          </Button>
+        ))}
       </div>
     </div>
   )

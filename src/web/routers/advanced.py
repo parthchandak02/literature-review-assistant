@@ -16,6 +16,7 @@ from sse_starlette.sse import EventSourceResponse
 
 from src.export.prisma_flow_export import build_prisma_flow_zip_bytes
 from src.models.papers import decode_html_entities
+from src.utils.author_names import first_author_family
 from src.web.run_resolver import resolve_runtime_db
 from src.web.shared import (
     RunRequest,
@@ -115,19 +116,7 @@ async def get_knowledge_graph(run_id: str) -> dict:
             (_wf_id, _wf_id),
         ) as _nc:
             async for _nr in _nc:
-                _authors_raw = decode_html_entities(_nr[4] or "")
-                _first_author = ""
-                if _authors_raw:
-                    try:
-                        _authors_list = _json.loads(_authors_raw)
-                        if isinstance(_authors_list, list) and _authors_list:
-                            _first = str(_authors_list[0])
-                            _first_author = _first.split()[-1] if _first.split() else _first
-                        elif isinstance(_authors_list, str):
-                            _first_author = _authors_list.split(",")[0].strip().split()[-1]
-                    except (ValueError, TypeError):
-                        _first_part = _authors_raw.split(",")[0].strip()
-                        _first_author = _first_part.split()[-1] if _first_part.split() else _first_part
+                _first_author, _has_multiple = first_author_family(decode_html_entities(_nr[4] or ""))
                 nodes.append(
                     {
                         "id": _nr[0],
@@ -136,7 +125,7 @@ async def get_knowledge_graph(run_id: str) -> dict:
                         "study_design": _nr[3] or "unknown",
                         "community_id": -1,
                         "first_author": _first_author,
-                        "has_multiple_authors": "," in _authors_raw,
+                        "has_multiple_authors": _has_multiple,
                     }
                 )
 
@@ -268,6 +257,34 @@ async def download_prisma_diagram_png(run_id: str) -> FileResponse:
     )
 
 
+@router.get("/api/run/{run_id}/prisma-counts")
+async def get_prisma_counts(run_id: str) -> dict:
+    """Live PRISMA counts from runtime.db plus the prisma_counts.json sidecar the figure was drawn from."""
+    from src.db.repositories import WorkflowRepository
+    from src.prisma.regenerate import PRISMA_FIGURE_NAME
+    from src.prisma.sidecar import (
+        compute_live_prisma_counts,
+        prisma_counts_differ,
+        read_prisma_counts_sidecar,
+        sidecar_path_for,
+    )
+
+    resolved_db = await resolve_runtime_db(run_id)
+    run_dir = pathlib.Path(resolved_db).parent
+    workflow_id = await _resolve_workflow_id_from_db(resolved_db) or run_id
+    async with aiosqlite.connect(f"file:{resolved_db}?mode=ro", uri=True) as db:
+        db.row_factory = aiosqlite.Row
+        live = await compute_live_prisma_counts(WorkflowRepository(db), workflow_id)
+
+    sidecar = read_prisma_counts_sidecar(sidecar_path_for(run_dir / PRISMA_FIGURE_NAME))
+    return {
+        "workflow_id": workflow_id,
+        "live": live.model_dump(mode="json"),
+        "sidecar": sidecar.model_dump(mode="json") if sidecar else None,
+        "figure_stale": prisma_counts_differ(sidecar.counts, live) if sidecar else None,
+    }
+
+
 @router.get("/api/run/{run_id}/prisma-flow.zip")
 async def download_prisma_flow_zip(run_id: str) -> StreamingResponse:
     """Download PRISMA flow data as a ZIP of CSV files (summary, per-paper records, search identification)."""
@@ -326,7 +343,7 @@ async def get_grade_sof(run_id: str, fmt: str = "json") -> dict:
     except Exception:
         pass
 
-    table = build_sof_table(assessments, topic=topic)
+    table = build_sof_table(assessments, topic=topic, effect_summary_limit=None)
 
     if fmt == "latex":
         from src.export.ieee_latex import render_grade_sof_latex

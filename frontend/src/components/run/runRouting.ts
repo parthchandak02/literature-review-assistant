@@ -1,9 +1,15 @@
 import type { RunTab } from "@/context/runSessionTypes"
 
-export type RunGate = "config_generating" | "config_ready" | "awaiting_prospero" | "awaiting_review"
+export type RunGate =
+  | "config_generating"
+  | "config_stalled"
+  | "config_ready"
+  | "awaiting_prospero"
+  | "awaiting_review"
 
 export const GATE_ACTION_TAB: Record<RunGate, RunTab> = {
   config_generating: "config",
+  config_stalled: "config",
   config_ready: "config",
   awaiting_prospero: "config",
   awaiting_review: "review-screening",
@@ -17,10 +23,11 @@ export function resolveRunGate(input: {
   isAwaitingProspero: boolean
   isAwaitingReview: boolean
   isRunning: boolean
+  isConfigStalled?: boolean
 }): RunGate | null {
   if (input.isAwaitingReview) return "awaiting_review"
   const statuses = [input.status, input.historicalStatus].map((s) => (s ?? "").trim().toLowerCase())
-  if (statuses.includes("config_generating")) return "config_generating"
+  if (statuses.includes("config_generating")) return input.isConfigStalled ? "config_stalled" : "config_generating"
   if (!input.isRunning && statuses.includes("config_ready")) return "config_ready"
   if (input.isAwaitingProspero) return "awaiting_prospero"
   return null

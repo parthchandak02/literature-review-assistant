@@ -11,6 +11,7 @@ import { ScreeningSummaryHeader } from "@/components/screening/ScreeningSummaryH
 import { shortcutFor } from "@/components/screening/screeningKeyboard"
 import {
   approvalSummaryText,
+  isHumanDecision,
   screeningRowDomId,
   type HumanDecision,
 } from "@/components/screening/screeningModel"
@@ -22,6 +23,8 @@ interface ScreeningReviewViewProps {
   runId: string
   workflowId?: string | null
   onApproveAndResume?: (overrides: ScreeningOverride[]) => Promise<void>
+  /** True once the gate has passed: no approve bar, overrides or decision shortcuts. */
+  readOnly?: boolean
 }
 
 const NO_PAPERS: ScreenedPaper[] = []
@@ -32,11 +35,25 @@ function errorMessage(err: unknown, fallback: string): string {
   return message || fallback
 }
 
-export function ScreeningReviewView({ runId, workflowId, onApproveAndResume }: ScreeningReviewViewProps) {
+const PANEL_BOTTOM_PADDING = "max(1.5rem, env(safe-area-inset-bottom))"
+const APPROVAL_BAR_STYLE = {
+  bottom: `calc(-1 * ${PANEL_BOTTOM_PADDING})`,
+  marginBottom: `calc(-1 * ${PANEL_BOTTOM_PADDING})`,
+  paddingBottom: "calc(0.75rem + env(safe-area-inset-bottom, 0px))",
+} as const
+
+export function ScreeningReviewView({
+  runId,
+  workflowId,
+  onApproveAndResume,
+  readOnly: gatePassed = false,
+}: ScreeningReviewViewProps) {
   const summaryQuery = useScreeningSummary(runId)
-  const review = useScreeningReview(workflowId || runId, summaryQuery.data?.papers ?? NO_PAPERS)
+  const review = useScreeningReview(workflowId || runId, summaryQuery.data?.papers ?? NO_PAPERS, { readOnly: gatePassed })
   const { state, dispatch, visibleRows, visibleKeys, decide } = review
   const [status, setStatus] = useState<ApprovalStatus>({ kind: "idle" })
+  // An approval started here keeps its bar (progress, retry) after the gate clears.
+  const readOnly = gatePassed && status.kind === "idle"
   const [confirmOpen, setConfirmOpen] = useState(false)
   const [helpOpen, setHelpOpen] = useState(false)
   const [renderLimit, setRenderLimit] = useState(PAGE_SIZE)
@@ -92,7 +109,7 @@ export function ScreeningReviewView({ runId, workflowId, onApproveAndResume }: S
     altKey: boolean
     preventDefault: () => void
   }) => {
-    const command = shortcutFor(event)
+    const command = shortcutFor(event, readOnly)
     if (!command) return
     if (command.type === "help") {
       event.preventDefault()
@@ -161,13 +178,18 @@ export function ScreeningReviewView({ runId, workflowId, onApproveAndResume }: S
   const renderedRows = visibleRows.length > renderLimit ? visibleRows.slice(0, renderLimit) : visibleRows
   const hiddenCount = visibleRows.length - renderedRows.length
   const locked = status.kind !== "idle" && status.kind !== "approveFailed"
+  const headerCounts = readOnly
+    ? { ...review.finalCounts, overridden: review.rows.filter((r) => isHumanDecision(r.paper)).length }
+    : review.finalCounts
 
   return (
     <div className="flex flex-col min-h-full" onKeyDown={handleKeyDown}>
       <div className="space-y-4 flex-1 pb-4">
         <ScreeningSummaryHeader
-          counts={review.finalCounts}
+          counts={headerCounts}
           reviewedCount={review.reviewedCount}
+          readOnly={readOnly}
+          automation={review.automation}
           thresholds={summaryQuery.data.thresholds}
         />
 
@@ -198,6 +220,7 @@ export function ScreeningReviewView({ runId, workflowId, onApproveAndResume }: S
           onBulkClear={() => dispatch({ type: "clearOverrides", keys: selectedKeys })}
           onUndo={() => dispatch({ type: "undo" })}
           onHelpOpenChange={setHelpOpen}
+          readOnly={readOnly}
         />
 
         <ScreeningPaperList
@@ -212,6 +235,7 @@ export function ScreeningReviewView({ runId, workflowId, onApproveAndResume }: S
           onToggleExpanded={onToggleExpanded}
           onToggleSelected={onToggleSelected}
           onFocusRow={onFocusRow}
+          readOnly={readOnly}
         />
         {hiddenCount > 0 && (
           <div className="flex justify-center">
@@ -222,7 +246,12 @@ export function ScreeningReviewView({ runId, workflowId, onApproveAndResume }: S
         )}
       </div>
 
-      <div className="sticky bottom-0 z-10 -mx-1 px-4 py-3 bg-surface-1 shadow-lg border border-border rounded-panel">
+      {!readOnly && (
+      <div
+        className="sticky z-20 -mx-6 border-t border-border bg-background px-6 pt-3"
+        style={APPROVAL_BAR_STYLE}
+        data-testid="screening-approval-bar"
+      >
         <ScreeningApprovalBar
           status={status}
           overrideCount={review.finalCounts.overridden}
@@ -230,9 +259,10 @@ export function ScreeningReviewView({ runId, workflowId, onApproveAndResume }: S
           onRetryResume={() => void runApproval(true)}
         />
       </div>
+      )}
 
       <ConfirmDialog
-        open={confirmOpen && !locked}
+        open={confirmOpen && !locked && !readOnly}
         onOpenChange={setConfirmOpen}
         title="Approve screening and start extraction?"
         description={approvalSummaryText(review.finalCounts)}

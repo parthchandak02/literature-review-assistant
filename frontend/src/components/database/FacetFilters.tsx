@@ -1,4 +1,4 @@
-import { useState } from "react"
+import { useRef, useState } from "react"
 import * as Popover from "@radix-ui/react-popover"
 import { ChevronDown } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
@@ -15,6 +15,7 @@ import {
 import { FilterComboboxPopover } from "@/components/database/FilterComboboxPopover"
 import { facetOptions, type FacetOption } from "@/components/database/facetOptions"
 import { FACET_LABELS, type MultiFacetKey } from "@/hooks/useDbFilters"
+import { useEdgeFade } from "@/hooks/useEdgeFade"
 import type { PapersFacets, PapersQuery } from "@/lib/api/db"
 import { cn } from "@/lib/utils"
 
@@ -51,8 +52,16 @@ export function FacetFilters({
   isLoadingTitleSuggestions,
   isLoadingAuthorSuggestions,
 }: FacetFiltersProps) {
+  const rowRef = useRef<HTMLDivElement | null>(null)
+  const fadeStyle = useEdgeFade(rowRef)
   return (
-    <div className="flex flex-wrap items-center gap-1.5" role="group" aria-label="Filter papers">
+    <div
+      ref={rowRef}
+      style={fadeStyle}
+      className="-my-1 flex flex-nowrap items-center gap-1.5 overflow-x-auto scrollbar-none py-1 *:shrink-0 sm:flex-wrap sm:overflow-visible"
+      role="group"
+      aria-label="Filter papers"
+    >
       <FilterComboboxPopover
         label="Title"
         value={filters.title}
@@ -115,6 +124,11 @@ interface FacetMenuProps {
   onClear: () => void
 }
 
+const MENU_HEADINGS: Partial<Record<MultiFacetKey, string>> = {
+  ta: "Title/abstract stage decision",
+  ft: "Full-text stage decision",
+}
+
 export function FacetMenu({ facetKey, label, selected, options, onToggle, onClear }: FacetMenuProps) {
   return (
     <DropdownMenu>
@@ -130,7 +144,7 @@ export function FacetMenu({ facetKey, label, selected, options, onToggle, onClea
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="start" className="max-h-80 w-60 overflow-y-auto">
-        <DropdownMenuLabel>{label}</DropdownMenuLabel>
+        <DropdownMenuLabel>{MENU_HEADINGS[facetKey] ?? label}</DropdownMenuLabel>
         {options.length === 0 ? (
           <div className="px-2 py-1.5 text-xs text-muted">No values yet.</div>
         ) : (
@@ -229,7 +243,7 @@ function YearRangeFilter({ yearMin, yearMax, years, onApply }: YearRangeFilterPr
           side="bottom"
           align="start"
           sideOffset={6}
-          className="z-50 w-64 rounded-panel border border-border glass-panel-strong p-3 shadow-lg"
+          className="z-50 w-64 rounded-panel border border-border bg-card p-3 shadow-lg"
         >
           <form
             className="grid gap-2"

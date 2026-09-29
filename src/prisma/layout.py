@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import replace
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from prisma_flow_diagram.prisma import (
@@ -64,6 +64,20 @@ def apply_adaptive_prisma_layout() -> type:
     )
 
     class AdaptivePrisma2020Diagram(Prisma2020Diagram):
+        def _main_right_text(self, lane: Any) -> dict[str, str]:
+            texts = super()._main_right_text(lane)
+            removed = dict(lane.get("removed_before_screening", {}))
+            if "automation" not in removed:
+                return texts
+            automation_lines = [f"Records removed by automation tools (n = {removed['automation']})"]
+            breakdown = removed.get("automation_breakdown") or {}
+            automation_lines.extend(f"  {label} (n = {n})" for label, n in breakdown.items())
+            ident_lines = [
+                line for line in texts[IDENT].splitlines() if not line.startswith("Records marked as ineligible")
+            ]
+            texts[IDENT] = "\n".join([*ident_lines[:2], *automation_lines, *ident_lines[2:]])
+            return texts
+
         def _draw_main_lane(
             self,
             *,

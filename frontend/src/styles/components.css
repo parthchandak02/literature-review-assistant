@@ -72,47 +72,12 @@
     background-color: color-mix(in srgb, var(--glass-surface-2) 95%, var(--glass-shade) 5%);
   }
 
-  /* PROSPERO gate attention ring */
-  @property --prospero-angle {
-    syntax: "<angle>";
-    inherits: false;
-    initial-value: 0deg;
-  }
-
-  @keyframes prospero-border-rotate {
-    to {
-      --prospero-angle: 360deg;
-    }
-  }
-
+  /* PROSPERO gate attention: static warning outline (no motion, no overlay) */
   .prospero-attention-border {
-    position: relative;
     border-radius: var(--radius-panel);
-  }
-
-  .prospero-attention-border::before {
-    content: "";
-    position: absolute;
-    inset: 0;
-    z-index: 2;
-    border-radius: inherit;
-    padding: 2px;
-    background: conic-gradient(
-      from var(--prospero-angle),
-      transparent 0deg 220deg,
-      var(--color-intent-warning) 300deg,
-      transparent 360deg
-    );
-    mask:
-      linear-gradient(#fff 0 0) content-box,
-      linear-gradient(#fff 0 0);
-    mask-composite: exclude;
-    -webkit-mask:
-      linear-gradient(#fff 0 0) content-box,
-      linear-gradient(#fff 0 0);
-    -webkit-mask-composite: xor;
-    animation: prospero-border-rotate 2.5s linear infinite;
-    pointer-events: none;
+    box-shadow:
+      0 0 0 1px color-mix(in srgb, var(--color-intent-warning) 55%, transparent),
+      0 0 0 4px color-mix(in srgb, var(--color-intent-warning) 12%, transparent);
   }
 
   @supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {

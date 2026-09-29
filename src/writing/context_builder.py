@@ -20,6 +20,7 @@ from src.extraction.inference_utils import (
 )
 from src.models import CandidatePaper, ExtractionRecord
 from src.models.additional import PRISMACounts
+from src.prisma.diagram import automation_breakdown_lines
 from src.writing.date_windows import (
     format_search_eligibility_window,
     normalize_criteria_date_windows,
@@ -255,12 +256,14 @@ class WritingGroundingData(BaseModel):
     # LLM arithmetic on grounding values is unreliable; every derived count must
     # be pre-computed here and passed as a named field.
     records_after_deduplication: int = 0
-    # Records removed by automated pre-screening (BM25 ranking auto-exclusion or
-    # keyword hard-gate) BEFORE LLM title/abstract screening. PRISMA 2020 item 16
-    # requires this to appear as "Automation tools (n=X)" in the flow diagram and
-    # to be disclosed in the Methods section ("Records removed before screening").
-    # 0 when no automated pre-filter was applied.
+    # Records removed by automated, non-reviewer steps (metadata filter, rule-based
+    # pre-filter, keyword ranking, batch pre-ranker) BEFORE reviewer screening.
+    # PRISMA 2020: "Records removed before screening: automation tools (n=X)".
+    # 0 when no automated step removed records.
     automation_excluded: int = 0
+    # Per-step display lines, e.g. ["metadata filter n=17", "batch pre-ranker n=11"].
+    automation_breakdown: list[str] = []
+    # Records that reached reviewer screening (records_after_deduplication - automation_excluded).
     total_screened: int
     # Pre-computed: total_screened - fulltext_sought (records excluded at T/A stage).
     # fulltext_sought = papers that passed T/A screening and were forwarded for full-text retrieval.
@@ -472,6 +475,16 @@ def _screening_reviewer_setup(screening_decisions: list[object] | None) -> tuple
         reviewers = "two independent automated reviewers"
     human_sentence = " A human reviewer checked and could override screening decisions." if human_count else ""
     return reviewers, adjudication, human_sentence
+
+
+def automation_removal_prefix(grounding: WritingGroundingData | None) -> str:
+    """PRISMA 'removed by automation tools' sentence plus a trailing space; "" when none."""
+    n = int(getattr(grounding, "automation_excluded", 0) or 0)
+    if n <= 0:
+        return ""
+    steps = list(getattr(grounding, "automation_breakdown", []) or [])
+    detail = f" ({', '.join(steps)})" if steps else ""
+    return f"Before reviewer screening, automation tools removed {n} records{detail}. "
 
 
 def _build_screening_method_description(
@@ -1007,13 +1020,6 @@ def build_writing_grounding(
         + prisma_counts.total_identified_other
         - prisma_counts.duplicates_removed
     )
-    _automation_excluded = min(max(0, prisma_counts.automation_excluded), _records_after_dedup)
-    _effective_screened = (
-        max(0, _records_after_dedup - _automation_excluded)
-        if _automation_excluded > 0
-        else max(0, prisma_counts.records_screened)
-    )
-    _effective_records_excluded_screening = max(0, _effective_screened - prisma_counts.reports_sought)
 
     _failed_dbs = sorted({_display_source_name(db) for db in (failed_databases or [])})
     _search_date = (search_date or "").strip()
@@ -1052,9 +1058,10 @@ def build_writing_grounding(
         total_identified=prisma_counts.total_identified_databases + prisma_counts.total_identified_other,
         duplicates_removed=prisma_counts.duplicates_removed,
         records_after_deduplication=_records_after_dedup,
-        automation_excluded=_automation_excluded,
-        total_screened=_effective_screened,
-        records_excluded_screening=_effective_records_excluded_screening,
+        automation_excluded=prisma_counts.automation_excluded,
+        automation_breakdown=automation_breakdown_lines(prisma_counts),
+        total_screened=prisma_counts.records_screened,
+        records_excluded_screening=prisma_counts.records_excluded_screening,
         fulltext_assessed=prisma_counts.reports_assessed,
         total_included=total_included_count,
         fulltext_excluded=fulltext_excluded_count,
@@ -1095,7 +1102,7 @@ def build_writing_grounding(
         heterogeneity_warning=heterogeneity_warning,
         screening_method_description=_build_screening_method_description(
             screening_decisions,
-            _effective_screened,
+            _records_after_dedup,
             batch_screen_forwarded=batch_screen_forwarded,
             batch_screen_excluded=batch_screen_excluded,
             batch_screen_threshold=batch_screen_threshold,
@@ -1234,25 +1241,26 @@ def format_grounding_block(data: WritingGroundingData) -> str:
         "Count arithmetic must be treated as pre-computed; use each value exactly as provided.",
     ]
     if data.automation_excluded > 0:
+        _breakdown = f" ({'; '.join(data.automation_breakdown)})" if data.automation_breakdown else ""
         lines.append(
-            f"Records removed by relevance pre-screening before independent dual screening: {data.automation_excluded}"
+            f"Records removed by automation tools before reviewer screening: {data.automation_excluded}{_breakdown}"
         )
         lines.append(
-            "CRITICAL -- PRISMA DISCLOSURE: The Methods section MUST state that "
-            f"{data.automation_excluded} records were excluded by a relevance "
-            "pre-screening step before title/abstract "
-            "independent dual screening. This step appears in the PRISMA flow diagram as "
-            "'Records removed before screening'. "
+            "CRITICAL -- PRISMA DISCLOSURE: The Methods and Results sections MUST state that "
+            f"{data.automation_excluded} records were removed by automated steps before reviewer "
+            "screening, naming each step with its count exactly as listed above. This appears in the "
+            "PRISMA flow diagram as 'Records removed by automation tools'. These records were NOT "
+            "screened by reviewers; do NOT count them as title/abstract exclusions. "
             "Do NOT omit or hide this step in the narrative."
         )
     lines += [
-        f"Records screened (title/abstract dual screening): {data.total_screened}",
+        f"Records screened (reached reviewer title/abstract screening): {data.total_screened}",
         f"Records excluded at title/abstract screening: {data.records_excluded_screening}",
         "CRITICAL: Use 'Records excluded at title/abstract screening' exactly as given. "
         "Do NOT compute this as screened minus assessed.",
         "PRISMA CHECK (screening stage invariant): records_after_deduplication = "
-        "records_removed_before_screening + records_screened. Use this invariant exactly; "
-        "do NOT restate screened as the post-dedup total when pre-screen exclusions are non-zero.",
+        "records_removed_by_automation + records_screened. Use this invariant exactly; "
+        "do NOT restate screened as the post-dedup total when automation removals are non-zero.",
         f"Reports sought for full-text retrieval (screened-in papers): {data.fulltext_sought}",
         f"Reports not retrieved (full text unavailable): {data.fulltext_not_retrieved}",
         f"Reports assessed for eligibility (full-text examined): {data.fulltext_assessed}",

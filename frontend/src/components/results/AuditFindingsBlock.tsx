@@ -1,7 +1,8 @@
-import { useMemo, useState } from "react"
+import { useMemo, useState, type ReactNode } from "react"
 import { useQuery } from "@tanstack/react-query"
 import { ClipboardCheck, Download, FolderOpen } from "lucide-react"
-import { Badge } from "@/components/ui/badge"
+import { Badge, type BadgeVariant } from "@/components/ui/badge"
+import { InfoHint } from "@/components/ui/info-hint"
 import { Button } from "@/components/ui/button"
 import { FetchError } from "@/components/ui/feedback"
 import { ResultsBlock } from "@/components/ui/section"
@@ -10,7 +11,20 @@ import { downloadUrl } from "@/lib/api"
 import { humanizeSnake } from "@/lib/humanize"
 import { findArtifactPath } from "@/lib/customDiagrams"
 import { AUDIT_FINDINGS_ANCHOR } from "@/lib/resultsCategories"
-import { AUDIT_KIND_BADGE, auditItemsFromPayload, fetchRunManuscriptAudit, splitAuditSummary, type AuditItem } from "./auditFindings"
+import { useWorkflowValidationSummaryWithChecks } from "@/hooks/useDbCosts"
+import {
+  AUDIT_KIND_BADGE,
+  auditGateCountLine,
+  auditGates,
+  contractGateCountLine,
+  fetchRunManuscriptAudit,
+  gateOverviewLine,
+  humanizeGateReason,
+  splitAuditSummary,
+  verdictBadgeVariant,
+  type AuditItem,
+} from "./auditFindings"
+import { QualityStatusBadge } from "./QualityStatusBadge"
 import { RESULTS_DOWNLOAD_BTN_CLS } from "./resultsShared"
 import { cn } from "@/lib/utils"
 
@@ -30,7 +44,9 @@ function AuditItemRow({ item }: { item: AuditItem }) {
         <Badge variant={AUDIT_KIND_BADGE[item.kind]} size="sm">
           {humanizeSnake(item.severityLabel)}
         </Badge>
-        <span className="text-sm font-medium text-foreground">{humanizeSnake(item.title) || item.title}</span>
+        <span className="text-sm font-medium text-foreground">
+          {item.gate === "contract" ? item.title : humanizeSnake(item.title) || item.title}
+        </span>
         {item.section && <span className="text-2xs text-muted">{item.section}</span>}
       </div>
       {item.detail && <p className="text-xs text-muted leading-relaxed">{item.detail}</p>}
@@ -77,34 +93,81 @@ function AuditFallback({
   )
 }
 
-export function AuditFindingsBlock({ runId, outputs, gateFailureReasons = [], onOpenFiles }: AuditFindingsBlockProps) {
+function GateGroup({
+  title,
+  hint,
+  statusVariant,
+  statusLabel,
+  countLine,
+  items,
+  collapseAfter,
+}: {
+  title: string
+  hint?: ReactNode
+  statusVariant: BadgeVariant
+  statusLabel: string
+  countLine: string
+  items: AuditItem[]
+  collapseAfter?: number
+}) {
   const [expanded, setExpanded] = useState(false)
+  const limit = collapseAfter ?? items.length
+  const visible = expanded ? items : items.slice(0, limit)
+  return (
+    <section className="flex flex-col gap-1 pt-2" aria-label={title}>
+      <div className="flex flex-wrap items-center gap-x-2 gap-y-1 border-b border-border/60 pb-1.5">
+        <h4 className="text-sm font-semibold text-foreground">{title}</h4>
+        {hint}
+        <QualityStatusBadge variant={statusVariant} label={statusLabel} />
+        <span className="text-xs text-muted tabular-nums">{countLine}</span>
+      </div>
+      {items.length > 0 && (
+        <ul className="divide-y divide-border/60">
+          {visible.map((item) => (
+            <AuditItemRow key={item.id} item={item} />
+          ))}
+        </ul>
+      )}
+      {items.length > limit && (
+        <Button
+          type="button"
+          size="xs"
+          variant="link"
+          className="self-start px-0"
+          onClick={() => setExpanded((v) => !v)}
+          aria-expanded={expanded}
+        >
+          {expanded ? "Show fewer" : `Show all ${items.length} findings`}
+        </Button>
+      )}
+    </section>
+  )
+}
+
+export function AuditFindingsBlock({ runId, outputs, gateFailureReasons = [], onOpenFiles }: AuditFindingsBlockProps) {
   const query = useQuery({
     queryKey: ["manuscript-audit", runId],
     queryFn: () => fetchRunManuscriptAudit(runId),
     staleTime: 30_000,
   })
-  const items = useMemo(() => auditItemsFromPayload(query.data), [query.data])
+  const validationQuery = useWorkflowValidationSummaryWithChecks(query.data?.workflow_id)
+  const gates = useMemo(() => auditGates(query.data), [query.data])
   const summary = query.data?.audit_summary ?? null
-  const failures = items.filter((i) => i.kind === "failure").length
-  const warnings = items.filter((i) => i.kind === "warning").length
-  const reasons = gateFailureReasons.length > 0 ? gateFailureReasons : summary?.gate_failure_reasons ?? []
-  const visible = expanded ? items : items.slice(0, COLLAPSED_COUNT)
+  const rawReasons = gateFailureReasons.length > 0 ? gateFailureReasons : summary?.gate_failure_reasons ?? []
+  const reasons = rawReasons.map(humanizeGateReason)
+  const overview = gateOverviewLine(validationQuery.data?.latest_run?.status, gates)
 
   return (
-    <div id={AUDIT_FINDINGS_ANCHOR} className="scroll-mt-4">
+    <div id={AUDIT_FINDINGS_ANCHOR} className="scroll-mt-4 mb-4 border-b border-border/60 pb-4">
       <ResultsBlock
         icon={ClipboardCheck}
-        title="Audit findings"
+        title="Final manuscript checks"
         actions={
           summary ? (
-            <div className="flex items-center gap-1.5">
-              {failures > 0 && <Badge variant="danger" size="sm">{failures} failing</Badge>}
-              {warnings > 0 && <Badge variant="warning" size="sm">{warnings} warnings</Badge>}
-              <Badge variant={summary.status_label === "passed" ? "success" : "neutral"} size="sm">
-                {humanizeSnake(summary.verdict)}
-              </Badge>
-            </div>
+            <QualityStatusBadge
+              variant={verdictBadgeVariant(summary.verdict, summary.status_label === "passed")}
+              label={humanizeSnake(summary.verdict)}
+            />
           ) : null
         }
       >
@@ -115,7 +178,7 @@ export function AuditFindingsBlock({ runId, outputs, gateFailureReasons = [], on
             message={query.error instanceof Error ? query.error.message : "Could not load audit findings"}
             onRetry={() => void query.refetch()}
           />
-        ) : !query.data?.latest_run ? (
+        ) : !gates ? (
           <AuditFallback
             outputs={outputs}
             onOpenFiles={onOpenFiles}
@@ -127,37 +190,28 @@ export function AuditFindingsBlock({ runId, outputs, gateFailureReasons = [], on
           />
         ) : (
           <div className="flex flex-col gap-2">
+            {overview && <p className="text-sm font-medium text-foreground">{overview}</p>}
             {summary?.summary && <AuditSummaryText text={summary.summary} />}
-            {reasons.length > 0 && (
-              <ul className="text-xs text-intent-warning-text list-disc pl-4">
-                {reasons.map((r) => (
-                  <li key={r}>{r}</li>
-                ))}
-              </ul>
-            )}
-            {items.length === 0 ? (
-              <p className="text-sm text-muted">The audit passed with no findings.</p>
-            ) : (
-              <>
-                <ul className="divide-y divide-border/60">
-                  {visible.map((item) => (
-                    <AuditItemRow key={item.id} item={item} />
-                  ))}
-                </ul>
-                {items.length > COLLAPSED_COUNT && (
-                  <Button
-                    type="button"
-                    size="xs"
-                    variant="ghost"
-                    className="self-start"
-                    onClick={() => setExpanded((v) => !v)}
-                    aria-expanded={expanded}
-                  >
-                    {expanded ? "Show fewer" : `Show all ${items.length} findings`}
-                  </Button>
-                )}
-              </>
-            )}
+            <GateGroup
+              title="Consistency checks"
+              hint={
+                <InfoHint label="About consistency checks">
+                  Automated consistency checks between the manuscript and the run data.
+                </InfoHint>
+              }
+              statusVariant={gates.contract.passed ? "success" : "danger"}
+              statusLabel={gates.contract.passed ? "Passed" : "Failed"}
+              countLine={contractGateCountLine(gates.contract)}
+              items={gates.contract.items}
+            />
+            <GateGroup
+              title="Manuscript audit"
+              statusVariant={verdictBadgeVariant(gates.audit.verdict, gates.audit.passed)}
+              statusLabel={humanizeSnake(gates.audit.verdict) || (gates.audit.passed ? "Passed" : "Failed")}
+              countLine={auditGateCountLine(gates.audit)}
+              items={gates.audit.items}
+              collapseAfter={COLLAPSED_COUNT}
+            />
           </div>
         )}
       </ResultsBlock>

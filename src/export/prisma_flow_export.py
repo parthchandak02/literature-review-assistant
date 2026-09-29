@@ -18,8 +18,9 @@ from src.export.reviewer_export import (
     format_information_source,
     reviewer_record_link,
 )
-from src.manuscript.review_facts import build_review_facts
-from src.prisma.diagram import _EXCLUSION_REASON_LABELS
+from src.models import PrismaAutomationStep
+from src.prisma.diagram import _EXCLUSION_REASON_LABELS, AUTOMATION_STEP_LABELS
+from src.prisma.sidecar import compute_live_prisma_counts
 
 _EXCLUSION_REASON_LABELS_EXPORT = dict(_EXCLUSION_REASON_LABELS)
 
@@ -30,6 +31,7 @@ _SUMMARY_COLUMNS = [
     "registers_identified",
     "duplicates_removed",
     "automation_excluded",
+    *(f"automation_{step.value}" for step in PrismaAutomationStep),
     "records_screened",
     "records_excluded_title_abstract",
     "reports_sought",
@@ -54,6 +56,7 @@ _RECORD_COLUMNS = [
     "record_link",
     "prisma_stage",
     "screening_outcome",
+    "automation_step",
     "exclusion_reason",
     "included_in_review",
     "workflow_id",
@@ -92,8 +95,10 @@ Column guide (prisma_records.csv)
 - identification_type: PRISMA column — "Database" or "Other source".
 - record_link: Persistent public link for reviewers (DOI resolver preferred).
   API or connector endpoints are not included.
-- prisma_stage: Last PRISMA stage reached (included, excluded_ta, excluded_ft, etc.).
+- prisma_stage: Last PRISMA stage reached (removed_automation, excluded_ta, excluded_ft, included, etc.).
 - screening_outcome: Final disposition (include, exclude, not_retrieved, automation_exclude).
+- automation_step: For removed_automation records, the automated step that removed the record
+  before reviewer screening (metadata filter, rule-based pre-filter, keyword ranking, batch pre-ranker).
 - exclusion_reason: Plain-language exclusion reason when applicable.
 
 Limitations
@@ -127,6 +132,7 @@ def _format_authors(raw: str | None) -> str:
 
 def _classify_prisma_stage(
     *,
+    automation_step: PrismaAutomationStep | None = None,
     ta_decision: str | None,
     ft_decision: str | None,
     synthesis_eligibility: str | None,
@@ -136,7 +142,7 @@ def _classify_prisma_stage(
     """Return (prisma_stage, terminal_decision) for one paper."""
     if synthesis_eligibility == "included_primary":
         return "included", "include"
-    if ft_decision == "batch_screened_low":
+    if automation_step is not None or ft_decision == "batch_screened_low":
         return "removed_automation", "automation_exclude"
     if fulltext_status == "not_retrieved" or (exclusion_reason_code or "").lower() == "no_full_text":
         return "not_retrieved", "not_retrieved"
@@ -155,6 +161,7 @@ def _classify_prisma_stage(
 
 async def _fetch_record_rows(db_path: str, workflow_id: str) -> list[dict[str, Any]]:
     async with get_db(db_path) as db:
+        automation_steps = await WorkflowRepository(db).get_prisma_automation_steps(workflow_id)
         cursor = await db.execute(
             """
             SELECT
@@ -242,7 +249,9 @@ async def _fetch_record_rows(db_path: str, workflow_id: str) -> list[dict[str, A
         if not exclusion_code and ft_exclusion_reason:
             exclusion_code = str(ft_exclusion_reason).strip()
 
+        automation_step = automation_steps.get(str(paper_id))
         prisma_stage, terminal_decision = _classify_prisma_stage(
+            automation_step=automation_step,
             ta_decision=str(ta_decision) if ta_decision else None,
             ft_decision=str(ft_decision) if ft_decision else None,
             synthesis_eligibility=str(synthesis_eligibility) if synthesis_eligibility else None,
@@ -269,6 +278,11 @@ async def _fetch_record_rows(db_path: str, workflow_id: str) -> list[dict[str, A
                 ),
                 "prisma_stage": prisma_stage,
                 "screening_outcome": terminal_decision,
+                "automation_step": (
+                    AUTOMATION_STEP_LABELS[automation_step]
+                    if automation_step is not None and prisma_stage == "removed_automation"
+                    else ""
+                ),
                 "exclusion_reason": _reason_label(exclusion_code),
                 "included_in_review": "yes" if synthesis_eligibility == "included_primary" else "no",
             }
@@ -328,19 +342,7 @@ class PrismaFlowExportPayload:
 async def build_prisma_flow_payload(db_path: str, workflow_id: str) -> PrismaFlowExportPayload:
     """Build PRISMA flow CSV payloads from runtime database state."""
     async with get_db(db_path) as db:
-        repo = WorkflowRepository(db)
-        dedup_count = int(await repo.get_dedup_count(workflow_id) or 0)
-        included_ids, _ = await repo.resolve_canonical_included_paper_ids(workflow_id)
-        included_qualitative = 0
-        included_quantitative = len(included_ids)
-        review_facts = await build_review_facts(
-            repo,
-            workflow_id,
-            dedup_count=dedup_count,
-            included_qualitative=included_qualitative,
-            included_quantitative=included_quantitative,
-        )
-        counts = review_facts.prisma
+        counts = await compute_live_prisma_counts(WorkflowRepository(db), workflow_id)
 
     ft_excluded_total = sum(counts.reports_excluded_with_reasons.values())
     summary_row = {
@@ -350,6 +352,7 @@ async def build_prisma_flow_payload(db_path: str, workflow_id: str) -> PrismaFlo
         "registers_identified": 0,
         "duplicates_removed": counts.duplicates_removed,
         "automation_excluded": counts.automation_excluded,
+        **{f"automation_{step.value}": counts.automation_breakdown.get(step, 0) for step in PrismaAutomationStep},
         "records_screened": counts.records_screened,
         "records_excluded_title_abstract": counts.records_excluded_screening,
         "reports_sought": counts.reports_sought,

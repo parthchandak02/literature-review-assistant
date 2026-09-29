@@ -367,6 +367,7 @@ export function ResultsView({
               excludePaths={manuscriptExcludePaths}
               runId={exportRunId}
               hideFigures
+              hideProsperoRegistration={Boolean(exportRunId)}
               submissionFocusTarget={submissionFocusTarget}
               submissionFocusToken={submissionFocusToken}
             />

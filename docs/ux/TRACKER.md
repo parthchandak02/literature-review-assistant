@@ -355,3 +355,25 @@ _(append per sprint: landed, blocked, next)_
 - Screenshots in dark, light and mobile.
 
 **Process note:** local verification builds go to a temp `--outDir`, because building `frontend/dist` changes what production serves.
+
+### QA sweep: interactive states and counts (2026-09-29)
+
+**Trigger:** the user found a broken rotating conic-gradient "PROSPERO attention ring" painting over the gate panel. Earlier verification had covered only static per-run screens: it never reached the awaiting_prospero state, and it never opened a menu, popover, drawer or dialog.
+
+**Process:** `/tmp/ux_sweep.py` captured 45 to 57 interactive states in dark, light and mobile, with every non-GET request blocked except attach. The backend under test ran in a sandbox copy of `runs/`. Independent reviewer agents reviewed each sweep. This repeated for 8 rounds, until the release gate had no High or Medium defects.
+
+**Fixed (highlights)**
+- *Rendering:* the PROSPERO ring became a static outline. Every menu, popover and drawer was see-through and is now opaque. Fixed the mobile PROSPERO actions, the sticky results nav, the screening approve bar, the mobile tabs and table with edge fades, and the Settings dialog width and height.
+- *Controls:* disabled solid buttons now look disabled. The sidebar menu is positioned correctly.
+- *Counts:*
+  - PRISMA double-counted the batch pre-ranker. The 1,715 vs 1,716 header came from a superseded IEEE retry.
+  - Automation exclusions are now PRISMA "removed by automation tools": 1,339, leaving 209 screened by reviewers.
+  - The screening and Data tabs label the automation, duplicate, superseded and not-retrieved categories consistently with PRISMA.
+- *Tools and endpoints:* added `scripts/regenerate_prisma.py` and a `prisma_counts.json` sidecar, plus `GET /api/run/{id}/prisma-counts`.
+- *Content:* the GRADE table now shows real fields. Quality has plain wording with per-gate numbers. Evidence network labels use family names. Screening is read-only after approval, and the Screening tab persists. Stalled config generation is shown as stalled. Log, cost, file and key copy were polished.
+
+**Follow-ups**
+- Archive and unarchive bump `updated_at`, which resets the stall clock.
+- Info hints are hover and focus only, with no tap-to-open.
+- wf-0001 still needs its PRISMA figure and manuscript regenerated, which requires user approval.
+- wf-0001's saved manuscript has a `### Principal` heading, which is model output.

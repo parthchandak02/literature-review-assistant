@@ -8,6 +8,10 @@ const GATE_COPY: Record<RunGate, { message: string; cta: string }> = {
     message: "Generating the review config. This usually takes a minute or two",
     cta: "View progress",
   },
+  config_stalled: {
+    message: "Config generation stopped responding",
+    cta: "Open config",
+  },
   config_ready: {
     message: "Waiting on you: the review config is ready to check and launch",
     cta: "Open config",

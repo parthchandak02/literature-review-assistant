@@ -11,6 +11,7 @@ import { CsvDropZone } from "./CsvDropZone"
 import { ReviewTypeCards } from "./ReviewTypeCards"
 import { ReviewTypeDecisionStage } from "./ReviewTypeDecisionStage"
 import { ReuseConfigPopover } from "./ReuseConfigPopover"
+import { takePendingSetupQuestion } from "@/lib/pendingSetupQuestion"
 
 function questionFrameworkForReviewType(reviewType: ReviewTypeChoice): "PICO" | "PCC" {
   return reviewType === "scoping" ? "PCC" : "PICO"
@@ -50,7 +51,7 @@ export function QuestionStage({
   const questionId = useId()
   const questionHintId = useId()
   const reviewTypeLabelId = useId()
-  const [question, setQuestion] = useState("")
+  const [question, setQuestion] = useState(takePendingSetupQuestion)
   const [reviewType, setReviewType] = useState<ReviewTypeChoice | null>(null)
   const [quizOpen, setQuizOpen] = useState(false)
   const [envStatus, setEnvStatus] = useState<EnvKeysStatus | null>(null)
@@ -155,7 +156,7 @@ export function QuestionStage({
       </section>
 
       <section className="space-y-3" aria-label="Options">
-        <label className="flex w-full cursor-pointer items-start gap-2.5 rounded-lg border border-border bg-surface-2/50 px-3 py-2.5 transition-colors hover:bg-surface-2 has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-ring">
+        <label className="flex w-full cursor-pointer items-start gap-2.5 rounded-lg border border-border bg-card px-3 py-2.5 transition-colors hover:bg-surface-2 has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-ring">
           <input
             type="checkbox"
             checked={healthSdgEnabled}
@@ -189,12 +190,24 @@ export function QuestionStage({
       {loadError && <FetchError message={loadError} onDismiss={onClearError} />}
 
       {missingKeys.length > 0 && (
-        <div role="alert" className="flex flex-wrap items-center gap-2 rounded-lg border border-intent-warning-border bg-intent-warning-subtle px-3 py-2.5 text-xs text-intent-warning-text">
-          <KeyRound className="h-3.5 w-3.5 shrink-0" aria-hidden />
-          <span className="flex-1 min-w-0">
-            Missing API key: {missingKeys.map(llmProviderLabel).join(", ")}. Add it before generating a config.
+        <div
+          role="alert"
+          data-testid="missing-api-key-banner"
+          className="flex flex-col gap-2 rounded-lg border border-intent-warning-border bg-intent-warning-subtle px-3 py-2.5 text-xs text-intent-warning-text min-[480px]:flex-row min-[480px]:items-center"
+        >
+          <span className="flex flex-1 min-w-0 items-start gap-2">
+            <KeyRound className="mt-px h-3.5 w-3.5 shrink-0" aria-hidden />
+            <span className="min-w-0">
+              Missing API key: {missingKeys.map(llmProviderLabel).join(", ")}. Add it before generating a config.
+            </span>
           </span>
-          <Button type="button" size="xs" variant="outline" onClick={() => openSettings("keys")}>
+          <Button
+            type="button"
+            size="xs"
+            variant="outline"
+            onClick={() => openSettings("keys")}
+            className="self-start shrink-0 ml-5.5 min-[480px]:ml-0 min-[480px]:self-auto"
+          >
             Open Settings → Keys
           </Button>
         </div>

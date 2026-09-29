@@ -63,8 +63,11 @@ describe("CostView", () => {
   it("shows unit costs, compact tokens, export and a sorted table with totals", async () => {
     const user = userEvent.setup()
     renderView({ costStats: stats, dbRunId: "run-1", includedCount: 10, screenedCount: 2000 })
-    expect(await screen.findByText("$0.20 / included study · $1.00 / 1k screened")).toBeInTheDocument()
-    expect(screen.getByText("12.3M tokens")).toBeInTheDocument()
+    const perStudy = await screen.findByTestId("cost-unit-study")
+    expect(perStudy).toHaveTextContent("$0.2000 / included study")
+    expect(screen.getByText("$1.00 / 1k screened")).toBeInTheDocument()
+    expect(screen.getAllByText("12.3M").length).toBeGreaterThan(0)
+    expect(screen.queryByText(/M tokens/)).not.toBeInTheDocument()
     expect(screen.getByRole("link", { name: /Export CSV/ })).toHaveAttribute("href", expect.stringContaining("/db/run-1/costs/export"))
     expect(screen.getByText("gemini-2.5-flash")).toBeInTheDocument()
 

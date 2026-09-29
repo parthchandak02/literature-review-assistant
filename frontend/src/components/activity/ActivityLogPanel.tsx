@@ -12,7 +12,8 @@ import {
   filterEventsBySeverity,
   type LogSeverityFilter,
 } from "@/lib/logLine"
-import { cn } from "@/lib/utils"
+import { formatCount } from "@/lib/format"
+import { FilterChip } from "@/components/ui/filter-chip"
 
 export interface ActivityLogPanelProps {
   searchQuery: string
@@ -24,6 +25,8 @@ export interface ActivityLogPanelProps {
   runId: string
   workflowId?: string | null
   onRetryHistorical: (runId: string, workflowId: string | null | undefined) => void
+  /** Run is still streaming; empty filters say "yet" instead of "in this run". */
+  isLive?: boolean
 }
 
 const EMPTY_FILTER_COPY: Record<Exclude<LogSeverityFilter, "all">, string> = {
@@ -42,6 +45,7 @@ export function ActivityLogPanel({
   runId,
   workflowId,
   onRetryHistorical,
+  isLive = false,
 }: ActivityLogPanelProps) {
   const logRef = useRef<LogStreamHandle>(null)
   const [severity, setSeverity] = useState<LogSeverityFilter>("all")
@@ -56,7 +60,7 @@ export function ActivityLogPanel({
     [visibleEvents, severity],
   )
   const countLabel =
-    severity === "all" || effectiveLoadingHistory ? eventCountLabel : `${matchCount} of ${filteredEvents.length} events`
+    severity === "all" || effectiveLoadingHistory ? eventCountLabel : `${formatCount(matchCount)} of ${formatCount(filteredEvents.length)} events`
 
   function renderEmpty() {
     if (query) {
@@ -72,7 +76,9 @@ export function ActivityLogPanel({
     if (severity !== "all" && filteredEvents.length > 0) {
       return (
         <>
-          <p className="text-muted text-sm">{EMPTY_FILTER_COPY[severity]} yet.</p>
+          <p className="text-muted text-sm">
+            {EMPTY_FILTER_COPY[severity]} {isLive ? "yet" : "in this run"}.
+          </p>
           <Button type="button" size="sm" variant="outline" onClick={() => setSeverity("all")}>
             Show all events
           </Button>
@@ -100,23 +106,10 @@ export function ActivityLogPanel({
 
         <div role="group" aria-label="Filter by severity" className="flex items-center gap-1 shrink-0">
           {LOG_SEVERITY_FILTERS.map((f) => {
-            const active = severity === f.id
             return (
-              <button
-                key={f.id}
-                type="button"
-                aria-pressed={active}
-                onClick={() => setSeverity(f.id)}
-                className={cn(
-                  "rounded-full border px-2.5 py-0.5 text-xs font-medium transition-colors motion-reduce:transition-none",
-                  "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 focus-visible:ring-offset-background",
-                  active
-                    ? "border-intent-primary-border bg-intent-primary-subtle text-foreground"
-                    : "border-border text-muted hover:text-foreground hover:bg-surface-2/60",
-                )}
-              >
+              <FilterChip key={f.id} active={severity === f.id} onClick={() => setSeverity(f.id)}>
                 {f.label}
-              </button>
+              </FilterChip>
             )
           })}
         </div>

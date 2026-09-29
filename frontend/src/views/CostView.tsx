@@ -1,8 +1,6 @@
-import { useMemo, useState } from "react"
-import { BarChart, Bar, XAxis, YAxis, ResponsiveContainer, Cell, LabelList } from "recharts"
+import { useMemo, useState, type CSSProperties, type ReactNode } from "react"
 import { Activity, ArrowUpDown, BarChart3, DollarSign, Download, Zap } from "lucide-react"
 import { cn } from "@/lib/utils"
-import { CHART_THEME } from "@/lib/constants"
 import { getDbCostExportUrl } from "@/lib/api"
 import { shortModelName } from "@/lib/humanize"
 import { buildCostStatsFromDashboard, type CostStats } from "@/hooks/useCostStats"
@@ -19,7 +17,7 @@ import { StatTile } from "@/components/ui/stat-tile"
 import { ChartTableToggle, type ChartTableMode } from "@/components/cost-ops/ChartTableToggle"
 import { CostOpsFiltersBar } from "@/components/cost-ops/CostOpsFiltersBar"
 import {
-  CostOpsGroupSection,
+  CostOpsModelSection,
   CostOpsPhaseSection,
   CostOpsSpendSection,
   CostsLoadingState,
@@ -31,6 +29,7 @@ import {
   formatUsd,
   toApiEnd,
   toApiStart,
+  usdFormatterFor,
 } from "@/components/cost-ops/costOpsFormatters"
 import {
   buildPhaseCostRows,
@@ -42,20 +41,68 @@ import {
   type CostRunState,
 } from "@/components/cost-ops/costBreakdown"
 
-const PHASE_BAR_HEIGHT = 32
-const MUTED_BAR_OPACITY = 0.45
+interface PhaseBarRow {
+  phase: string
+  label: string
+  title?: string
+  cost_usd: number
+  barLabel: string
+}
+
+/** Label beside the bar from sm up; stacked above it on phones so bars keep the full width. */
+function PhaseCostBars({ rows }: { rows: PhaseBarRow[] }) {
+  const max = Math.max(0, ...rows.map((r) => r.cost_usd))
+  return (
+    <ul className="flex flex-col gap-2 sm:gap-1.5" aria-label="Cost by phase">
+      {rows.map((row, i) => {
+        const pct = max > 0 ? Math.max(0.5, (row.cost_usd / max) * 100) : 0
+        return (
+          <li
+            key={row.phase}
+            className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 gap-y-1 text-xs sm:grid-cols-[10.5rem_minmax(0,1fr)]"
+          >
+            <span className="truncate text-muted sm:text-right" title={row.title ?? row.phase}>
+              {row.label}
+            </span>
+            <span className="tabular-nums text-foreground sm:hidden">{row.barLabel}</span>
+            <span className="col-span-2 flex min-w-0 items-center gap-2 sm:col-span-1">
+              <span
+                aria-hidden
+                className={cn(
+                  "h-2.5 shrink-0 rounded-r sm:h-4 w-[calc(100%*var(--bar))] sm:w-[calc((100%-7.5rem)*var(--bar))]",
+                  i === 0 ? "bg-chart-series" : "bg-chart-series/45",
+                )}
+                style={{ "--bar": pct / 100 } as CSSProperties}
+              />
+              <span className="hidden shrink-0 tabular-nums text-foreground sm:inline">{row.barLabel}</span>
+            </span>
+          </li>
+        )
+      })}
+    </ul>
+  )
+}
 
 const thClass = "px-4 py-2.5 label-caps"
 const numCellClass = "px-4 py-3 text-right tabular-nums text-xs"
 
-function unitCostLine(totalCost: number, included: number | null | undefined, screened: number | null | undefined) {
+function unitCostLines(totalCost: number, included: number | null | undefined, screened: number | null | undefined) {
   const perStudy = costPerUnit(totalCost, included)
   const perThousand = costPerUnit(totalCost, screened, 1000)
-  const parts = [
-    perStudy != null ? `${formatUsd(perStudy)} / included study` : null,
-    perThousand != null ? `${formatUsd(perThousand)} / 1k screened` : null,
-  ].filter(Boolean)
-  return parts.length > 0 ? parts.join(" · ") : undefined
+  const parts: { key: string; node: ReactNode }[] = []
+  if (perStudy != null) {
+    parts.push({
+      key: "study",
+      node: `${formatUsd(perStudy)} / included study`,
+    })
+  }
+  if (perThousand != null) parts.push({ key: "screened", node: `${formatUsd(perThousand)} / 1k screened` })
+  if (parts.length === 0) return undefined
+  return parts.map(({ key, node }) => (
+    <span key={key} className="block" data-testid={`cost-unit-${key}`}>
+      {node}
+    </span>
+  ))
 }
 
 interface CostViewProps {
@@ -65,7 +112,7 @@ interface CostViewProps {
   isSSEConnected?: boolean
   /** Final included-study count for per-study cost. */
   includedCount?: number | null
-  /** Records entering screening for per-1k-screened cost. */
+  /** Records that reached reviewer screening (PRISMA "records screened") for per-1k-screened cost. */
   screenedCount?: number | null
   runState?: CostRunState
 }
@@ -140,9 +187,11 @@ export function CostView({
     [phaseRows],
   )
   const modelRows = useMemo(() => withShare(by_model), [by_model])
+  const fmtPhaseUsd = usdFormatterFor([...phaseRows.map((r) => r.cost_usd), phaseTotals.cost])
+  const fmtModelUsd = usdFormatterFor(by_model.map((m) => m.cost_usd))
   const chartData = phaseRows.map((r) => ({
     ...r,
-    barLabel: `${formatUsd(r.cost_usd)} · ${formatShare(r.share)}`,
+    barLabel: `${fmtPhaseUsd(r.cost_usd)} · ${formatShare(r.share)}`,
   }))
   const nonZeroPhasesCount = phaseRows.filter((d) => d.cost_usd > 0).length
 
@@ -187,7 +236,7 @@ export function CostView({
     <div className="flex flex-col gap-6 min-w-0">
       {dbRunId && (
         <div className="flex justify-end">
-          <Button variant="outline" size="sm" asChild>
+          <Button variant="outline" size="xs" asChild>
             <a href={runExportUrl} download>
               <Download aria-hidden />
               Export CSV
@@ -201,7 +250,7 @@ export function CostView({
           icon={DollarSign}
           label="Total cost"
           value={formatUsd(total_cost)}
-          sub={unitCostLine(total_cost, includedCount, screenedCount)}
+          sub={unitCostLines(total_cost, includedCount, screenedCount)}
         />
         <StatTile
           icon={Activity}
@@ -212,12 +261,14 @@ export function CostView({
         <StatTile
           icon={Zap}
           label="Tokens in"
-          value={`${formatCompact(total_tokens_in)} tokens`}
+          value={formatCompact(total_tokens_in)}
+          valueTitle={`${formatInteger(total_tokens_in)} tokens`}
         />
         <StatTile
           icon={ArrowUpDown}
           label="Tokens out"
-          value={`${formatCompact(total_tokens_out)} tokens`}
+          value={formatCompact(total_tokens_out)}
+          valueTitle={`${formatInteger(total_tokens_out)} tokens`}
         />
       </div>
 
@@ -236,46 +287,14 @@ export function CostView({
         >
           {phaseViewMode === "chart" ? (
             nonZeroPhasesCount >= 2 ? (
-              <ResponsiveContainer width="100%" height={chartData.length * PHASE_BAR_HEIGHT + 8}>
-                <BarChart
-                  data={chartData}
-                  layout="vertical"
-                  margin={{ left: 4, right: 112, top: 4, bottom: 4 }}
-                >
-                  <XAxis type="number" hide />
-                  <YAxis
-                    type="category"
-                    dataKey="label"
-                    width={168}
-                    tick={{ fill: CHART_THEME.tickFill, fontSize: 12 }}
-                    axisLine={false}
-                    tickLine={false}
-                    interval={0}
-                  />
-                  <Bar dataKey="cost_usd" radius={[0, 4, 4, 0]} barSize={18} isAnimationActive={false}>
-                    {chartData.map((entry, i) => (
-                      <Cell
-                        key={entry.phase}
-                        fill={CHART_THEME.seriesPrimary}
-                        fillOpacity={i === 0 ? 1 : MUTED_BAR_OPACITY}
-                      />
-                    ))}
-                    <LabelList
-                      dataKey="barLabel"
-                      position="right"
-                      fill="var(--color-foreground)"
-                      fontSize={12}
-                    />
-                  </Bar>
-                </BarChart>
-              </ResponsiveContainer>
+              <PhaseCostBars rows={chartData} />
             ) : (
               <p className="label-muted text-center py-4">
                 Cost breakdown will appear as phases complete.
               </p>
             )
           ) : (
-            <div className="data-surface overflow-x-auto">
+            <div className="bg-card overflow-x-auto">
               <table className="w-full text-sm">
                 <thead>
                   <tr className="glass-table-head border-b border-border/70">
@@ -288,9 +307,9 @@ export function CostView({
                 <tbody>
                   {phaseRows.map((p) => (
                     <tr key={p.phase} className="border-b border-border/50 hover:bg-surface-2/40 transition-colors">
-                      <td className="px-5 py-3 text-foreground text-xs" title={p.phase}>{p.label}</td>
+                      <td className="px-5 py-3 text-foreground text-xs" title={p.title ?? p.phase}>{p.label}</td>
                       <td className={cn(numCellClass, "text-muted")}>{formatInteger(p.calls)}</td>
-                      <td className={cn(numCellClass, "font-medium text-foreground")}>{formatUsd(p.cost_usd)}</td>
+                      <td className={cn(numCellClass, "font-medium text-foreground")}>{fmtPhaseUsd(p.cost_usd)}</td>
                       <td className={cn(numCellClass, "px-5 text-muted")}>{formatShare(p.share)}</td>
                     </tr>
                   ))}
@@ -299,7 +318,7 @@ export function CostView({
                   <tr className="border-t border-border/70">
                     <td className="px-5 py-3 text-xs font-semibold text-foreground">Total</td>
                     <td className={cn(numCellClass, "font-semibold text-foreground")}>{formatInteger(phaseTotals.calls)}</td>
-                    <td className={cn(numCellClass, "font-semibold text-foreground")}>{formatUsd(phaseTotals.cost)}</td>
+                    <td className={cn(numCellClass, "font-semibold text-foreground")}>{fmtPhaseUsd(phaseTotals.cost)}</td>
                     <td className={cn(numCellClass, "px-5 font-semibold text-foreground")}>100%</td>
                   </tr>
                 </tfoot>
@@ -311,7 +330,7 @@ export function CostView({
 
       {modelRows.length > 0 && (
         <PageSection title="Cost by model" contentClassName="p-0">
-          <div className="data-surface overflow-x-auto">
+          <div className="bg-card overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
                 <tr className="glass-table-head border-b border-border/70">
@@ -339,9 +358,9 @@ export function CostView({
                         {provider && <span className="ml-2 text-muted">{provider}</span>}
                       </td>
                       <td className={cn(numCellClass, "text-muted")}>{formatInteger(m.calls)}</td>
-                      <td className={cn(numCellClass, "text-muted")}>{formatCompact(m.tokens_in)}</td>
-                      <td className={cn(numCellClass, "text-muted")}>{formatCompact(m.tokens_out)}</td>
-                      <td className={cn(numCellClass, "font-medium text-foreground")}>{formatUsd(m.cost_usd)}</td>
+                      <td className={cn(numCellClass, "text-muted")} title={formatInteger(m.tokens_in)}>{formatCompact(m.tokens_in)}</td>
+                      <td className={cn(numCellClass, "text-muted")} title={formatInteger(m.tokens_out)}>{formatCompact(m.tokens_out)}</td>
+                      <td className={cn(numCellClass, "font-medium text-foreground")}>{fmtModelUsd(m.cost_usd)}</td>
                       <td className={cn(numCellClass, "px-5 text-muted")}>{formatShare(share)}</td>
                     </tr>
                   )
@@ -392,8 +411,16 @@ export function CostView({
                 <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
                   <StatTile label="Total cost" value={formatUsd(Number(opsAggregates.totals?.total_cost_usd || 0))} />
                   <StatTile label="Total calls" value={formatInteger(Number(opsAggregates.totals?.total_calls || 0))} />
-                  <StatTile label="Input tokens" value={formatCompact(Number(opsAggregates.totals?.total_tokens_in || 0))} />
-                  <StatTile label="Output tokens" value={formatCompact(Number(opsAggregates.totals?.total_tokens_out || 0))} />
+                  <StatTile
+                    label="Input tokens"
+                    value={formatCompact(Number(opsAggregates.totals?.total_tokens_in || 0))}
+                    valueTitle={`${formatInteger(Number(opsAggregates.totals?.total_tokens_in || 0))} tokens`}
+                  />
+                  <StatTile
+                    label="Output tokens"
+                    value={formatCompact(Number(opsAggregates.totals?.total_tokens_out || 0))}
+                    valueTitle={`${formatInteger(Number(opsAggregates.totals?.total_tokens_out || 0))} tokens`}
+                  />
                 </div>
 
                 <div className="space-y-2">
@@ -405,7 +432,7 @@ export function CostView({
                   />
                   <div className={costOpsPairGridClass}>
                     <CostOpsPhaseSection title="Top phases" rows={opsAggregates.by_phase} viewMode={opsViewMode} />
-                    <CostOpsGroupSection title="Top models" rows={opsAggregates.by_model} viewMode={opsViewMode} />
+                    <CostOpsModelSection title="Top models" rows={opsAggregates.by_model} viewMode={opsViewMode} />
                   </div>
                 </div>
               </>

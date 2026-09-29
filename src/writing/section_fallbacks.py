@@ -14,6 +14,7 @@ from src.writing.abstract_utils import (
     _append_abstract_field_sentence,
     review_objective_phrase,
 )
+from src.writing.context_builder import automation_removal_prefix
 from src.writing.evidence_assembler import build_results_evidence_pack, build_results_section_fallback
 from src.writing.headings import SECTION_REQUIRED_SUBHEADINGS
 
@@ -465,11 +466,12 @@ def _build_selection_process_fallback_text(
         f"{assessed} were assessed for eligibility, and {included} studies were ultimately included."
     )
     screening_method = str(getattr(grounding, "screening_method_description", "") or "").strip()
+    automation = automation_removal_prefix(grounding)
     if _screening_method_describes_reviewers(screening_method):
-        return f"{screening_method.rstrip('.')}. Of {screened} screened records, {funnel}"
+        return f"{screening_method.rstrip('.')}. {automation}Of {screened} screened records, {funnel}"
     return (
         f"Records were screened against protocol eligibility criteria following the archived search strategy. "
-        f"Of {screened} screened records, {funnel}"
+        f"{automation}Of {screened} screened records, {funnel}"
     )
 
 

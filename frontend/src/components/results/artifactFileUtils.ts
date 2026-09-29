@@ -22,12 +22,15 @@ import {
   ShieldCheck,
 } from "lucide-react"
 import { downloadUrl } from "@/lib/api"
+import { humanizeIdentifier } from "@/lib/humanize"
 import { isFilePath } from "./manuscriptUtils"
 
 export interface OutputFile {
   key: string
   path: string
   label: string
+  /** Real on-disk filename, shown as secondary text; absent for synthetic rows. */
+  fileName?: string
   isRasterImage: boolean
   isLatex: boolean
   isMarkdown: boolean
@@ -45,6 +48,50 @@ export function latexLabel(name: string): string {
   if (/\.tex$/i.test(name)) return `LaTeX: ${name}`
   if (/\.bib$/i.test(name)) return `BibTeX: ${name}`
   return name
+}
+
+const ARTIFACT_FILE_LABELS: Record<string, string> = {
+  "doc_search_strategies_appendix.md": "Search strategies appendix",
+  "doc_protocol.md": "Review protocol",
+  "doc_fulltext_retrieval_coverage.md": "Full-text retrieval coverage",
+  "doc_prospero_registration.md": "PROSPERO registration (Markdown)",
+  "doc_prospero_registration.docx": "PROSPERO registration (Word)",
+  "doc_disagreements_report.md": "Screening disagreements report",
+  "doc_manuscript.md": "Manuscript (Markdown)",
+  "doc_manuscript.tex": "Manuscript (LaTeX)",
+  "manuscript.tex": "LaTeX manuscript",
+  "references.bib": "BibTeX references",
+  "cover_letter.md": "Cover letter",
+  "run_summary.json": "Run summary",
+  "data_narrative_synthesis.json": "Narrative synthesis data",
+  "data_papers_manifest.json": "Papers manifest",
+  "data_diagram_brief_pack.json": "Diagram brief pack",
+  "data_diagram_placement_plan.json": "Diagram placement plan",
+  "data_diagram_generation_report.json": "Diagram generation report",
+  "fig_prisma_flow.png": "PRISMA flow diagram",
+  "fig_rob_traffic_light.png": "Risk of bias traffic light",
+  "fig_rob2_traffic_light.png": "RoB 2 traffic light",
+  "fig_publication_timeline.png": "Publication timeline",
+  "fig_geographic_distribution.png": "Geographic distribution",
+  "fig_concept_taxonomy.svg": "Concept taxonomy",
+  "fig_conceptual_framework.svg": "Conceptual framework",
+  "fig_evidence_network.png": "Evidence network",
+  "fig_evidence_network.svg": "Evidence network (SVG)",
+  "fig_forest_plot.png": "Forest plot",
+  "fig_funnel_plot.png": "Funnel plot",
+  "fig_methodology_flow.svg": "Methodology flow",
+}
+
+/** Friendly label for a known artifact filename, else a humanized fallback. */
+export function artifactFileLabel(fileName: string): string {
+  const lower = fileName.toLowerCase()
+  const known = ARTIFACT_FILE_LABELS[lower]
+  if (known) return known
+  const custom = /^fig_custom_(\d+)\.\w+$/.exec(lower)
+  if (custom) return `Custom diagram ${Number(custom[1])}`
+  if (/\.(tex|bib)$/i.test(lower)) return latexLabel(fileName)
+  const stem = lower.replace(/\.[a-z0-9]+$/, "").replace(/^(doc|data|fig)_/, "")
+  return humanizeIdentifier(stem) || fileName
 }
 
 export function fileIcon(file: OutputFile): { icon: ElementType; className: string } {
@@ -135,7 +182,8 @@ export function collectFiles(outputs: Record<string, unknown>): OutputFile[] {
       files.push({
         key: prefix,
         path: obj,
-        label: isSubmissionZip ? "Submission package (ZIP)" : isLatex ? latexLabel(name) : name,
+        label: isSubmissionZip ? "Submission package (ZIP)" : artifactFileLabel(name),
+        fileName: name,
         isRasterImage: isFigure && isRasterImage,
         isLatex,
         isMarkdown,

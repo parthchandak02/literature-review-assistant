@@ -1,5 +1,6 @@
 import { Columns3, Download } from "lucide-react"
 import { Button } from "@/components/ui/button"
+import { formatCount } from "@/lib/format"
 import {
   DropdownMenu,
   DropdownMenuCheckboxItem,
@@ -22,9 +23,9 @@ export function ColumnsMenu({ visible, empty, onToggle, onReset }: ColumnsMenuPr
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <Button type="button" variant="secondary" size="xs">
-          <Columns3 />
-          Columns
+        <Button type="button" variant="secondary" size="xs" aria-label="Columns">
+          <Columns3 aria-hidden />
+          <span className="max-sm:sr-only">Columns</span>
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="w-56">
@@ -60,14 +61,14 @@ export function ExportMenu({ csvUrl, risUrl, total }: ExportMenuProps) {
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <Button type="button" variant="secondary" size="xs" disabled={total === 0}>
-          <Download />
-          Export
+        <Button type="button" variant="secondary" size="xs" disabled={total === 0} aria-label="Export">
+          <Download aria-hidden />
+          <span className="max-sm:sr-only">Export</span>
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="w-60">
         <DropdownMenuLabel>
-          Export {total.toLocaleString()} {total === 1 ? "paper" : "papers"}
+          Export {formatCount(total)} {total === 1 ? "stored record" : "stored records"}
         </DropdownMenuLabel>
         <DropdownMenuItem asChild className="text-xs">
           <a href={csvUrl} download>

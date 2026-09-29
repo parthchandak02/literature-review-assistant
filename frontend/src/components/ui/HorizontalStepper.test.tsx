@@ -25,4 +25,59 @@ describe("HorizontalStepper", () => {
     expect(items[2]).toHaveTextContent("C, not started")
     expect(screen.getByText("Search · 3/9 · 2m")).toBeInTheDocument()
   })
+
+  it("falls back to the last started step label and shows a summary when nothing is current", () => {
+    const { rerender } = render(
+      <HorizontalStepper
+        steps={[
+          { key: "a", label: "Alpha", status: "done" },
+          { key: "b", label: "Beta", status: "done" },
+        ]}
+      />,
+    )
+    expect(screen.getByText("All steps complete")).toBeInTheDocument()
+    expect(screen.getByText("Alpha")).toHaveClass("max-sm:sr-only")
+
+    rerender(
+      <HorizontalStepper
+        steps={[
+          { key: "a", label: "Alpha", status: "done" },
+          { key: "b", label: "Beta", status: "done" },
+          { key: "c", label: "Gamma", status: "pending" },
+        ]}
+      />,
+    )
+    expect(screen.queryByText("All steps complete")).not.toBeInTheDocument()
+    expect(screen.getByText("Beta")).not.toHaveClass("max-sm:sr-only")
+    expect(screen.getByText("Gamma")).toHaveClass("max-sm:sr-only")
+  })
+
+  it("does not claim all steps complete when a step was skipped", () => {
+    render(
+      <HorizontalStepper
+        steps={[
+          { key: "a", label: "Alpha", status: "done" },
+          { key: "b", label: "Beta", status: "skipped" },
+          { key: "c", label: "Gamma", status: "done" },
+        ]}
+      />,
+    )
+    expect(screen.queryByText("All steps complete")).not.toBeInTheDocument()
+    expect(screen.getByText("2 of 3 steps complete · 1 skipped")).toBeInTheDocument()
+  })
+
+  it.each(["awaiting", "active", "error"] as const)("shows the %s step label instead of a caption", (status) => {
+    render(
+      <HorizontalStepper
+        steps={[
+          { key: "a", label: "Alpha", status: "done" },
+          { key: "b", label: "PROSPERO", status },
+          { key: "c", label: "Gamma", status: "skipped" },
+        ]}
+      />,
+    )
+    expect(screen.queryByText("All steps complete")).not.toBeInTheDocument()
+    expect(screen.queryByText(/steps complete/)).not.toBeInTheDocument()
+    expect(screen.getByText("PROSPERO")).not.toHaveClass("max-sm:sr-only")
+  })
 })

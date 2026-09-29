@@ -54,6 +54,9 @@ Re-run failed extraction                     uv run python scripts/repair.py re-
 Patch missing citations                      uv run python scripts/repair.py inject-citations \\
                                                --workflow-id wf-XXXX
 
+Redraw PRISMA figure + counts sidecar        uv run python scripts/regenerate_prisma.py \\
+  (no LLM calls; --dry-run shows old vs new)   --run <run-dir | wf-XXXX> [--dry-run]
+
 Rebuild replay test fixture after schema     uv run python scripts/repair.py regen-replay-fixture \\
                                                --workflow-id wf-XXXX
 
@@ -66,6 +69,7 @@ ENTRYPOINTS (user-facing — use these)
   scripts/check.py     individual quality checks (api | replay-fixture | replay-workflow | config-methodology | jev-eval)
   scripts/review.py    start | watch | info
   scripts/repair.py    fix old runs (finalize, re-extract, inject-citations, regen-replay-fixture)
+  scripts/regenerate_prisma.py  redraw PRISMA figure + prisma_counts.json from runtime.db
   scripts/hermes.sh    Hermes maintain | link-skill
 
 DO NOT call scripts/lib/* directly — implementation modules only.

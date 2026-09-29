@@ -1,15 +1,22 @@
+import { useRef } from "react"
 import { AlertTriangle, ExternalLink } from "lucide-react"
+import { edgeFadeMask, useEdgeFadeState } from "@/hooks/useEdgeFade"
 import { Badge } from "@/components/ui/badge"
+import { InfoHint } from "@/components/ui/info-hint"
 import { SortButton, Td, Th } from "@/components/ui/table"
 import { cn } from "@/lib/utils"
 import { decodeHtmlEntities, humanizeSnake, humanizeSource } from "@/lib/humanize"
 import type { PaperAllRow, PapersSort, PapersSortKey } from "@/lib/api/db"
+import { automationStepLabel, REMOVED_BY_AUTOMATION, unscreenedOriginLabel } from "@/lib/automationSteps"
 import { confidenceToVariant, screeningDecisionToVariant } from "@/lib/constants"
 import { PAPER_COLUMNS, PRIMARY_STATUS_VARIANT, paperLink, type PaperColumnId } from "./paperColumns"
 
 const CELL = "px-2.5 py-2"
 const STICKY_HEAD = "sticky top-0 z-10 bg-surface-1 border-b border-border-strong"
-const STICKY_TITLE = "sticky left-0 bg-surface-1"
+// The pinned Title column gets a right edge once rows scroll under it.
+const SCROLLED_EDGE =
+  "group-data-[scrolled-x=true]/papers:border-r group-data-[scrolled-x=true]/papers:border-r-border-strong group-data-[scrolled-x=true]/papers:shadow-lg"
+const STICKY_TITLE = cn("sticky left-0 bg-surface-1", SCROLLED_EDGE)
 
 export interface PapersTableProps {
   papers: PaperAllRow[]
@@ -30,6 +37,8 @@ export function PapersTable({
   onOpenPaper,
   selectedPaperId,
 }: PapersTableProps) {
+  const scrollRef = useRef<HTMLDivElement | null>(null)
+  const scrollEdges = useEdgeFadeState(scrollRef)
   const dirFor = (key: PapersSortKey) => (sort.sort === key ? sort.dir : null)
   const sortProps = (key: PapersSortKey) =>
     onSort ? { sortable: true, sortDirection: dirFor(key), onSort: () => onSort(key) } : {}
@@ -43,14 +52,21 @@ export function PapersTable({
       : "descending"
 
   return (
-    <div className="max-h-[70vh] overflow-auto">
+    <div
+      ref={scrollRef}
+      className="group/papers max-h-[70vh] overflow-auto"
+      style={edgeFadeMask({ start: false, end: scrollEdges.end })}
+      data-scrolled-x={scrollEdges.start}
+      data-overflow-end={scrollEdges.end}
+      data-testid="papers-table-scroll"
+    >
       <table className="w-full border-separate border-spacing-0 text-xs">
         <thead>
           <tr>
-            <Th className={cn(CELL, STICKY_HEAD, "left-0 z-20 min-w-64")} {...sortProps("title")}>
+            <Th className={cn(CELL, STICKY_HEAD, "left-0 z-20 min-w-44 sm:min-w-64", SCROLLED_EDGE)} {...sortProps("title")}>
               Title
             </Th>
-            {show("authors") && <Th className={cn(CELL, STICKY_HEAD)}>Authors</Th>}
+            {show("authors") && <Th className={cn(CELL, STICKY_HEAD, "min-w-32")}>Authors</Th>}
             {show("year") && (
               <Th className={cn(CELL, STICKY_HEAD)} align="right" {...sortProps("year")}>
                 Year
@@ -69,7 +85,7 @@ export function PapersTable({
               >
                 {onSort ? (
                   <span className="inline-flex items-center gap-2">
-                    <span>Screening</span>
+                    <ScreeningHeaderLabel />
                     <SortButton direction={dirFor("ta_decision")} onSort={() => onSort("ta_decision")}>
                       <span className="sr-only">Sort by title/abstract decision: </span>TA
                     </SortButton>
@@ -84,7 +100,7 @@ export function PapersTable({
                     </SortButton>
                   </span>
                 ) : (
-                  "Screening"
+                  <ScreeningHeaderLabel />
                 )}
               </Th>
             )}
@@ -111,7 +127,7 @@ export function PapersTable({
                 )}
               >
                 <TitleCell paper={p} onOpen={onOpenPaper} />
-                {show("authors") && <TextCell value={decodeHtmlEntities(p.authors)} className="max-w-48" />}
+                {show("authors") && <TextCell value={decodeHtmlEntities(p.authors)} className="min-w-32 max-w-48" />}
                 {show("year") && (
                   <Td align="right" className={cn(CELL, "font-mono tabular-nums glass-table-cell-muted")}>
                     {p.year ?? "--"}
@@ -146,7 +162,7 @@ function TitleCell({ paper, onOpen }: { paper: PaperAllRow; onOpen?: (id: string
   const href = paperLink(paper)
   const title = decodeHtmlEntities(paper.title)
   return (
-    <Td className={cn(CELL, STICKY_TITLE, "z-[5] max-w-sm min-w-64 group-hover:bg-surface-2")}>
+    <Td className={cn(CELL, STICKY_TITLE, "z-[5] max-w-sm min-w-44 sm:min-w-64 group-hover:bg-surface-2")}>
       <div className="flex items-start gap-1">
         {onOpen ? (
           <button
@@ -183,6 +199,15 @@ function TitleCell({ paper, onOpen }: { paper: PaperAllRow; onOpen?: (id: string
   )
 }
 
+function ScreeningHeaderLabel() {
+  return (
+    <span className="inline-flex items-center gap-1">
+      Screening
+      <InfoHint label="Screening abbreviations">TA = title/abstract, FT = full text.</InfoHint>
+    </span>
+  )
+}
+
 function ScreeningCell({ paper }: { paper: PaperAllRow }) {
   const status = (paper.primary_study_status ?? "unknown").toLowerCase()
   const stages: Array<{ label: string; value: string | null }> = [
@@ -193,7 +218,26 @@ function ScreeningCell({ paper }: { paper: PaperAllRow }) {
     <Td className={CELL}>
       <div className="flex flex-col items-start gap-0.5">
         {stages.map(({ label, value }) =>
-          value ? (
+          value === REMOVED_BY_AUTOMATION ? (
+            <Badge
+              key={label}
+              variant="neutral"
+              size="sm"
+              title={
+                paper.automation_step
+                  ? `Removed by automation: ${automationStepLabel(paper.automation_step)}`
+                  : "Removed by automation"
+              }
+            >
+              <span className="font-mono opacity-70">{label}</span>
+              Auto-removed
+            </Badge>
+          ) : unscreenedOriginLabel(value) ? (
+            <Badge key={label} variant="neutral" size="sm" title="Not screened: removed before screening">
+              <span className="font-mono opacity-70">{label}</span>
+              {unscreenedOriginLabel(value)}
+            </Badge>
+          ) : value ? (
             <Badge key={label} variant={screeningDecisionToVariant(value)} size="sm">
               <span className="font-mono opacity-70">{label}</span>
               {humanizeSnake(value)}

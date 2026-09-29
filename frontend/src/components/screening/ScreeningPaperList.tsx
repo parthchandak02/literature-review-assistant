@@ -15,6 +15,7 @@ export interface ScreeningPaperListProps {
   onToggleExpanded: (key: string) => void
   onToggleSelected: (key: string) => void
   onFocusRow: (key: string) => void
+  readOnly?: boolean
 }
 
 export function ScreeningPaperList({
@@ -23,7 +24,7 @@ export function ScreeningPaperList({
   focusedKey,
   expanded,
   selected,
-  ...handlers
+  ...rest
 }: ScreeningPaperListProps) {
   if (rows.length === 0) {
     return <EmptyState icon={Filter} heading="No papers match these filters." className="py-8" />
@@ -35,7 +36,8 @@ export function ScreeningPaperList({
     <div
       role="grid"
       aria-label="Screened papers"
-      aria-multiselectable
+      aria-multiselectable={!rest.readOnly}
+      aria-readonly={rest.readOnly || undefined}
       aria-rowcount={rows.length}
       className="space-y-1.5"
     >
@@ -47,7 +49,7 @@ export function ScreeningPaperList({
           focused={row.key === activeKey}
           expanded={expanded.has(row.key)}
           selected={selected.has(row.key)}
-          {...handlers}
+          {...rest}
         />
       ))}
     </div>

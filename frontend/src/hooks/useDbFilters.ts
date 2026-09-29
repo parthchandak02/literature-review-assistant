@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react"
 import { useSearchParams } from "react-router-dom"
 import type { ActiveFilter } from "@/components/database/FilterChipBar"
 import { FACET_NONE, type PapersQuery, type PapersSort, type PapersSortKey, type SortDir } from "@/lib/api/db"
+import { REMOVED_BY_AUTOMATION, unscreenedOriginLabel } from "@/lib/automationSteps"
 import { decodeHtmlEntities, humanizeSnake, humanizeSource } from "@/lib/humanize"
 
 export const PAGE_SIZE_OPTIONS = [50, 100, 250] as const
@@ -155,6 +156,13 @@ const NONE_LABELS: Record<MultiFacetKey, string> = {
 
 export function facetValueLabel(key: MultiFacetKey, value: string): string {
   if (value === FACET_NONE) return NONE_LABELS[key]
+  if (key === "ta" && value === REMOVED_BY_AUTOMATION) return "Removed by automation"
+  if (key === "ta") {
+    const origin = unscreenedOriginLabel(value)
+    if (origin) return origin
+  }
+  // Title/abstract "uncertain" papers move on to full-text review, so the final count is usually 0.
+  if (key === "ta" && value === "uncertain") return "Uncertain (sent to full text)"
   if (key === "ta" || key === "ft" || key === "primaryStatus") return humanizeSnake(value)
   if (key === "source") return humanizeSource(value)
   return value

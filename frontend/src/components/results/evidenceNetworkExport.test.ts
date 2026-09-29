@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it } from "vitest"
-import { communityColor, inlineCssVars, lightThemeLookup, prepareSvgForExport } from "./evidenceNetworkExport"
+import { communityColor, inlineCssVars, lightThemeLookup, prepareSvgForExport, clusterName } from "./evidenceNetworkExport"
 
 describe("lightThemeLookup", () => {
   afterEach(() => {
@@ -91,5 +91,13 @@ describe("communityColor", () => {
     expect(communityColor(3)).toBe("var(--color-graph-community-3)")
     expect(communityColor(13)).toBe("var(--color-graph-community-3)")
     expect(communityColor(-1)).toBe("var(--color-graph-community-9)")
+  })
+})
+
+describe("clusterName", () => {
+  it("numbers clusters from 1 and replaces the 0-based generic fallback", () => {
+    expect(clusterName(0, "Cluster 0")).toBe("Cluster 1")
+    expect(clusterName(2, "")).toBe("Cluster 3")
+    expect(clusterName(0, "Balance and falls")).toBe("Cluster 1: Balance and falls")
   })
 })

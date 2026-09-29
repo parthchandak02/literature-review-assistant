@@ -7,6 +7,8 @@ import {
   runStatusLabel,
 } from "@/lib/constants"
 import type { LiveRun } from "@/components/sidebar/types"
+import { formatCount as fmtNum } from "@/lib/format"
+import { CONFIG_STALLED_LABEL, isConfigGenerationStalled } from "@/lib/configGenerationStall"
 
 /** Shorten a topic on a word boundary for dialogs and toasts. */
 export function truncateTopic(topic: string, max = 60): string {
@@ -15,10 +17,6 @@ export function truncateTopic(topic: string, max = 60): string {
   const cut = clean.slice(0, max - 1)
   const lastSpace = cut.lastIndexOf(" ")
   return `${(lastSpace > max * 0.6 ? cut.slice(0, lastSpace) : cut).replace(/[\s,;:.-]+$/, "")}…`
-}
-
-function fmtNum(n: number): string {
-  return n.toLocaleString()
 }
 
 export function resolveSummaryCounts(
@@ -122,6 +120,8 @@ export type BuildRunCardModelInput =
       isSelected: boolean
     }
 
+export { CONFIG_GENERATING_STALL_MS, isConfigGenerationStalled } from "@/lib/configGenerationStall"
+
 function buildInProgressCardModel(
   entry: HistoryEntry,
   liveRun: LiveRun | null,
@@ -139,6 +139,7 @@ function buildInProgressCardModel(
       ((entry.live_run_id && entry.live_run_id === liveRun.runId) ||
         (liveRun.workflowId && entry.workflow_id === liveRun.workflowId)),
   )
+  const isStalled = isConfigGenerationStalled(entry, isLiveRow)
   const isProsperoPending = isProsperoPendingStatus(entry.status)
   const isReviewPending = isReviewPendingStatus(entry.status)
   const isParkedPending = isProsperoPending || isReviewPending
@@ -186,7 +187,7 @@ function buildInProgressCardModel(
     entry,
     topic: entry.topic,
     workflowId: entry.workflow_id,
-    statusKey,
+    statusKey: isStalled ? "stale" : statusKey,
     isSelected: selectedWorkflowId === entry.workflow_id,
     isOpening: openingId === entry.workflow_id,
     canOpen: Boolean(entry.db_path),
@@ -209,9 +210,11 @@ function buildInProgressCardModel(
     dateLabel: entry.created_at ?? undefined,
     dateClassName: "text-muted",
     cardClassName: "",
-    statusLabel: isReconnectingRow
-      ? runStatusLabel("reconnecting")
-      : runStatusLabel(isLiveRow ? statusKey : entry.status),
+    statusLabel: isStalled
+      ? CONFIG_STALLED_LABEL
+      : isReconnectingRow
+        ? runStatusLabel("reconnecting")
+        : runStatusLabel(isLiveRow ? statusKey : entry.status),
     disabledReason: entry.db_path ? undefined : "No database yet",
     animateStatus: rowIsRunning,
   }

@@ -39,16 +39,45 @@ describe("ApiKeysPanel", () => {
     expect(await screen.findByText("Configured on server")).toBeInTheDocument()
     const fireworks = screen.getByLabelText(/^Fireworks AI/, { selector: "input" })
     expect(fireworks).toHaveValue("")
-    expect(fireworks).toHaveAttribute("placeholder", "Using server key (****abcd)")
+    expect(fireworks).toHaveAccessibleDescription(/^Using server key \(\*\*\*\*abcd\)/)
+    expect(screen.getByText("****abcd", { selector: "code" })).toBeInTheDocument()
+    expect(screen.queryByRole("button", { name: "Show Fireworks AI" })).not.toBeInTheDocument()
 
     expect(screen.queryByLabelText("Gemini", { selector: "input" })).not.toBeInTheDocument()
     await openOptional()
     expect(screen.getByLabelText("Gemini", { selector: "input" })).toHaveAttribute("placeholder", "AIza...")
 
     expect(await screen.findByText(/All required keys configured/)).toBeInTheDocument()
+    expect(screen.queryByText(/Using keys configured on the server/)).not.toBeInTheDocument()
+    expect(screen.getByText(/All required keys configured/).textContent).not.toMatch(/Server \./)
     await waitFor(() => expect(onValidityChange).toHaveBeenLastCalledWith(true))
     expect(fetchEnvKeys).not.toHaveBeenCalled()
     expect(localStorage.length).toBe(0)
+  })
+
+  it("skips the prefix hint when the masked server key already shows it", async () => {
+    const original = status
+    status = {
+      ...original,
+      providers: {
+        ...original.providers,
+        gemini: { configured: true, masked: "AIza...uH54", source: "env", required: false },
+      },
+    }
+    try {
+      render(<ApiKeysPanel />)
+      await screen.findAllByText("Configured on server")
+      await openOptional()
+      await waitFor(() =>
+        expect(screen.getByLabelText("Gemini", { selector: "input" })).toHaveAccessibleDescription(
+          "Using server key (AIza...uH54)",
+        ),
+      )
+      expect(screen.getByText("fw_", { selector: "code" })).toBeInTheDocument()
+      expect(screen.queryByText("AIza", { selector: "code" })).not.toBeInTheDocument()
+    } finally {
+      status = original
+    }
   })
 
   it("validates the key format, clears a key and shows a saved indicator", async () => {
@@ -71,6 +100,9 @@ describe("ApiKeysPanel", () => {
     await openOptional()
     const email = screen.getByLabelText("PubMed email", { selector: "input" })
     expect(email).toHaveAttribute("type", "email")
+    expect(screen.queryByRole("button", { name: "Show PubMed API key" })).not.toBeInTheDocument()
+    await userEvent.type(screen.getByLabelText("PubMed API key", { selector: "input" }), "abc")
+    await userEvent.type(email, "a@b.co")
     expect(screen.queryByRole("button", { name: "Show PubMed email" })).not.toBeInTheDocument()
     expect(screen.getByRole("button", { name: "Show PubMed API key" })).toBeInTheDocument()
   })

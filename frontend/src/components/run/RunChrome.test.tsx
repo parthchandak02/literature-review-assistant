@@ -8,7 +8,7 @@ import { toast } from "sonner"
 import { RunChrome } from "./RunChrome"
 import { formatChromeCost, formatOutcome } from "./runChromeFormat"
 import { computeRunChrome, type RunChromeVM } from "@/hooks/useRunChrome"
-import type { SelectedRun } from "@/context/runSessionTypes"
+import type { RunTab, SelectedRun } from "@/context/runSessionTypes"
 
 vi.mock("sonner", () => ({ toast: { error: vi.fn(), success: vi.fn() } }))
 
@@ -41,13 +41,13 @@ function chromeFor(selected: SelectedRun): RunChromeVM {
   })
 }
 
-function renderChrome(selected: SelectedRun, onTabChange = vi.fn()) {
+function renderChrome(selected: SelectedRun, onTabChange = vi.fn(), activeTab: RunTab = "activity") {
   render(
     <RunChrome
       run={selected}
       chrome={chromeFor(selected)}
       tabItems={tabItems}
-      activeTab="activity"
+      activeTab={activeTab}
       onTabChange={onTabChange}
       isViewingLiveRun={false}
       status="done"
@@ -111,6 +111,28 @@ describe("RunChrome info strip", () => {
       .getAllByRole("tab")
       .map((t) => t.textContent)
     expect(names).toEqual(["Activity", "Review Screening", "Results", "Cost"])
+  })
+
+  it("keeps a highlighted Screening tab when a finished run's screening page is open", () => {
+    renderChrome(completed, vi.fn(), "review-screening")
+    const tabs = within(screen.getByRole("tablist")).getAllByRole("tab")
+    expect(tabs.map((t) => t.textContent)).toEqual(["Activity", "Screening", "Results", "Cost"])
+    expect(screen.getByRole("tab", { name: /Screening/ })).toHaveAttribute("aria-selected", "true")
+  })
+
+  it("hides the screening tab on a finished run elsewhere", () => {
+    renderChrome(completed)
+    expect(screen.queryByRole("tab", { name: /Screening/ })).toBeNull()
+  })
+
+  it("uses sans tabular numbers in the strip and mono only for the workflow id", () => {
+    renderChrome(completed)
+    const strip = screen.getByTestId("run-meta-strip").parentElement!
+    expect(strip.className).toMatch(/font-sans/)
+    expect(strip.className).toMatch(/tabular-nums/)
+    expect(strip.className).not.toMatch(/text-meta|font-mono/)
+    const mono = screen.getByTestId("run-meta-strip").querySelectorAll(".font-mono")
+    expect(Array.from(mono).map((el) => el.textContent)).toEqual(["wf-1"])
   })
 })
 

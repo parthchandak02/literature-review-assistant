@@ -24,6 +24,7 @@ Plain-language index for `scripts/`. Agents: read this before adding or invoking
 | Monitor workflow progress (low noise) | `uv run python scripts/review.py watch --workflow-id wf-XXXX` |
 | Print run diagnostics | `uv run python scripts/review.py info --workflow-id wf-XXXX` |
 | Regenerate manuscript appended sections | `uv run python scripts/repair.py finalize --run-dir runs/<run_id>` |
+| Redraw a run's PRISMA figure + `prisma_counts.json` from `runtime.db` (no LLM calls) | `uv run python scripts/regenerate_prisma.py --run <run-dir \| runtime.db \| wf-XXXX> [--dry-run]` |
 | Re-run failed LLM extraction | `uv run python scripts/repair.py re-extract --run-dir runs/<run_id>` |
 | Inject missing citations into manuscript | `uv run python scripts/repair.py inject-citations --workflow-id wf-XXXX` |
 | Rebuild `tests/fixtures/replay` after schema change | `uv run python scripts/repair.py regen-replay-fixture --workflow-id wf-XXXX` |
@@ -44,6 +45,7 @@ Only these files are user-facing CLIs. Implementation lives in `scripts/lib/`.
 | `scripts/check.py` | `api`, `replay-fixture`, `replay-workflow`, `config-methodology`, `jev-eval` | Individual quality checks |
 | `scripts/review.py` | `start`, `watch`, `info` | Review workflow operator tools |
 | `scripts/repair.py` | `finalize`, `re-extract`, `inject-citations`, `regen-replay-fixture` | Fix old or broken runs |
+| `scripts/regenerate_prisma.py` | `--run`, `--dry-run`, `--run-root` | Recompute PRISMA counts from `runtime.db`, redraw `fig_prisma_flow.png` and write `prisma_counts.json` beside it (also refreshes `submission/figures/` copy if present). `--dry-run` prints old (sidecar) vs new counts and writes nothing |
 | `scripts/hermes.sh` | `maintain`, `link-skill`, `help` | Hermes operator setup (see staleness warning in script) |
 | `scripts/backup.sh` | `run`, `status`, `restore`, `install`, `uninstall` | Copy `runs/` into Google Drive for desktop (`My Drive/PROJECTS/Literature Review Assistant/runs-backup`); SQLite `.backup` snapshots; never deletes. `install` uses launchd, which needs Full Disk Access for `/bin/bash`; prefer the PM2 `litreview-backup` job |
 | `scripts/help.sh` | (no args) | Print this routing table in the terminal |

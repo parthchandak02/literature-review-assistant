@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest"
 import {
   decodeHtmlEntities,
+  humanizeIdentifier,
   humanizeLogTag,
   humanizeRetrievalSource,
   humanizeSnake,
@@ -10,6 +11,22 @@ import {
   LOG_TAG_GLOSSARY,
   shortModelName,
 } from "./humanize"
+
+describe("humanizeIdentifier", () => {
+  it.each([
+    ["rag_chunk_coverage", "RAG chunk coverage"],
+    ["prisma_arithmetic_valid", "PRISMA arithmetic valid"],
+    ["grade_certainty", "GRADE certainty"],
+    ["llm_outline", "LLM outline"],
+    ["pdf_doi_match", "PDF DOI match"],
+    ["casp_mmat_rob", "CASP MMAT RoB"],
+    ["quality_coverage", "Quality coverage"],
+    ["batch_id_mismatch", "Batch ID mismatch"],
+    ["", ""],
+  ])("%s -> %s", (raw, expected) => {
+    expect(humanizeIdentifier(raw)).toBe(expected)
+  })
+})
 
 describe("humanizeSource", () => {
   it.each([

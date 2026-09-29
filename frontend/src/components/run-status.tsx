@@ -64,7 +64,7 @@ export function RunStatusIndicator({
       )}
       <span
         className={cn(
-          "font-semibold uppercase tracking-wide",
+          "font-sans font-semibold",
           STATUS_TEXT[status],
         )}
       >

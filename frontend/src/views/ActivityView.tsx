@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
+import { formatCount } from "@/lib/format"
 import { eventToLogEntry } from "@/lib/logLine"
 import { fetchHistoricalReviewEvents } from "@/lib/api"
 import { shouldShowHistoricalLoading, shouldUsePrefetchedHistorical } from "@/lib/runSelection"
@@ -228,8 +229,8 @@ export function ActivityView({
   const eventCountLabel = effectiveLoadingHistory
     ? null
     : searchQuery.trim()
-    ? `${filtered.length} of ${activeEvents.length} events`
-    : `${filtered.length} events${isFallbackMode ? " (historical)" : ""}`
+    ? `${formatCount(filtered.length)} of ${formatCount(activeEvents.length)} events`
+    : `${formatCount(filtered.length)} events${isFallbackMode ? " · saved log" : ""}`
 
   return (
     <div className="flex flex-col gap-4">
@@ -275,6 +276,7 @@ export function ActivityView({
             runId={runId}
             workflowId={workflowId}
             onRetryHistorical={loadHistoricalEvents}
+            isLive={isRunning}
           />
         </div>
       </div>

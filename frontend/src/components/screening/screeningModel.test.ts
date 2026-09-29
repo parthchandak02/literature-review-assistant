@@ -87,8 +87,11 @@ describe("counts", () => {
       total: 4,
       include: 2,
       exclude: 1,
+      excludeFulltext: 0, notRetrieved: 0,
       uncertain: 1,
       overridden: 2,
+      automated: 0,
+      rescued: 0,
     })
   })
 
@@ -99,12 +102,63 @@ describe("counts", () => {
       exclude: 0,
       uncertain: 2,
       overridden: 2,
+      automated: 0,
     })
   })
 
   it("formats the summary line", () => {
     expect(summaryLine(countFinalDecisions(rows, overrides))).toBe(
-      "4 papers · 2 include · 1 exclude · 1 uncertain · 2 overridden",
+      "4 screened by reviewers · 2 include · 1 exclude · 1 uncertain · 2 overridden",
+    )
+  })
+})
+
+describe("automation removals", () => {
+  const rows = buildRows([
+    paper({ paper_id: "inc", decision: "include" }),
+    paper({ paper_id: "exc", decision: "exclude" }),
+    paper({ paper_id: "unc", decision: "uncertain" }),
+    paper({ paper_id: "k1", decision: "exclude", automation_step: "keyword_ranking", confidence: null }),
+    paper({ paper_id: "k2", decision: "exclude", automation_step: "keyword_ranking", confidence: null }),
+    paper({ paper_id: "m1", decision: "exclude", automation_step: "metadata_filter", confidence: null }),
+  ])
+  const base = { filter: "all" as const, search: "", sort: "title" as const, filterBasis: new Map() }
+
+  it("keeps automation removals out of reviewer counts", () => {
+    expect(countFinalDecisions(rows, new Map())).toEqual({
+      total: 3,
+      include: 1,
+      exclude: 1,
+      excludeFulltext: 0, notRetrieved: 0,
+      uncertain: 1,
+      overridden: 0,
+      automated: 3,
+      rescued: 0,
+    })
+    expect(countFilterTabs(rows, new Map())).toEqual({
+      all: 3,
+      include: 1,
+      exclude: 1,
+      uncertain: 1,
+      overridden: 0,
+      automated: 3,
+    })
+  })
+
+  it("shows automation removals only under their own filter", () => {
+    expect(selectVisibleRows(rows, base).map((r) => r.key)).toEqual(["exc", "inc", "unc"])
+    expect(selectVisibleRows(rows, { ...base, filter: "exclude" }).map((r) => r.key)).toEqual(["exc"])
+    expect(selectVisibleRows(rows, { ...base, filter: "automated" }).map((r) => r.key)).toEqual(["k1", "k2", "m1"])
+  })
+
+  it("counts a rescued automation removal as an override and in the approval text", () => {
+    const overrides = new Map([ov("k1", "include")])
+    const counts = countFinalDecisions(rows, overrides)
+    expect(counts).toMatchObject({ total: 3, include: 1, overridden: 1, automated: 3, rescued: 1 })
+    expect(countFilterTabs(rows, overrides).overridden).toBe(1)
+    expect(approvalSummaryText(counts)).toBe(
+      `2 included, 1 uncertain → ${UNCERTAIN_OUTCOME}, 1 excluded, 2 removed by automation, ` +
+        "1 override will be applied. Extraction will start and incur model cost.",
     )
   })
 })
@@ -143,7 +197,7 @@ describe("selectVisibleRows", () => {
 
 describe("approvalSummaryText", () => {
   it("states counts, what happens to uncertain papers, and the cost", () => {
-    const text = approvalSummaryText({ total: 10, include: 6, exclude: 1, uncertain: 3, overridden: 2 })
+    const text = approvalSummaryText({ total: 10, include: 6, exclude: 1, uncertain: 3, overridden: 2, excludeFulltext: 0, notRetrieved: 0, automated: 0, rescued: 0 })
     expect(text).toBe(
       `6 included, 3 uncertain → ${UNCERTAIN_OUTCOME}, 1 excluded, 2 overrides will be applied. ` +
         "Extraction will start and incur model cost.",
@@ -151,10 +205,10 @@ describe("approvalSummaryText", () => {
   })
 
   it("handles singular and zero overrides", () => {
-    expect(approvalSummaryText({ total: 1, include: 1, exclude: 0, uncertain: 0, overridden: 1 })).toContain(
+    expect(approvalSummaryText({ total: 1, include: 1, exclude: 0, uncertain: 0, overridden: 1, excludeFulltext: 0, notRetrieved: 0, automated: 0, rescued: 0 })).toContain(
       "1 override will be applied",
     )
-    expect(approvalSummaryText({ total: 1, include: 1, exclude: 0, uncertain: 0, overridden: 0 })).toContain(
+    expect(approvalSummaryText({ total: 1, include: 1, exclude: 0, uncertain: 0, overridden: 0, excludeFulltext: 0, notRetrieved: 0, automated: 0, rescued: 0 })).toContain(
       "no overrides",
     )
   })
@@ -169,5 +223,19 @@ describe("formatAuthorList", () => {
   })
   it("returns malformed JSON-looking text unchanged", () => {
     expect(formatAuthorList("[unclosed")).toBe("[unclosed")
+  })
+})
+
+describe("countFinalDecisions not-retrieved split", () => {
+  it("counts no_full_text full-text excludes as not retrieved, matching PRISMA", () => {
+    const base = { title: "T", authors: "", year: 2026, source_database: "crossref", doi: null, abstract: "", reason: "", confidence: 0.9 }
+    const papers = [
+      { ...base, paper_id: "a", stage: "title_abstract", decision: "exclude" },
+      { ...base, paper_id: "b", stage: "fulltext", decision: "exclude", exclusion_reason: "no_full_text" },
+      { ...base, paper_id: "c", stage: "fulltext", decision: "exclude", exclusion_reason: "wrong_intervention" },
+      { ...base, paper_id: "d", stage: "fulltext", decision: "include" },
+    ] as unknown as ScreenedPaper[]
+    const counts = countFinalDecisions(buildRows(papers), new Map())
+    expect(counts).toMatchObject({ total: 4, include: 1, exclude: 3, notRetrieved: 1, excludeFulltext: 1 })
   })
 })

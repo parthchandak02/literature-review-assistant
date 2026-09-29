@@ -120,17 +120,26 @@ describe("partitionHistory", () => {
     expect(laneOf(entry)).toBe("archived")
   })
 
-  it("treats config_ready and config_generating as prospero pending", () => {
+  it("puts config_ready in Needs your input and config_generating in In progress", () => {
     const history = [
-      historyEntry({ workflow_id: "wf-gen", status: "config_generating" }),
+      historyEntry({ workflow_id: "wf-gen", status: "config_generating", updated_at: new Date().toISOString() }),
       historyEntry({ workflow_id: "wf-ready", status: "config_ready" }),
       historyEntry({ workflow_id: "wf-stale", status: "stale" }),
     ]
 
     const { prosperoPendingHistory, inProgressHistory } = partitionHistory(history)
 
-    expect(prosperoPendingHistory.map((e) => e.workflow_id)).toEqual(["wf-gen", "wf-ready"])
-    expect(inProgressHistory.map((e) => e.workflow_id)).toEqual(["wf-stale"])
+    expect(prosperoPendingHistory.map((e) => e.workflow_id)).toEqual(["wf-ready"])
+    expect(inProgressHistory.map((e) => e.workflow_id)).toEqual(["wf-gen", "wf-stale"])
+  })
+
+  it("moves a stalled config_generating run to Needs your input", () => {
+    const history = [
+      historyEntry({ workflow_id: "wf-stalled", status: "config_generating", updated_at: "2026-01-01T00:00:00Z" }),
+    ]
+    const { prosperoPendingHistory, inProgressHistory } = partitionHistory(history)
+    expect(prosperoPendingHistory.map((e) => e.workflow_id)).toEqual(["wf-stalled"])
+    expect(inProgressHistory).toEqual([])
   })
 
   it("excludes archived rows from visible and completed partitions", () => {

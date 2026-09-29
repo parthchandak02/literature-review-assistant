@@ -46,9 +46,44 @@ describe("facetOptions", () => {
     ])
   })
 
+  it("labels the derived automation value separately from reviewer excludes", () => {
+    const withAutomation: PapersFacets = {
+      ...facets,
+      counts: {
+        ta_decision: [
+          { value: "removed_by_automation", count: 1339 },
+          { value: "exclude", count: 152 },
+          { value: "include", count: 56 },
+        ],
+      },
+    }
+    expect(facetOptions("ta", withAutomation, [])).toEqual([
+      { value: "removed_by_automation", label: "Removed by automation", count: 1339 },
+      { value: "exclude", label: "Exclude", count: 152 },
+      { value: "include", label: "Include", count: 56 },
+    ])
+  })
+
+  it("labels duplicates and superseded search results", () => {
+    const withOrigins: PapersFacets = {
+      ...facets,
+      counts: {
+        ta_decision: [
+          { value: "duplicate", count: 167 },
+          { value: "superseded", count: 1 },
+        ],
+      },
+    }
+    expect(facetOptions("ta", withOrigins, [])).toEqual([
+      { value: "duplicate", label: "Duplicate", count: 167 },
+      { value: "superseded", label: "Superseded search result", count: 1 },
+    ])
+  })
+
   it("keeps selected values that dropped to zero", () => {
     const opts = facetOptions("ta", facets, ["uncertain"])
-    expect(opts.at(-1)).toEqual({ value: "uncertain", label: "Uncertain", count: 0 })
+    expect(opts.at(-1)).toEqual({ value: "uncertain", label: "Uncertain (sent to full text)", count: 0 })
+    expect(facetOptions("ft", facets, ["uncertain"]).at(-1)?.label).toBe("Uncertain")
   })
 })
 

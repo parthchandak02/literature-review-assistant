@@ -17,6 +17,38 @@ export function humanizeSnake(value: string | null | undefined): string {
   return lower.charAt(0).toUpperCase() + lower.slice(1)
 }
 
+const IDENTIFIER_ACRONYMS: Record<string, string> = {
+  rag: "RAG",
+  prisma: "PRISMA",
+  grade: "GRADE",
+  llm: "LLM",
+  pdf: "PDF",
+  doi: "DOI",
+  casp: "CASP",
+  mmat: "MMAT",
+  rob: "RoB",
+  rob2: "RoB 2",
+  bm25: "BM25",
+  id: "ID",
+  json: "JSON",
+  csv: "CSV",
+  url: "URL",
+}
+
+/** Like humanizeSnake, but keeps domain acronyms: `rag_chunk_coverage` -> "RAG chunk coverage". */
+export function humanizeIdentifier(value: string | null | undefined): string {
+  const sentence = humanizeSnake(value)
+  if (!sentence) return ""
+  return sentence
+    .split(" ")
+    .map((word, index) => {
+      const acronym = IDENTIFIER_ACRONYMS[word.toLowerCase()]
+      if (acronym) return acronym
+      return index === 0 ? word : word.toLowerCase()
+    })
+    .join(" ")
+}
+
 /** Label for any raw run status, via resolveRunStatus + STATUS_LABEL. */
 export function humanizeStatus(status: string | null | undefined): string {
   return runStatusLabel(status)
@@ -198,7 +230,7 @@ export const LOG_TAG_GLOSSARY: Record<string, LogTagInfo> = {
     description: "A sample of rule-based exclusions set aside for manual review.",
   },
   BATCH: {
-    label: "Pre-ranking",
+    label: "Relevance pre-screen",
     description: "An AI pass that scores papers in batches and forwards likely matches to full review.",
   },
   CAP: {

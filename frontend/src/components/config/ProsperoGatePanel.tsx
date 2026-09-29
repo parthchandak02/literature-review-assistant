@@ -142,7 +142,7 @@ function ProsperoGatePanelBody({
         )}
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <div className="space-y-1.5">
-            <div className="flex items-center justify-between gap-2">
+            <div className="flex h-5 items-center justify-between gap-2">
               <label htmlFor="prospero-id" className="text-xs font-medium text-foreground">
                 PROSPERO ID
               </label>
@@ -161,7 +161,7 @@ function ProsperoGatePanelBody({
               value={registrationNumber}
               onChange={(e) => setRegistrationNumber(e.target.value)}
               onBlur={() => setNumberTouched(registrationNumber.trim().length > 0)}
-              placeholder="CRD42025678901"
+              placeholder="CRD42…"
               autoComplete="off"
               disabled={controlsDisabled}
               aria-invalid={numberError ? true : undefined}
@@ -175,18 +175,23 @@ function ProsperoGatePanelBody({
               {numberError ?? PROSPERO_ID_HELPER}
             </p>
           </div>
-          <label className="space-y-1.5">
-            <span className="text-xs font-medium text-foreground">Registration date</span>
+          <div className="space-y-1.5">
+            <div className="flex h-5 items-center">
+              <label htmlFor="prospero-date" className="text-xs font-medium text-foreground">
+                Registration date
+              </label>
+            </div>
             <DateInput
+              id="prospero-date"
               value={registrationDate}
               onChange={(e) => setRegistrationDate(e.target.value)}
               disabled={controlsDisabled}
             />
-          </label>
+          </div>
         </div>
 
-        <div className="flex items-center gap-2">
-          <div className="flex min-w-0 flex-1 items-center gap-2">
+        <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center sm:gap-2">
+          <div className="flex min-w-0 flex-wrap items-center gap-2 sm:flex-1">
             {artifactId ? (
               <>
                 <Button size="sm" variant="outline" asChild>
@@ -220,14 +225,15 @@ function ProsperoGatePanelBody({
               </span>
             )}
           </div>
+          <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center sm:justify-end">
           {isGateMode && missingHint && !controlsDisabled && (
-            <span className="hidden text-2xs text-muted sm:inline">{missingHint}</span>
+            <span className="text-2xs text-muted">{missingHint}</span>
           )}
           {canSkip && (
             <Button
               size="sm"
               variant="outline"
-              className="shrink-0"
+              className="w-full shrink-0 sm:w-auto"
               onClick={() => onStartWithoutRegistration && void onStartWithoutRegistration()}
               disabled={controlsDisabled}
             >
@@ -237,7 +243,7 @@ function ProsperoGatePanelBody({
           {isGateMode ? (
             <Button
               size="sm"
-              className="shrink-0"
+              className="w-full shrink-0 sm:w-auto"
               onClick={() => onStartResearch && void onStartResearch(buildRegistration())}
               disabled={!formValid || !onStartResearch}
             >
@@ -253,7 +259,7 @@ function ProsperoGatePanelBody({
           ) : (
             <Button
               size="sm"
-              className="shrink-0"
+              className="w-full shrink-0 sm:w-auto"
               onClick={() => onSaveRegistration && void onSaveRegistration(buildRegistration())}
               disabled={!formValid || !onSaveRegistration}
             >
@@ -267,6 +273,7 @@ function ProsperoGatePanelBody({
               )}
             </Button>
           )}
+          </div>
         </div>
       </PageSection>
     </div>

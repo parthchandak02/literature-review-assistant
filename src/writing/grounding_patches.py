@@ -20,6 +20,7 @@ from src.writing.abstract_utils import (
     _replace_or_append_abstract_field,
     _strip_abstract_citation_markup,
 )
+from src.writing.context_builder import automation_removal_prefix
 from src.writing.renderers import render_section_markdown
 from src.writing.section_fallbacks import (
     _build_minimum_compliant_abstract,
@@ -344,7 +345,8 @@ def _patch_results_grounding(
     if grounding is not None:
         selection_parts = [
             (
-                f"The review screened {grounding.total_screened} records, sought {grounding.fulltext_sought} full-text reports, "
+                automation_removal_prefix(grounding)
+                + f"The review screened {grounding.total_screened} records, sought {grounding.fulltext_sought} full-text reports, "
                 f"did not retrieve {grounding.fulltext_not_retrieved}, assessed {grounding.fulltext_assessed} reports for "
                 f"eligibility, and included {grounding.total_included} studies."
             )

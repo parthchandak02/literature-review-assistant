@@ -16,6 +16,7 @@ import type { ReviewEvent } from "@/lib/api"
 import { useHistoricalEvents } from "@/hooks/useHistoricalEvents"
 import type { CostStats } from "@/hooks/useCostStats"
 import { useRunChrome } from "@/hooks/useRunChrome"
+import { usePrismaCounts } from "@/hooks/usePrismaCounts"
 import { useScreeningPendingCount } from "@/hooks/useScreeningReview"
 import { activeSubStatus, buildPhaseStates, formatSubStatus } from "@/lib/activityPhaseState"
 import type { DraftConfigContext } from "@/views/ConfigView"
@@ -106,6 +107,8 @@ interface RunViewProps {
   onSaveProsperoRegistration?: (registration: ProsperoRegistration) => void | Promise<void>
   onRegenerateProsperoDrafts?: () => void | Promise<void>
   onApproveScreeningAndResume?: (overrides: ScreeningOverride[]) => Promise<void>
+  /** Open New review with this run's question prefilled (stalled config generation). */
+  onStartNewReviewWithQuestion?: (question: string) => void
 }
 
 export function RunView({
@@ -136,6 +139,7 @@ export function RunView({
   onSaveProsperoRegistration,
   onRegenerateProsperoDrafts,
   onApproveScreeningAndResume,
+  onStartNewReviewWithQuestion,
 }: RunViewProps) {
   const isHistorical = !isViewingLiveRun
   const historicalQuery = useHistoricalEvents(run.workflowId, run.runId, {
@@ -147,6 +151,9 @@ export function RunView({
   // Use live SSE events when available; fall back to replayed historical events.
   const effectiveEvents = isHistorical ? historicalEvents : events
 
+  const isStreaming = isViewingLiveRun && (status === "streaming" || status === "connecting")
+  const prismaCountsQuery = usePrismaCounts(run.runId, { enabled: !isStreaming })
+
   const chrome = useRunChrome({
     run,
     events,
@@ -156,6 +163,8 @@ export function RunView({
     costStats,
     liveOutputs,
     prosperoPrepareInProgress,
+    prismaCounts: isStreaming ? null : (prismaCountsQuery.data?.live ?? null),
+    configStreamActive: draftConfig?.isGenerating ?? false,
   })
 
   const {
@@ -280,7 +289,7 @@ export function RunView({
               isSSEConnected={isSSEConnected}
               includedCount={chrome.outcomeIncluded}
               screenedCount={
-                chrome.displayFunnelStages.find((s) => s.key === "deduped")?.count ?? chrome.outcomeRecords
+                chrome.displayFunnelStages.find((s) => s.key === "screened" || s.key === "deduped")?.count ?? chrome.outcomeRecords
               }
               runState={
                 chrome.isRunning
@@ -307,6 +316,11 @@ export function RunView({
               onStartResearchAfterProspero={onStartResearchAfterProspero}
               onSaveProsperoRegistration={onSaveProsperoRegistration}
               onRegenerateProsperoDrafts={onRegenerateProsperoDrafts}
+              historicalStatus={run.historicalStatus}
+              isConfigStalled={chrome.isConfigStalled}
+              onStartNewReviewWithQuestion={
+                onStartNewReviewWithQuestion ? () => onStartNewReviewWithQuestion(run.topic) : undefined
+              }
             />
           )}
 
@@ -316,6 +330,7 @@ export function RunView({
               runId={run.runId}
               workflowId={run.workflowId}
               onApproveAndResume={onApproveScreeningAndResume}
+              readOnly={!chrome.isAwaitingReview}
             />
           )}
           </Suspense>

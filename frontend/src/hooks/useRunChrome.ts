@@ -1,11 +1,19 @@
 import { useMemo } from "react"
-import type { ReviewEvent } from "@/lib/api"
+import type { PrismaLiveCounts, ReviewEvent } from "@/lib/api"
 import type { CostStats } from "@/hooks/useCostStats"
 import type { SelectedRun } from "@/context/runSessionTypes"
-import { isNeedsRevisionStatus, resolveRunHeaderStatus } from "@/lib/constants"
+import { isNeedsRevisionStatus, resolveRunHeaderStatus, STATUS_TEXT } from "@/lib/constants"
+import { CONFIG_STALLED_LABEL, isConfigGenerationStalled } from "@/lib/configGenerationStall"
 import { detectAwaitingProspero, detectAwaitingReview } from "@/lib/phaseProgress"
-import { computeFunnelStages, type FunnelStage } from "@/lib/funnelStages"
+import {
+  chasedFromEvents,
+  computeFunnelStages,
+  computeFunnelStagesFromPrismaCounts,
+  type FunnelStage,
+} from "@/lib/funnelStages"
 import { resolveRunGate, type RunGate } from "@/components/run/runRouting"
+
+const SCREENING_PHASE = "phase_3_screening"
 
 export interface RunChromeVM {
   statusLabel: string
@@ -14,9 +22,9 @@ export interface RunChromeVM {
   fallbackFound: number | null
   fallbackIncluded: number | null
   displayCost: number | null
-  /** Final included count for the outcome line ("6 included of 1,716 records"). */
+  /** Final included count for the outcome line ("6 included of 1,715 records"). */
   outcomeIncluded: number | null
-  /** Records retrieved (first funnel stage, else papersFound). */
+  /** PRISMA records identified (first funnel stage, else papersFound). */
   outcomeRecords: number | null
   /** Human gate the run is parked on, if any. */
   gate: RunGate | null
@@ -28,6 +36,10 @@ export interface RunChromeVM {
   isAwaitingReview: boolean
   isNeedsRevision: boolean
   isParkedGate: boolean
+  /** Config generation has no live stream and no update for over an hour. */
+  isConfigStalled: boolean
+  /** Run has screening decisions to show: parked at the review gate or screening already finished. */
+  hasScreeningDecisions: boolean
   liveStatus: string
 }
 
@@ -45,30 +57,12 @@ export interface RunChromeInput {
   streamStatus?: string
   /** Historical canonical status when not viewing live run. */
   resolvedHistoricalStatus?: string
-}
-
-function applyCanonicalIncluded(
-  funnelStages: FunnelStage[],
-  canonicalIncluded: number | null,
-): FunnelStage[] {
-  if (funnelStages.length === 0) return funnelStages
-  if (canonicalIncluded == null) return funnelStages
-  const next = [...funnelStages]
-  const includedIdx = next.findIndex((s) => s.key === "included")
-  if (includedIdx >= 0) {
-    next[includedIdx] = {
-      ...next[includedIdx],
-      count: canonicalIncluded,
-    }
-    return next
-  }
-  next.push({
-    key: "included",
-    label: "included",
-    count: canonicalIncluded,
-    colorClass: "text-intent-success",
-  })
-  return next
+  /** Backend PRISMA counts; used for the funnel whenever the run is not actively running. */
+  prismaCounts?: PrismaLiveCounts | null
+  /** True while this browser is streaming a config generation for the run. */
+  configStreamActive?: boolean
+  /** Clock for the stall rule; defaults to Date.now(). */
+  now?: number
 }
 
 /** Pure derivation for run toolbar / info-strip display state. */
@@ -84,6 +78,9 @@ export function computeRunChrome(input: RunChromeInput): RunChromeVM {
     prosperoPrepareInProgress = false,
     streamStatus = status,
     resolvedHistoricalStatus,
+    prismaCounts = null,
+    configStreamActive = false,
+    now = Date.now(),
   } = input
 
   const isHistorical = !isViewingLiveRun
@@ -119,18 +116,31 @@ export function computeRunChrome(input: RunChromeInput): RunChromeVM {
     !isParkedGate &&
     (isNeedsRevisionStatus(run.historicalStatus) || isNeedsRevisionStatus(String(liveOutputs?.status ?? "")))
 
-  const funnelStages = computeFunnelStages(effectiveEvents)
   const canonicalIncluded =
     (isHistorical || isDone) && run.papersIncluded != null ? run.papersIncluded : null
-  const displayFunnelStages = applyCanonicalIncluded(funnelStages, canonicalIncluded)
+  const displayFunnelStages =
+    !isRunning && prismaCounts != null
+      ? computeFunnelStagesFromPrismaCounts(prismaCounts, chasedFromEvents(effectiveEvents))
+      : computeFunnelStages(effectiveEvents, canonicalIncluded)
 
   const fallbackFound = run.papersFound ?? null
   const fallbackIncluded = run.papersIncluded ?? null
 
   const includedStage = displayFunnelStages.find((s) => s.key === "included")
   const outcomeIncluded = includedStage?.count ?? (fallbackIncluded != null && fallbackIncluded > 0 ? fallbackIncluded : null)
-  const firstStage = displayFunnelStages.find((s) => s.key === "raw" || s.key === "deduped")
+  const firstStage = displayFunnelStages.find((s) => s.key === "identified" || s.key === "deduped")
   const outcomeRecords = firstStage?.count ?? (fallbackFound != null && fallbackFound > 0 ? fallbackFound : null)
+
+  const hasScreeningDecisions =
+    isAwaitingReview ||
+    effectiveEvents.some((e) => e.type === "phase_done" && e.phase === SCREENING_PHASE) ||
+    (prismaCounts?.records_screened ?? 0) > 0
+
+  const isConfigStalled = isConfigGenerationStalled(
+    { status: run.historicalStatus, created_at: run.createdAt, updated_at: run.updatedAt },
+    isViewingLiveRun || configStreamActive,
+    now,
+  )
 
   const gate = resolveRunGate({
     status,
@@ -138,12 +148,13 @@ export function computeRunChrome(input: RunChromeInput): RunChromeVM {
     isAwaitingProspero,
     isAwaitingReview,
     isRunning,
+    isConfigStalled,
   })
 
   const total = (run.historicalCost ?? 0) + costStats.total_cost
   const displayCost = total > 0 ? total : null
 
-  const { label: statusLabel, className: statusClassName } = resolveRunHeaderStatus({
+  const headerStatus = resolveRunHeaderStatus({
     status,
     isDone,
     isRunning,
@@ -153,6 +164,8 @@ export function computeRunChrome(input: RunChromeInput): RunChromeVM {
     isAwaitingProspero,
     isNeedsRevision,
   })
+  const statusLabel = isConfigStalled ? CONFIG_STALLED_LABEL : headerStatus.label
+  const statusClassName = isConfigStalled ? STATUS_TEXT.stale : headerStatus.className
 
   let liveStatus: string
   if (!isViewingLiveRun) {
@@ -195,6 +208,8 @@ export function computeRunChrome(input: RunChromeInput): RunChromeVM {
     isAwaitingReview,
     isNeedsRevision,
     isParkedGate,
+    isConfigStalled,
+    hasScreeningDecisions,
     liveStatus,
   }
 }
@@ -211,6 +226,8 @@ export function useRunChrome(input: RunChromeInput): RunChromeVM {
     prosperoPrepareInProgress,
     streamStatus,
     resolvedHistoricalStatus,
+    prismaCounts,
+    configStreamActive,
   } = input
 
   return useMemo(
@@ -226,6 +243,8 @@ export function useRunChrome(input: RunChromeInput): RunChromeVM {
         prosperoPrepareInProgress,
         streamStatus,
         resolvedHistoricalStatus,
+        prismaCounts,
+        configStreamActive,
       }),
     [
       run,
@@ -238,6 +257,8 @@ export function useRunChrome(input: RunChromeInput): RunChromeVM {
       prosperoPrepareInProgress,
       streamStatus,
       resolvedHistoricalStatus,
+      prismaCounts,
+      configStreamActive,
     ],
   )
 }

@@ -56,6 +56,24 @@ describe("PapersTable", () => {
     expect(onSort).toHaveBeenLastCalledWith("ft_decision")
   })
 
+  it("shows automation removals as Auto-removed with the step in a tooltip", () => {
+    render(
+      <PapersTable
+        papers={[
+          paperRow({
+            ta_decision: "removed_by_automation",
+            automation_step: "keyword_ranking",
+            ft_decision: null,
+            primary_study_status: null,
+          }),
+        ]}
+      />,
+    )
+    const badge = screen.getByTitle("Removed by automation: keyword ranking")
+    expect(badge).toHaveTextContent("TAAuto-removed")
+    expect(screen.queryByText("Exclude")).not.toBeInTheDocument()
+  })
+
   it("merges screening into one cell with stacked badges", () => {
     render(<PapersTable papers={[paperRow({ ft_decision: "exclude" })]} />)
     expect(screen.getAllByRole("columnheader").map((h) => h.textContent)).toContain("Screening")
