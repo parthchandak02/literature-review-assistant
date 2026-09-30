@@ -35,11 +35,9 @@ const DialogContent = React.forwardRef<
     <DialogPrimitive.Content
       ref={ref}
       className={cn(
-        // Base: full width with horizontal margin so it doesn't bleed to screen edges on phones.
-        // max-h-[90dvh] + overflow-y-auto prevents tall dialogs from being cut off by notches
-        // or overflowing the viewport on small screens. dvh (dynamic viewport height) accounts
-        // for mobile browser chrome (address bar) shrinking the viewport.
-        "fixed left-[50%] top-[50%] z-50 grid w-full max-w-lg translate-x-[-50%] translate-y-[-50%] gap-4 border border-border bg-card text-card-foreground p-6 shadow-lg duration-200 mx-4 sm:mx-0 max-h-[90dvh] overflow-y-auto data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 data-[state=closed]:slide-out-to-left-1/2 data-[state=closed]:slide-out-to-top-[48%] data-[state=open]:slide-in-from-left-1/2 data-[state=open]:slide-in-from-top-[48%] rounded-lg",
+        // Width and height are viewport-relative so the translate-centred box keeps a 1rem gutter on phones;
+        // dvh tracks mobile browser chrome. Tall content scrolls inside the dialog.
+        "fixed left-[50%] top-[50%] z-50 grid w-[calc(100%-2rem)] max-w-lg translate-x-[-50%] translate-y-[-50%] gap-4 glass-sheet text-card-foreground p-6 duration-200 max-h-[min(90dvh,calc(100dvh-2rem))] overflow-y-auto overscroll-contain data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 data-[state=closed]:slide-out-to-left-1/2 data-[state=closed]:slide-out-to-top-[48%] data-[state=open]:slide-in-from-left-1/2 data-[state=open]:slide-in-from-top-[48%] rounded-panel",
         className,
       )}
       {...props}

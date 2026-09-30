@@ -17,11 +17,16 @@ const DropdownMenuSub = DropdownMenuPrimitive.Sub
 const DropdownMenuRadioGroup = DropdownMenuPrimitive.RadioGroup
 
 const menuSurface =
-  "z-50 min-w-[8rem] overflow-hidden bg-card rounded-panel border border-border p-1 text-foreground shadow-lg data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95"
+  "glass-popover z-50 min-w-44 overflow-x-hidden overflow-y-auto overscroll-contain rounded-panel p-1 text-foreground pointer-coarse:p-1.5 data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95"
 
 const menuItem =
   // eslint-disable-next-line no-restricted-syntax -- Radix roving focus; focus:bg-surface-2 is the indicator
-  "relative flex cursor-default select-none items-center gap-2 rounded-control px-2 py-1.5 text-sm outline-none transition-colors focus:bg-surface-2 focus:text-foreground data-[disabled]:pointer-events-none data-[disabled]:opacity-50 [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0"
+  "relative flex min-h-8 cursor-default select-none items-center gap-2 rounded-control px-2 py-1 text-sm outline-none transition-colors focus:bg-surface-2 focus:text-foreground data-[disabled]:pointer-events-none data-[disabled]:opacity-50 [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0 pointer-coarse:min-h-11 pointer-coarse:gap-3 pointer-coarse:px-3 pointer-coarse:text-base pointer-coarse:[&_svg]:size-5"
+
+const insetPad = "pl-8 pointer-coarse:pl-10"
+
+const indicatorSlot =
+  "absolute left-2 flex h-3.5 w-3.5 items-center justify-center pointer-coarse:left-3"
 
 const DropdownMenuSubTrigger = React.forwardRef<
   React.ElementRef<typeof DropdownMenuPrimitive.SubTrigger>,
@@ -29,7 +34,7 @@ const DropdownMenuSubTrigger = React.forwardRef<
 >(({ className, inset, children, ...props }, ref) => (
   <DropdownMenuPrimitive.SubTrigger
     ref={ref}
-    className={cn(menuItem, "data-[state=open]:bg-surface-2", inset && "pl-8", className)}
+    className={cn(menuItem, "data-[state=open]:bg-surface-2", inset && insetPad, className)}
     {...props}
   >
     {children}
@@ -41,20 +46,34 @@ DropdownMenuSubTrigger.displayName = DropdownMenuPrimitive.SubTrigger.displayNam
 const DropdownMenuSubContent = React.forwardRef<
   React.ElementRef<typeof DropdownMenuPrimitive.SubContent>,
   React.ComponentPropsWithoutRef<typeof DropdownMenuPrimitive.SubContent>
->(({ className, ...props }, ref) => (
-  <DropdownMenuPrimitive.SubContent ref={ref} className={cn(menuSurface, className)} {...props} />
+>(({ className, collisionPadding = 8, ...props }, ref) => (
+  <DropdownMenuPrimitive.SubContent
+    ref={ref}
+    collisionPadding={collisionPadding}
+    className={cn(
+      menuSurface,
+      "max-h-[var(--radix-dropdown-menu-content-available-height)] max-w-[var(--radix-dropdown-menu-content-available-width)]",
+      className,
+    )}
+    {...props}
+  />
 ))
 DropdownMenuSubContent.displayName = DropdownMenuPrimitive.SubContent.displayName
 
 const DropdownMenuContent = React.forwardRef<
   React.ElementRef<typeof DropdownMenuPrimitive.Content>,
   React.ComponentPropsWithoutRef<typeof DropdownMenuPrimitive.Content>
->(({ className, sideOffset = 4, ...props }, ref) => (
+>(({ className, sideOffset = 4, collisionPadding = 8, ...props }, ref) => (
   <DropdownMenuPrimitive.Portal>
     <DropdownMenuPrimitive.Content
       ref={ref}
       sideOffset={sideOffset}
-      className={cn(menuSurface, className)}
+      collisionPadding={collisionPadding}
+      className={cn(
+        menuSurface,
+        "max-h-[var(--radix-dropdown-menu-content-available-height)] max-w-[var(--radix-dropdown-menu-content-available-width)]",
+        className,
+      )}
       {...props}
     />
   </DropdownMenuPrimitive.Portal>
@@ -74,7 +93,7 @@ const DropdownMenuItem = React.forwardRef<
       menuItem,
       destructive &&
         "text-intent-danger-text focus:bg-intent-danger-subtle focus:text-intent-danger-text",
-      inset && "pl-8",
+      inset && insetPad,
       className,
     )}
     {...props}
@@ -88,11 +107,11 @@ const DropdownMenuCheckboxItem = React.forwardRef<
 >(({ className, children, checked, ...props }, ref) => (
   <DropdownMenuPrimitive.CheckboxItem
     ref={ref}
-    className={cn(menuItem, "pl-8", className)}
+    className={cn(menuItem, insetPad, className)}
     checked={checked}
     {...props}
   >
-    <span className="absolute left-2 flex h-3.5 w-3.5 items-center justify-center">
+    <span className={indicatorSlot}>
       <DropdownMenuPrimitive.ItemIndicator>
         <Check className="h-4 w-4" />
       </DropdownMenuPrimitive.ItemIndicator>
@@ -106,8 +125,8 @@ const DropdownMenuRadioItem = React.forwardRef<
   React.ElementRef<typeof DropdownMenuPrimitive.RadioItem>,
   React.ComponentPropsWithoutRef<typeof DropdownMenuPrimitive.RadioItem>
 >(({ className, children, ...props }, ref) => (
-  <DropdownMenuPrimitive.RadioItem ref={ref} className={cn(menuItem, "pl-8", className)} {...props}>
-    <span className="absolute left-2 flex h-3.5 w-3.5 items-center justify-center">
+  <DropdownMenuPrimitive.RadioItem ref={ref} className={cn(menuItem, insetPad, className)} {...props}>
+    <span className={indicatorSlot}>
       <DropdownMenuPrimitive.ItemIndicator>
         <Circle className="h-2 w-2 fill-current" />
       </DropdownMenuPrimitive.ItemIndicator>
@@ -123,7 +142,7 @@ const DropdownMenuLabel = React.forwardRef<
 >(({ className, inset, ...props }, ref) => (
   <DropdownMenuPrimitive.Label
     ref={ref}
-    className={cn("px-2 py-1.5 label-caps", inset && "pl-8", className)}
+    className={cn("px-2 py-1.5 label-caps pointer-coarse:px-3 pointer-coarse:pt-2", inset && insetPad, className)}
     {...props}
   />
 ))
@@ -135,7 +154,7 @@ const DropdownMenuSeparator = React.forwardRef<
 >(({ className, ...props }, ref) => (
   <DropdownMenuPrimitive.Separator
     ref={ref}
-    className={cn("-mx-1 my-1 h-px bg-border", className)}
+    className={cn("-mx-1 my-1 h-px bg-border pointer-coarse:-mx-1.5 pointer-coarse:my-1.5", className)}
     {...props}
   />
 ))

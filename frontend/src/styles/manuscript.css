@@ -45,6 +45,24 @@ html[data-theme="dark"] .manuscript-prose {
   scroll-margin-top: 4.5rem;
 }
 
+/* Sized off the reading column, not the viewport: the sidebar narrows it on tablets.
+   em keeps the zoom control (article font-size) scaling headings. */
+@container (width < 40rem) {
+  .manuscript-viewer h1 {
+    font-size: 1.5em;
+    line-height: 1.25;
+    margin-bottom: 0.75em;
+  }
+  .manuscript-viewer h2 {
+    font-size: 1.25em;
+    line-height: 1.3;
+    margin-top: 1.5em;
+  }
+  .manuscript-viewer h3 {
+    font-size: 1.125em;
+  }
+}
+
 .manuscript-viewer :is(h1, h2, h3, h4) a {
   text-decoration: none;
   color: inherit;

@@ -100,6 +100,37 @@
   }
 
   /* ------------------------------------------------------------------ */
+  /* Floating overlay surfaces (frosted glass web approximation)         */
+  /* popover: menus, popovers, tooltips. sheet: dialogs and side sheets. */
+  /* ------------------------------------------------------------------ */
+  .glass-popover,
+  .glass-sheet {
+    @apply border;
+    border-color: var(--overlay-border);
+    background:
+      linear-gradient(180deg, var(--glass-tint), transparent 55%),
+      var(--overlay-surface);
+    box-shadow: var(--overlay-highlight), var(--overlay-shadow);
+    backdrop-filter: saturate(var(--overlay-saturate)) blur(var(--overlay-blur));
+    -webkit-backdrop-filter: saturate(var(--overlay-saturate)) blur(var(--overlay-blur));
+  }
+
+  .glass-sheet {
+    background:
+      linear-gradient(180deg, var(--glass-tint), transparent 40%),
+      var(--overlay-surface-sheet);
+  }
+
+  @supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+    .glass-popover,
+    .glass-sheet {
+      background:
+        linear-gradient(180deg, var(--glass-tint), transparent 55%),
+        var(--color-popover);
+    }
+  }
+
+  /* ------------------------------------------------------------------ */
   /* Card surfaces                                                       */
   /* ------------------------------------------------------------------ */
   .card-surface {
@@ -285,6 +316,10 @@
   .text-meta {
     @apply text-2xs font-mono tabular-nums text-muted;
   }
+  /* Comparable numbers (counts, costs, ids). Pair with a text-intent-*-text class for tone. */
+  .num {
+    @apply font-mono tabular-nums;
+  }
 
   /* Interactive row hover */
   .row-hover {
@@ -327,6 +362,22 @@
   /* ------------------------------------------------------------------ */
   .touch-target {
     @apply min-w-11 min-h-11 flex items-center justify-center;
+  }
+
+  /* Grows the tap area to 44px on coarse pointers without changing layout; keep neighbours >= 44px apart. */
+  .touch-hit {
+    position: relative;
+  }
+  @media (pointer: coarse) {
+    .touch-hit::after {
+      content: "";
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      width: max(100%, 44px);
+      height: max(100%, 44px);
+      transform: translate(-50%, -50%);
+    }
   }
 
   .pt-safe { padding-top: env(safe-area-inset-top); }

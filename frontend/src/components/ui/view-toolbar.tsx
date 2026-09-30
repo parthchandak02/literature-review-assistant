@@ -11,6 +11,11 @@ export interface ViewToolbarProps {
   height?: "fixed" | "auto"
   bordered?: boolean
   sticky?: boolean
+  /**
+   * Title and actions keep their content width and the actions drop to their own row
+   * (right aligned, wrapping) when both do not fit. Implies height="auto".
+   */
+  wrap?: boolean
   className?: string
   style?: CSSProperties
 }
@@ -27,6 +32,7 @@ export function ViewToolbar({
   height = "fixed",
   bordered = true,
   sticky = false,
+  wrap = false,
   className,
   style,
 }: ViewToolbarProps) {
@@ -37,7 +43,8 @@ export function ViewToolbar({
       style={style}
       className={cn(
         "glass-toolbar flex items-center gap-3 shrink-0",
-        height === "auto"
+        wrap && "flex-wrap gap-y-2",
+        height === "auto" || wrap
           ? dense
             ? "px-4 py-2"
             : "px-4 py-3"
@@ -53,12 +60,19 @@ export function ViewToolbar({
       {children ?? (
         <>
           {title != null ? (
-            <div className="flex items-center gap-2 min-w-0 flex-1">{title}</div>
+            <div className={cn("flex items-center gap-2 min-w-0", wrap ? "flex-auto" : "flex-1")}>{title}</div>
           ) : (
             <div className="flex-1 min-w-0" />
           )}
           {actions != null ? (
-            <div className="flex items-center gap-2 shrink-0">{actions}</div>
+            <div
+              className={cn(
+                "flex items-center gap-2",
+                wrap ? "ml-auto min-w-0 max-w-full flex-wrap justify-end" : "shrink-0",
+              )}
+            >
+              {actions}
+            </div>
           ) : null}
         </>
       )}

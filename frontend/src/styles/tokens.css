@@ -145,6 +145,20 @@
   --glass-blur-lg: 18px;
   --glass-noise-opacity: 0.02;
 
+  /* Floating overlays (menus, popovers, dialogs, sheets). The fill alone must hide
+     text beneath: backdrop blur is skipped over position:fixed layers (sidebar,
+     sheets), so it only softens colour, it cannot be relied on for legibility. */
+  --overlay-surface: color-mix(in srgb, var(--color-popover) 98%, transparent);
+  --overlay-surface-sheet: color-mix(in srgb, var(--color-popover) 98%, transparent);
+  --overlay-blur: var(--glass-blur-lg);
+  --overlay-saturate: 160%;
+  --overlay-border: var(--glass-border-2);
+  --overlay-highlight: inset 0 1px 0 rgba(255, 255, 255, 0.06);
+  --overlay-shadow:
+    0 2px 6px color-mix(in srgb, var(--color-background) 45%, transparent),
+    0 18px 44px -10px color-mix(in srgb, var(--color-background) 75%, transparent),
+    0 20px 48px -16px color-mix(in srgb, var(--ambient-violet) 14%, transparent);
+
   /* App background (body). Single source: --app-background. */
   --ambient-violet: #8b5cf6;
   --ambient-orange: #fb923c;

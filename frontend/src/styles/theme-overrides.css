@@ -138,6 +138,11 @@ html[data-theme="light"] {
   --glass-shadow-2: 0 8px 20px rgba(20, 20, 20, 0.06);
   --glass-shadow-3: 0 0 0 1px rgba(124, 92, 191, 0.14), 0 12px 28px rgba(20, 20, 20, 0.08);
   --glass-shade: #ffffff;
+  --overlay-border: rgba(20, 20, 20, 0.1);
+  --overlay-highlight: inset 0 1px 0 rgba(255, 255, 255, 0.9);
+  --overlay-shadow:
+    0 1px 3px rgba(20, 20, 20, 0.06),
+    0 16px 40px -10px rgba(38, 24, 72, 0.16);
 
   --ambient-violet: #9e94d5;
   --ambient-orange: #db704b;

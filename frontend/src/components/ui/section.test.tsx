@@ -36,6 +36,17 @@ describe("ViewToolbar height", () => {
     expect(container.firstChild).not.toHaveClass("h-11")
     expect(container.firstChild).toHaveClass("py-3")
   })
+
+  it("wrap lets the actions drop to their own row instead of shrinking the title", () => {
+    const { container } = render(<ViewToolbar wrap title="T" actions={<button type="button">A</button>} />)
+    const root = container.firstChild as HTMLElement
+    expect(root).toHaveClass("flex-wrap")
+    expect(root).not.toHaveClass("h-11")
+    const [title, actions] = Array.from(root.children)
+    expect(title).toHaveClass("flex-auto")
+    expect(actions).toHaveClass("flex-wrap", "min-w-0")
+    expect(actions).not.toHaveClass("shrink-0")
+  })
 })
 
 describe("GlassTabs variants", () => {

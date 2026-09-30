@@ -18,7 +18,7 @@ export function InfoHint({ label, children, className }: InfoHintProps) {
             type="button"
             aria-label={label}
             className={cn(
-              "inline-flex size-4 shrink-0 items-center justify-center rounded-full align-middle text-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+              "touch-hit inline-flex size-4 shrink-0 items-center justify-center rounded-full align-middle text-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
               className,
             )}
           >
