@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest"
 import type { HistoryEntry } from "@/lib/api"
 import {
   computeShouldShowStandaloneLiveCard,
+  defaultCompletedExpanded,
   laneOf,
   laneOverrideOf,
   partitionHistory,
@@ -191,5 +192,39 @@ describe("computeShouldShowStandaloneLiveCard", () => {
 
   it("returns false when there is no live run", () => {
     expect(computeShouldShowStandaloneLiveCard(null, [])).toBe(false)
+  })
+})
+
+describe("defaultCompletedExpanded", () => {
+  const done = historyEntry({ workflow_id: "wf-done", status: "completed", updated_at: "2026-03-12T10:00:00" })
+
+  it("stays closed when Completed is empty", () => {
+    const partitions = partitionHistory([historyEntry({ workflow_id: "wf-run", status: "running" })])
+    expect(defaultCompletedExpanded(partitions, false)).toBe(false)
+  })
+
+  it("opens when nothing is in progress, even with drafts waiting for input", () => {
+    const partitions = partitionHistory([
+      done,
+      historyEntry({ workflow_id: "wf-draft", status: "awaiting_prospero", updated_at: "2026-03-13T10:00:00" }),
+    ])
+    expect(defaultCompletedExpanded(partitions, false)).toBe(true)
+  })
+
+  it("opens when the most recently updated review is completed", () => {
+    const partitions = partitionHistory([
+      done,
+      historyEntry({ workflow_id: "wf-old", status: "failed", updated_at: "2026-03-01T10:00:00" }),
+    ])
+    expect(defaultCompletedExpanded(partitions, false)).toBe(true)
+  })
+
+  it("stays closed when newer work is in progress", () => {
+    const partitions = partitionHistory([
+      done,
+      historyEntry({ workflow_id: "wf-new", status: "failed", updated_at: "2026-03-14T10:00:00" }),
+    ])
+    expect(defaultCompletedExpanded(partitions, false)).toBe(false)
+    expect(defaultCompletedExpanded(partitionHistory([done]), true)).toBe(false)
   })
 })

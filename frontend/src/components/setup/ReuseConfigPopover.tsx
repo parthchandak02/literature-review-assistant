@@ -36,15 +36,16 @@ export function ReuseConfigPopover({ history, onSelect, loadingHistoryId, disabl
           side="bottom"
           align="start"
           sideOffset={6}
-          className="z-50 w-[min(400px,calc(100vw-2rem))] overflow-hidden bg-card border border-border/80 rounded-panel shadow-xl"
+          collisionPadding={8}
+          className="z-50 flex max-h-[var(--radix-popover-content-available-height)] w-[min(400px,calc(100vw-2rem))] flex-col overflow-hidden glass-popover rounded-panel"
         >
-          <Command className="bg-transparent">
+          <Command className="min-h-0 flex-1 bg-transparent">
             <CommandInput
               placeholder="Search past reviews..."
               aria-label="Search past reviews"
               className="h-9 py-0 text-xs text-foreground placeholder:text-muted"
             />
-            <CommandList className="max-h-72 overflow-y-auto">
+            <CommandList className="max-h-72 min-h-0 flex-1 overflow-y-auto overscroll-contain">
               <CommandEmpty className="px-3 py-4 text-xs text-muted">
                 {runs.length === 0
                   ? "No past reviews yet. Configs from reviews you start will show up here."

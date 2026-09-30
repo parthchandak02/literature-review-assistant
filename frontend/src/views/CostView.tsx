@@ -13,7 +13,7 @@ import { Button } from "@/components/ui/button"
 import { FetchError, EmptyState } from "@/components/ui/feedback"
 import { SkeletonCard } from "@/components/ui/skeleton"
 import { PageSection } from "@/components/ui/section"
-import { StatTile } from "@/components/ui/stat-tile"
+import { StatStrip, StatTile } from "@/components/ui/stat-tile"
 import { ChartTableToggle, type ChartTableMode } from "@/components/cost-ops/ChartTableToggle"
 import { CostOpsFiltersBar } from "@/components/cost-ops/CostOpsFiltersBar"
 import {
@@ -64,7 +64,7 @@ function PhaseCostBars({ rows }: { rows: PhaseBarRow[] }) {
             <span className="truncate text-muted sm:text-right" title={row.title ?? row.phase}>
               {row.label}
             </span>
-            <span className="tabular-nums text-foreground sm:hidden">{row.barLabel}</span>
+            <span className="num text-foreground sm:hidden">{row.barLabel}</span>
             <span className="col-span-2 flex min-w-0 items-center gap-2 sm:col-span-1">
               <span
                 aria-hidden
@@ -74,7 +74,7 @@ function PhaseCostBars({ rows }: { rows: PhaseBarRow[] }) {
                 )}
                 style={{ "--bar": pct / 100 } as CSSProperties}
               />
-              <span className="hidden shrink-0 tabular-nums text-foreground sm:inline">{row.barLabel}</span>
+              <span className="num hidden shrink-0 text-foreground sm:inline">{row.barLabel}</span>
             </span>
           </li>
         )
@@ -84,7 +84,7 @@ function PhaseCostBars({ rows }: { rows: PhaseBarRow[] }) {
 }
 
 const thClass = "px-4 py-2.5 label-caps"
-const numCellClass = "px-4 py-3 text-right tabular-nums text-xs"
+const numCellClass = "num px-4 py-3 text-right text-xs"
 
 function unitCostLines(totalCost: number, included: number | null | undefined, screened: number | null | undefined) {
   const perStudy = costPerUnit(totalCost, included)
@@ -245,32 +245,37 @@ export function CostView({
         </div>
       )}
 
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+      <StatStrip>
         <StatTile
+          variant="inline"
           icon={DollarSign}
           label="Total cost"
           value={formatUsd(total_cost)}
           sub={unitCostLines(total_cost, includedCount, screenedCount)}
         />
         <StatTile
+          variant="inline"
           icon={Activity}
+          tone="primary"
           label="LLM calls"
           value={formatInteger(total_calls)}
           sub={perCall != null ? `${formatUsd(perCall)} / call` : undefined}
         />
         <StatTile
+          variant="inline"
           icon={Zap}
           label="Tokens in"
           value={formatCompact(total_tokens_in)}
           valueTitle={`${formatInteger(total_tokens_in)} tokens`}
         />
         <StatTile
+          variant="inline"
           icon={ArrowUpDown}
           label="Tokens out"
           value={formatCompact(total_tokens_out)}
           valueTitle={`${formatInteger(total_tokens_out)} tokens`}
         />
-      </div>
+      </StatStrip>
 
       {phaseRows.length > 0 && (
         <PageSection
@@ -408,20 +413,27 @@ export function CostView({
 
             {opsAggregates && (
               <>
-                <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-                  <StatTile label="Total cost" value={formatUsd(Number(opsAggregates.totals?.total_cost_usd || 0))} />
-                  <StatTile label="Total calls" value={formatInteger(Number(opsAggregates.totals?.total_calls || 0))} />
+                <StatStrip>
+                  <StatTile variant="inline" label="Total cost" value={formatUsd(Number(opsAggregates.totals?.total_cost_usd || 0))} />
                   <StatTile
+                    variant="inline"
+                    tone="primary"
+                    label="Total calls"
+                    value={formatInteger(Number(opsAggregates.totals?.total_calls || 0))}
+                  />
+                  <StatTile
+                    variant="inline"
                     label="Input tokens"
                     value={formatCompact(Number(opsAggregates.totals?.total_tokens_in || 0))}
                     valueTitle={`${formatInteger(Number(opsAggregates.totals?.total_tokens_in || 0))} tokens`}
                   />
                   <StatTile
+                    variant="inline"
                     label="Output tokens"
                     value={formatCompact(Number(opsAggregates.totals?.total_tokens_out || 0))}
                     valueTitle={`${formatInteger(Number(opsAggregates.totals?.total_tokens_out || 0))} tokens`}
                   />
-                </div>
+                </StatStrip>
 
                 <div className="space-y-2">
                   <CostOpsSpendSection

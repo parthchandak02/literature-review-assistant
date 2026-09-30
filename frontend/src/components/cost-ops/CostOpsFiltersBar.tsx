@@ -42,7 +42,7 @@ export function CostOpsFiltersBar({
   return (
     <div className="flex flex-col gap-2">
       <div className="flex flex-wrap items-end justify-between gap-2">
-        <div className="flex flex-wrap items-end gap-2 min-w-0 flex-1">
+        <div className="flex flex-1 basis-full flex-wrap items-end gap-2 md:basis-0">
           {showPresets && (
             <div className={costOpsSegmentGroupClass}>
               {(["all", "5d", "30d", "90d"] as const).map((key) => (
@@ -59,7 +59,7 @@ export function CostOpsFiltersBar({
               ))}
             </div>
           )}
-          <div className="flex items-end gap-2">
+          <div className="flex flex-wrap items-end gap-2">
             <label className={cn(fieldLabelClass, "w-[8.5rem]")}>
               <span className="text-muted">Start</span>
               <input

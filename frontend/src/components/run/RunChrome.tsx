@@ -22,7 +22,7 @@ const SubmissionPackageButton = lazy(() =>
 )
 
 function Divider() {
-  return <span aria-hidden className="h-3 w-px shrink-0 bg-border" />
+  return <span aria-hidden className="h-3 w-px shrink-0 bg-border max-sm:hidden" />
 }
 
 export interface RunChromeTabItem {
@@ -62,7 +62,7 @@ function CopyWorkflowId({ id }: { id: string }) {
 
   return (
     <span className="inline-flex items-center gap-0.5 shrink-0 text-muted">
-      <span className="font-mono text-2xs" title={id}>
+      <span className="num text-2xs" title={id}>
         {formatWorkflowId(id)}
       </span>
       <Button
@@ -108,6 +108,8 @@ export function RunChrome({
   const metaFadeStyle = useEdgeFade(metaRef)
   const canDownloadPackage = isDone && !isRunning && Boolean(run.runId) && run.runId !== "draft"
   const outcome = formatOutcome(outcomeIncluded, outcomeRecords)
+  const showFunnel = displayFunnelStages.length > 1
+  const showCost = displayCost != null && displayCost > 0
   const workflowId = run.workflowId ?? run.runId
   const tabs = orderRunTabs<RunChromeTabItem & { accent?: "violet" | "amber" }>(
     tabItems,
@@ -120,11 +122,11 @@ export function RunChrome({
       className="!h-auto shrink-0 flex-col items-stretch gap-0 !px-0 py-0"
       style={{ touchAction: "pan-x" }}
     >
-      <div className="flex items-center justify-between gap-3 px-6 pt-2 pb-1 font-sans text-xs tabular-nums text-muted w-full min-w-0">
+      <div className="@container flex items-center justify-between gap-3 px-6 pt-2 pb-1 font-sans text-xs tabular-nums text-muted w-full min-w-0">
         <div
           ref={metaRef}
           style={metaFadeStyle}
-          className="flex items-center gap-2.5 min-w-0 overflow-x-auto scrollbar-none"
+          className="flex items-center gap-2.5 min-w-0 overflow-x-auto overflow-y-hidden scrollbar-none pointer-coarse:pe-1.5 max-sm:flex-wrap max-sm:gap-x-3 max-sm:gap-y-1 max-sm:overflow-visible"
           data-testid="run-meta-strip"
         >
           <span
@@ -158,40 +160,54 @@ export function RunChrome({
             <>
               <Divider />
               <span className="shrink-0 text-foreground" data-testid="run-outcome">
-                {outcome}
+                {outcome.split(/(\d[\d,]*)/).map((part, i) =>
+                  i % 2 === 1 ? (
+                    <span key={i} className="num font-semibold">
+                      {part}
+                    </span>
+                  ) : (
+                    part
+                  ),
+                )}
               </span>
             </>
           )}
-          {displayCost != null && displayCost > 0 && (
-            <>
-              <Divider />
-              <button
-                type="button"
-                onClick={() => onTabChange("cost")}
-                className="shrink-0 tabular-nums text-muted-foreground hover:text-foreground transition-colors"
-                title="Open cost breakdown"
-              >
-                {formatChromeCost(displayCost)}
-              </button>
-            </>
-          )}
-          {displayFunnelStages.length > 1 && (
-            <>
-              <Divider />
-              <RunFunnelPopover stages={displayFunnelStages} />
-            </>
+          {(showFunnel || showCost) && (
+            <span className="contents max-sm:flex max-sm:basis-full max-sm:items-center max-sm:gap-3">
+              {showFunnel && (
+                <>
+                  <Divider />
+                  <span className="flex shrink-0">
+                    <RunFunnelPopover stages={displayFunnelStages} />
+                  </span>
+                </>
+              )}
+              {showCost && (
+                <>
+                  <Divider />
+                  <button
+                    type="button"
+                    onClick={() => onTabChange("cost")}
+                    className="touch-hit num inline-flex shrink-0 items-center rounded-sm text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring pointer-coarse:min-h-6"
+                    title="Open cost breakdown"
+                  >
+                    {formatChromeCost(displayCost)}
+                  </button>
+                </>
+              )}
+            </span>
           )}
           {run.createdAt && (
-            <>
+            <span className="contents max-sm:hidden @max-3xl:hidden">
               <Divider />
               <span className="shrink-0 text-muted">{formatRunDate(run.createdAt)}</span>
-            </>
+            </span>
           )}
           {workflowId && (
-            <>
+            <span className="contents max-sm:hidden @max-2xl:hidden">
               <Divider />
               <CopyWorkflowId id={workflowId} />
-            </>
+            </span>
           )}
         </div>
 
@@ -208,12 +224,15 @@ export function RunChrome({
           activeTab={activeTab}
           onTabChange={onTabChange}
           variant="underline"
-          className="min-w-0 border-b-0 pb-px"
+          className="min-w-0 border-b-0 pb-px max-lg:[&_[role=tab]>svg]:hidden"
         />
         {canDownloadPackage && (
           <div className="hidden sm:flex items-center shrink-0 py-1">
             <Suspense fallback={null}>
-              <SubmissionPackageButton runId={run.runId} />
+              <SubmissionPackageButton
+                runId={run.runId}
+                className="max-lg:w-7 max-lg:gap-0 max-lg:px-0 max-lg:text-[length:0]"
+              />
             </Suspense>
           </div>
         )}

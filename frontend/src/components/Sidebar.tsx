@@ -6,7 +6,11 @@ import {
   resolveHistoryRefetchInterval,
   useHistory,
 } from "@/hooks/useHistory"
-import { useSidebarRuns } from "@/hooks/useSidebarRuns"
+import {
+  readCompletedExpandedPref,
+  useSidebarRuns,
+  writeCompletedExpandedPref,
+} from "@/hooks/useSidebarRuns"
 import {
   Tooltip,
   TooltipContent,
@@ -17,6 +21,10 @@ import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet"
 import { DeleteConfirmDialog } from "@/components/DeleteConfirmDialog"
 import { ThemeToggle } from "@/components/ThemeToggle"
 import { SidebarTooltip } from "@/components/sidebar/SidebarTooltip"
+import {
+  dismissOpenCardMenus,
+  swallowMenuDismissClick,
+} from "@/components/sidebar/runCardMenuGuard"
 import { SidebarHeader, SidebarSettingsButton } from "@/components/sidebar/SidebarHeader"
 import { SidebarInProgressSection } from "@/components/sidebar/SidebarInProgressSection"
 import { SidebarCompletedArchivedSection } from "@/components/sidebar/SidebarCompletedArchivedSection"
@@ -81,7 +89,7 @@ export function Sidebar({
   })
   const historyError = historyQueryError ? historyFetchErrorMessage(historyQueryError) : null
 
-  const [completedExpanded, setCompletedExpanded] = useState(false)
+  const [completedPref, setCompletedPref] = useState<boolean | null>(readCompletedExpandedPref)
   const [archivedExpanded, setArchivedExpanded] = useState(false)
   const [autoExpandedFor, setAutoExpandedFor] = useState<string | null>(null)
   const [wfIdCopied, setWfIdCopied] = useState<string | null>(null)
@@ -95,6 +103,7 @@ export function Sidebar({
     completedHistory,
     archivedHistory,
     shouldShowStandaloneLiveCard,
+    completedExpandedByDefault,
     openingId,
     resumingId,
     busyId,
@@ -125,12 +134,19 @@ export function Sidebar({
     onToggle,
   })
 
+  const completedExpanded = completedPref ?? completedExpandedByDefault
+  const toggleCompleted = () => {
+    const next = !completedExpanded
+    setCompletedPref(next)
+    writeCompletedExpandedPref(next)
+  }
+
   if (selectedWorkflowId && selectedWorkflowId !== autoExpandedFor) {
     const inCompleted = completedHistory.some((e) => e.workflow_id === selectedWorkflowId)
     const inArchived = archivedHistory.some((e) => e.workflow_id === selectedWorkflowId)
     if (inCompleted || inArchived) {
       setAutoExpandedFor(selectedWorkflowId)
-      if (inCompleted) setCompletedExpanded(true)
+      if (inCompleted) setCompletedPref(true)
       if (inArchived) setArchivedExpanded(true)
     }
   }
@@ -213,69 +229,73 @@ export function Sidebar({
         </SidebarTooltip>
       </div>
 
-      <nav
-        aria-label="Reviews"
-        className="flex-1 overflow-y-auto overflow-x-hidden px-2 pb-2 pt-1 relative z-10"
-      >
-        <SidebarInProgressSection
+      {/* Short viewports: one scroller for every lane so pinned lanes cannot squeeze the list. */}
+      <div className="relative z-10 flex min-h-0 flex-1 flex-col [@media(max-height:600px)]:overflow-y-auto [@media(max-height:600px)]:overflow-x-hidden">
+        <nav
+          aria-label="Reviews"
+          className="flex-1 overflow-y-auto overflow-x-hidden px-2 pb-2 pt-1 relative z-10 [@media(max-height:600px)]:flex-none [@media(max-height:600px)]:overflow-visible"
+        >
+          <SidebarInProgressSection
+            collapsed={railCollapsed}
+            loadingHistory={loadingHistory}
+            historyError={historyError}
+            prosperoPendingHistory={prosperoPendingHistory}
+            inProgressHistory={inProgressHistory}
+            shouldShowStandaloneLiveCard={shouldShowStandaloneLiveCard}
+            hasLaneReviews={completedHistory.length + archivedHistory.length > 0}
+            liveRun={liveRun}
+            isLiveRunSelected={isViewingLiveRun}
+            isRunning={isRunning}
+            isMobile={isMobile}
+            selectedWorkflowId={selectedWorkflowId}
+            openingId={openingId}
+            resumingId={resumingId}
+            busyId={busyId}
+            wfIdCopied={wfIdCopied}
+            notes={notes}
+            noteFlashCounters={noteFlashCounters}
+            onRefresh={() => void refetchHistory()}
+            onToggle={onToggle}
+            onSelectLiveRun={onSelectLiveRun}
+            onCancel={onCancel}
+            onSelect={(row) => void handleOpen(row)}
+            onResume={(row) => void handleResume(row)}
+            onArchive={(id, topic) => void handleArchive(id, topic)}
+            onMoveToCompleted={(id) => void handleMoveToCompleted(id)}
+            onCopyWorkflowId={handleCopyWorkflowId}
+            onNoteChange={(workflowId, val) =>
+              setNotes((prev) => ({ ...prev, [workflowId]: val }))
+            }
+            sessionResume={onResume}
+            sessionArchive={onArchive}
+            sessionHideCompleted={onHideCompleted}
+          />
+        </nav>
+
+        <SidebarCompletedArchivedSection
+          completedHistory={completedHistory}
+          archivedHistory={archivedHistory}
+          completedExpanded={completedExpanded}
+          archivedExpanded={archivedExpanded}
           collapsed={railCollapsed}
-          loadingHistory={loadingHistory}
-          historyError={historyError}
-          prosperoPendingHistory={prosperoPendingHistory}
-          inProgressHistory={inProgressHistory}
-          shouldShowStandaloneLiveCard={shouldShowStandaloneLiveCard}
-          liveRun={liveRun}
-          isLiveRunSelected={isViewingLiveRun}
-          isRunning={isRunning}
-          isMobile={isMobile}
           selectedWorkflowId={selectedWorkflowId}
-          openingId={openingId}
-          resumingId={resumingId}
-          busyId={busyId}
           wfIdCopied={wfIdCopied}
-          notes={notes}
-          noteFlashCounters={noteFlashCounters}
-          onRefresh={() => void refetchHistory()}
-          onToggle={onToggle}
-          onSelectLiveRun={onSelectLiveRun}
-          onCancel={onCancel}
+          busyId={busyId}
+          onToggleCompleted={toggleCompleted}
+          onToggleArchived={() => setArchivedExpanded((prev) => !prev)}
+          onOpenLane={(lane) => {
+            if (lane === "completed") setCompletedPref(true)
+            else setArchivedExpanded(true)
+            onToggle()
+          }}
           onSelect={(row) => void handleOpen(row)}
-          onResume={(row) => void handleResume(row)}
+          onCopyWorkflowId={handleCopyWorkflowId}
           onArchive={(id, topic) => void handleArchive(id, topic)}
           onMoveToCompleted={(id) => void handleMoveToCompleted(id)}
-          onCopyWorkflowId={handleCopyWorkflowId}
-          onNoteChange={(workflowId, val) =>
-            setNotes((prev) => ({ ...prev, [workflowId]: val }))
-          }
-          sessionResume={onResume}
-          sessionArchive={onArchive}
-          sessionHideCompleted={onHideCompleted}
+          onMoveToInProgress={(id) => void handleMoveToInProgress(id)}
+          onDelete={handleDeleteRequest}
         />
-      </nav>
-
-      <SidebarCompletedArchivedSection
-        completedHistory={completedHistory}
-        archivedHistory={archivedHistory}
-        completedExpanded={completedExpanded}
-        archivedExpanded={archivedExpanded}
-        collapsed={railCollapsed}
-        selectedWorkflowId={selectedWorkflowId}
-        wfIdCopied={wfIdCopied}
-        busyId={busyId}
-        onToggleCompleted={() => setCompletedExpanded((prev) => !prev)}
-        onToggleArchived={() => setArchivedExpanded((prev) => !prev)}
-        onOpenLane={(lane) => {
-          if (lane === "completed") setCompletedExpanded(true)
-          else setArchivedExpanded(true)
-          onToggle()
-        }}
-        onSelect={(row) => void handleOpen(row)}
-        onCopyWorkflowId={handleCopyWorkflowId}
-        onArchive={(id, topic) => void handleArchive(id, topic)}
-        onMoveToCompleted={(id) => void handleMoveToCompleted(id)}
-        onMoveToInProgress={(id) => void handleMoveToInProgress(id)}
-        onDelete={handleDeleteRequest}
-      />
+      </div>
 
       <div
         className={cn(
@@ -340,6 +360,11 @@ export function Sidebar({
             side="left"
             hideClose
             aria-describedby={undefined}
+            onClickCapture={swallowMenuDismissClick}
+            onEscapeKeyDown={(e) => {
+              // The card menu and this Sheet sit on separate Radix layer stacks, so both see the same Escape.
+              if (dismissOpenCardMenus()) e.preventDefault()
+            }}
             onCloseAutoFocus={(e) => {
               e.preventDefault()
               document.getElementById(MOBILE_MENU_BUTTON_ID)?.focus()
@@ -360,6 +385,7 @@ export function Sidebar({
     <TooltipProvider delayDuration={0}>
       <aside
         aria-label="Sidebar"
+        onClickCapture={swallowMenuDismissClick}
         className={cn(
           "fixed left-0 top-0 z-20 h-full bg-surface-0/90 border-r border-border/80 backdrop-blur-sm flex flex-col select-none overflow-hidden",
           !isDragging && "transition-[width] duration-200 ease-in-out",

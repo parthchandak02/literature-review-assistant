@@ -56,7 +56,7 @@ export function ConfidenceMeter({ confidence }: { confidence: number | null }) {
       <span className="relative h-1.5 flex-1 rounded-full bg-surface-3 overflow-hidden">
         <span className="absolute inset-y-0 left-0 rounded-full bg-intent-neutral" style={{ width: `${pct}%` }} />
       </span>
-      <span className="text-2xs text-muted tabular-nums w-7 text-right">{pct}%</span>
+      <span className="num text-2xs text-muted w-7 text-right">{pct}%</span>
     </span>
   )
 }

@@ -123,8 +123,8 @@ export function CostOpsRawTable({
                 <div className="line-clamp-2 [overflow-wrap:anywhere]">{row.label}</div>
                 {row.sublabel && <div className="truncate text-2xs text-muted">{row.sublabel}</div>}
               </td>
-              <td className="px-2 py-1 text-right tabular-nums">{formatInteger(row.calls)}</td>
-              <td className="px-2 py-1 text-right tabular-nums">{fmtUsd(row.cost_usd)}</td>
+              <td className="num px-2 py-1 text-right">{formatInteger(row.calls)}</td>
+              <td className="num px-2 py-1 text-right">{fmtUsd(row.cost_usd)}</td>
             </tr>
           ))}
         </tbody>
@@ -200,10 +200,10 @@ export function CostOpsChartSection({
                   return (
                     <div className="max-w-xs rounded-lg border border-border bg-popover px-3 py-2 text-xs text-popover-foreground shadow-xl">
                       <div className="text-muted mb-1">{source?.title ?? row.label}</div>
-                      <div className="text-foreground font-mono font-semibold">
+                      <div className="num font-semibold text-foreground">
                         {fmtUsd(Number(row.cost_usd ?? 0))}
                       </div>
-                      <div className="text-muted tabular-nums">{formatInteger(Number(row.calls ?? 0))} calls</div>
+                      <div className="num text-muted">{formatInteger(Number(row.calls ?? 0))} calls</div>
                     </div>
                   )
                 }}
@@ -314,7 +314,7 @@ export function CostOpsSpendSection({
                   return (
                     <div className="rounded-lg border border-border bg-popover px-3 py-2 text-xs text-popover-foreground shadow-xl">
                       <div className="text-muted mb-1">{row.label}</div>
-                      <div className="text-foreground font-mono font-semibold">
+                      <div className="num font-semibold text-foreground">
                         {formatUsd(Number(row.cost_usd ?? 0))}
                       </div>
                     </div>

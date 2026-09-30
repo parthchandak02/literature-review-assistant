@@ -22,7 +22,7 @@ export function ScreeningShortcutsHelp({ open, onOpenChange, readOnly = false }:
   return (
     <Popover.Root open={open} onOpenChange={onOpenChange}>
       <Popover.Trigger asChild>
-        <Button type="button" variant="ghost" size="xs" aria-label="Keyboard shortcuts">
+        <Button type="button" variant="ghost" size="xs" aria-label="Keyboard shortcuts" className="pointer-coarse:hidden">
           <Keyboard aria-hidden />
           <span className="hidden sm:inline">
             <Kbd>j</Kbd>/<Kbd>k</Kbd> move ·{" "}

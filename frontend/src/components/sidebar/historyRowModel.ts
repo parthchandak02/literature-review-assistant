@@ -43,16 +43,37 @@ export interface RunCardMetricsInput {
   cost?: number | null
 }
 
-/** The one number a collapsed card shows: included count once search has run, else found. */
-export function keyMetricText({ papersFound, papersIncluded, funnelStages }: RunCardMetricsInput): string | null {
-  const { found, included } = resolveSummaryCounts(papersFound, papersIncluded, funnelStages)
-  if (found == null || found <= 0) return null
-  if (included != null) return `${fmtNum(included)} included`
-  return `${fmtNum(found)} found`
+export interface RunCardSummary {
+  found: number | null
+  included: number | null
+  cost: number | null
 }
 
-export function hasRunCardDetails(input: RunCardMetricsInput): boolean {
-  return keyMetricText(input) != null || (input.cost != null && input.cost > 0)
+/** Counts appear once search has found records; cost once money was spent. */
+export function runCardSummary({ papersFound, papersIncluded, funnelStages, cost }: RunCardMetricsInput): RunCardSummary {
+  const { found, included } = resolveSummaryCounts(papersFound, papersIncluded, funnelStages)
+  const searched = found != null && found > 0
+  return {
+    found: searched ? found : null,
+    included: searched ? included : null,
+    cost: cost != null && cost > 0 ? cost : null,
+  }
+}
+
+/** Card cost: two decimals, with sub-cent spend kept visible. */
+export function formatCardCost(cost: number): string {
+  return cost < 0.01 ? "<$0.01" : `$${cost.toFixed(2)}`
+}
+
+/** Plain-text summary for assistive tech, e.g. "1,716 found, 6 included". */
+export function runCardSummaryText({ found, included }: RunCardSummary): string | null {
+  if (found == null) return null
+  return included != null ? `${fmtNum(found)} found, ${fmtNum(included)} included` : `${fmtNum(found)} found`
+}
+
+/** The full funnel only adds information when it has stages beyond found and included. */
+export function hasFunnelDetail(funnelStages: LiveRun["funnelStages"]): boolean {
+  return funnelStages != null && funnelStages.length > 2
 }
 
 export type RunNavCardVariant = "live" | "in-progress" | "completed" | "archived"

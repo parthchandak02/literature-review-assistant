@@ -1,4 +1,4 @@
-import { useRef, useState } from "react"
+import { useState } from "react"
 import * as Popover from "@radix-ui/react-popover"
 import { ChevronDown } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
@@ -15,7 +15,6 @@ import {
 import { FilterComboboxPopover } from "@/components/database/FilterComboboxPopover"
 import { facetOptions, type FacetOption } from "@/components/database/facetOptions"
 import { FACET_LABELS, type MultiFacetKey } from "@/hooks/useDbFilters"
-import { useEdgeFade } from "@/hooks/useEdgeFade"
 import type { PapersFacets, PapersQuery } from "@/lib/api/db"
 import { cn } from "@/lib/utils"
 
@@ -52,13 +51,9 @@ export function FacetFilters({
   isLoadingTitleSuggestions,
   isLoadingAuthorSuggestions,
 }: FacetFiltersProps) {
-  const rowRef = useRef<HTMLDivElement | null>(null)
-  const fadeStyle = useEdgeFade(rowRef)
   return (
     <div
-      ref={rowRef}
-      style={fadeStyle}
-      className="-my-1 flex flex-nowrap items-center gap-1.5 overflow-x-auto scrollbar-none py-1 *:shrink-0 sm:flex-wrap sm:overflow-visible"
+      className="flex flex-wrap items-center gap-1.5 *:shrink-0"
       role="group"
       aria-label="Filter papers"
     >
@@ -143,7 +138,7 @@ export function FacetMenu({ facetKey, label, selected, options, onToggle, onClea
           <TriggerLabel label={label} count={selected.length} />
         </Button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="start" className="max-h-80 w-60 overflow-y-auto">
+      <DropdownMenuContent align="start" className="max-h-[min(20rem,var(--radix-dropdown-menu-content-available-height))] w-60 overflow-y-auto">
         <DropdownMenuLabel>{MENU_HEADINGS[facetKey] ?? label}</DropdownMenuLabel>
         {options.length === 0 ? (
           <div className="px-2 py-1.5 text-xs text-muted">No values yet.</div>

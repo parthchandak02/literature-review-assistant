@@ -77,7 +77,12 @@ export function ScreeningFiltersBar({
               (f !== "automated" || counts.automated > 0 || filter === f) &&
               (!readOnly || f !== "overridden" || filter === f),
           ).map((f) => (
-            <FilterChip key={f} active={filter === f} onClick={() => onFilterChange(f)}>
+            <FilterChip
+              key={f}
+              active={filter === f}
+              onClick={() => onFilterChange(f)}
+              className="pointer-coarse:min-h-8"
+            >
               {SCREENING_FILTER_LABELS[f]}
               <span className="tabular-nums text-muted">{formatCount(counts[f])}</span>
             </FilterChip>

@@ -4,7 +4,10 @@ import {
   buildRunCardModel,
   CONFIG_GENERATING_STALL_MS,
   isConfigGenerationStalled,
-  keyMetricText,
+  formatCardCost,
+  hasFunnelDetail,
+  runCardSummary,
+  runCardSummaryText,
   truncateTopic,
 } from "./historyRowModel"
 import type { HistoryEntry } from "@/lib/api"
@@ -143,11 +146,33 @@ describe("buildInProgressRowModel", () => {
 })
 
 describe("card metrics", () => {
-  it("hides the funnel until search has found records", () => {
-    expect(keyMetricText({ papersFound: 0, papersIncluded: 0 })).toBeNull()
-    expect(keyMetricText({ papersFound: null, papersIncluded: null })).toBeNull()
-    expect(keyMetricText({ papersFound: 1716, papersIncluded: 6 })).toBe("6 included")
-    expect(keyMetricText({ papersFound: 40, papersIncluded: null })).toBe("40 found")
+  it("hides counts until search has found records and cost until spent", () => {
+    expect(runCardSummary({ papersFound: 0, papersIncluded: 0, cost: 0 })).toEqual({
+      found: null,
+      included: null,
+      cost: null,
+    })
+    expect(runCardSummary({ papersFound: 1716, papersIncluded: 6, cost: 1.205 })).toEqual({
+      found: 1716,
+      included: 6,
+      cost: 1.205,
+    })
+    expect(runCardSummaryText(runCardSummary({ papersFound: 1716, papersIncluded: 6 }))).toBe(
+      "1,716 found, 6 included",
+    )
+    expect(runCardSummaryText(runCardSummary({ papersFound: 40, papersIncluded: null }))).toBe("40 found")
+  })
+
+  it("formats card cost to cents without hiding sub-cent spend", () => {
+    expect(formatCardCost(1.205)).toBe("$1.21")
+    expect(formatCardCost(0.004)).toBe("<$0.01")
+  })
+
+  it("offers the full funnel only when it adds stages", () => {
+    const stage = (key: string) => ({ key, label: key, count: 1, colorClass: "text-muted" })
+    expect(hasFunnelDetail(undefined)).toBe(false)
+    expect(hasFunnelDetail([stage("found"), stage("included")])).toBe(false)
+    expect(hasFunnelDetail([stage("found"), stage("screened"), stage("included")])).toBe(true)
   })
 
   it("truncates topics on a word boundary", () => {

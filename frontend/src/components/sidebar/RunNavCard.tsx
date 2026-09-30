@@ -1,4 +1,4 @@
-import { useId, useRef, useState } from "react"
+import { useEffect, useId, useRef, useState } from "react"
 import {
   Archive,
   CheckSquare,
@@ -10,7 +10,7 @@ import {
   Trash2,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
-import { formatRunDate, formatShortDate, formatWorkflowId } from "@/lib/format"
+import { formatRunDate, formatShortDate } from "@/lib/format"
 import type { HistoryEntry } from "@/lib/api"
 import { RunStatusIndicator } from "@/components/run-status"
 import { Spinner } from "@/components/ui/feedback"
@@ -25,15 +25,21 @@ import {
 import { ConfirmDialog } from "@/components/ConfirmDialog"
 import { CardProgressBar } from "@/components/sidebar/CardProgressBar"
 import { NoteField } from "@/components/sidebar/NoteField"
-import { RunCardDetails, RunCardDetailsToggle } from "@/components/sidebar/RunCardMetrics"
+import { RunCardFunnel, RunCardMetricRow } from "@/components/sidebar/RunCardMetrics"
 import { SidebarTooltip } from "@/components/sidebar/SidebarTooltip"
+import {
+  isPressOutsideOwnBox,
+  markOutsideDismiss,
+  swallowMenuDismissClick,
+  trackCardMenu,
+} from "@/components/sidebar/runCardMenuGuard"
 import {
   CollapsedWorkflowBadge,
   ExpandedWorkflowBadge,
 } from "@/components/sidebar/WorkflowBadges"
 import {
-  hasRunCardDetails,
-  keyMetricText,
+  hasFunnelDetail,
+  runCardSummary,
   type RunCardModel,
 } from "@/components/sidebar/historyRowModel"
 
@@ -59,8 +65,8 @@ export interface RunNavCardProps {
   onNoteChange?: (value: string) => void
 }
 
-/** Time of day only; the status row already shows the date. */
-function formatCreatedMeta(raw: string): string | null {
+/** Time of day for runs created today, where the date alone says little. */
+function formatCreatedTime(raw: string): string | null {
   const parsed = new Date(raw.includes("T") ? raw : `${raw.replace(" ", "T")}Z`)
   if (Number.isNaN(parsed.getTime())) return null
   return parsed.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })
@@ -90,11 +96,16 @@ export function RunNavCard({
   onNoteChange,
 }: RunNavCardProps) {
   const [stopConfirmOpen, setStopConfirmOpen] = useState(false)
-  const [detailsOpen, setDetailsOpen] = useState(false)
+  const [funnelOpen, setFunnelOpen] = useState(false)
   const [noteOpen, setNoteOpen] = useState(false)
   const focusNoteOnMenuClose = useRef(false)
+  const [menuOpen, setMenuOpen] = useState(false)
+  useEffect(() => {
+    if (!menuOpen) return
+    return trackCardMenu(() => setMenuOpen(false))
+  }, [menuOpen])
   const noteWrapRef = useRef<HTMLDivElement>(null)
-  const detailsId = useId()
+  const funnelId = useId()
   const disabledReasonId = useId()
 
   const workflowId = model.workflowId
@@ -115,15 +126,15 @@ export function RunNavCard({
   }
 
   const isNow = model.dateLabel === "Now"
-  const dateText = isNow ? "Now" : model.dateLabel ? formatShortDate(model.dateLabel) : undefined
+  const shortDate = !isNow && model.dateLabel ? formatShortDate(model.dateLabel) : undefined
+  const dateText = isNow
+    ? "Now"
+    : shortDate === "Today"
+      ? (formatCreatedTime(model.dateLabel!) ?? shortDate)
+      : shortDate
   const dateTitle = !isNow && model.dateLabel ? formatRunDate(model.dateLabel) : undefined
 
   const statusLabel = model.statusLabel
-  const metaParts = [
-    workflowId ? formatWorkflowId(workflowId) : null,
-    !isNow && model.dateLabel ? formatCreatedMeta(model.dateLabel) : null,
-  ].filter(Boolean)
-  const metaText = metaParts.length > 0 ? metaParts.join(" · ") : null
 
   if (collapsed) {
     return (
@@ -169,17 +180,18 @@ export function RunNavCard({
   )
   const readOnlyNote = !showNote ? (entry?.notes ?? "").trim() : ""
 
-  const metricInput = {
+  const summary = runCardSummary({
     papersFound: model.papersFound,
     papersIncluded: model.papersIncluded,
     funnelStages: model.funnelStages,
     cost: model.cost,
-  }
-  const keyMetric = keyMetricText(metricInput)
-  const hasDetails = hasRunCardDetails(metricInput)
+  })
+  const funnelStages = hasFunnelDetail(model.funnelStages) ? model.funnelStages! : null
+  const showMetricRow = summary.found != null || summary.cost != null || Boolean(workflowId) || funnelStages != null
 
   return (
     <div
+      onClickCapture={swallowMenuDismissClick}
       className={cn(
         "sidebar-card relative",
         model.cardClassName,
@@ -246,7 +258,11 @@ export function RunNavCard({
             </button>
           )}
           {hasMenu && (
-            <DropdownMenu modal={false}>
+            <DropdownMenu
+              // Keep modal: inside the mobile Sheet a non-modal menu loses focus to the Sheet's trap and closes on tap.
+              open={menuOpen}
+              onOpenChange={setMenuOpen}
+            >
               <DropdownMenuTrigger asChild>
                 <button
                   type="button"
@@ -264,6 +280,12 @@ export function RunNavCard({
                 collisionPadding={8}
                 updatePositionStrategy="always"
                 className="min-w-44"
+                onPointerDownOutside={markOutsideDismiss}
+                onPointerDown={(e) => {
+                  if (!isPressOutsideOwnBox(e)) return
+                  markOutsideDismiss()
+                  setMenuOpen(false)
+                }}
                 onCloseAutoFocus={(e) => {
                   if (!focusNoteOnMenuClose.current) return
                   focusNoteOnMenuClose.current = false
@@ -315,8 +337,26 @@ export function RunNavCard({
         </div>
       </div>
 
-      {metaText && (
-        <p className="truncate px-2.5 pt-1 text-2xs tabular-nums text-muted">{metaText}</p>
+      {showMetricRow && (
+        <div className="px-2.5 pt-1">
+          <RunCardMetricRow
+            summary={summary}
+            workflowId={workflowId}
+            copiedWorkflowId={wfIdCopied}
+            onCopyWorkflowId={onCopyWorkflowId}
+            funnel={
+              funnelStages
+                ? { expanded: funnelOpen, onToggle: () => setFunnelOpen((v) => !v), controlsId: funnelId }
+                : undefined
+            }
+          />
+        </div>
+      )}
+
+      {funnelOpen && funnelStages && (
+        <div className="px-2.5 pt-1">
+          <RunCardFunnel id={funnelId} stages={funnelStages} />
+        </div>
       )}
 
       {readOnlyNote && (
@@ -343,35 +383,12 @@ export function RunNavCard({
           <time
             dateTime={isNow ? undefined : model.dateLabel}
             title={dateTitle}
-            className={cn("font-medium tabular-nums shrink-0", model.dateClassName)}
+            className={cn("font-medium shrink-0", model.dateClassName)}
           >
             {dateText}
           </time>
         )}
       </div>
-
-      {hasDetails && (
-        <div className="-mt-1 flex px-2.5 pb-2 text-meta">
-          <RunCardDetailsToggle
-            expanded={detailsOpen}
-            onToggle={() => setDetailsOpen((v) => !v)}
-            label={keyMetric}
-            controlsId={detailsId}
-          />
-        </div>
-      )}
-
-      {detailsOpen && hasDetails && (
-        <div className="px-2.5 pb-2">
-          <RunCardDetails
-            id={detailsId}
-            {...metricInput}
-            workflowId={workflowId}
-            copiedWorkflowId={wfIdCopied}
-            onCopyWorkflowId={onCopyWorkflowId}
-          />
-        </div>
-      )}
 
       {model.showProgressBar && (
         <CardProgressBar status={model.statusKey} progress={model.progressValue} />

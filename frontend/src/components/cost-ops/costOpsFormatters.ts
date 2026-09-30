@@ -225,13 +225,12 @@ export function formatSpendBucketLabel(
   const start = sqliteWeekStart(week.year, week.week)
   const end = new Date(start)
   end.setDate(start.getDate() + 6)
-  return `${formatShortDate(start, true)} – ${formatShortDate(end, true)}`
+  return `${formatShortDate(start, true)} - ${formatShortDate(end, true)}`
 }
 
 export const fieldLabelClass = "space-y-1 text-xs"
 export const fieldControlClass =
   "h-8 w-full min-w-0 rounded-control border border-border bg-card/90 px-2.5 text-xs text-foreground shadow-sm outline-none transition-colors hover:border-border focus:border-intent-primary focus-visible:ring-1 focus-visible:ring-ring"
-export const statCardClass = "rounded-lg border border-border/80 bg-card/60 px-2.5 py-2"
 export const sectionHeaderClass = "border-b border-border/80 px-2.5 py-1.5 text-xs font-semibold text-foreground"
 /** Breakdown grid sized by its container (the Settings dialog is narrower than the page). */
 export const costOpsGridClass = "grid gap-2 grid-cols-1 @2xl:grid-cols-2 @6xl:grid-cols-3"

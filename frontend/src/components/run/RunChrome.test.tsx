@@ -9,6 +9,7 @@ import { RunChrome } from "./RunChrome"
 import { formatChromeCost, formatOutcome } from "./runChromeFormat"
 import { computeRunChrome, type RunChromeVM } from "@/hooks/useRunChrome"
 import type { RunTab, SelectedRun } from "@/context/runSessionTypes"
+import type { FunnelStage } from "@/lib/funnelStages"
 
 vi.mock("sonner", () => ({ toast: { error: vi.fn(), success: vi.fn() } }))
 
@@ -41,11 +42,16 @@ function chromeFor(selected: SelectedRun): RunChromeVM {
   })
 }
 
-function renderChrome(selected: SelectedRun, onTabChange = vi.fn(), activeTab: RunTab = "activity") {
+function renderChrome(
+  selected: SelectedRun,
+  onTabChange = vi.fn(),
+  activeTab: RunTab = "activity",
+  chromeOverrides: Partial<RunChromeVM> = {},
+) {
   render(
     <RunChrome
       run={selected}
-      chrome={chromeFor(selected)}
+      chrome={{ ...chromeFor(selected), ...chromeOverrides }}
       tabItems={tabItems}
       activeTab={activeTab}
       onTabChange={onTabChange}
@@ -125,14 +131,42 @@ describe("RunChrome info strip", () => {
     expect(screen.queryByRole("tab", { name: /Screening/ })).toBeNull()
   })
 
-  it("uses sans tabular numbers in the strip and mono only for the workflow id", () => {
+  it("keeps labels sans and puts outcome numbers, cost, and workflow id in .num", () => {
     renderChrome(completed)
     const strip = screen.getByTestId("run-meta-strip").parentElement!
     expect(strip.className).toMatch(/font-sans/)
-    expect(strip.className).toMatch(/tabular-nums/)
     expect(strip.className).not.toMatch(/text-meta|font-mono/)
-    const mono = screen.getByTestId("run-meta-strip").querySelectorAll(".font-mono")
-    expect(Array.from(mono).map((el) => el.textContent)).toEqual(["wf-1"])
+    const nums = Array.from(screen.getByTestId("run-meta-strip").querySelectorAll(".num")).map((el) => el.textContent)
+    expect(nums).toEqual(["6", "1,716", "$1.23", "wf-1"])
+    expect(screen.getByRole("button", { name: "$1.23" }).className).not.toMatch(/intent-/)
+  })
+
+  const stages: FunnelStage[] = [
+    { key: "identified", label: "identified", count: 1716, colorClass: "text-intent-info", kind: "count" },
+    { key: "duplicates", label: "duplicates removed", count: 168, colorClass: "text-muted", kind: "removed" },
+    { key: "screened", label: "screened", count: 209, colorClass: "text-intent-primary", kind: "count" },
+    { key: "sought", label: "sought for retrieval", count: 60, colorClass: "text-intent-active", kind: "count" },
+    { key: "assessed", label: "assessed for eligibility", count: 57, colorClass: "text-intent-warning", kind: "count" },
+    { key: "included", label: "included", count: 6, colorClass: "text-intent-success", kind: "count" },
+  ]
+
+  it("shows a toned compact funnel chain that opens the full funnel", async () => {
+    const user = userEvent.setup()
+    renderChrome(completed, vi.fn(), "activity", { displayFunnelStages: stages })
+    const chain = screen.getByTestId("run-funnel-chain")
+    const counts = Array.from(chain.querySelectorAll(".num")).map((el) => [el.textContent, el.className])
+    expect(counts.map(([text]) => text)).toEqual(["1,716", "209", "57", "6"])
+    expect(counts[0][1]).toMatch(/text-intent-info/)
+    expect(counts[3][1]).toMatch(/text-intent-success/)
+    expect(screen.queryByRole("button", { name: /^Funnel$/ })).toBeNull()
+
+    await user.click(screen.getByRole("button", { name: "Show full funnel" }))
+    const removed = await screen.findByText("−168")
+    expect(removed.className).toMatch(/num/)
+    expect(removed.closest("li")!.className).toMatch(/text-muted/)
+    const sought = screen.getByText("60")
+    expect(sought.className).toMatch(/text-intent-active/)
+    expect(sought.className).toMatch(/text-right/)
   })
 })
 

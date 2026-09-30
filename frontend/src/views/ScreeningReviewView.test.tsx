@@ -129,7 +129,7 @@ describe("ScreeningReviewView", () => {
   it("shows live counts and sorts lowest confidence first", async () => {
     renderView()
     expect(await screen.findByTestId("screening-reviewer-line")).toHaveTextContent(
-      "3 screened by reviewers · 1 include · 1 exclude · 1 uncertain · 0 overridden",
+      "3 screened by reviewers 1 include 1 exclude 1 uncertain 0 overridden",
     )
     expect(screen.queryByTestId("screening-automation-line")).not.toBeInTheDocument()
     expect(screen.queryByRole("button", { name: /Removed by automation/ })).not.toBeInTheDocument()
@@ -166,7 +166,7 @@ describe("ScreeningReviewView", () => {
     renderView(onApprove)
     await rowFor("Paper One")
     expect(screen.getByTestId("screening-reviewer-line")).toHaveTextContent(
-      "4 screened by reviewers · 1 include · 2 exclude (1 title/abstract, 1 full text) · 1 uncertain · 0 overridden",
+      "4 screened by reviewers 1 include 2 exclude (1 title/abstract, 1 full text) 1 uncertain 0 overridden",
     )
     expect(screen.getByTestId("screening-automation-line")).toHaveTextContent("Removed by automation 3")
     expect(screen.getByText("Reviewed 0 of 4")).toBeInTheDocument()

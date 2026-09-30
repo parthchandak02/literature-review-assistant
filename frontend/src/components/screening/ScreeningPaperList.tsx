@@ -39,7 +39,7 @@ export function ScreeningPaperList({
       aria-multiselectable={!rest.readOnly}
       aria-readonly={rest.readOnly || undefined}
       aria-rowcount={rows.length}
-      className="space-y-1.5"
+      className="glass-table-shell divide-y"
     >
       {rows.map((row) => (
         <ScreeningPaperRow

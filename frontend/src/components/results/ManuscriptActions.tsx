@@ -66,7 +66,7 @@ export function ManuscriptActions({
   }
 
   return (
-    <div className="flex items-center gap-1.5">
+    <div className="flex flex-wrap items-center justify-end gap-1.5">
       {state.status === "building" && (
         <Button size="sm" variant="outline" disabled aria-busy className={sharedCls}>
           <Spinner size="sm" />

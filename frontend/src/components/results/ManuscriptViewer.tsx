@@ -116,7 +116,7 @@ function DraftQualityChip({ matches }: { matches: TemplateTextMatch[] }) {
       <DropdownMenuTrigger asChild>
         <button
           type="button"
-          className="inline-flex items-center gap-1 rounded-pill border border-intent-warning-border bg-intent-warning-subtle px-2 py-0.5 text-2xs font-medium text-intent-warning-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          className="inline-flex items-center gap-1 whitespace-nowrap rounded-pill border border-intent-warning-border bg-intent-warning-subtle px-2 py-0.5 text-2xs font-medium text-intent-warning-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
         >
           <AlertTriangle className="h-3 w-3" aria-hidden />
           Draft quality
@@ -218,8 +218,7 @@ export function ManuscriptViewer({
       <div ref={toolbarRef} className="manuscript-toolbar sticky top-0 z-20">
         <ViewToolbar
           dense
-          height="auto"
-          className="flex-wrap"
+          wrap
           title={
             <div className="flex items-center gap-2">
               {showToc && (
@@ -231,7 +230,7 @@ export function ManuscriptViewer({
                       <ChevronDown />
                     </Button>
                   </DropdownMenuTrigger>
-                  <DropdownMenuContent align="start" className="max-h-80 w-72 overflow-y-auto">
+                  <DropdownMenuContent align="start" className="max-h-[min(20rem,var(--radix-dropdown-menu-content-available-height))] w-72">
                     {tocItems.map((h) => (
                       <DropdownMenuItem
                         key={h.slug}
@@ -256,7 +255,11 @@ export function ManuscriptViewer({
                 exportRunId={exportRunId}
                 allOutputs={allOutputs}
               />
-              <div className="flex items-center gap-0.5 border-l border-border/70 pl-2" role="group" aria-label="Zoom">
+              <div
+                className="flex items-center gap-0.5 border-l border-border/70 pl-2 pointer-coarse:hidden"
+                role="group"
+                aria-label="Zoom"
+              >
                 <Button
                   type="button"
                   size="icon-sm"
@@ -296,7 +299,7 @@ export function ManuscriptViewer({
 
       <div
         className={cn(
-          "px-5 py-8 md:px-10",
+          "@container px-5 py-8 md:px-10",
           showToc && "lg:grid lg:grid-cols-[13rem_minmax(0,1fr)] lg:gap-10",
         )}
       >

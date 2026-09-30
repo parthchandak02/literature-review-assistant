@@ -72,12 +72,13 @@ export const ScreeningPaperRow = memo(function ScreeningPaperRow({
       aria-label={displayTitle}
       onFocus={() => onFocusRow(key)}
       className={cn(
-        "rounded-panel border transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-        "focus-within:border-border-strong",
-        override ? "border-intent-primary-border bg-intent-primary-subtle" : "border-border bg-card/40",
+        "glass-table-row relative focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring",
+        "before:absolute before:inset-y-0 before:left-0 before:w-0.5 before:bg-transparent focus-within:before:bg-intent-primary",
+        override && "bg-intent-primary-subtle before:bg-intent-primary-border",
+        selected && !override && "bg-surface-2",
       )}
     >
-      <div role="gridcell" className="flex flex-wrap sm:flex-nowrap items-start gap-x-3 gap-y-2 px-3 py-2.5">
+      <div role="gridcell" className="flex flex-wrap sm:flex-nowrap items-start gap-x-3 gap-y-1.5 px-3 py-1.5">
         {!readOnly && (
           <input
             type="checkbox"
@@ -85,7 +86,7 @@ export const ScreeningPaperRow = memo(function ScreeningPaperRow({
             checked={selected}
             onChange={() => onToggleSelected(key)}
             aria-label={`Select ${displayTitle}`}
-            className="mt-1 size-4 shrink-0 accent-intent-primary cursor-pointer"
+            className="mt-0.5 size-4 shrink-0 accent-intent-primary cursor-pointer"
           />
         )}
         <button
@@ -102,11 +103,14 @@ export const ScreeningPaperRow = memo(function ScreeningPaperRow({
             <ChevronRight aria-hidden className="size-4 mt-0.5 shrink-0 text-muted" />
           )}
           <span className="min-w-0">
-            <span className={cn("block text-sm font-medium text-foreground leading-snug", !expanded && "line-clamp-2")}>
+            <span
+              className={cn("block text-sm font-medium text-foreground leading-snug", !expanded && "line-clamp-1")}
+              title={expanded ? undefined : displayTitle}
+            >
               {displayTitle}
             </span>
             {(meta || authors) && (
-              <span className="block text-xs text-muted mt-0.5 line-clamp-1">
+              <span className="block text-xs text-muted line-clamp-1">
                 {[meta, authors].filter(Boolean).join(" · ")}
               </span>
             )}
@@ -147,7 +151,7 @@ export const ScreeningPaperRow = memo(function ScreeningPaperRow({
       </div>
 
       {expanded && (
-        <div role="gridcell" id={detailsId} className={cn("px-4 pb-4 pt-3 border-t border-border space-y-3", readOnly ? "ml-5" : "ml-7")}>
+        <div role="gridcell" id={detailsId} className={cn("px-4 pb-3 pt-2.5 border-t border-border/60 space-y-3", readOnly ? "ml-5" : "ml-7")}>
           {reason && (
             <section>
               <h4 className="text-xs font-semibold text-muted mb-1">

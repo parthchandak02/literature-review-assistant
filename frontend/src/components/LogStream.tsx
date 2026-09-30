@@ -216,9 +216,14 @@ const EXPAND_THRESHOLD = 240
 const END_THRESHOLD_PX = 24
 const LOG_HEADER_PX = 32
 const ROW_GRID =
-  "grid grid-cols-1 gap-x-2 @md:grid-cols-[4.75rem_8.5rem_minmax(0,1fr)] items-start"
+  "grid grid-cols-1 gap-x-2 @md:grid-cols-[4.75rem_6.5rem_minmax(0,1fr)] items-start"
 const FOCUS_RING =
   "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 focus-visible:ring-offset-background"
+
+/** The tag column truncates, so the tooltip always carries the full label. */
+function tagTitle({ label, description }: { label: string; description?: string }): string {
+  return description ? `${label}: ${description}` : label
+}
 
 function isDecision(level: LogLevel): boolean {
   return level === "include" || level === "exclude" || level === "exclude-heuristic"
@@ -247,10 +252,10 @@ function LogRow({
     <div className={cn("py-px", decision && ["-ml-2.5 pl-2 border-l-2 rounded-r", style?.rowClass])}>
       <div className={cn(ROW_GRID, decision ? style?.textClass : levelClass(entry.level))}>
         <div className="flex items-baseline gap-2 min-w-0 @md:contents">
-          <span className="text-muted tabular-nums">{entry.ts ? `[${entry.ts}]` : ""}</span>
+          <span className="num text-muted">{entry.ts ? `[${entry.ts}]` : ""}</span>
           <span
-            className={cn("truncate", decision ? style?.tagClass : "text-muted")}
-            title={tagInfo.description || undefined}
+            className={cn("min-w-0 truncate", decision ? style?.tagClass : "text-muted")}
+            title={tagTitle(tagInfo)}
           >
             {tagInfo.label}
           </span>
@@ -275,7 +280,7 @@ function LogRow({
                 aria-label={expanded ? "Show less" : "Show more"}
                 title={expanded ? "Show less" : "Show more"}
                 className={cn(
-                  "inline-flex align-middle rounded text-muted/70 hover:text-foreground transition-colors motion-reduce:transition-none",
+                  "touch-hit inline-flex align-middle items-center justify-center rounded text-muted/70 hover:text-foreground transition-colors motion-reduce:transition-none pointer-coarse:min-h-6 pointer-coarse:min-w-6",
                   FOCUS_RING,
                 )}
               >
@@ -310,8 +315,8 @@ function PhaseSeparator({ label, description, ts }: { label: string; description
       {description ? (
         <div className={cn(ROW_GRID, "py-px text-muted")}>
           <div className="flex items-baseline gap-2 min-w-0 @md:contents">
-            <span className="tabular-nums">{time ? `[${time}]` : ""}</span>
-            <span className="truncate" title={PHASE_TAG.description || undefined}>
+            <span className="num">{time ? `[${time}]` : ""}</span>
+            <span className="min-w-0 truncate" title={tagTitle(PHASE_TAG)}>
               {PHASE_TAG.label}
             </span>
           </div>
@@ -462,7 +467,7 @@ export const LogStream = forwardRef<LogStreamHandle, LogStreamProps>(function Lo
   const showPill = autoScroll && !follow.following
 
   return (
-    <div className="relative [--log-header-h:2rem]">
+    <div className="relative [--log-header-h:2rem] [--log-h:clamp(22rem,calc(100dvh-20rem),40rem)] [--log-pill-bar-h:2.75rem]">
       {headerLabel && (
         <div
           data-testid="log-current-phase"
@@ -484,7 +489,8 @@ export const LogStream = forwardRef<LogStreamHandle, LogStreamProps>(function Lo
       <div
         ref={scrollRef}
         className={cn(
-          "@container h-[clamp(22rem,calc(100dvh-20rem),40rem)] w-full rounded-panel border border-border bg-background overflow-y-auto",
+          "@container w-full rounded-panel border border-border bg-background overflow-y-auto",
+          showPill ? "h-[calc(var(--log-h)-var(--log-pill-bar-h))]" : "h-(--log-h)",
           FOCUS_RING,
         )}
         role="log"
@@ -525,15 +531,12 @@ export const LogStream = forwardRef<LogStreamHandle, LogStreamProps>(function Lo
       </div>
 
       {showPill && (
-        <Button
-          type="button"
-          size="xs"
-          onClick={jumpToLatest}
-          className="absolute bottom-3 left-1/2 z-20 -translate-x-1/2 rounded-full shadow-md"
-        >
-          <ArrowDown aria-hidden />
-          {newCount > 0 ? newEventsLabel(newCount) : "Jump to latest"}
-        </Button>
+        <div className="flex h-(--log-pill-bar-h) items-center justify-center" data-testid="log-jump-bar">
+          <Button type="button" size="xs" onClick={jumpToLatest} className="touch-hit rounded-full shadow-md">
+            <ArrowDown aria-hidden />
+            {newCount > 0 ? newEventsLabel(newCount) : "Jump to latest"}
+          </Button>
+        </div>
       )}
 
       <div className="sr-only" role="status" aria-live="polite" aria-atomic="true">

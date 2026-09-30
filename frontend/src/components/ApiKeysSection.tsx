@@ -300,7 +300,7 @@ export function ApiKeysPanel({ onValidityChange }: { onValidityChange?: (valid: 
           onClick={() => setShowOptional((v) => !v)}
           aria-expanded={showOptional}
           aria-controls="api-keys-optional"
-          className="flex items-center gap-2 mb-3 cursor-pointer rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          className="flex items-center gap-2 mb-3 cursor-pointer rounded pointer-coarse:min-h-11 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
         >
           <h4 className="text-xs font-semibold text-foreground uppercase tracking-wide">
             Optional providers

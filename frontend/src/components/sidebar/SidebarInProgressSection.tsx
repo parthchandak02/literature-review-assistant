@@ -12,6 +12,8 @@ export interface SidebarInProgressSectionProps {
   prosperoPendingHistory: HistoryEntry[]
   inProgressHistory: HistoryEntry[]
   shouldShowStandaloneLiveCard: boolean
+  /** Completed or archived reviews exist, so the first-run hint would be misleading. */
+  hasLaneReviews: boolean
   liveRun: LiveRun | null
   isLiveRunSelected: boolean
   isRunning: boolean
@@ -46,6 +48,7 @@ export function SidebarInProgressSection({
   prosperoPendingHistory,
   inProgressHistory,
   shouldShowStandaloneLiveCard,
+  hasLaneReviews,
   liveRun,
   isLiveRunSelected,
   isRunning,
@@ -71,6 +74,7 @@ export function SidebarInProgressSection({
   sessionArchive,
   sessionHideCompleted,
 }: SidebarInProgressSectionProps) {
+  const isEmpty = inProgressHistory.length === 0 && !(shouldShowStandaloneLiveCard && liveRun)
   const renderHistoryRow = (entry: HistoryEntry) => (
     <RunNavCard
       key={entry.workflow_id}
@@ -187,11 +191,7 @@ export function SidebarInProgressSection({
         {inProgressHistory.map(renderHistoryRow)}
       </div>
 
-      {!collapsed && !loadingHistory && inProgressHistory.length === 0 && !shouldShowStandaloneLiveCard && prosperoPendingHistory.length > 0 && (
-        <p className="px-2 py-1.5 text-2xs text-muted">No reviews in progress</p>
-      )}
-
-      {!collapsed && !loadingHistory && inProgressHistory.length === 0 && !shouldShowStandaloneLiveCard && prosperoPendingHistory.length === 0 && (
+      {!collapsed && !loadingHistory && !historyError && isEmpty && prosperoPendingHistory.length === 0 && !hasLaneReviews && (
         <div className="flex flex-col items-center py-6 gap-2">
           <Clock className="h-6 w-6 text-border" />
           <p className="label-muted text-center">

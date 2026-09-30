@@ -28,7 +28,7 @@ export function ColumnsMenu({ visible, empty, onToggle, onReset }: ColumnsMenuPr
           <span className="max-sm:sr-only">Columns</span>
         </Button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" className="w-56">
+      <DropdownMenuContent align="end" className="w-56 overflow-y-auto overscroll-contain">
         <DropdownMenuLabel>Show columns</DropdownMenuLabel>
         {PAPER_COLUMNS.map(({ id, label }) => (
           <DropdownMenuCheckboxItem

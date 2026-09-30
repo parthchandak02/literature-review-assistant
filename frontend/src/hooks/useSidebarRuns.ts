@@ -11,6 +11,7 @@ import {
   isReviewPendingStatus,
   resolveRunStatus,
 } from "@/lib/constants"
+import { parseDate } from "@/lib/format"
 import { truncateTopic } from "@/components/sidebar/historyRowModel"
 import type { LaneChangeOptions, LiveRun } from "@/components/sidebar/types"
 
@@ -70,6 +71,50 @@ export function partitionHistory(history: HistoryEntry[]): SidebarHistoryPartiti
     archivedHistory,
     visibleHistory,
   }
+}
+
+/** User's explicit Completed-lane open/closed choice; absent until they toggle it. */
+export const COMPLETED_EXPANDED_STORAGE_KEY = "sidebar-completed-expanded"
+
+export function readCompletedExpandedPref(): boolean | null {
+  try {
+    const raw = localStorage.getItem(COMPLETED_EXPANDED_STORAGE_KEY)
+    return raw === "1" ? true : raw === "0" ? false : null
+  } catch {
+    return null
+  }
+}
+
+export function writeCompletedExpandedPref(expanded: boolean) {
+  try {
+    localStorage.setItem(COMPLETED_EXPANDED_STORAGE_KEY, expanded ? "1" : "0")
+  } catch {
+    // Storage disabled; the choice lasts for this session only.
+  }
+}
+
+function activityTime(entry: HistoryEntry): number {
+  const raw = entry.updated_at ?? entry.created_at
+  const t = raw ? parseDate(raw).getTime() : Number.NaN
+  return Number.isFinite(t) ? t : Number.NEGATIVE_INFINITY
+}
+
+/**
+ * Open Completed when nothing is running, or when the most recently touched
+ * non-archived review lives there, so the latest result is never hidden behind stale drafts.
+ */
+export function defaultCompletedExpanded(
+  partitions: SidebarHistoryPartitions,
+  hasStandaloneLiveRun: boolean,
+): boolean {
+  if (partitions.completedHistory.length === 0) return false
+  if (partitions.inProgressHistory.length === 0 && !hasStandaloneLiveRun) return true
+  if (hasStandaloneLiveRun) return false
+  let latest: HistoryEntry | null = null
+  for (const entry of [...partitions.visibleHistory, ...partitions.completedHistory]) {
+    if (latest == null || activityTime(entry) > activityTime(latest)) latest = entry
+  }
+  return latest != null && laneOf(latest) === "completed"
 }
 
 /** True when the active live run is not yet present in /api/history. */
@@ -377,6 +422,7 @@ export function useSidebarRuns({
   return {
     ...partitions,
     shouldShowStandaloneLiveCard,
+    completedExpandedByDefault: defaultCompletedExpanded(partitions, shouldShowStandaloneLiveCard),
     openingId,
     resumingId,
     busyId,

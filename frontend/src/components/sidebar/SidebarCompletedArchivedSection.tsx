@@ -120,7 +120,10 @@ function Lane({
         />
       </button>
       {expanded && (
-        <div id={listId} className="mb-2 mt-1 max-h-64 overflow-y-auto space-y-1.5 pr-0.5">
+        <div
+          id={listId}
+          className="mb-2 mt-1 max-h-64 overflow-y-auto space-y-1.5 pr-0.5 [@media(max-height:600px)]:max-h-none [@media(max-height:600px)]:overflow-visible"
+        >
           {count === 0 ? <p className="px-2 py-1.5 text-2xs text-muted">{emptyText}</p> : children}
         </div>
       )}

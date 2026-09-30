@@ -34,7 +34,7 @@ describe("LogStream rendering", () => {
     const log = screen.getByRole("log", { name: "Event log" })
     expect(log).toHaveAttribute("aria-live", "off")
     const tag = screen.getByText("Progress")
-    expect(tag).toHaveAttribute("title", "Items processed so far in the current phase.")
+    expect(tag).toHaveAttribute("title", "Progress: Items processed so far in the current phase.")
     expect(screen.getByText("Search: 1/4")).toBeInTheDocument()
     expect(screen.getByRole("status")).toBeInTheDocument()
   })

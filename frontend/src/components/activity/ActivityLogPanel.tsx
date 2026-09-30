@@ -107,7 +107,12 @@ export function ActivityLogPanel({
         <div role="group" aria-label="Filter by severity" className="flex items-center gap-1 shrink-0">
           {LOG_SEVERITY_FILTERS.map((f) => {
             return (
-              <FilterChip key={f.id} active={severity === f.id} onClick={() => setSeverity(f.id)}>
+              <FilterChip
+                key={f.id}
+                active={severity === f.id}
+                onClick={() => setSeverity(f.id)}
+                className="touch-hit pointer-coarse:min-h-7"
+              >
                 {f.label}
               </FilterChip>
             )

@@ -12,7 +12,8 @@ import { confidenceToVariant, screeningDecisionToVariant } from "@/lib/constants
 import { PAPER_COLUMNS, PRIMARY_STATUS_VARIANT, paperLink, type PaperColumnId } from "./paperColumns"
 
 const CELL = "px-2.5 py-2"
-const STICKY_HEAD = "sticky top-0 z-10 bg-surface-1 border-b border-border-strong"
+// Header sort buttons are 20px tall; coarse pointers get a 24px floor.
+const STICKY_HEAD = "sticky top-0 z-10 bg-surface-1 border-b border-border-strong pointer-coarse:[&_button]:min-h-6"
 // The pinned Title column gets a right edge once rows scroll under it.
 const SCROLLED_EDGE =
   "group-data-[scrolled-x=true]/papers:border-r group-data-[scrolled-x=true]/papers:border-r-border-strong group-data-[scrolled-x=true]/papers:shadow-lg"
@@ -63,7 +64,7 @@ export function PapersTable({
       <table className="w-full border-separate border-spacing-0 text-xs">
         <thead>
           <tr>
-            <Th className={cn(CELL, STICKY_HEAD, "left-0 z-20 min-w-44 sm:min-w-64", SCROLLED_EDGE)} {...sortProps("title")}>
+            <Th className={cn(CELL, STICKY_HEAD, "left-0 z-20 min-w-36 sm:min-w-64", SCROLLED_EDGE)} {...sortProps("title")}>
               Title
             </Th>
             {show("authors") && <Th className={cn(CELL, STICKY_HEAD, "min-w-32")}>Authors</Th>}
@@ -162,8 +163,9 @@ function TitleCell({ paper, onOpen }: { paper: PaperAllRow; onOpen?: (id: string
   const href = paperLink(paper)
   const title = decodeHtmlEntities(paper.title)
   return (
-    <Td className={cn(CELL, STICKY_TITLE, "z-[5] max-w-sm min-w-44 sm:min-w-64 group-hover:bg-surface-2")}>
-      <div className="flex items-start gap-1">
+    <Td className={cn(CELL, STICKY_TITLE, "z-[5] max-w-sm min-w-36 sm:min-w-64 group-hover:bg-surface-2")}>
+      {/* Table cells ignore max-width, so the phone cap lives on the content box. */}
+      <div className="flex items-start gap-1 max-sm:w-32">
         {onOpen ? (
           <button
             type="button"
@@ -189,7 +191,7 @@ function TitleCell({ paper, onOpen }: { paper: PaperAllRow; onOpen?: (id: string
             onClick={(e) => e.stopPropagation()}
             aria-label="Open publisher page"
             title={href}
-            className="mt-0.5 shrink-0 rounded-control text-muted transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            className="mt-0.5 shrink-0 rounded-control text-muted pointer-coarse:-mx-1.5 pointer-coarse:-mb-1.5 pointer-coarse:-mt-1 pointer-coarse:p-1.5 transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           >
             <ExternalLink className="h-3 w-3" />
           </a>
@@ -216,7 +218,7 @@ function ScreeningCell({ paper }: { paper: PaperAllRow }) {
   ]
   return (
     <Td className={CELL}>
-      <div className="flex flex-col items-start gap-0.5">
+      <div className="flex flex-wrap items-center gap-1 [&>*]:whitespace-nowrap">
         {stages.map(({ label, value }) =>
           value === REMOVED_BY_AUTOMATION ? (
             <Badge

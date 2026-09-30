@@ -12,12 +12,12 @@ import {
   formatUsd,
   costOpsGridClass,
   resolveCostOpsPreset,
-  statCardClass,
   toApiEnd,
   toApiStart,
 } from "@/components/cost-ops/costOpsFormatters"
 import type { ChartTableMode } from "@/components/cost-ops/ChartTableToggle"
 import { cn } from "@/lib/utils"
+import { StatStrip, StatTile } from "@/components/ui/stat-tile"
 import { useHistory } from "@/hooks/useHistory"
 import { CostOpsFiltersBar } from "@/components/cost-ops/CostOpsFiltersBar"
 import { describeReviewGroup, formatCompact } from "@/components/cost-ops/costBreakdown"
@@ -30,6 +30,9 @@ import {
 } from "@/components/cost-ops/CostOpsChartSection"
 
 type PresetKey = CostOpsPresetKey
+
+const compactTileClass = "gap-0.5 px-2.5 py-2"
+const compactValueClass = "text-sm"
 
 export function CostsPanel() {
   const [preset, setPreset] = useState<PresetKey>("all")
@@ -144,35 +147,38 @@ export function CostsPanel() {
             loading && "opacity-60",
           )}
         >
-          <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-            <div className={cn(statCardClass, "min-w-0")}>
-              <div className="text-2xs uppercase tracking-wide text-muted">Total cost</div>
-              <div className="mt-0.5 text-sm font-semibold text-foreground tabular-nums truncate">
-                {totals ? formatUsd(totals.total_cost_usd) : "--"}
-              </div>
-            </div>
-            <div className={cn(statCardClass, "min-w-0")}>
-              <div className="text-2xs uppercase tracking-wide text-muted">Total calls</div>
-              <div className="mt-0.5 text-sm font-semibold text-foreground tabular-nums truncate">
-                {totals ? formatInteger(totals.total_calls) : "--"}
-              </div>
-            </div>
-            <div className={cn(statCardClass, "min-w-0")}>
-              <div className="text-2xs uppercase tracking-wide text-muted">Input tokens</div>
-              <div
-                className="mt-0.5 text-sm font-semibold text-foreground tabular-nums truncate"
-                title={totals ? `${formatInteger(totals.total_tokens_in)} tokens` : undefined}
-              >
-                {totals ? formatCompact(totals.total_tokens_in) : "--"}
-              </div>
-            </div>
-            <div className={cn(statCardClass, "min-w-0")}>
-              <div className="text-2xs uppercase tracking-wide text-muted">Reviews</div>
-              <div className="mt-0.5 text-sm font-semibold text-foreground tabular-nums truncate">
-                {data ? formatInteger(data.workflow_count) : "--"}
-              </div>
-            </div>
-          </div>
+          <StatStrip breakpoint="sm">
+            <StatTile
+              variant="inline"
+              className={compactTileClass}
+              valueClassName={compactValueClass}
+              label="Total cost"
+              value={totals ? formatUsd(totals.total_cost_usd) : "--"}
+            />
+            <StatTile
+              variant="inline"
+              className={compactTileClass}
+              valueClassName={compactValueClass}
+              tone={totals ? "primary" : "neutral"}
+              label="Total calls"
+              value={totals ? formatInteger(totals.total_calls) : "--"}
+            />
+            <StatTile
+              variant="inline"
+              className={compactTileClass}
+              valueClassName={compactValueClass}
+              label="Input tokens"
+              value={totals ? formatCompact(totals.total_tokens_in) : "--"}
+              valueTitle={totals ? `${formatInteger(totals.total_tokens_in)} tokens` : undefined}
+            />
+            <StatTile
+              variant="inline"
+              className={compactTileClass}
+              valueClassName={compactValueClass}
+              label="Reviews"
+              value={data ? formatInteger(data.workflow_count) : "--"}
+            />
+          </StatStrip>
 
           <div className="space-y-2">
             <CostOpsSpendSection
