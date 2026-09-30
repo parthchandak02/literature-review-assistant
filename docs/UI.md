@@ -21,7 +21,15 @@ Frontend contracts and design rules for the research-ops dashboard (`frontend/sr
 Rendered in `RunView.tsx` (`TAB_ITEMS`) in this order: `activity` (Activity), `results` (Results), `database` (Data), `config` (Config), `cost` (Cost). Ids and URLs are unchanged from the earlier order.  
 `review-screening` is placed second, directly after Activity (`orderRunTabs` in `components/run/runRouting.ts`; `screeningTabFor` in `RunChrome.tsx`) whenever the run has screening decisions (`hasScreeningDecisions` in `hooks/useRunChrome.ts`: status `awaiting_review`, a `phase_3_screening` `phase_done` event, or PRISMA `records_screened > 0`). At `awaiting_review` it is the amber "Review Screening" tab and the page is editable. At any later status it is a neutral "Screening" tab and the page is read-only. It is hidden before screening (a deep link still shows it so a tab stays highlighted). Read-only means: a "Screening was approved; this is a read-only view of the final decisions" banner, no progress bar, approve bar, Include/Exclude, selection, overrides or decision shortcuts (only move, expand and help). Saved overrides are neither read nor written until the view is editable.
 
-The info strip is sans with `tabular-nums`; only the workflow id is mono.
+The info strip labels are sans; numbers (counts, cost, workflow id) use the `.num` utility (mono, `tabular-nums`). Funnel counts carry their stage tone (`FunnelStage.colorClass`); cost stays neutral.
+
+**Numbers are signal.** Comparable numbers anywhere (stat tiles, sidebar metrics, table counts, chips) use `.num`. Counts may carry a semantic intent tone (`text-intent-*-text`); spend is always neutral. Facts a user checks on every visit (included count, cost, workflow id, funnel) stay visible; disclosures (popovers, toggles, `InfoHint`) are for detail, not for the headline number.
+
+**Overlays.** Floating menus, popovers and tooltips use `.glass-popover`; dialogs and sheets use `.glass-sheet` (both in `styles/components.css`, tokens `--overlay-*`). They are ~98% opaque on purpose: `backdrop-filter` does not blur content in fixed layers (sidebar, drawer), so page text must never be legible through an overlay. `.glass-panel*` is for large in-page panels only. Shared `DropdownMenuContent` caps its height to the Radix available height and scrolls.
+
+**Menus inside the drawer.** On narrow viewports the sidebar is a modal `Sheet`. Menus opened inside it must stay modal (`DropdownMenu` default); a non-modal menu loses focus to the Sheet's trap and closes on tap. `sidebar/runCardMenuGuard.ts` swallows the click that follows an outside dismiss so it cannot activate a card or lane header underneath. Keep all `@radix-ui/*` packages on versions that resolve to a single `react-dismissable-layer` (`pnpm why @radix-ui/react-dismissable-layer`); duplicate copies break layer stacking (outside taps, Escape).
+
+**Touch.** Interactive elements are at least 24px on coarse pointers; icon-only controls use `.touch-hit` (44px hit area via `::after`, no layout change) and dense rows use `pointer-coarse:min-h-*`. Desktop (fine pointer) density is unchanged. Verify responsive work at 390x844, 844x390, 589x1052 and 820x1180 with touch emulation.
 
 Tabs use `GlassTabs variant="underline"` (content-width, left-aligned). "Download submission package" sits on the same row, right-aligned.
 
