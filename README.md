@@ -1,487 +1,348 @@
-# Research Article Writer
+<div align="center">
 
-An open-source tool that automates systematic literature reviews end-to-end -- from a research question to an IEEE-submission-ready manuscript.
+<h1>LitReview</h1>
 
-It runs a full PRISMA 2020-compliant pipeline: searches academic databases (defaults from `config/review.yaml`; additional databases can be enabled per review), dual-reviews papers that pass prefiltering with independent AI reviewers, extracts data, assesses risk of bias (RoB 2, ROBINS-I, GRADE), synthesizes evidence (meta-analysis or narrative), and writes the manuscript with citation lineage enforced throughout.
+<p><b>A systematic review, from one research question.</b></p>
 
-**Use it via browser (web UI) or terminal (CLI).**
+<p><i>Searching, screening, extracting and writing up a PRISMA review takes a team months. This runs the whole pipeline and shows its work.</i></p>
 
-**Agents:** start with [`AGENTS.md`](AGENTS.md), then [`docs/CONTEXT.md`](docs/CONTEXT.md) for routing.
+<h6>
 
----
+![Python](https://img.shields.io/badge/Python-3.11%2B-111111?style=flat-square&logo=python&logoColor=white)
+![FastAPI](https://img.shields.io/badge/FastAPI-React%20UI-7C3AED?style=flat-square&logo=fastapi&logoColor=white)
+![PydanticAI](https://img.shields.io/badge/PydanticAI-graph-7C3AED?style=flat-square)
+![PRISMA](https://img.shields.io/badge/PRISMA-2020-111111?style=flat-square)
+![License](https://img.shields.io/badge/license-MIT-555555?style=flat-square)
 
-## What It Produces
+</h6>
 
-After a run completes, the run directory (`runs/YYYY-MM-DD/wf-NNNN-<topic-slug>/run_<time>/`) contains:
+<a href="#how-it-works"><b>How it works</b></a> ·
+<a href="#features"><b>Features</b></a> ·
+<a href="#run-it"><b>Run it</b></a> ·
+<a href="#reference"><b>Reference</b></a>
 
-- `doc_manuscript.md` -- the full manuscript in markdown
-- `doc_manuscript.tex` -- IEEE LaTeX version (generated automatically, no export step needed)
-- `references.bib` -- all citations (generated automatically)
-- `fig_*.png` / `fig_*.svg` -- all figures (PRISMA flow, RoB traffic-light, forest plot, funnel plot, timeline, geographic, concept diagrams)
+<br><br>
 
-Clicking **Export** in the browser (or running `uv run python -m src.main export`) assembles a `submission/` folder:
+<img src="docs/assets/readme/hero.jpg" width="720" alt="LitReview web UI showing a completed review: 1,715 records narrowed to 6 included studies for $1.20, a seven-step phase timeline from Start to Finalize, and the activity log of manuscript-writing AI calls with per-call tokens and cost">
 
-- `manuscript.tex` (+ `manuscript.pdf` when local LaTeX/pdflatex compilation succeeds) -- IEEE-formatted manuscript with bundled figures
-- `manuscript.docx` -- Word format with figures and formatted tables (for sharing / human review)
-- `references.bib` -- all citations
-- `figures/` -- PRISMA flow diagram, RoB traffic-light, forest plot, funnel plot, publication timeline, geographic distribution
-- `supplementary/` -- search strategies appendix, screening decisions CSV, extracted data CSV, PRISMA checklist (`prisma_checklist.html`, `prisma_checklist.md`, `prisma_checklist.csv`)
+<sub>A real completed run (a review of pickleball and adult health) in the local web UI.</sub>
 
----
+</div>
 
-## Prerequisites
+<br>
 
-| Tool | Version | Install |
-|------|---------|---------|
-| Python | 3.11+ | [python.org](https://www.python.org/downloads/) or `brew install python` |
-| uv | latest | `curl -LsSf https://astral.sh/uv/install.sh \| sh` |
-| Node.js | 20.19+ or 22.12+ | [nodejs.org](https://nodejs.org/) or `brew install node` |
-| pnpm | latest | `npm install -g pnpm` or `brew install pnpm` |
+## The problem
 
----
+A systematic review means searching half a dozen databases, removing duplicates, screening
+thousands of abstracts twice, pulling data from the survivors, rating their risk of bias, and
+writing it all up with a PRISMA flow diagram that adds up. Most of that is careful, repetitive
+work. LitReview does it with AI reviewers and deterministic checks, keeps every decision in
+SQLite, and hands back a manuscript, figures and a submission folder you can audit.
 
-## Quick Start (Web UI)
+## How it works
 
-The web UI is the easiest way to get started. No local config editing is required at launch -- you provide the research question and API keys in the browser.
+<table>
+<tr>
+<td width="33%" valign="top">
 
-**1. Clone the repo**
+**1 · Ask a question**
+
+Type a research question. The app drafts PICO (or PCC for scoping reviews), keywords,
+inclusion criteria and per-database queries as a `review.yaml` you can edit before launch.
+
+</td>
+<td width="33%" valign="top">
+
+**2 · Search and screen**
+
+Connectors query OpenAlex, PubMed, Crossref, Semantic Scholar, arXiv, Europe PMC and more.
+Records are deduplicated, BM25-ranked, then screened by two independent AI reviewers.
+
+</td>
+<td width="33%" valign="top">
+
+**3 · Assess and write**
+
+Included studies get data extraction, risk of bias and GRADE, then synthesis and a
+section-by-section manuscript with a citation ledger, exported to LaTeX, Word and BibTeX.
+
+</td>
+</tr>
+</table>
+
+## The paper trail
+
+<div align="center">
+
+<img src="docs/assets/readme/prisma-flow.png" width="640" alt="PRISMA 2020 flow diagram: 1,715 records from nine databases, 167 duplicates removed, 1,548 screened, 57 sought for retrieval, 7 assessed, 6 studies included">
+
+<sub>The PRISMA 2020 flow diagram generated for the same run, unedited.</sub>
+
+</div>
+
+Every phase writes to a per-run SQLite database as it goes, so the counts in the diagram,
+the Methods section and the Data tab come from the same rows. A crash or Ctrl+C resumes
+from the first incomplete phase.
+
+## Features
+
+- **PRISMA 2020 end to end.** Search strategies appendix, flow diagram, checklist (HTML, Markdown, CSV) and a PROSPERO-format protocol.
+- **Dual AI screening.** Two reviewer agents screen independently, disagreements go to an adjudicator, and Cohen's kappa is reported.
+- **Cost control built in.** BM25 pre-ranking and a `max_llm_screen` cap; anything auto-excluded is disclosed as "automation tools" in PRISMA and Methods.
+- **Quality appraisal by design.** Studies are routed to RoB 2, ROBINS-I, CASP or MMAT, with GRADE certainty and a summary-of-findings table.
+- **Synthesis that fits the data.** Meta-analysis with forest and funnel plots when the studies allow it, narrative synthesis when they don't.
+- **Grounded writing.** Sections are written from extracted data and RAG retrieval (hybrid BM25 and dense, with reranking), and a citation ledger links claims to sources.
+- **Submission package.** IEEE LaTeX, PDF when `pdflatex` is installed, DOCX, `references.bib`, figures and supplementary CSVs in one `submission/` folder.
+- **Human in the loop when you want it.** Optional pause after screening to approve or override AI decisions in the browser.
+- **Web UI or CLI.** A React dashboard with a live activity log, per-run cost tab and data explorer, or the same pipeline from the terminal.
+
+## Run it
+
+Requires Python 3.11+, [uv](https://docs.astral.sh/uv/), Node 20.19+ and pnpm. LLM calls go
+to [Fireworks AI](https://fireworks.ai/) by default (`FIREWORKS_API_KEY`), plus a
+`GEMINI_API_KEY` for diagram images.
 
 ```bash
-git clone https://github.com/parthchandak02/literature-review-assistant
+git clone https://github.com/parthchandak02/literature-review-assistant.git
 cd literature-review-assistant
-```
-
-**2. Install Python dependencies**
-
-```bash
-# Install uv (if you don't have it)
-curl -LsSf https://astral.sh/uv/install.sh | sh
-
 uv sync
+cd frontend && pnpm install && pnpm build && cd ..
+uv run uvicorn src.web.app:app --port 8001     # then open http://localhost:8001
 ```
 
-**3. Install frontend dependencies and build**
+Click **New review**, enter a question, generate the config, add keys (or leave blank to use
+the server's `.env`), and launch. Or from the terminal:
 
 ```bash
-cd frontend
-pnpm install
-pnpm build
-cd ..
+cp .env.example .env                                         # add your keys
+uv run python -m src.main run --config config/review.yaml    # full pipeline
+uv run python -m src.main export --workflow-id wf-0001       # build submission/
 ```
 
-**4. Start the server**
+A run takes roughly 20 to 60 minutes depending on how many papers are found. The run in the
+screenshots screened 1,715 records for $1.20; the per-run Cost tab shows actual spend.
 
-```bash
-uv run uvicorn src.web.app:app --reload --port 8001
+## Reference
+
+<details>
+<summary><b>What a run produces</b></summary>
+
+Each run lives in `runs/YYYY-MM-DD/wf-NNNN-<topic-slug>/run_<time>/`:
+
+- `doc_manuscript.md` and `doc_manuscript.tex` (IEEE LaTeX)
+- `references.bib`
+- `fig_*.png` / `fig_*.svg`: PRISMA flow, RoB traffic light, forest plot, funnel plot, timeline, geographic distribution, concept diagrams
+- `runtime.db`: every record, decision, extraction and LLM call for the run
+
+**Export** in the browser (or `src.main export`) assembles `submission/`:
+
+- `manuscript.tex` (+ `manuscript.pdf` when local `pdflatex` succeeds) and `manuscript.docx`
+- `references.bib` and `figures/`
+- `supplementary/`: search strategies appendix, screening decisions CSV, extracted data CSV, PRISMA checklist (`.html`, `.md`, `.csv`)
+
+</details>
+
+<details>
+<summary><b>Pipeline phases</b></summary>
+
+The pipeline is a staged PydanticAI graph. Each phase checkpoints to SQLite. Canonical
+checkpoint keys live in `src/orchestration/resume.py` and `docs/ARCHITECTURE.md#pipeline`.
+
+```text
+Phase 1   Foundation: load config, initialise DB, run artifacts and workflow state
+Phase 2   Search + deduplication + protocol generation
+Phase 3   Screening: prefilters, optional batch pre-rank, dual review, optional human gate
+Phase 4   Extraction + quality assessment (RoB 2 / ROBINS-I / CASP / MMAT / GRADE routing)
+Phase 4b  Embedding: RAG chunking and vector persistence
+Phase 5   Synthesis: meta-analysis or narrative, plus sensitivity
+Phase 5b  Knowledge graph: communities and gap signals
+Phase 5c  Pre-writing gate: cohort and readiness checks
+Phase 6   Writing: outline, schema-constrained sections, ratchet scoring/rewrite, deterministic render
+Finalize  doc_manuscript.tex, references.bib, run_summary.json
+Export    submission/ folder, zip, docx/pdf when dependencies are available
 ```
 
-**5. Open your browser**
+</details>
 
-Go to `http://localhost:8001`. Click "+" in the sidebar to start a new review.
+<details>
+<summary><b>API keys</b></summary>
 
-The setup page uses one question-first flow:
+| Key | Where to get it | Required? |
+|-----|-----------------|-----------|
+| `FIREWORKS_API_KEY` | [fireworks.ai](https://fireworks.ai/) | Yes (default LLM) |
+| `GEMINI_API_KEY` | [ai.google.dev](https://ai.google.dev) | Yes (diagram image agents use `google:` models) |
+| `OPENALEX_API_KEY` | [openalex.org](https://openalex.org/sign-up) | If `openalex` is in `target_databases` (it is by default) |
+| `PUBMED_EMAIL` | Any email address | Recommended (PubMed rate policy) |
+| `PUBMED_API_KEY` | [NCBI account](https://www.ncbi.nlm.nih.gov/account/settings/) | No (higher rate limits) |
+| `SEMANTIC_SCHOLAR_API_KEY` | [api.semanticscholar.org](https://api.semanticscholar.org) | No (higher rate limits) |
+| `CROSSREF_EMAIL` | Any email address | No (polite crawling) |
+| `IEEE_API_KEY` | [developer.ieee.org](https://developer.ieee.org) | No |
+| `SCOPUS_API_KEY` | Elsevier API (institutional) | No (Scopus connector, Elsevier full text) |
+| `WOS_API_KEY` | [Clarivate developer portal](https://developer.clarivate.com) | No (Web of Science Starter API) |
+| `EMBASE_API_KEY` | Elsevier institutional | No (Embase connector) |
+| `CORE_API_KEY` | [core.ac.uk](https://core.ac.uk/api-keys/register) | No (full text from repositories) |
+| `PERPLEXITY_SEARCH_API_KEY` | [docs.perplexity.ai](https://docs.perplexity.ai) | No (auxiliary discovery) |
+| `TYPESAFE_API_KEY` | TypeSafe (Jev) | No (Jev decision surfaces; fails open to the LLM when unset) |
 
-- Enter your research question in plain English and click "Generate Review Config". The AI generates PICO, keywords, criteria, and scope.
-- Optionally attach a supplementary CSV (Scopus export format: Title, Authors, Year, Source title, DOI, Abstract). If provided, CSV records are merged with connector results before deduplication and screening.
-- Review or edit YAML, confirm API keys, then launch the run.
+Keys already in the backend `.env` show as "Configured on server" in the setup form; the
+server never returns secret values to the browser. Some optional connectors (Embase, CORE)
+read only from `.env`.
 
-A secondary "Paste YAML directly" link is also available for pasting a raw config from a previous run or external source.
+</details>
 
-`FIREWORKS_API_KEY` is required (default LLM in `config/settings.yaml`). `GEMINI_API_KEY` is also required for diagram image generation agents. Keys already in the backend `.env` do not need to be retyped: the setup form shows them as "Configured on server" (from `GET /api/config/env-keys/status`) and runs submitted with a blank key fall back to the server value. The server never returns secret values to the browser.
+<details>
+<summary><b>Configuration</b></summary>
 
-The sidebar shows all your runs (live and historical) with status colors (emerald = completed, violet = running, red = error, amber = cancelled or needs revision) and a stats strip (papers found, papers included, artifacts, cost). Runs waiting on you (config drafts, PROSPERO registration, screening review) are grouped under "Needs your input"; the rest sit under "Reviews". Selecting a run opens its dashboard with five base tabs: Activity (phase timeline + event log), Results, Data, Config (research question + review.yaml), and Cost. Results uses category navigation (Manuscript, Figures, Quality, Files, References) as defined in `docs/UI.md`. A conditional Review Screening tab appears only when the run pauses for human-in-the-loop screening approval (`awaiting_review`). The floating Costs button (bottom-right) opens global LLM spend history and CSV export across registry-linked runs (`GET /api/history/costs/aggregates` and `GET /api/history/costs/export`), separate from the per-run Cost tab. To resume from a specific phase, use the Activity phase timeline (tap once to arm, tap again to confirm) or use the sidebar Resume button for default auto-resume. Non-running runs can be moved manually between `IN PROGRESS`, `COMPLETED`, and `ARCHIVED`; restore returns them to `IN PROGRESS`, and permanent delete remains an archived-item overflow action.
+**`config/review.yaml`**, per review:
 
-**Tip -- reuse a past config:** Click "+" to open the form, then use the "Load from past run" dropdown to pre-populate the form from any previous run's config. Useful for iterating on the same research question with different parameters.
-
----
-
-## Quick Start (CLI)
-
-Prefer the terminal? Use this path.
-
-**1. Clone and install**
-
-```bash
-git clone https://github.com/parthchandak02/literature-review-assistant
-cd literature-review-assistant
-uv sync
-```
-
-**2. Set up API keys**
-
-Copy the template and fill in your keys:
-
-```bash
-cp .env.example .env
-```
-
-Edit `.env`:
-
-```bash
-FIREWORKS_API_KEY=your-key-here              # Required -- default LLM (get at fireworks.ai)
-OPENALEX_API_KEY=your-key-here            # Required if openalex is enabled (default review template includes openalex)
-PUBMED_EMAIL=your-email@example.com       # Strongly recommended for PubMed
-GEMINI_API_KEY=your-key-here              # Required for diagram image agents (google: models in settings.yaml)
-TYPESAFE_API_KEY=your-key-here            # Optional -- Jev decision API (jev.* surfaces; fail-open to LLM when unset)
-PUBMED_API_KEY=your-key-here              # Optional -- faster PubMed rate limits
-IEEE_API_KEY=your-key-here                # Optional -- IEEE Xplore access
-PERPLEXITY_SEARCH_API_KEY=your-key-here   # Optional -- auxiliary discovery
-SEMANTIC_SCHOLAR_API_KEY=your-key-here    # Optional -- higher rate limits
-CROSSREF_EMAIL=your-email@example.com     # Optional -- polite crawling for Crossref
-SCOPUS_API_KEY=your-key-here              # Optional -- Scopus connector
-WOS_API_KEY=your-key-here                 # Optional -- Web of Science connector
-EMBASE_API_KEY=your-key-here              # Optional -- Embase connector
-CORE_API_KEY=your-key-here                # Optional -- CORE full-text retrieval
-```
-
-Note: the repo's default backend port in the web UI and PM2 config is `8001`. If you copy `.env.example`, keep `PORT=8001` unless you intentionally want a different backend port.
-
-**3. Configure your review**
-
-Edit `config/review.yaml` with your research question:
+- `research_question`, `review_type`, `pico`, `keywords`, `domain`
+- `inclusion_criteria`, `exclusion_criteria`, `date_range_start`, `date_range_end`
+- `target_databases` and per-database `search_overrides`
+- `living_review: true` with `last_search_date` to re-search only from that date
 
 ```yaml
 research_question: "How does X affect Y in population Z?"
 review_type: "systematic"
-
 pico:
   population: "..."
   intervention: "..."
   comparison: "..."
   outcome: "..."
-
-keywords:
-  - "keyword one"
-  - "keyword two"
-
+keywords: ["keyword one", "keyword two"]
 date_range_start: 2015
 date_range_end: 2026
 ```
 
-**4. Run**
+**`config/settings.yaml`**, rarely:
+
+- `agents.*`: model per task (Fireworks-hosted models by default, `google:` only for diagram images); `agents.screening_reviewer_b.model` can differ from reviewer A for cross-model checks
+- Screening thresholds, `max_llm_screen`, `batch_screen_enabled`, `reviewer_batch_size`
+- `human_in_the_loop.enabled`: pause after screening for manual review
+- `gates.manuscript_contract_mode`, `gates.manuscript_audit_mode` (`observe` / `soft` / `strict`) and `gates.audit_gate_mode` (`advisory` / `needs_revision` / `strict`)
+- `jev.*`: optional TypeSafe decision surfaces, each `off` / `shadow` / `live`
+- `writing.ratchet_*`: section rewrite loop limits and cost cap
+- `manuscript_audit.*`, quality gate thresholds, records per database
+
+With `max_llm_screen: 200`, every candidate is BM25-ranked against the question, the top 200
+go to dual LLM review and the rest are auto-excluded and disclosed. Set it to `null` to
+screen everything.
+
+Unknown keys in `settings.yaml` are ignored with a warning. Full contracts live in `docs/`,
+starting at [`docs/CONTEXT.md`](docs/CONTEXT.md).
+
+</details>
+
+<details>
+<summary><b>CLI commands</b></summary>
 
 ```bash
-uv run python -m src.main run --config config/review.yaml
-```
-
-The pipeline takes 20-60 minutes depending on how many papers are found. It prints progress as it goes.
-
-**5. Export**
-
-```bash
-uv run python -m src.main export --workflow-id <id shown at end of run>
-```
-
-Your `submission/` folder is ready.
-
----
-
-## API Keys
-
-| Key | Where to Get | Required? |
-|-----|-------------|-----------|
-| `FIREWORKS_API_KEY` | [fireworks.ai](https://fireworks.ai/) | Yes (default LLM) |
-| `OPENALEX_API_KEY` | [openalex.org](https://openalex.org/sign-up) | Conditionally required (required for the default template unless `openalex` is removed from `target_databases`) |
-| `PUBMED_EMAIL` | Any email address | Recommended (PubMed identification/rate policy) |
-| `GEMINI_API_KEY` | [ai.google.dev](https://ai.google.dev) | Yes (diagram image agents use `google:` models in `config/settings.yaml`) |
-| `TYPESAFE_API_KEY` | TypeSafe (Jev) | No (Jev surfaces in `jev:`; backend dotenv file only, not the Setup form) |
-| `PUBMED_API_KEY` | [ncbi.nlm.nih.gov/account](https://www.ncbi.nlm.nih.gov/account/settings/) | No (higher rate limits) |
-| `IEEE_API_KEY` | [developer.ieee.org](https://developer.ieee.org) | No |
-| `PERPLEXITY_SEARCH_API_KEY` | [docs.perplexity.ai](https://docs.perplexity.ai) | No |
-| `SEMANTIC_SCHOLAR_API_KEY` | [api.semanticscholar.org](https://api.semanticscholar.org) | No (higher rate limits) |
-| `CROSSREF_EMAIL` | Any email address | No (polite Crossref crawling) |
-| `CORE_API_KEY` | [core.ac.uk/api-keys/register](https://core.ac.uk/api-keys/register) | No (full-text from institutional repos) |
-| `SCOPUS_API_KEY` | Elsevier API (institutional) | No (enables Scopus connector and improves Elsevier full-text enrichment paths) |
-| `WOS_API_KEY` | [Clarivate developer portal](https://developer.clarivate.com) | No (Web of Science Starter API, 300 req/day free) |
-| `EMBASE_API_KEY` | Elsevier institutional (apisupport@elsevier.com) | No (Embase connector) |
-
-The default Fireworks task-tier models in `config/settings.yaml` (flash-0731 bulk, gpt-oss-120b adjudicator, pro-0813 quality, minimax-m3 PDF vision) are sufficient for most reviews. A typical 3,000-paper run is on the order of $10-15 on Fireworks serverless pricing; check the per-run Cost tab for actual spend (extraction and quality dominate; screening is under 1% with batch pre-rank).
-
-Web UI note: the browser setup form supports the most common connector keys. Some optional connectors (for example Embase and CORE retrieval) currently read credentials from the backend environment (`.env`) rather than per-run browser payload fields.
-
-**Cost control tip:** Extraction and quality assessment are the main LLM cost drivers on Fireworks. Screening is cheap thanks to batch pre-rank (`batch_screen_enabled`) and the `max_llm_screen` cap. In default batch mode (`reviewer_batch_size: 10`), one dual-reviewer call can process multiple papers; in per-paper mode (`reviewer_batch_size: 0`), it calls the LLM once per paper. To cap screening volume on exploratory runs, set `max_llm_screen` in `config/settings.yaml`:
-
-```yaml
-screening:
-  max_llm_screen: 200  # BM25-rank all candidates; send top 200 to LLM; exclude the rest
-```
-
-When `max_llm_screen` is set, all candidate papers are BM25-ranked by relevance to your research question. The top N go to LLM dual-review; the remainder are auto-excluded. These pre-filter exclusions are recorded as "Automation tools" in the PRISMA 2020 flow diagram and disclosed in the Methods section automatically.
-
-Remove the line (or set it to `null`) to send all candidate papers through LLM screening.
-
----
-
-## CLI Reference
-
-```bash
-# Start a new review
-uv run python -m src.main run --config config/review.yaml
-
-# Default run output is already verbose; `--debug` increases detail and `--silent` reduces chatter
-uv run python -m src.main run --config config/review.yaml --debug
-uv run python -m src.main run --config config/review.yaml --silent
-uv run python -m src.main run --config config/review.yaml --offline
-uv run python -m src.main run --config config/review.yaml --fresh
-uv run python -m src.main run --config config/review.yaml --run-root runs/
-
-# Resume after a crash or Ctrl+C (auto-detects first incomplete phase)
-uv run python -m src.main resume --topic "your research question"
-uv run python -m src.main resume --workflow-id wf-0007
-uv run python -m src.main resume --workflow-id wf-0007 --no-api
-
-# Resume from a specific phase (prior phases must have checkpoints)
+uv run python -m src.main run --config config/review.yaml            # new review
+uv run python -m src.main run --config config/review.yaml --debug    # also --silent, --offline, --fresh, --run-root runs/
+uv run python -m src.main resume --topic "your research question"    # resume first incomplete phase
 uv run python -m src.main resume --workflow-id wf-0007 --from-phase phase_3_screening
-
-# Export submission package
-uv run python -m src.main export --workflow-id wf-0007
-
-# Validate IEEE compliance and PRISMA checklist
-uv run python -m src.main validate --workflow-id wf-0007
-
-# Check run status and artifact paths
-uv run python -m src.main status --workflow-id wf-0007
-
-# Regenerate PROSPERO form from an existing workflow
-uv run python -m src.main prospero --workflow-id wf-0007
+uv run python -m src.main export --workflow-id wf-0007               # submission package
+uv run python -m src.main validate --workflow-id wf-0007             # IEEE + PRISMA checks
+uv run python -m src.main status --workflow-id wf-0007               # status and artifact paths
+uv run python -m src.main prospero --workflow-id wf-0007             # regenerate PROSPERO form
 ```
 
-**Tip:** Press Ctrl+C once during screening to proceed with already-screened papers. Press Ctrl+C twice to abort. Re-running with the same topic automatically prompts you to resume.
+Ctrl+C once during screening continues with the papers already screened; twice aborts.
+Re-running the same topic offers to resume.
 
----
+</details>
 
-## Configuration
+<details>
+<summary><b>Web UI and HTTP API</b></summary>
 
-Two config files control behavior:
+The sidebar groups runs into Needs your input (config drafts, PROSPERO registration,
+screening review), In progress, Completed and Archived. A run opens with Activity (phase
+timeline and event log), Screening, Results (Manuscript, Figures, Quality, Files,
+References), Data, Config and Cost tabs. Resume from any phase from the Activity timeline.
+See [`docs/UI.md`](docs/UI.md).
 
-**`config/review.yaml`** -- change this for every new review:
-- `research_question`, `pico`, `keywords`, `domain`
-- `inclusion_criteria`, `exclusion_criteria`
-- `date_range_start`, `date_range_end`
-- `target_databases` (defaults come from `config/review.yaml`; add/remove connectors per review)
-- `search_overrides` (per-database query overrides; AI config generation may populate a subset based on routing confidence and selected mode; omit a key to use the auto-generated fallback)
-- `living_review: false` -- set to `true` + set `last_search_date` to re-run only from that date forward
+Main endpoints (full list in [`docs/API.md`](docs/API.md)):
 
-**`config/settings.yaml`** -- change this rarely:
-- LLM model assignments (`agents.*`; default Fireworks task tiers, `google:` only for diagram images)
-- `agents.screening_reviewer_b.model` -- second reviewer model; defaults can match reviewer A, or you can set a different model for cross-model validation
-- Screening thresholds (include/exclude confidence cutoffs)
-- `max_llm_screen` -- hard cap on LLM screening volume (cost control)
-- `human_in_the_loop.enabled` -- pause after screening for manual review of AI decisions
-- `gates.manuscript_contract_mode` -- contract enforcement (`observe` / `soft` / `strict`, default is `strict`)
-- `gates.manuscript_audit_mode` -- manuscript-audit verdict mode (`observe` / `soft` / `strict`) used to classify audit runs as passed or failed
-- `gates.audit_gate_mode` -- workflow behavior for blocking contract/audit findings (`advisory` completes the run and keeps the audit report; `needs_revision` (repo default) produces all artifacts and ends with status `needs_revision`; `strict` marks the run failed)
-- `jev.*` -- Jev (TypeSafe) decision surfaces `screening_reviewer_b`, `batch_pre_rank`, `study_design`, `rag_rerank`, each `off` / `shadow` / `live` (repo: `screening_reviewer_b: off` after the 2026-09-26 eval, others `shadow`: LLM decides, Jev is logged to `jev_decisions` for comparison via `scripts/check.py jev-eval`). See `docs/ARCHITECTURE.md#jev-decision-layer`
-- Unknown keys in `settings.yaml` are ignored by the model; the loader logs a warning listing them
-- `writing.ratchet_*` -- optional section rewrite loop controls (`ratchet_max_iterations`, `ratchet_cost_cap_per_section`, `ratchet_outline_enabled`) for outline-guided writing quality refinement
-- `manuscript_audit.*` -- profile activation and `cost_cap_usd` for manuscript-audit calls
-- Quality gate thresholds
-- Search depth (records per database)
-
-Full documentation of agent/runtime contracts now lives in `docs/`.
-Use `docs/CONTEXT.md` as the canonical entrypoint.
-Configuration and runtime details are split across:
-- `docs/ARCHITECTURE.md`
-- `docs/ARCHITECTURE.md#pipeline`
-- `docs/API.md`
-- `docs/ARCHITECTURE.md#persistence`
-- `docs/UI.md`
-- `docs/ARCHITECTURE.md#llm-and-costs`
-- `docs/TASKS.md`
-
----
-
-## How It Works
-
-The pipeline runs as a staged PydanticAI graph (with enhancement sub-phases). Each phase writes results to SQLite immediately so a crash can resume from the first incomplete checkpoint.
-Naming note: this is a high-level build narrative; canonical persisted runtime checkpoint keys and order live in `docs/ARCHITECTURE.md#pipeline` and `src/orchestration/resume.py`.
-
-```text
-Phase 1: Foundation/startup (load config, initialize DB, set run artifacts and workflow state)
-Phase 2: Search + deduplication + protocol generation
-Phase 3: Screening (prefilters + optional batch prerank + dual-review + optional HITL gate)
-Phase 4: Extraction + quality assessment (RoB/CASP/MMAT/GRADE routing)
-Phase 4b: Embedding sub-phase (RAG chunking + vector persistence)
-Phase 5: Synthesis (meta-analysis or narrative + sensitivity)
-Phase 5b: Knowledge-graph sub-phase (communities + gap signals)
-Phase 5c: Pre-writing gate (cohort/readiness checks before section generation)
-Phase 6: Writing via structured section IR (outline generation -> schema-constrained output -> ratchet quality scoring/rewrite loop -> deterministic render) + manuscript assembly (`doc_manuscript.md`) + PRISMA/timeline/geographic figures
-Finalize: final artifacts (`doc_manuscript.tex`, `references.bib`, `run_summary.json`)
-Export (on demand): submission packaging (`submission/`, zip, docx/pdf when dependencies are available)
-```
-
-Build-phase naming in `.cursor/skills/build-phase/SKILL.md` is intentionally separate from runtime checkpoint keys; for example, build "Phase 7" (PRISMA/Viz) is a delivery label, while runtime checkpoints are sourced from `src/orchestration/resume.py`.
-
-Every factual claim in the manuscript is traced back to a citation via the citation ledger. The LLM is given only the real extracted data -- it cannot hallucinate statistics.
-
----
-
-## API Endpoints (Quick Reference)
-
-Grouped endpoints most users use:
-
-- Setup (browser): `GET /api/config/review`, `GET /api/config/env-keys`, `POST /api/config/generate/stream`
+- Setup: `GET /api/config/review`, `GET /api/config/env-keys`, `POST /api/config/generate/stream`
+- Runs: `GET /api/runs`, `POST /api/run`, `POST /api/run-with-supplementary-csv`, `GET /api/stream/{run_id}`, `POST /api/cancel/{run_id}`
+- History: `GET /api/history`, `POST /api/history/resume`, `POST /api/history/{workflow_id}/archive`, `GET /api/history/costs/aggregates`, `GET /api/history/costs/export`
+- Results: `GET /api/run/{run_id}/artifacts`, `GET /api/run/{run_id}/manuscript`, `POST /api/run/{run_id}/export`, `GET /api/run/{run_id}/submission.zip`, `GET /api/run/{run_id}/manuscript.docx`
+- Review: `GET /api/run/{run_id}/screening-summary`, `POST /api/run/{run_id}/approve-screening`, `POST /api/run/{run_id}/living-refresh`
+- Data: `GET /api/db/{run_id}/papers-all`, `GET /api/db/{run_id}/costs`, `GET /api/db/{run_id}/tables`
 - Health: `GET /api/health`
-- Run lifecycle: `GET /api/runs`, `POST /api/run`, `POST /api/run-with-masterlist`, `POST /api/run-with-supplementary-csv`, `GET /api/stream/{run_id}`, `POST /api/cancel/{run_id}`
-- History/resume: `GET /api/history`, `GET /api/history/active-run?workflow_id=<wf-xxxx>`, `GET /api/history/{workflow_id}/config`, `GET /api/history/costs/aggregates`, `GET /api/history/costs/export`, `POST /api/history/attach`, `POST /api/history/resume`, `POST /api/history/{workflow_id}/archive`, `POST /api/history/{workflow_id}/restore`, `POST /api/history/{workflow_id}/complete-hide`, `POST /api/history/{workflow_id}/complete-restore`, `DELETE /api/history/{workflow_id}`
-- Results/export: `GET /api/run/{run_id}/artifacts`, `GET /api/run/{run_id}/manuscript`, `POST /api/run/{run_id}/export`, `GET /api/run/{run_id}/submission.zip`, `GET /api/run/{run_id}/manuscript.docx`, `GET /api/run/{run_id}/prospero-form.docx`, `GET /api/run/{run_id}/prospero-form.md`, `GET /api/run/{run_id}/studies-files.zip`
-- Event replay: `GET /api/run/{run_id}/events`, `GET /api/workflow/{workflow_id}/events`
-- References/full text: `GET /api/run/{run_id}/papers-reference`, `GET /api/run/{run_id}/papers/{paper_id}/file`, `POST /api/run/{run_id}/fetch-pdfs`
-- Human review/living review: `GET /api/run/{run_id}/screening-summary`, `POST /api/run/{run_id}/approve-screening`, `POST /api/run/{run_id}/living-refresh`
-- Extra run views (Results when done): `GET /api/run/{run_id}/knowledge-graph`, `GET /api/run/{run_id}/prisma-checklist`, `GET /api/run/{run_id}/grade-sof`
-- Data explorer: `GET /api/db/{run_id}/papers-all`, `GET /api/db/{run_id}/papers-facets`, `GET /api/db/{run_id}/papers-suggest`, `GET /api/db/{run_id}/costs`, `GET /api/db/{run_id}/costs/aggregates`, `GET /api/db/{run_id}/costs/export`, `GET /api/db/{run_id}/tables`, `GET /api/db/{run_id}/rag-diagnostics`
-- Manuscript audit: `GET /api/workflow/{workflow_id}/manuscript-audit/summary`, `GET /api/workflow/{workflow_id}/manuscript-audit/findings`, `GET /api/run/{run_id}/manuscript-audit`
-- Run diagnostics: `GET /api/run/{run_id}/diagnostics` (includes top-level `audit_summary` helper data for the Quality UI)
-- Readiness: `GET /api/run/{run_id}/readiness` (returns the readiness scorecard plus `audit_summary`; degrades to a structured payload instead of raw HTTP 500 when readiness computation fails)
-- Validation: `GET /api/workflow/{workflow_id}/validation/summary`, `GET /api/workflow/{workflow_id}/validation/checks`
-- Notes and logs: `PATCH /api/notes/{workflow_id}`, `GET /api/notes/stream`, `GET /api/logs/stream`
 
-Global Cost Ops (floating control, `GlobalCostOpsDialog`) uses `GET /api/history/costs/aggregates` and `GET /api/history/costs/export`. Totals only include runs whose `runtime.db` paths are registered in `workflows_registry.db`.
-For `/api/run/{run_id}/...` endpoints, `run_id` can be the live session id or a durable `wf-XXXX` workflow id resolved through the registry.
+`run_id` can be a live session id or a durable `wf-XXXX` workflow id.
 
----
+</details>
 
-## Development
-
-**Dev servers:**
-
-The primary dev workflow uses [PM2](https://pm2.keymetrics.io/). Install it once:
+<details>
+<summary><b>Development</b></summary>
 
 ```bash
-npm install -g pm2
-```
-
-Then start both the FastAPI backend (port 8001) and Vite frontend (port 5173, HMR) with:
-
-```bash
-cp ecosystem.config.example.js ecosystem.config.js   # first time only
-pm2 start ecosystem.config.js
-```
-
-Open `http://localhost:5173` (Vite dev UI, HMR) or `http://localhost:8001` (API direct). The `litreview-ui` PM2 process runs Vite on port 5173 and proxies `/api` to the backend on port 8001 automatically.
-`PROJECT_DIR` resolves from the repo root automatically (`path.resolve(__dirname)`). Copy `ecosystem.config.example.js` to `ecosystem.config.js` on first setup, or run `./scripts/ops_pm2.sh sync` to align kill-timeout settings.
-
-Useful PM2 commands (`scripts/ops_pm2.sh`):
-
-```bash
-./scripts/ops_pm2.sh restart              # restart litreview-api + litreview-ui (default)
-./scripts/ops_pm2.sh restart --backend-only  # API only (fast path after src/ changes)
-./scripts/ops_pm2.sh restart --all        # restart api, ui, and tunnel
-./scripts/ops_pm2.sh restart --prod-ui    # pnpm build + restart api (production URL)
-./scripts/ops_pm2.sh restart --status     # pm2 list
-make pm2-restart                          # Makefile alias for ops_pm2.sh restart
-make deploy-prod                          # full production deploy (build + restart + health check)
-
-pm2 logs                      # tail logs from all processes
-pm2 logs litreview-api        # tail backend logs only
-pm2 logs litreview-tunnel     # tail cloudflared tunnel logs
-pm2 restart litreview-api     # restart backend (e.g. after adding a dependency)
-pm2 restart litreview-ui      # restart frontend dev server
-pm2 stop all                  # stop all processes
-pm2 delete all                # remove all processes from PM2 registry
-pm2 status                    # show process status table
-```
-
-**IMPORTANT -- restart after code changes:** Python loads modules into memory at startup. If you modify any `src/` file while the server is running, the running process continues using the old code. Always run `pm2 restart litreview-api` (or restart the uvicorn process) after making backend changes before starting a new review run. Failure to restart means your run will use the pre-change code even though the files on disk are updated. The `--reload` flag handles this automatically in the plain-terminal dev workflow above, but PM2 does not hot-reload by default.
-
-**Production deploys -- rebuild the frontend:** When running in production (FastAPI serves `frontend/dist/` as static files on port 8001), a `pnpm build` is required after every frontend code change. The Vite dev server (port 5173) picks up changes automatically, but the production URL always serves the last built `dist/`. After rebuilding, restart the API process so it serves the new assets:
-
-```bash
-make pm2-restart -- --prod-ui
-# or: ./scripts/ops_pm2.sh restart --prod-ui
-# or: make deploy-prod
-```
-
-**Alternative -- plain terminals:**
-
-```bash
-# Terminal 1
+# Plain terminals
 uv run uvicorn src.web.app:app --reload --port 8001
+cd frontend && pnpm dev                         # Vite on :5173, proxies /api to :8001
 
-# Terminal 2
-cd frontend && pnpm dev
-```
+# Or PM2
+cp ecosystem.config.example.js ecosystem.config.js
+pm2 start ecosystem.config.js
+./scripts/ops_pm2.sh restart --backend-only     # after src/ changes (PM2 does not hot-reload)
+make deploy-prod                                # pnpm build + restart + health check
 
-**Run tests:**
-
-```bash
+# Tests and lint
 uv run pytest tests/unit -q
 uv run pytest tests/integration -q
-# real-workflow replay validation (recommended before/after pipeline edits)
 uv run python scripts/check.py replay-workflow --workflow-id wf-XXXX --profile quick
-```
-
-Real-workflow-first policy:
-- For end-to-end and pipeline validation, use existing workflow IDs and their `runtime.db` records.
-- Do not rely only on synthetic dummy fixtures for pipeline behavior checks.
-- Replay validation writes append-only evidence to `validation_runs` and `validation_checks` in the same workflow DB.
-- Quick workflow picker example:
-  - `sqlite3 runs/workflows_registry.db "SELECT workflow_id, status, updated_at FROM workflows_registry ORDER BY updated_at DESC LIMIT 5;"`
-
-**Lint and fix:**
-
-```bash
 uv run ruff check . --fix && uv run ruff format .
 cd frontend && pnpm fix && pnpm typecheck
 ```
 
-**Project layout:**
+In production FastAPI serves `frontend/dist/`, so rebuild the frontend after UI changes.
+Utility scripts are listed in [`docs/SCRIPTS.md`](docs/SCRIPTS.md) and `./scripts/help.sh`.
+Agents start at [`AGENTS.md`](AGENTS.md).
 
-| Directory | What's in it |
-|-----------|-------------|
-| `src/models/` | Pydantic data contracts (every phase boundary) |
-| `src/db/` | SQLite schema, typed repositories, workflow registry |
-| `src/orchestration/` | PydanticAI Graph nodes, quality gates, resume logic |
-| `src/search/` | Database connectors + deduplication + search strategy |
-| `src/screening/` | Batch LLM pre-ranker, dual reviewer, Cohen's kappa, keyword pre-filter |
-| `src/extraction/` | Study design classifier, data extractor |
-| `src/quality/` | RoB 2, ROBINS-I, CASP, MMAT, GRADE |
-| `src/synthesis/` | Feasibility checker, meta-analysis, narrative synthesis |
-| `src/manuscript/` | Readiness scorecards, manuscript contracts, PRISMA disclosure checks, audit reviewer |
-| `src/rag/` | RAG pipeline: chunker, embedder (PydanticAI), hybrid BM25+dense retriever (RRF), HyDE query expansion, listwise LLM reranker (optional Jev rerank) |
-| `src/knowledge_graph/` | Builder, community (Louvain), gap detector |
-| `src/writing/` | Section writer, outline generator, humanizer, deterministic guardrails, grounding, evidence_assembler |
-| `src/citation/` | Citation ledger -- claim-to-evidence-to-BibTeX lineage |
-| `src/export/` | IEEE LaTeX exporter, Word DOCX exporter, BibTeX builder, PRISMA validator |
-| `src/visualization/` | Forest plot, funnel plot, RoB figure, timeline, geographic |
-| `src/prisma/` | PRISMA 2020 flow diagram generator |
-| `src/protocol/` | PROSPERO-format protocol generator |
-| `src/web/` | FastAPI backend for the browser UI |
-| `src/llm/` | PydanticAI client + agent factory, provider registry, shared rate limiter, Jev client |
-| `src/config/` | Config loader (review.yaml + settings.yaml) |
-| `src/utils/` | SSL context, structured logging, shared path helpers |
-| `frontend/` | React + TypeScript web UI |
+</details>
 
-**Utility scripts:** See `docs/SCRIPTS.md` or run `./scripts/help.sh` / `make scripts-help`.
+<details>
+<summary><b>Project layout</b></summary>
 
-| Entrypoint | Purpose |
-|------------|---------|
-| `scripts/ops_pm2.sh` | PM2 restart, production deploy (`restart --prod-ui`), ecosystem sync |
-| `scripts/check.sh` | Run all checks (`local`) or full release gate (`release`) |
-| `scripts/check.py` | `api`, `replay-fixture`, `replay-workflow`, `config-methodology`, `jev-eval` |
-| `scripts/review.py` | `start`, `watch`, `info` (optional `--costs`) |
-| `scripts/repair.py` | `finalize`, `re-extract`, `inject-citations`, `regen-replay-fixture` |
-| `scripts/hermes.sh` | `maintain`, `link-skill` (see staleness warning in skill docs) |
+```
+src/models/           Pydantic contracts at every phase boundary
+src/db/               SQLite schema, repositories, workflow registry
+src/orchestration/    PydanticAI graph nodes, quality gates, resume logic
+src/search/           Database connectors, deduplication, search strategy, PDF retrieval
+src/screening/        Batch pre-ranker, dual reviewer, Cohen's kappa, keyword prefilter
+src/extraction/       Study design classifier, data extractor
+src/quality/          RoB 2, ROBINS-I, CASP, MMAT, GRADE
+src/synthesis/        Feasibility check, meta-analysis, narrative synthesis
+src/rag/              Chunker, embedder, hybrid retriever, HyDE, reranker
+src/knowledge_graph/  Graph builder, Louvain communities, gap detector
+src/writing/          Outline, section writer, grounding, guardrails
+src/citation/         Citation ledger: claim to evidence to BibTeX
+src/manuscript/       Readiness scorecards, contracts, audit reviewer
+src/export/           IEEE LaTeX, DOCX, BibTeX, PRISMA checklist, submission packager
+src/visualization/    Forest, funnel, RoB, timeline, geographic, concept diagrams
+src/prisma/           PRISMA 2020 flow diagram
+src/protocol/         PROSPERO-format protocol
+src/web/              FastAPI backend
+src/llm/              PydanticAI client, provider registry, rate limiter
+frontend/             React + TypeScript web UI
+config/               review.yaml and settings.yaml
+```
 
-Implementation modules live under `scripts/lib/`; use the entrypoints above.
+</details>
 
----
+<details>
+<summary><b>Troubleshooting</b></summary>
 
-## Troubleshooting
+- **`CERTIFICATE_VERIFY_FAILED`**: on macOS run `Install Certificates.command` from the Python.app folder; behind a proxy set `SSL_CERT_FILE` to your CA bundle.
+- **Rate limits (429)**: requests are throttled per provider key using the RPM tiers in `config/settings.yaml`. Wait and resume, or lower the tiers.
+- **"No papers found"**: check `OPENALEX_API_KEY`, `target_databases`, and the queries in `doc_search_strategies_appendix.md`; connector warnings appear in the Activity log.
+- **PubMed recall dropped**: multi-word exact phrases in `search_overrides.pubmed` shrink results sharply. Prefer single words or short root forms in the second AND group.
 
-**SSL errors (`CERTIFICATE_VERIFY_FAILED`):**
-- macOS: run `Install Certificates.command` from your Python.app folder
-- Corporate proxy: set `SSL_CERT_FILE` to your org CA bundle
-- Dev only (insecure): `RESEARCH_AGENT_SSL_SKIP_VERIFY=1`
+</details>
 
-**Rate limit errors:** Requests are throttled per provider key by the shared rate limiter (RPM tiers in `config/settings.yaml`). If you still hit 429s, wait a minute and resume, or lower the tier RPMs.
+<br>
 
-**"No papers found":** Check `OPENALEX_API_KEY`, verify `target_databases` in `config/review.yaml`, and inspect `doc_search_strategies_appendix.md` for over-restrictive query overrides. Also check connector warnings in Activity logs (for example quota failures or low-recall warnings).
-
-**PubMed returns far fewer papers than a previous run:** Check `doc_search_strategies_appendix.md` in the run directory to see the exact query used. Exact-phrase requirements in the `search_overrides.pubmed` AND group kill recall -- `"mindfulness-based stress reduction"[Title/Abstract]` (multi-word phrase) may return far fewer records than `"mindfulness"[Title/Abstract]` (single word). Use single-word or short root-form terms in the second AND group of the PubMed override. Also avoid MeSH terms that are too narrow or too broad for your specific topic -- verify coverage by checking PubMed directly.
-
----
-
-## License
-
-MIT
+<div align="center">
+<sub>Built with PydanticAI, FastAPI, SQLite, React and Vite. MIT licensed.</sub>
+</div>
