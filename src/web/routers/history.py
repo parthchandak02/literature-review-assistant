@@ -58,6 +58,10 @@ _registry_migrated: set[str] = set()
 _TERMINAL_STATUSES = frozenset({"completed", "failed", "interrupted"})
 _stats_cache: dict[str, dict[str, Any]] = {}
 
+# Registry stats persisted before this UTC time used the old papers_found formula
+# (COUNT(papers) instead of the PRISMA identified total); recompute them from runtime.db.
+_REGISTRY_STATS_VALID_FROM = "2026-10-24 07:32:13"
+
 
 async def _ensure_registry_columns(db: aiosqlite.Connection, registry_key: str) -> None:
     """Run ALTER TABLE migrations once per registry DB per process lifetime."""
@@ -122,6 +126,8 @@ def should_use_registry_stats(
     if live_run_id is not None:
         return False
     if not stats_updated_at:
+        return False
+    if str(stats_updated_at).replace("T", " ") < _REGISTRY_STATS_VALID_FROM:
         return False
     if _normalize_status(reg_status) not in _TERMINAL_STATUSES:
         return False

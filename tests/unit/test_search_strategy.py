@@ -20,6 +20,12 @@ from src.search.strategy import (
 from src.search.web_of_science import WebOfScienceConnector
 
 
+@pytest.fixture(autouse=True)
+def _isolate_default_output_dir(tmp_path, monkeypatch) -> None:
+    """Coordinators built without output_dir write to ./runs; keep that out of the real runs/."""
+    monkeypatch.chdir(tmp_path)
+
+
 def _review() -> ReviewConfig:
     return ReviewConfig(
         research_question="Does intervention improve outcomes?",

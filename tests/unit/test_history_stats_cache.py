@@ -12,7 +12,7 @@ def test_should_use_registry_stats_when_terminal_and_timestamp_present() -> None
     assert (
         should_use_registry_stats(
             reg_status="completed",
-            stats_updated_at="2026-03-10T12:00:00",
+            stats_updated_at="2026-10-25T12:00:00",
             live_run_id=None,
             papers_included=2,
         )
@@ -21,7 +21,7 @@ def test_should_use_registry_stats_when_terminal_and_timestamp_present() -> None
     assert (
         should_use_registry_stats(
             reg_status="failed",
-            stats_updated_at="2026-03-10T12:00:00",
+            stats_updated_at="2026-10-25T12:00:00",
             live_run_id=None,
             papers_included=1,
         )
@@ -30,7 +30,7 @@ def test_should_use_registry_stats_when_terminal_and_timestamp_present() -> None
     assert (
         should_use_registry_stats(
             reg_status="interrupted",
-            stats_updated_at="2026-03-10T12:00:00",
+            stats_updated_at="2026-10-25T12:00:00",
             live_run_id=None,
             papers_included=1,
         )
@@ -42,7 +42,7 @@ def test_should_use_registry_stats_rejects_stale_zero_included_on_completed() ->
     assert (
         should_use_registry_stats(
             reg_status="completed",
-            stats_updated_at="2026-03-10T12:00:00",
+            stats_updated_at="2026-10-25T12:00:00",
             live_run_id=None,
             papers_included=0,
         )
@@ -73,7 +73,7 @@ def test_should_use_registry_stats_rejects_live_or_non_terminal() -> None:
     assert (
         should_use_registry_stats(
             reg_status="completed",
-            stats_updated_at="2026-03-10T12:00:00",
+            stats_updated_at="2026-10-25T12:00:00",
             live_run_id="run-live",
         )
         is False
@@ -81,7 +81,7 @@ def test_should_use_registry_stats_rejects_live_or_non_terminal() -> None:
     assert (
         should_use_registry_stats(
             reg_status="running",
-            stats_updated_at="2026-03-10T12:00:00",
+            stats_updated_at="2026-10-25T12:00:00",
             live_run_id=None,
         )
         is False
@@ -89,7 +89,7 @@ def test_should_use_registry_stats_rejects_live_or_non_terminal() -> None:
     assert (
         should_use_registry_stats(
             reg_status="awaiting_review",
-            stats_updated_at="2026-03-10T12:00:00",
+            stats_updated_at="2026-10-25T12:00:00",
             live_run_id=None,
         )
         is False
@@ -110,3 +110,16 @@ def test_stats_payload_from_registry_row_maps_columns() -> None:
         "total_cost": 3.5,
         "artifacts_count": None,
     }
+
+
+def test_should_not_use_registry_stats_persisted_with_old_papers_found_formula() -> None:
+    for stamp in ("2026-09-26 07:04:39", "2026-09-26T07:04:39"):
+        assert (
+            should_use_registry_stats(
+                reg_status="completed",
+                stats_updated_at=stamp,
+                live_run_id=None,
+                papers_included=6,
+            )
+            is False
+        )
