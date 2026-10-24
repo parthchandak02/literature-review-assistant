@@ -1,2 +1,8 @@
 allowBuilds:
   esbuild: true
+overrides:
+  browserslist: ^4.28.7
+  baseline-browser-mapping: ^2.11.0
+  postcss-selector-parser: ^7.1.6
+  ajv@<6.14.0: ^6.14.0
+  zod@<4.6.6: ^4.6.6

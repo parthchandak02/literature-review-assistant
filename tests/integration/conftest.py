@@ -229,13 +229,18 @@ def clear_pydantic_ai_http_cache() -> None:
     closed, triggering RuntimeError: Event loop is closed.
 
     Clearing the cache before each test forces PydanticAI to create a fresh
-    client (and transport) bound to the current event loop.
+    client (and transport) bound to the current event loop. Newer PydanticAI
+    releases create a fresh client per provider and no longer have the cache,
+    so this is a no-op there.
     """
-    from pydantic_ai.models import _cached_async_http_client
+    from pydantic_ai import models
 
-    _cached_async_http_client.cache_clear()
+    cached = getattr(models, "_cached_async_http_client", None)
+    if cached is not None:
+        cached.cache_clear()
     yield
-    _cached_async_http_client.cache_clear()
+    if cached is not None:
+        cached.cache_clear()
 
 
 @pytest.fixture(autouse=True)

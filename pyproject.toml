@@ -100,3 +100,10 @@ ignore = ["E501", "UP042", "UP045"]
 "src/writing/section_writer.py" = ["E402"]
 # Tests commonly assign results without reading them to assert "no exception raised"
 "tests/**/*.py" = ["F841", "E741"]
+
+[tool.uv]
+# Security floors for transitive dependencies (Dependabot advisories).
+constraint-dependencies = ["pydantic-ai>=1.107.6,<2", "virtualenv>=21.14.9", "sentence-transformers>=5.6.0,<6", "mcp>=1.30.0", "opentelemetry-api>=1.45.1", "requests>=2.33.0"]
+# xai-sdk (pulled in by pydantic-ai's xai extra, unused here) caps packaging <26,
+# which blocks the patched virtualenv used by pre-commit.
+override-dependencies = ["packaging>=26.3"]
