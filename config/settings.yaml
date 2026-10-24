@@ -117,10 +117,10 @@ agents:
     temperature: 0.1
   # ImageGenerationTool requires a Google image-capable model (not DeepSeek chat).
   research_diagram_drawing:
-    model: "google:gemini-3.1-flash-image-preview"
+    model: "google:gemini-3.1-flash-image"
     temperature: 0.2
   research_diagram_critic:
-    model: "google:gemini-3.5-flash"
+    model: "google:gemini-3.8-flash"
     temperature: 0.1
   narrative:
     model: "fireworks:accounts/fireworks/models/deepseek-v4p1-flash"

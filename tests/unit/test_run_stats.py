@@ -120,3 +120,42 @@ async def test_total_cost_sums_cost_records(tmp_path) -> None:
         await db.commit()
         resolver = RunStatsResolver()
         assert await resolver.total_cost(db) == pytest.approx(0.25)
+
+
+@pytest.mark.asyncio
+async def test_papers_found_matches_prisma_identified_not_stored_rows(tmp_path) -> None:
+    """A record superseded by a low-recall retry stays in papers but PRISMA does not count it."""
+    async with get_db(str(tmp_path / "stats_found.db")) as db:
+        await db.execute(
+            "INSERT INTO workflows (workflow_id, topic, config_hash, status) VALUES ('wf1', 't', 'h', 'completed')"
+        )
+        for idx in range(1, 4):
+            await db.execute(
+                "INSERT INTO papers (paper_id, title, authors, source_database) VALUES (?, ?, ?, ?)",
+                (f"p{idx}", f"Paper {idx}", '["A"]', "ieee_xplore"),
+            )
+        await db.execute(
+            """
+            INSERT INTO search_results (
+                database_name, source_category, search_date, search_query, records_retrieved, workflow_id
+            ) VALUES ('ieee_xplore', 'database', '2026-01-01', 'q', 2, 'wf1')
+            """
+        )
+        await db.commit()
+
+        resolver = RunStatsResolver()
+        assert await resolver.papers_found(db) == 2
+        assert (await resolver.aggregate(db))["papers_found"] == 2
+
+
+@pytest.mark.asyncio
+async def test_papers_found_falls_back_to_stored_papers_before_search_results(tmp_path) -> None:
+    async with get_db(str(tmp_path / "stats_found_fallback.db")) as db:
+        await db.execute(
+            "INSERT INTO workflows (workflow_id, topic, config_hash, status) VALUES ('wf1', 't', 'h', 'running')"
+        )
+        await db.execute(
+            "INSERT INTO papers (paper_id, title, authors, source_database) VALUES ('p1', 'Paper', '[\"A\"]', 'openalex')"
+        )
+        await db.commit()
+        assert await RunStatsResolver().papers_found(db) == 1

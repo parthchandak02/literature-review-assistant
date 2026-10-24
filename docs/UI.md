@@ -84,7 +84,7 @@ The chrome "Download submission package" runs `ensureSubmissionPackage`: Build, 
 ## Run chrome
 
 - Topic breadcrumb in App bar
-- Single-line info strip, outcome first: status, outcome ("6 included of 1,716 records"), cost (neutral, 2 decimals, links to Cost), a "Funnel" popover with the full funnel as a vertical list, date, and a de-emphasised workflow id with a copy icon button ("Copied" announced via an sr-only live region; failures show an error toast). Separators are `aria-hidden` dividers, not literal characters
+- Single-line info strip, outcome first: status, outcome ("6 included of 1,715 records", the PRISMA identified total), cost (neutral, 2 decimals, links to Cost), a "Funnel" popover with the full funnel as a vertical list, date, and a de-emphasised workflow id with a copy icon button ("Copied" announced via an sr-only live region; failures show an error toast). Separators are `aria-hidden` dividers, not literal characters
 - Underline `GlassTabs` below the strip, with the package download on the same row
 - "Waiting on you" banner (`RunGateBanner.tsx`, `role="status"`) below the chrome on every tab except the gate's action tab, for `config_ready` / `awaiting_prospero` (action tab Config) and `awaiting_review` (action tab `review-screening`). It states what is needed and has a primary CTA that switches to the action tab
 - Phase timeline on Activity tab only (no duplicate header chips)

@@ -27,7 +27,26 @@ class RunStatsResolver:
         row = await (await db.execute("SELECT workflow_id FROM workflows ORDER BY rowid DESC LIMIT 1")).fetchone()
         return str(row[0]) if row and row[0] else ""
 
-    async def papers_found(self, db: aiosqlite.Connection) -> int:
+    async def papers_found(self, db: aiosqlite.Connection, *, workflow_id: str | None = None) -> int:
+        """Records identified by the search, matching PRISMA's identified total.
+
+        COUNT(papers) can exceed PRISMA by records a low-recall retry superseded (stored by the
+        first search, replaced in search_results), so prefer the search_results sum and fall back
+        to stored papers only before any search_results row exists.
+        """
+        wf_id = workflow_id or await self.latest_workflow_id(db)
+        try:
+            row = await (
+                await db.execute(
+                    "SELECT COALESCE(SUM(records_retrieved), 0) FROM search_results WHERE workflow_id = ?",
+                    (wf_id,),
+                )
+            ).fetchone()
+            identified = int(row[0]) if row else 0
+        except aiosqlite.OperationalError:
+            identified = 0
+        if identified:
+            return identified
         row = await (await db.execute("SELECT COUNT(*) FROM papers")).fetchone()
         return int(row[0]) if row else 0
 
@@ -96,7 +115,7 @@ class RunStatsResolver:
         wf_id = await self.latest_workflow_id(db)
         included = await self.papers_included(db, workflow_id=wf_id)
         return {
-            "papers_found": await self.papers_found(db),
+            "papers_found": await self.papers_found(db, workflow_id=wf_id),
             "papers_included": included.count,
             "papers_included_source": included.source_key,
             "papers_included_precedence": list(RUN_STATS_PRECEDENCE.papers_included_order),
