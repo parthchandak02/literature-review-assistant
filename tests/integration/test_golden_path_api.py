@@ -67,8 +67,11 @@ async def test_post_start_reaches_terminal_done_with_workflow_row(
     run_id = response.json()["run_id"]
     assert run_id
 
+    # Generous deadline: the mocked run usually takes a few seconds but slows down
+    # sharply when the machine is busy (e.g. other suites running in parallel).
     record = None
-    for _ in range(150):
+    deadline = asyncio.get_running_loop().time() + 120.0
+    while asyncio.get_running_loop().time() < deadline:
         record = _active_runs.get(run_id)
         if record is not None and record.done:
             break

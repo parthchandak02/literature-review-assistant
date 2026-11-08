@@ -316,10 +316,13 @@ async def test_resume_wrapper_flushes_durable_events_on_cancel(
     db_path = tmp_path / "runtime.db"
     await _init_runtime_db(db_path, workflow_id, status="interrupted")
 
+    event_emitted = asyncio.Event()
+
     async def _fake_resume(**kwargs):  # type: ignore[no-untyped-def]
         run_context = kwargs.get("run_context")
         if run_context is not None:
             run_context.on_event({"type": "phase_start", "phase": "phase_4_extraction_quality"})
+        event_emitted.set()
         await asyncio.Event().wait()
 
     monkeypatch.setattr("src.orchestration.workflow.run_workflow_resume", _fake_resume)
@@ -330,7 +333,8 @@ async def test_resume_wrapper_flushes_durable_events_on_cancel(
     _active_runs[record.run_id] = record
     record.task = asyncio.create_task(_resume_wrapper(record, workflow_id, str(db_path)))
 
-    await asyncio.sleep(0.1)
+    # Cancel only once the resumed workflow has emitted its event, not after a fixed sleep.
+    await asyncio.wait_for(event_emitted.wait(), timeout=10.0)
     record.task.cancel()
     try:
         await record.task

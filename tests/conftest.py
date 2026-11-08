@@ -109,6 +109,22 @@ def _blocked(target: object) -> ExternalNetworkBlockedError:
     )
 
 
+@pytest.fixture(autouse=True)
+def isolate_active_runs() -> Iterator[None]:
+    """Restore the web app's in-memory run table after every test.
+
+    Tests that attach or start runs without popping them would otherwise
+    leak records into later tests (attach returns an existing record for
+    the same workflow_id and skips touching the new database).
+    """
+    from src.web.state import _active_runs
+
+    snapshot = dict(_active_runs)
+    yield
+    _active_runs.clear()
+    _active_runs.update(snapshot)
+
+
 @pytest.fixture(scope="session", autouse=True)
 def block_external_network() -> Iterator[None]:
     """Fail fast on any socket connect / DNS lookup to a non-loopback host."""
