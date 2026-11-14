@@ -530,9 +530,14 @@ def _find_rob_figure_caption_mismatch(md_text: str) -> bool:
     return bool(has_mmat and has_legacy_caption)
 
 
+_GRADE_WORD_RE = re.compile(r"\bgrade\b", re.IGNORECASE)
+
+
 def _grade_claimed_without_rows(md_text: str) -> bool:
     """Return True when manuscript claims GRADE use in non-negated prose."""
-    lines = [ln.strip().lower() for ln in md_text.splitlines() if "grade" in ln.lower()]
+    ref_start = md_text.find("## References")
+    body = md_text[:ref_start] if ref_start > 0 else md_text
+    lines = [ln.strip().lower() for ln in body.splitlines() if _GRADE_WORD_RE.search(ln)]
     if not lines:
         return False
     negative_markers = (

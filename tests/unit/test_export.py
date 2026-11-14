@@ -2002,6 +2002,58 @@ async def test_manuscript_contract_does_not_flag_grade_when_explicitly_not_perfo
     assert all(v.code != "GRADE_UNGROUNDED" for v in result.violations)
 
 
+@pytest.mark.asyncio
+async def test_manuscript_contract_does_not_flag_grade_from_reference_entry(tmp_path: Path) -> None:
+    db_path = tmp_path / "runtime_contracts_grade_reference_only.db"
+    manuscript_md = tmp_path / "doc_manuscript.md"
+    manuscript_tex = tmp_path / "doc_manuscript.tex"
+    manuscript_md.write_text(
+        "\n".join(
+            [
+                "## Abstract",
+                "**Background:** text",
+                "**Objectives:** obj",
+                "**Methods:** meth",
+                "**Results:** res",
+                "**Conclusions:** conc",
+                "## Introduction",
+                "Topic background.",
+                "## Methods",
+                "Two independent reviewers screened records.",
+                "Protocol registration: not prospectively registered.",
+                "## Results",
+                "Of the 10 reports sought for full-text retrieval, 2 reports were not retrieved and 8 were assessed for eligibility, with 3 studies included.",
+                "Risk of bias was assessed.",
+                "Two studies were later upgraded to the highest reviewer confidence band.",
+                "## Discussion",
+                "Interpretation with caveats and conservative framing.",
+                "## Conclusion",
+                "Conclusion.",
+                "## References",
+                "[1] Guyatt G, Oxman AD, Akl EA. GRADE guidelines: 1. Introduction-GRADE evidence profiles and summary of findings tables. J Clin Epidemiol. 2011.",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    manuscript_tex.write_text(
+        "\\section{Abstract}\n\\section{Introduction}\n\\section{Methods}\n\\section{Results}\n\\section{Discussion}\n\\section{Conclusion}\n\\section{References}\n",
+        encoding="utf-8",
+    )
+    async with get_db(str(db_path)) as db:
+        repo = WorkflowRepository(db)
+        cite_repo = CitationRepository(db)
+        await db.commit()
+        result = await run_manuscript_contracts(
+            repository=repo,
+            citation_repository=cite_repo,
+            workflow_id="wf-test",
+            manuscript_md_path=str(manuscript_md),
+            manuscript_tex_path=str(manuscript_tex),
+            mode="soft",
+        )
+    assert all(v.code != "GRADE_UNGROUNDED" for v in result.violations)
+
+
 def test_validate_ieee_no_abstract():
     tex = "\\begin{document}\\end{document}"
     bib = ""
