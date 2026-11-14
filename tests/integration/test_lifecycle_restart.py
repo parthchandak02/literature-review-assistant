@@ -23,13 +23,17 @@ from src.web.state import (
     _resume_wrapper,
     _RunRecord,
 )
+from tests.conftest import drain_web_tasks
 
 
-@pytest_asyncio.fixture()
+@pytest_asyncio.fixture(loop_scope="function")
 async def client():
     transport = httpx.ASGITransport(app=app)
     async with httpx.AsyncClient(transport=transport, base_url="http://test") as c:
-        yield c
+        try:
+            yield c
+        finally:
+            await drain_web_tasks()
 
 
 async def _init_runtime_db(db_path: Path, workflow_id: str, *, status: str = "interrupted") -> None:

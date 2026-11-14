@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import warnings
+
 import pytest
 
 from src.db.database import get_db
@@ -54,8 +56,11 @@ def test_compute_cohens_kappa_coerces_nan_to_zero() -> None:
     results = [
         _result("p1", ScreeningDecisionType.INCLUDE, ScreeningDecisionType.INCLUDE, ScreeningDecisionType.INCLUDE)
     ]
-    reliability = compute_cohens_kappa(results, stage="title_abstract")
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        reliability = compute_cohens_kappa(results, stage="title_abstract")
     assert reliability.cohens_kappa == 0.0
+    assert not [w for w in caught if issubclass(w.category, (UserWarning, RuntimeWarning))]
 
 
 @pytest.mark.asyncio

@@ -35,7 +35,11 @@ def compute_cohens_kappa(results: Sequence[DualScreeningResult], stage: str) -> 
     reviewer_b = [item.reviewer_b.decision.value for item in results]
     agreements = sum(1 for a, b in zip(reviewer_a, reviewer_b) if a == b)
     total = len(results)
-    kappa = float(cohen_kappa_score(reviewer_a, reviewer_b))
+    # A single shared label causes sklearn's cohen_kappa_score to emit UserWarning + RuntimeWarning (0/0 -> NaN).
+    if len(set(reviewer_a) | set(reviewer_b)) <= 1:
+        kappa = float("nan")
+    else:
+        kappa = float(cohen_kappa_score(reviewer_a, reviewer_b))
     if math.isnan(kappa):
         logger.warning(
             "compute_cohens_kappa produced NaN for stage=%s (n=%d); coercing to 0.0",

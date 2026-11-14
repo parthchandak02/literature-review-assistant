@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import warnings
 from collections.abc import Sequence
 
 import numpy as np
@@ -47,7 +48,14 @@ def pool_effects(
 
     effect_array = np.asarray(effects, dtype=float)
     variance_array = np.asarray(variances, dtype=float)
-    base = combine_effects(effect_array, variance_array, method_re="dl")
+    # statsmodels computes random-effects SD even when q < df makes tau2 negative; pool_effects selects fixed effects there.
+    with warnings.catch_warnings():
+        warnings.filterwarnings(
+            "ignore",
+            message="invalid value encountered in sqrt",
+            category=RuntimeWarning,
+        )
+        base = combine_effects(effect_array, variance_array, method_re="dl")
     q = float(base.q)
     df = len(effects) - 1
     i_squared = _i_squared_percent(q, df)

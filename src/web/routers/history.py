@@ -43,6 +43,7 @@ from src.web.state import (
     _refresh_allowed_roots,
     _resume_wrapper,
     _run_resolver,
+    track_background_task,
 )
 
 _logger = logging.getLogger(__name__)
@@ -441,7 +442,7 @@ async def save_note(workflow_id: str, body: _NoteBody) -> dict[str, bool]:
     event: dict[str, Any] = {
         "workflow_id": workflow_id,
         "note": body.note,
-        "ts": datetime.datetime.utcnow().isoformat(),
+        "ts": datetime.datetime.now(datetime.UTC).isoformat(),
     }
     dead: set[asyncio.Queue[dict[str, Any] | None]] = set()
     for q in list(_notes_subscribers):
@@ -651,7 +652,7 @@ async def set_history_lane(workflow_id: str, body: _LaneBody, run_root: str = "r
 async def attach_history(req: AttachRequest) -> RunResponse:
     """Create a read-only completed _RunRecord from a historical workflow."""
     run_id, record = await _lifecycle_coordinator.attach_history(req)
-    asyncio.create_task(_refresh_allowed_roots())
+    track_background_task(asyncio.create_task(_refresh_allowed_roots()))
     return RunResponse(run_id=run_id, topic=record.topic)
 
 

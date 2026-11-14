@@ -259,7 +259,9 @@ async def _defer_runtime_db_manuscript_backfill(db_path: str) -> None:
 def schedule_runtime_db_manuscript_backfill(db_path: str) -> None:
     import asyncio
 
-    asyncio.create_task(_defer_runtime_db_manuscript_backfill(db_path))
+    from src.web.state import track_background_task
+
+    track_background_task(asyncio.create_task(_defer_runtime_db_manuscript_backfill(db_path)))
 
 
 async def _resolve_workflow_id_from_db(db_path: str) -> str | None:
