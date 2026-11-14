@@ -620,8 +620,10 @@ def _insert_inline_custom_diagrams(
 
 def _normalize_anchor_text(text: str) -> str:
     lowered = text.lower().strip()
-    lowered = re.sub(r"[^a-z0-9\\s]", " ", lowered)
-    return re.sub(r"\\s+", " ", lowered).strip()
+    # Raw strings: \s is whitespace. \\s would match a literal backslash and the letter s,
+    # which left "Fig. 1" as "fig  1" and missed "Fig 1".
+    lowered = re.sub(r"[^a-z0-9\s]", " ", lowered)
+    return re.sub(r"\s+", " ", lowered).strip()
 
 
 def _find_anchor_insert_index(lines: list[str], start_idx: int, end_idx: int, anchor_text: str) -> int | None:
