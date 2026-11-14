@@ -72,6 +72,14 @@ addopts = [
     "--no-header",      # skip the platform/plugin banner (noise)
     "-r", "N",          # suppress the short-summary line for passed tests
 ]
+# Third-party import notices. PyMuPDF's SWIG types warn on Python 3.14
+# (pymupdf#3931). WeasyPrint warns until libharfbuzz-subset is installed.
+filterwarnings = [
+    "ignore:builtin type SwigPyPacked has no __module__ attribute:DeprecationWarning",
+    "ignore:builtin type SwigPyObject has no __module__ attribute:DeprecationWarning",
+    "ignore:builtin type swigvarlink has no __module__ attribute:DeprecationWarning",
+    "ignore:HarfBuzz-Subset will be required by future versions of WeasyPrint:DeprecationWarning:weasyprint",
+]
 
 [build-system]
 requires = ["hatchling"]
@@ -103,7 +111,8 @@ ignore = ["E501", "UP042", "UP045"]
 
 [tool.uv]
 # Security floors for transitive dependencies (Dependabot advisories).
-constraint-dependencies = ["pydantic-ai>=1.107.6,<2", "virtualenv>=21.14.9", "sentence-transformers>=5.6.0,<6", "mcp>=1.30.0", "opentelemetry-api>=1.45.1", "requests>=2.33.0"]
+# google-genai>=2.34 keeps the 2.x SDK and drops the Python 3.14 _UnionGenericAlias warning.
+constraint-dependencies = ["pydantic-ai>=1.107.6,<2", "google-genai>=2.34.0,<3", "virtualenv>=21.14.9", "sentence-transformers>=5.6.0,<6", "mcp>=1.30.0", "opentelemetry-api>=1.45.1", "requests>=2.33.0"]
 # xai-sdk (pulled in by pydantic-ai's xai extra, unused here) caps packaging <26,
 # which blocks the patched virtualenv used by pre-commit.
 override-dependencies = ["packaging>=26.3"]
