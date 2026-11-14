@@ -13,7 +13,8 @@ import re
 import signal
 from pathlib import Path
 
-from pydantic_graph import BaseNode, End, Graph
+from pydantic_graph import BaseNode, End
+from pydantic_graph.graph import Graph
 
 from src.config.loader import load_configs
 from src.db.database import get_db
