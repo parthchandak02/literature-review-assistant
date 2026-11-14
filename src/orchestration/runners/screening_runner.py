@@ -400,7 +400,7 @@ async def run_screening_node(state: ReviewState, ctx: GraphRunContext[ReviewStat
                     "entity_id": "phase_3_screening",
                     "reason_code": "prefilter_applied",
                     "reason_label": "Automated pre-screening exclusions applied",
-                    "ts": _dt_pf.datetime.utcnow().isoformat(),
+                    "ts": _dt_pf.datetime.now(_dt_pf.UTC).isoformat(),
                 }
             )
             _qa_reasons = {
@@ -438,7 +438,7 @@ async def run_screening_node(state: ReviewState, ctx: GraphRunContext[ReviewStat
                         "action": "needs_review",
                         "entity_type": "phase",
                         "entity_id": "phase_3_screening",
-                        "ts": _dt_pf.datetime.utcnow().isoformat(),
+                        "ts": _dt_pf.datetime.now(_dt_pf.UTC).isoformat(),
                     }
                 )
 
@@ -648,7 +648,7 @@ async def run_screening_node(state: ReviewState, ctx: GraphRunContext[ReviewStat
                             "reason_label": (
                                 "Auto-excluded by batch pre-ranker score threshold" if _batch_n_excl > 0 else None
                             ),
-                            "ts": _dt_bs.datetime.utcnow().isoformat(),
+                            "ts": _dt_bs.datetime.now(_dt_bs.UTC).isoformat(),
                         }
                     )
 
@@ -724,7 +724,7 @@ async def run_screening_node(state: ReviewState, ctx: GraphRunContext[ReviewStat
                                 "entity_id": "phase_3_screening",
                                 "reason_code": "cap_overflow_validation_tail",
                                 "reason_label": "Cap safety valve overflow slice evaluated",
-                                "ts": _dt_bs.datetime.utcnow().isoformat(),
+                                "ts": _dt_bs.datetime.now(_dt_bs.UTC).isoformat(),
                             }
                         )
                     if rc and hasattr(rc, "log_status"):

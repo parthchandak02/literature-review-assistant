@@ -19,7 +19,14 @@ from src.llm.shared_rate_limiter import clear_shared_rate_limiters, get_shared_r
 from src.models import SettingsConfig
 from src.web.path_guard import RUNS_ROOTS_ENV, is_sensitive_file
 from src.web.shared import AttachRequest, ResumeRequest, RunRequest
-from src.web.state import _active_runs, _lifecycle_coordinator, _RunRecord
+from src.web.state import (
+    _active_runs,
+    _background_tasks,
+    _lifecycle_coordinator,
+    _RunRecord,
+    drain_background_tasks,
+    track_background_task,
+)
 
 _MINIMAL_YAML = "research_question: Q\n"
 
@@ -322,3 +329,51 @@ async def test_lifespan_logs_registry_repair_failures(
     messages = [r.getMessage() for r in caplog.records if r.exc_info]
     assert any("could not mark running workflows interrupted" in m for m in messages)
     assert any("from runtime evidence failed" in m for m in messages)
+
+
+@pytest.mark.asyncio
+async def test_track_and_drain_background_tasks() -> None:
+    started = asyncio.Event()
+    cancelled = False
+
+    async def _worker() -> None:
+        nonlocal cancelled
+        started.set()
+        try:
+            await asyncio.sleep(60)
+        except asyncio.CancelledError:
+            cancelled = True
+            raise
+
+    task = track_background_task(asyncio.create_task(_worker()))
+    assert task in _background_tasks
+    await started.wait()
+    await drain_background_tasks(cancel=True)
+    assert cancelled is True
+    assert task.done()
+    assert task not in _background_tasks
+
+
+@pytest.mark.asyncio
+async def test_open_registry_closes_connection_when_cancelled_mid_connect(tmp_path: pathlib.Path) -> None:
+    import gc
+    import warnings
+
+    from src.db.workflow_registry import _open_registry
+
+    registry_path = str(tmp_path / "workflows_registry.db")
+
+    async def _opener() -> None:
+        async with _open_registry(registry_path):
+            await asyncio.sleep(10)
+
+    task = asyncio.create_task(_opener())
+    await asyncio.sleep(0)
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always", ResourceWarning)
+        gc.collect()
+    assert not [w for w in caught if issubclass(w.category, ResourceWarning)]

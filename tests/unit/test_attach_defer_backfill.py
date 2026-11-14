@@ -13,13 +13,17 @@ import pytest_asyncio
 
 from src.db.database import get_db
 from src.web.app import _active_runs, app
+from tests.conftest import drain_web_tasks
 
 
-@pytest_asyncio.fixture()
+@pytest_asyncio.fixture(loop_scope="function")
 async def client():
     transport = httpx.ASGITransport(app=app)
     async with httpx.AsyncClient(transport=transport, base_url="http://test") as c:
-        yield c
+        try:
+            yield c
+        finally:
+            await drain_web_tasks()
 
 
 async def _attach_payload(db_path: Path, workflow_id: str = "wf-attach-idempotent", topic: str = "Topic") -> dict:

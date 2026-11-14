@@ -44,11 +44,16 @@ def test_stale_status_reports_orphan_error() -> None:
     assert "orphaned" in event["msg"]
 
 
-@pytest_asyncio.fixture()
+@pytest_asyncio.fixture(loop_scope="function")
 async def client():
+    from tests.conftest import drain_web_tasks
+
     transport = httpx.ASGITransport(app=app)
-    async with httpx.AsyncClient(transport=transport, base_url="http://test") as c:
-        yield c
+    try:
+        async with httpx.AsyncClient(transport=transport, base_url="http://test") as c:
+            yield c
+    finally:
+        await drain_web_tasks()
 
 
 @pytest.mark.asyncio

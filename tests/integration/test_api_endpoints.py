@@ -34,18 +34,22 @@ from src.db.workflow_registry import REGISTRY_SCHEMA
 from src.models import CandidatePaper, ExtractionRecord, PrimaryStudyStatus, ScreeningDecisionType, StudyDesign
 from src.search.pdf_retrieval import PDFRetrievalResult
 from src.web.app import _active_runs, _fetch_run_stats, _inject_csv_paths_into_yaml, _RunRecord, app
+from tests.conftest import drain_web_tasks
 
 # ---------------------------------------------------------------------------
 # Shared fixture: async HTTP client bound to the FastAPI ASGI app
 # ---------------------------------------------------------------------------
 
 
-@pytest_asyncio.fixture()
+@pytest_asyncio.fixture(loop_scope="function")
 async def client():
     """Async HTTP client for the ASGI app. No live server required."""
     transport = httpx.ASGITransport(app=app)
     async with httpx.AsyncClient(transport=transport, base_url="http://test") as c:
-        yield c
+        try:
+            yield c
+        finally:
+            await drain_web_tasks()
 
 
 # ---------------------------------------------------------------------------

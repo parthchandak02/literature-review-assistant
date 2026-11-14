@@ -6,6 +6,7 @@ which runtime.db to open without scanning the filesystem.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import os
@@ -71,10 +72,23 @@ async def _open_registry(path: str) -> AsyncIterator[aiosqlite.Connection]:
     block history reads.  busy_timeout lets writers queue instead of immediately
     returning SQLITE_BUSY when another write holds the lock.
     """
-    async with aiosqlite.connect(path, timeout=5.0) as db:
+    connect_task = asyncio.ensure_future(aiosqlite.connect(path, timeout=5.0))
+    try:
+        db = await asyncio.shield(connect_task)
+    except asyncio.CancelledError:
+        try:
+            opened = await connect_task
+        except BaseException:
+            pass
+        else:
+            await opened.close()
+        raise
+    try:
         await db.execute("PRAGMA journal_mode = WAL")
         await db.execute("PRAGMA busy_timeout = 5000")
         yield db
+    finally:
+        await db.close()
 
 
 @dataclass

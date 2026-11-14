@@ -70,7 +70,9 @@ def _provider_with_api_key(provider_name: str, api_key: str | None) -> Provider[
     if provider_name in ("google-vertex", "google-gla"):
         from pydantic_ai.providers.google import GoogleProvider
 
-        return GoogleProvider(api_key=api_key, vertexai=provider_name == "google-vertex")
+        if provider_name == "google-vertex":
+            return GoogleProvider(api_key=api_key, vertexai=True)
+        return GoogleProvider(api_key=api_key)
     if provider_name in ("openai", "openai-responses", "openai-chat"):
         from pydantic_ai.providers.openai import OpenAIProvider
 

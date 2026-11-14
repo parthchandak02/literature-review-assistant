@@ -53,6 +53,7 @@ from src.web.state import (
     _refresh_allowed_roots,
     _repair_registry_statuses_from_runtime,
     _RunRecord,
+    drain_background_tasks,
 )
 from src.web.state import _active_runs as _active_runs  # noqa: F811  -- re-export
 from src.web.state import _lifecycle_coordinator as _lifecycle_coordinator  # noqa: F811  -- re-export
@@ -125,6 +126,7 @@ async def lifespan(_app: FastAPI) -> AsyncGenerator[None, None]:
                 _SHUTDOWN_TASK_TIMEOUT_SECONDS,
                 len(pending_workflow_tasks),
             )
+    await drain_background_tasks(cancel=True)
 
 
 # ---------------------------------------------------------------------------

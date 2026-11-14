@@ -35,6 +35,27 @@ from src.web.shared import (
 
 _logger = logging.getLogger(__name__)
 
+_background_tasks: set[asyncio.Task[Any]] = set()
+
+
+def track_background_task(task: asyncio.Task[Any]) -> asyncio.Task[Any]:
+    """Keep a strong reference to a fire-and-forget task until it finishes."""
+    _background_tasks.add(task)
+    task.add_done_callback(_background_tasks.discard)
+    return task
+
+
+async def drain_background_tasks(*, cancel: bool = False) -> None:
+    """Cancel (if requested) and await tracked background tasks on the active loop."""
+    loop = asyncio.get_running_loop()
+    tasks = [t for t in list(_background_tasks) if not t.done() and t.get_loop() is loop]
+    if not tasks:
+        return
+    if cancel:
+        for task in tasks:
+            task.cancel()
+    await asyncio.gather(*tasks, return_exceptions=True)
+
 
 def _workflow_outputs_as_dict(outputs: WorkflowRunResult | dict[str, Any] | Any) -> dict[str, Any]:
     if isinstance(outputs, WorkflowRunResult):
@@ -465,7 +486,7 @@ async def _run_wrapper(record: _RunRecord, review_path: str, req: RunRequest) ->
             registry_path = str(pathlib.Path(run_root) / "workflows_registry.db")
             await clear_registry_stats(registry_path, workflow_id)
 
-        asyncio.create_task(_clear_active_registry_stats())
+        track_background_task(asyncio.create_task(_clear_active_registry_stats()))
         nonlocal heartbeat_task
         if heartbeat_task is None or heartbeat_task.done():
             heartbeat_task = asyncio.create_task(
@@ -547,9 +568,11 @@ async def _run_wrapper(record: _RunRecord, review_path: str, req: RunRequest) ->
                     _logger.error("Failed to update registry status to failed: %s", exc)
                 await _maybe_persist_registry_stats(record.run_root, record.workflow_id)
         finally:
-            if heartbeat_task is not None:
-                heartbeat_task.cancel()
-            flusher_task.cancel()
+            pending_aux = [t for t in (heartbeat_task, flusher_task) if t is not None]
+            for aux_task in pending_aux:
+                aux_task.cancel()
+            if pending_aux:
+                await asyncio.gather(*pending_aux, return_exceptions=True)
             try:
                 pathlib.Path(review_path).unlink(missing_ok=True)
             except Exception:
@@ -694,6 +717,7 @@ async def _resume_wrapper(
     finally:
         heartbeat_task.cancel()
         flusher_task.cancel()
+        await asyncio.gather(heartbeat_task, flusher_task, return_exceptions=True)
         await _flush_pending_events(record)
         from src.web.run_concurrency import release_run_slot
 

@@ -125,6 +125,33 @@ def isolate_active_runs() -> Iterator[None]:
     _active_runs.update(snapshot)
 
 
+async def drain_web_tasks() -> None:
+    """Cancel unfinished run tasks and drain web background tasks on the active loop."""
+    import asyncio
+
+    import src.utils.structured_log as sl
+    from src.web.state import _active_runs, drain_background_tasks
+
+    loop = asyncio.get_running_loop()
+    run_tasks = [
+        record.task
+        for record in list(_active_runs.values())
+        if record.task is not None and not record.task.done() and record.task.get_loop() is loop
+    ]
+    for task in run_tasks:
+        task.cancel()
+    if run_tasks:
+        await asyncio.gather(*run_tasks, return_exceptions=True)
+
+    try:
+        await asyncio.wait_for(drain_background_tasks(cancel=False), timeout=2.0)
+    except TimeoutError:
+        await drain_background_tasks(cancel=True)
+
+    if sl._writer_task is not None and sl._writer_task.get_loop() is loop:
+        await sl.shutdown_log_writer()
+
+
 @pytest.fixture(scope="session", autouse=True)
 def block_external_network() -> Iterator[None]:
     """Fail fast on any socket connect / DNS lookup to a non-loopback host."""

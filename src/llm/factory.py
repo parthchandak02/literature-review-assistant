@@ -19,6 +19,7 @@ from pydantic_ai import (
     WebFetchTool,
     WebSearchTool,
 )
+from pydantic_ai.capabilities import NativeTool
 from pydantic_ai.embeddings import Embedder
 from pydantic_ai.messages import BaseToolCallPart, BinaryContent, BuiltinToolCallEvent
 from pydantic_ai.settings import ModelSettings
@@ -95,7 +96,7 @@ class PydanticAIImageClient:
         tool = ImageGenerationTool(aspect_ratio=aspect_ratio, size=size)
         agent = build_agent(  # type: ignore[type-var]
             model,
-            builtin_tools=[tool],
+            capabilities=[NativeTool(tool)],
             output_type=BinaryImage,
         )
         parts: list[Any] = [prompt]
@@ -197,7 +198,7 @@ async def run_text_with_web_tools(
     agent = build_agent(
         model,
         output_type=str,
-        builtin_tools=[WebSearchTool(), WebFetchTool()],
+        capabilities=[NativeTool(WebSearchTool()), NativeTool(WebFetchTool())],
     )
     model_settings = ModelSettings(temperature=temperature, timeout=timeout_seconds)
     if on_progress is None:
