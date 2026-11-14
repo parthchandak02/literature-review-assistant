@@ -56,6 +56,63 @@ def test_assemble_submission_manuscript_inlines_custom_diagram_when_anchor_exist
     assert "## Figures" not in out
 
 
+def test_assemble_submission_manuscript_inlines_when_anchor_punctuation_spacing_differs(tmp_path: Path) -> None:
+    """Short anchors must match when only punctuation spacing differs.
+
+    "Fig. 1" and "Fig 1" are the same anchor. The matcher used to keep the
+    doubled space from the period, miss the line, and dump the diagram into
+    the Figures section.
+    """
+    manuscript_path = tmp_path / "doc_manuscript.md"
+    fig = tmp_path / "fig_custom_01.png"
+    fig.write_bytes(b"png")
+    report_path = tmp_path / "data_diagram_generation_report.json"
+    report_path.write_text(
+        json.dumps(
+            {
+                "workflow_id": "wf-0083",
+                "results": [
+                    {
+                        "diagram_id": "d01",
+                        "artifact_key": "custom_diagram_01",
+                        "output_path": str(fig),
+                        "chosen_round": 1,
+                        "placement": {
+                            "diagram_id": "d01",
+                            "target_section": "results",
+                            "anchor_text": "Fig. 1",
+                            "fallback_policy": "append_to_figures_section",
+                            "confidence": 0.9,
+                            "rationale": "Placed next to the figure callout.",
+                        },
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    body = (
+        "## Introduction\nIntro text.\n\n"
+        "## Results\nFig 1 shows the screening yield.\nMore text.\n\n"
+        "## Discussion\nDiscussion text.\n"
+    )
+    artifacts = {
+        "custom_diagram_01": str(fig),
+        "diagram_generation_report": str(report_path),
+    }
+
+    out = assemble_submission_manuscript(
+        body=body,
+        manuscript_path=manuscript_path,
+        artifacts=artifacts,
+        citation_rows=[],
+    )
+    assert "![Fig. 1:" in out
+    results = out.split("## Discussion")[0]
+    assert "![Fig. 1:" in results
+    assert "## Figures" not in out
+
+
 def test_assemble_submission_manuscript_falls_back_to_figures_when_section_missing(tmp_path: Path) -> None:
     manuscript_path = tmp_path / "doc_manuscript.md"
     fig = tmp_path / "fig_custom_01.png"
