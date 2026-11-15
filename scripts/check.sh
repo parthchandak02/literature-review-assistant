@@ -15,6 +15,9 @@ cmd_local() {
   echo "==> ruff check"
   uv run ruff check .
 
+  echo "==> ruff format"
+  uv run ruff format --check .
+
   echo "==> pytest tests/unit"
   uv run pytest tests/unit -q
 
@@ -70,6 +73,9 @@ cmd_local() {
 cmd_release() {
   echo "==> ruff check"
   uv run ruff check .
+
+  echo "==> ruff format"
+  uv run ruff format --check .
 
   echo "==> pytest tests/unit"
   uv run pytest tests/unit -q

@@ -138,9 +138,7 @@ async def _seed_rollback_contract_rows(repo: WorkflowRepository, db, workflow_id
 
 
 async def _count_for_workflow(db, table: str, workflow_id: str) -> int:
-    row = await (
-        await db.execute(f"SELECT COUNT(*) FROM {table} WHERE workflow_id = ?", (workflow_id,))
-    ).fetchone()
+    row = await (await db.execute(f"SELECT COUNT(*) FROM {table} WHERE workflow_id = ?", (workflow_id,))).fetchone()
     return int(row[0])
 
 
@@ -207,12 +205,11 @@ async def test_rollback_phase_data_contract_matrix(
         assert await _count_papers(db) == expected["papers"]
         assert await _count_for_workflow(db, "search_results", workflow_id) == expected["search_results"]
         assert await _count_for_workflow(db, "screening_decisions", workflow_id) == expected["screening_decisions"]
-        assert await _count_for_workflow(db, "dual_screening_results", workflow_id) == expected["dual_screening_results"]
-        assert await _count_for_workflow(db, "extraction_records", workflow_id) == expected["extraction_records"]
         assert (
-            await _count_cohort_for_source_phase(db, workflow_id, "phase_3_screening")
-            == expected["cohort_phase_3"]
+            await _count_for_workflow(db, "dual_screening_results", workflow_id) == expected["dual_screening_results"]
         )
+        assert await _count_for_workflow(db, "extraction_records", workflow_id) == expected["extraction_records"]
+        assert await _count_cohort_for_source_phase(db, workflow_id, "phase_3_screening") == expected["cohort_phase_3"]
         assert (
             await _count_cohort_for_source_phase(db, workflow_id, "phase_4_extraction_quality")
             == expected["cohort_phase_4"]

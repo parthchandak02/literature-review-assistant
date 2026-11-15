@@ -250,9 +250,7 @@ def _parse_csv_file(
             break
 
     file_hint = (
-        database_label
-        or _detect_database_from_filename(path)
-        or detect_csv_export_format(fieldnames, url_samples)
+        database_label or _detect_database_from_filename(path) or detect_csv_export_format(fieldnames, url_samples)
     )
 
     for i, row in enumerate(rows, start=2):

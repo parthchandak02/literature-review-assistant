@@ -1574,10 +1574,7 @@ async def generate_config_yaml(
         policy=route.policy,
         matched_biomedical_terms=route.matched_biomedical_terms,
         matched_generic_terms=route.matched_generic_terms,
-        detail=(
-            f"Routing to {route.policy} policy "
-            f"(domain={route.domain}, confidence={route.confidence:.2f})"
-        ),
+        detail=(f"Routing to {route.policy} policy (domain={route.domain}, confidence={route.confidence:.2f})"),
     )
     resolved_framework = question_framework or ("pcc" if is_scoping else "pico")
     return _build_yaml(

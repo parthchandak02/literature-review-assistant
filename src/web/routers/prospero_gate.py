@@ -87,7 +87,9 @@ async def submit_prospero(run_id: str, body: SubmitProsperoRequest) -> dict[str,
     run_dir = pathlib.Path(db_path).parent
     run_root = run_root_from_db_path(db_path)
 
-    _update_protocol_fields(run_dir / "review.yaml", registration_number=registration_number, registration_date=registration_date)
+    _update_protocol_fields(
+        run_dir / "review.yaml", registration_number=registration_number, registration_date=registration_date
+    )
     _update_protocol_fields(
         run_dir / "config_snapshot.yaml",
         registration_number=registration_number,

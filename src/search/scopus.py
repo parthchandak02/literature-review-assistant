@@ -53,9 +53,7 @@ class ScopusConnector(ElsevierConnectorMixin):
         self._api_key = (get_env("SCOPUS_API_KEY") or "").strip()
         self._session_cookie = load_scopus_session_cookie()
         if not self._api_key and not self._session_cookie:
-            raise ValueError(
-                "Scopus connector requires SCOPUS_API_KEY and/or SCOPUS_SESSION_COOKIE_FILE"
-            )
+            raise ValueError("Scopus connector requires SCOPUS_API_KEY and/or SCOPUS_SESSION_COOKIE_FILE")
 
     @staticmethod
     def _primary_filter_mode(query: str) -> str:
@@ -142,9 +140,7 @@ class ScopusConnector(ElsevierConnectorMixin):
                 )
                 if session_result.papers:
                     return session_result
-                logger.warning(
-                    "Scopus session gateway returned 0 papers; falling back to API if configured"
-                )
+                logger.warning("Scopus session gateway returned 0 papers; falling back to API if configured")
             except Exception as exc:
                 if not self._api_key:
                     raise

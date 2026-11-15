@@ -151,7 +151,11 @@ async def test_shadow_keeps_llm_decision_and_records_both(tmp_path, monkeypatch)
     calls: list[dict] = []
     monkeypatch.setattr(jev_screening, "ask_jev", _fake_ask("EXCLUDE", 0.99, calls))
     monkeypatch.setattr(dual_screener_module, "jev_key_available", lambda: True)
-    batch_a = [_batch_item("p1", "include", 0.95), _batch_item("p2", "include", 0.91), _batch_item("p3", "include", 0.6)]
+    batch_a = [
+        _batch_item("p1", "include", 0.95),
+        _batch_item("p2", "include", 0.91),
+        _batch_item("p3", "include", 0.6),
+    ]
     batch_b = [_batch_item("p3", "include", 0.8)]
     db_ctx, db, results = await _screen(tmp_path, _jev_settings("shadow"), [batch_a, batch_b])
     try:
@@ -183,7 +187,11 @@ async def test_shadow_is_fail_open(tmp_path, monkeypatch) -> None:
 
     monkeypatch.setattr(jev_screening, "ask_jev", _boom)
     monkeypatch.setattr(dual_screener_module, "jev_key_available", lambda: True)
-    batch_a = [_batch_item("p1", "include", 0.95), _batch_item("p2", "include", 0.91), _batch_item("p3", "include", 0.6)]
+    batch_a = [
+        _batch_item("p1", "include", 0.95),
+        _batch_item("p2", "include", 0.91),
+        _batch_item("p3", "include", 0.6),
+    ]
     batch_b = [_batch_item("p3", "include", 0.8)]
     db_ctx, db, results = await _screen(tmp_path, _jev_settings("shadow"), [batch_a, batch_b])
     try:
@@ -198,7 +206,11 @@ async def test_shadow_is_fail_open(tmp_path, monkeypatch) -> None:
 async def test_live_batch_mode_uses_jev_for_reviewer_b(tmp_path, monkeypatch) -> None:
     calls: list[dict] = []
     monkeypatch.setattr(jev_screening, "ask_jev", _fake_ask("INCLUDE", 0.9, calls))
-    batch_a = [_batch_item("p1", "include", 0.95), _batch_item("p2", "include", 0.91), _batch_item("p3", "include", 0.6)]
+    batch_a = [
+        _batch_item("p1", "include", 0.95),
+        _batch_item("p2", "include", 0.91),
+        _batch_item("p3", "include", 0.6),
+    ]
     db_ctx, db, results = await _screen(tmp_path, _jev_settings("live"), [batch_a])
     try:
         assert all(r.decision == ScreeningDecisionType.INCLUDE for r in results)
@@ -216,7 +228,11 @@ async def test_live_batch_mode_uses_jev_for_reviewer_b(tmp_path, monkeypatch) ->
 async def test_live_low_confidence_escalates_to_llm(tmp_path, monkeypatch) -> None:
     calls: list[dict] = []
     monkeypatch.setattr(jev_screening, "ask_jev", _fake_ask("EXCLUDE", 0.5, calls))
-    batch_a = [_batch_item("p1", "include", 0.95), _batch_item("p2", "include", 0.91), _batch_item("p3", "include", 0.6)]
+    batch_a = [
+        _batch_item("p1", "include", 0.95),
+        _batch_item("p2", "include", 0.91),
+        _batch_item("p3", "include", 0.6),
+    ]
     batch_b = [_batch_item("p3", "include", 0.8)]
     db_ctx, db, results = await _screen(tmp_path, _jev_settings("live"), [batch_a, batch_b])
     try:

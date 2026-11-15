@@ -48,9 +48,7 @@ async def run_manuscript_audit_node(state: ReviewState, ctx: GraphRunContext[Rev
     if not manuscript_path or not os.path.isfile(manuscript_path):
         if rc:
             rc.emit_phase_done("phase_7_audit", {"status": "skipped", "reason": "manuscript_missing"})
-        filtered_artifacts = {
-            k: v for k, v in state.artifacts.items() if k == "run_summary" or os.path.isfile(v)
-        }
+        filtered_artifacts = {k: v for k, v in state.artifacts.items() if k == "run_summary" or os.path.isfile(v)}
         summary = {
             "workflow_id": state.workflow_id,
             "status": "failed",

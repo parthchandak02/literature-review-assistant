@@ -2,6 +2,7 @@
 
 lint:
 	uv run ruff check .
+	uv run ruff format --check .
 
 test-unit:
 	uv run pytest tests/unit -q

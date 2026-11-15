@@ -125,12 +125,12 @@ def _build_generation_prompt(
     required_labels = ", ".join(
         sanitize_diagram_label_text(label, paper_id_to_label) for label in brief.required_labels
     )
-    key_entities = ", ".join(
-        sanitize_diagram_label_text(entity, paper_id_to_label) for entity in brief.key_entities
+    key_entities = ", ".join(sanitize_diagram_label_text(entity, paper_id_to_label) for entity in brief.key_entities)
+    relationships = (
+        "\n".join(f"- {sanitize_diagram_label_text(rel, paper_id_to_label)}" for rel in brief.relationships)
+        if brief.relationships
+        else "- infer concise flow"
     )
-    relationships = "\n".join(
-        f"- {sanitize_diagram_label_text(rel, paper_id_to_label)}" for rel in brief.relationships
-    ) if brief.relationships else "- infer concise flow"
     notes = sanitize_diagram_label_text(brief.composition_notes or "No extra notes.", paper_id_to_label)
 
     revision_block = (

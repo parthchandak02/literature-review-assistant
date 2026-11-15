@@ -68,7 +68,17 @@ def cmd_profile_resolve(args: argparse.Namespace) -> int:
 
 def cmd_phase1_gate(args: argparse.Namespace, as_json: bool) -> int:
     steps: list[dict[str, Any]] = []
-    pytest = _run(["uv", "run", "pytest", "tests/unit/test_methodology_profile.py", "tests/unit/test_pcc_config.py", "tests/unit/test_config_generator_scoping.py", "-q"])
+    pytest = _run(
+        [
+            "uv",
+            "run",
+            "pytest",
+            "tests/unit/test_methodology_profile.py",
+            "tests/unit/test_pcc_config.py",
+            "tests/unit/test_config_generator_scoping.py",
+            "-q",
+        ]
+    )
     steps.append({"name": "phase1_unit_tests", "ok": pytest.returncode == 0})
     methodology = _run(["uv", "run", "python", "scripts/check.py", "config-methodology", str(SCOPING_FIXTURE)])
     steps.append({"name": "scoping_fixture", "ok": methodology.returncode == 0})
@@ -83,13 +93,26 @@ def cmd_phase1_gate(args: argparse.Namespace, as_json: bool) -> int:
 
 def cmd_sr_regression(args: argparse.Namespace, as_json: bool) -> int:
     if args.quick:
-        pytest = _run(["uv", "run", "pytest", "tests/unit/test_methodology_profile.py", "tests/unit/test_config_generator.py", "-q", "--tb=no"])
+        pytest = _run(
+            [
+                "uv",
+                "run",
+                "pytest",
+                "tests/unit/test_methodology_profile.py",
+                "tests/unit/test_config_generator.py",
+                "-q",
+                "--tb=no",
+            ]
+        )
         ok = pytest.returncode == 0
         _emit({"command": "sr-regression", "mode": "quick", "ok": ok}, as_json)
         return 0 if ok else 1
     proc = _run(["make", "check-local"])
     ok = proc.returncode == 0
-    _emit({"command": "sr-regression", "mode": "full", "ok": ok, "tail": (proc.stdout or proc.stderr or "")[-800:]}, as_json)
+    _emit(
+        {"command": "sr-regression", "mode": "full", "ok": ok, "tail": (proc.stdout or proc.stderr or "")[-800:]},
+        as_json,
+    )
     return 0 if ok else 1
 
 

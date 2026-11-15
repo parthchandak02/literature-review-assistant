@@ -245,17 +245,11 @@ def apply_adaptive_prisma_layout() -> type:
 
             from prisma_flow_diagram.prisma import MatplotlibRenderer
 
-            renderer = MatplotlibRenderer(
-                figsize=figsize, style=self.style, xlim=layout.xlim
-            )
+            renderer = MatplotlibRenderer(figsize=figsize, style=self.style, xlim=layout.xlim)
 
             self._draw_headers(renderer, layout, has_other=has_other)
-            lanes = self._draw_lanes(
-                renderer=renderer, layout=layout, widths=widths, texts=texts
-            )
-            included = self._draw_included(
-                renderer=renderer, layout=layout, widths=widths, texts=texts, lanes=lanes
-            )
+            lanes = self._draw_lanes(renderer=renderer, layout=layout, widths=widths, texts=texts)
+            included = self._draw_included(renderer=renderer, layout=layout, widths=widths, texts=texts, lanes=lanes)
             self._draw_phase_labels(renderer=renderer, lanes=lanes, included=included)
             self._expand_ylim(renderer, lanes, included)
 

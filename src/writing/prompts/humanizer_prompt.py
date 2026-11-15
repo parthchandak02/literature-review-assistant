@@ -43,10 +43,7 @@ def build_humanize_system_prompt(section: str | None = None) -> str:
         f"{load_humanizer_overlay_text()}\n",
     ]
     if skill_text:
-        parts.append(
-            "\nFULL HUMANIZER SKILL (apply all checks and rewrite discipline):\n"
-            f"{skill_text}\n"
-        )
+        parts.append(f"\nFULL HUMANIZER SKILL (apply all checks and rewrite discipline):\n{skill_text}\n")
     return "".join(parts)
 
 

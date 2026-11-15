@@ -274,9 +274,7 @@ def test_methods_fallback_uses_dual_review_when_grounding_describes_it() -> None
         fulltext_assessed = 45
         total_included = 19
         total_screened = 1358
-        screening_method_description = (
-            "Two independent reviewers screened records with adjudication for disagreements."
-        )
+        screening_method_description = "Two independent reviewers screened records with adjudication for disagreements."
 
     draft = _build_deterministic_section_fallback("methods", _Grounding(), {"Page2021"})
     text = render_section_markdown(draft)

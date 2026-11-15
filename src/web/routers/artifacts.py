@@ -582,9 +582,7 @@ async def download_study_files_zip(run_id: str) -> StreamingResponse:
         zip_entries.append((file_path, f"{paper_id}.pdf"))
 
     if not zip_entries:
-        raise HTTPException(
-            status_code=404, detail="No valid PDF study files found for included studies."
-        )
+        raise HTTPException(status_code=404, detail="No valid PDF study files found for included studies.")
 
     workflow_id = await _resolve_workflow_id_from_db(db_path)
     topic = await _get_topic_for_db(db_path)

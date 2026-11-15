@@ -31,16 +31,14 @@ def _doi_candidates_from_text(text: str) -> list[str]:
             found.append(normalized)
     return found
 
+
 _index_mtime: float | None = None
 _index: dict[str, Path] = {}
 
 
 def manual_pdf_directory() -> Path | None:
     """Return configured manual PDF directory, if any."""
-    raw = (
-        (get_env("FULLTEXT_MANUAL_PDF_DIR") or "").strip()
-        or (get_env("MANUAL_PDF_DIR") or "").strip()
-    )
+    raw = (get_env("FULLTEXT_MANUAL_PDF_DIR") or "").strip() or (get_env("MANUAL_PDF_DIR") or "").strip()
     if not raw:
         return None
     path = Path(raw).expanduser()

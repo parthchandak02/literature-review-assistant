@@ -95,9 +95,7 @@ async def write_prospero_artifacts(state: ReviewState, rc=None) -> Path:
             _papers_dir = Path(state.output_dir) / "papers"
             if _papers_dir.exists():
                 _fulltext_retrieved = sum(
-                    1
-                    for _pf in _papers_dir.iterdir()
-                    if _pf.stat().st_size > 0 and _pf.suffix in {".pdf", ".txt"}
+                    1 for _pf in _papers_dir.iterdir() if _pf.stat().st_size > 0 and _pf.suffix in {".pdf", ".txt"}
                 )
 
     _run_data = ProsperoRunData(
@@ -279,9 +277,7 @@ async def run_finalize_node(state: ReviewState, ctx: GraphRunContext[ReviewState
         summary["gate_failure_reasons"] = list(state.manuscript_gate_failure_reasons)
     Path(state.artifacts["run_summary"]).write_text(json.dumps(summary, indent=2), encoding="utf-8")
     _registry_status = (
-        "failed"
-        if _finalize_errors
-        else ("needs_revision" if state.manuscript_gate_blocked else "completed")
+        "failed" if _finalize_errors else ("needs_revision" if state.manuscript_gate_blocked else "completed")
     )
     await update_registry_status(state.run_root, state.workflow_id, _registry_status)
     async with get_db(state.db_path) as db:

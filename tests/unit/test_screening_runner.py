@@ -557,10 +557,7 @@ async def test_screening_runner_calibration_success_failure_and_delta_skip(tmp_p
 
 async def test_screening_runner_batch_ranker_splits_forwards_and_exclusions(tmp_path: Path) -> None:
     """Batch pre-ranker forwards top slice, persists exclusions to DB, and records validation metrics."""
-    papers = [
-        _make_paper(f"p-{i}", title=f"Digital reminder medication adherence study {i}")
-        for i in range(4)
-    ]
+    papers = [_make_paper(f"p-{i}", title=f"Digital reminder medication adherence study {i}") for i in range(4)]
     state = await _init_state(
         tmp_path,
         papers,
@@ -902,8 +899,7 @@ async def test_screening_runner_citation_chasing_success_and_error_handling(tmp_
 
     async with get_db(state_ok.db_path) as db:
         cursor = await db.execute(
-            "SELECT source_phase, screening_status FROM study_cohort_membership "
-            "WHERE workflow_id = ? AND paper_id = ?",
+            "SELECT source_phase, screening_status FROM study_cohort_membership WHERE workflow_id = ? AND paper_id = ?",
             (state_ok.workflow_id, "p-chased"),
         )
         row = await cursor.fetchone()

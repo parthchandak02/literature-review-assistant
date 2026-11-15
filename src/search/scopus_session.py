@@ -40,10 +40,9 @@ _TAG_RE = re.compile(r"<[^>]+>")
 
 def load_scopus_session_cookie() -> str | None:
     """Return a Cookie header value from the operator's local session file."""
-    cookie_file = (
-        (get_env("SCOPUS_SESSION_COOKIE_FILE") or "").strip()
-        or (get_env("EMBASE_SESSION_COOKIE_FILE") or "").strip()
-    )
+    cookie_file = (get_env("SCOPUS_SESSION_COOKIE_FILE") or "").strip() or (
+        get_env("EMBASE_SESSION_COOKIE_FILE") or ""
+    ).strip()
     if not cookie_file:
         return None
     loaded = _load_cookie_file(cookie_file)
@@ -232,9 +231,7 @@ async def search_via_session_gateway(
                     )
                 if resp.status != 200:
                     body = await resp.text()
-                    raise RuntimeError(
-                        f"Scopus session gateway returned HTTP {resp.status}: {body[:200]}"
-                    )
+                    raise RuntimeError(f"Scopus session gateway returned HTTP {resp.status}: {body[:200]}")
                 data = await resp.json(content_type=None)
 
             metadata = data.get("metadata") or {}

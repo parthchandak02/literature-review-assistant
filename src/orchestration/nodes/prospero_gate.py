@@ -15,9 +15,7 @@ if TYPE_CHECKING:
 class ProsperoGateNode(BaseNode[ReviewState]):
     """Pause after start until PROSPERO registration is submitted."""
 
-    async def run(
-        self, ctx: GraphRunContext[ReviewState]
-    ) -> SearchNode | End[WorkflowRunResult]:
+    async def run(self, ctx: GraphRunContext[ReviewState]) -> SearchNode | End[WorkflowRunResult]:
         state = ctx.state
         paused = await run_prospero_gate(state)
         if paused:
