@@ -45,14 +45,41 @@ def test_chunk_overlap_carries_sentences() -> None:
     sentences = [f"Sentence {i} about the study design and outcomes." for i in range(6)]
     text = " ".join(sentences)
     record = _make_record(intervention=text)
-    chunks = chunk_extraction_record(record)
-    if len(chunks) < 2:
-        pytest.skip("Text too short to produce multiple chunks; adjust sentence count.")
+    chunks = chunk_extraction_record(record, max_words=25)
+    assert len(chunks) >= 2
     # Any sentence appearing in both chunk[0] and chunk[1] counts as overlap.
     words_0 = set(chunks[0].content.split())
     words_1 = set(chunks[1].content.split())
     overlap = words_0 & words_1
     assert overlap, "Expected word overlap between adjacent chunks (sentence overlap)"
+
+
+def test_multi_sentence_record_within_budget_produces_single_chunk() -> None:
+    """A multi-sentence record that fits inside max_words must not emit trailing suffix chunks."""
+    text = (
+        "Patients received 10mg atorvastatin daily. "
+        "This was a randomized controlled trial. "
+        "The primary endpoint was LDL-C reduction. "
+        "Secondary endpoints included HDL-C and triglycerides. "
+        "Follow-up was 12 weeks."
+    )
+    record = _make_record(intervention=text)
+    chunks = chunk_extraction_record(record)
+    assert len(chunks) == 1
+    assert "Follow-up was 12 weeks." in chunks[0].content
+
+
+def test_multi_chunk_record_stops_after_final_sentence() -> None:
+    """Once a chunk reaches the last sentence, no strict-suffix chunks are emitted."""
+    sentences = [f"Sentence {i} reports distinct outcome measurements for cohort analysis." for i in range(6)]
+    record = _make_record(intervention=" ".join(sentences))
+    chunks = chunk_extraction_record(record, max_words=30, overlap_sentences=2)
+    # Every chunk after the first must introduce at least one sentence not in the previous chunk.
+    for prev, curr in zip(chunks, chunks[1:]):
+        assert not prev.content.endswith(curr.content), (
+            f"Redundant strict-suffix chunk emitted: {curr.content!r} inside {prev.content!r}"
+        )
+    assert "Sentence 5" in chunks[-1].content
 
 
 def test_empty_record_returns_no_chunks() -> None:
