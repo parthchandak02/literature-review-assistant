@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import datetime
+from pathlib import Path
 from typing import Any
 
 import aiosqlite
@@ -99,6 +100,8 @@ def enrich_events_with_checkpoints(
 
 
 async def resolve_workflow_id(db_path: str) -> str | None:
+    if not db_path or not Path(db_path).is_file():
+        return None
     try:
         async with aiosqlite.connect(db_path) as db:
             row = await (await db.execute("SELECT workflow_id FROM workflows ORDER BY rowid DESC LIMIT 1")).fetchone()

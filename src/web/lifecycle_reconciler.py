@@ -85,69 +85,73 @@ class LifecycleReconciler:
             "summary_status": None,
             "finalize_checkpoint_status": None,
         }
-        try:
-            async with aiosqlite.connect(db_path) as db:
-                db.row_factory = aiosqlite.Row
-                try:
-                    async with db.execute(
-                        """
-                        SELECT event_type, payload
-                        FROM event_log
-                        WHERE event_type IN ('done','error','cancelled')
-                        ORDER BY id DESC
-                        LIMIT 1
-                        """
-                    ) as cur:
-                        ev_row = await cur.fetchone()
-                    if ev_row and ev_row["event_type"]:
-                        ev_type = str(ev_row["event_type"])
-                        out["event_type"] = ev_type
-                        if ev_type == "done":
-                            parked_status = _terminal_status_from_done_payload(
-                                str(ev_row["payload"]) if ev_row["payload"] is not None else None
-                            )
-                            if parked_status:
-                                out["terminal_status"] = parked_status
-                                out["source"] = "event_log_parked"
-                            else:
-                                out["terminal_status"] = TERMINAL_EVENT_TO_STATUS["done"]
-                                out["source"] = "event_log"
-                        else:
-                            ev_status = TERMINAL_EVENT_TO_STATUS.get(ev_type)
-                            if ev_status:
-                                out["terminal_status"] = ev_status
-                                out["source"] = "event_log"
-                except Exception:
-                    pass
-                if out["terminal_status"] is None:
-                    try:
-                        async with db.execute(
-                            "SELECT status FROM workflows ORDER BY updated_at DESC, rowid DESC LIMIT 1"
-                        ) as cur:
-                            wf_row = await cur.fetchone()
-                        wf_status = _normalize_status(str(wf_row["status"])) if wf_row and wf_row["status"] else ""
-                        out["workflow_status"] = wf_status
-                        if wf_status in {"completed", "failed", "interrupted"}:
-                            out["terminal_status"] = wf_status
-                            out["source"] = "workflows_table"
-                    except Exception:
-                        pass
-                if out["terminal_status"] is None:
-                    try:
-                        async with db.execute(
-                            "SELECT status FROM checkpoints WHERE phase='finalize' ORDER BY rowid DESC LIMIT 1"
-                        ) as cur:
-                            cp_row = await cur.fetchone()
-                        cp_status = _normalize_status(str(cp_row["status"])) if cp_row and cp_row["status"] else ""
-                        out["finalize_checkpoint_status"] = cp_status
-                        if cp_status == "completed":
-                            out["terminal_status"] = "completed"
-                            out["source"] = "finalize_checkpoint"
-                    except Exception:
-                        pass
-        except Exception:
+        if not db_path:
             return out
-        summary_path = pathlib.Path(db_path).parent / "run_summary.json"
+        db_file = pathlib.Path(db_path)
+        if db_file.is_file():
+            try:
+                async with aiosqlite.connect(db_path) as db:
+                    db.row_factory = aiosqlite.Row
+                    try:
+                        async with db.execute(
+                            """
+                            SELECT event_type, payload
+                            FROM event_log
+                            WHERE event_type IN ('done','error','cancelled')
+                            ORDER BY id DESC
+                            LIMIT 1
+                            """
+                        ) as cur:
+                            ev_row = await cur.fetchone()
+                        if ev_row and ev_row["event_type"]:
+                            ev_type = str(ev_row["event_type"])
+                            out["event_type"] = ev_type
+                            if ev_type == "done":
+                                parked_status = _terminal_status_from_done_payload(
+                                    str(ev_row["payload"]) if ev_row["payload"] is not None else None
+                                )
+                                if parked_status:
+                                    out["terminal_status"] = parked_status
+                                    out["source"] = "event_log_parked"
+                                else:
+                                    out["terminal_status"] = TERMINAL_EVENT_TO_STATUS["done"]
+                                    out["source"] = "event_log"
+                            else:
+                                ev_status = TERMINAL_EVENT_TO_STATUS.get(ev_type)
+                                if ev_status:
+                                    out["terminal_status"] = ev_status
+                                    out["source"] = "event_log"
+                    except Exception:
+                        pass
+                    if out["terminal_status"] is None:
+                        try:
+                            async with db.execute(
+                                "SELECT status FROM workflows ORDER BY updated_at DESC, rowid DESC LIMIT 1"
+                            ) as cur:
+                                wf_row = await cur.fetchone()
+                            wf_status = _normalize_status(str(wf_row["status"])) if wf_row and wf_row["status"] else ""
+                            out["workflow_status"] = wf_status
+                            if wf_status in {"completed", "failed", "interrupted"}:
+                                out["terminal_status"] = wf_status
+                                out["source"] = "workflows_table"
+                        except Exception:
+                            pass
+                    if out["terminal_status"] is None:
+                        try:
+                            async with db.execute(
+                                "SELECT status FROM checkpoints WHERE phase='finalize' ORDER BY rowid DESC LIMIT 1"
+                            ) as cur:
+                                cp_row = await cur.fetchone()
+                            cp_status = _normalize_status(str(cp_row["status"])) if cp_row and cp_row["status"] else ""
+                            out["finalize_checkpoint_status"] = cp_status
+                            if cp_status == "completed":
+                                out["terminal_status"] = "completed"
+                                out["source"] = "finalize_checkpoint"
+                        except Exception:
+                            pass
+            except Exception:
+                return out
+        summary_path = db_file.parent / "run_summary.json"
         if summary_path.exists():
             try:
                 summary = json.loads(summary_path.read_text(encoding="utf-8"))

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import sqlite3
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -748,6 +749,8 @@ async def open_runtime_db(db_path: str | Path, *, readonly: bool = False) -> Asy
     path = Path(db_path)
     connect_timeout = RUNTIME_BUSY_TIMEOUT_MS / 1000.0
     if readonly:
+        if not path.is_file():
+            raise sqlite3.OperationalError(f"unable to open database file: {path}")
         db = await aiosqlite.connect(f"file:{path}?mode=ro", uri=True, timeout=connect_timeout)
     else:
         db = await aiosqlite.connect(str(path), timeout=connect_timeout)
