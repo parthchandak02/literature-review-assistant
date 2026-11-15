@@ -22,6 +22,37 @@ logger = logging.getLogger(__name__)
 
 _S2_CITATION_URL = "https://api.semanticscholar.org/graph/v1/paper/{paper_id}/citations"
 _OA_CITES_URL = "https://api.openalex.org/works"
+_DOI_PREFIXES = (
+    "https://dx.doi.org/",
+    "http://dx.doi.org/",
+    "https://doi.org/",
+    "http://doi.org/",
+    "doi:",
+)
+
+
+def _bare_doi(doi: str | None) -> str:
+    """Return the DOI token without a resolver URL or a leading doi: label.
+
+    OpenAlex stores `https://doi.org/10...`. Prefixing that string again sends
+    citation chasing at a work id that does not exist.
+    """
+    text = (doi or "").strip()
+    changed = True
+    while text and changed:
+        changed = False
+        folded = text.lower()
+        for prefix in _DOI_PREFIXES:
+            if folded.startswith(prefix):
+                text = text[len(prefix) :].strip()
+                changed = True
+                break
+    return text
+
+
+def _doi_key(doi: str | None) -> str:
+    """Canonical key so `https://doi.org/10.x` and `10.x` dedupe together."""
+    return _bare_doi(doi).lower()
 
 
 class CitationChaser:
@@ -66,7 +97,7 @@ class CitationChaser:
             New papers not already in the pipeline, tagged with
             source_database="citation_chasing" and source_category=OTHER_SOURCE.
         """
-        seen_dois: set[str] = set(doi.lower().strip() for doi in known_doi_set if doi)
+        seen_dois: set[str] = {key for doi in known_doi_set if (key := _doi_key(doi))}
         # Snapshot of known DOIs for each task -- tasks run in parallel so each
         # gets the initial set; cross-paper dedup is performed after gather.
         initial_seen = set(seen_dois)
@@ -95,7 +126,7 @@ class CitationChaser:
             if isinstance(batch, BaseException):
                 continue
             for p in batch:
-                doi_key = p.doi.lower().strip() if p.doi else None
+                doi_key = _doi_key(p.doi)
                 if doi_key and doi_key in seen_dois:
                     continue
                 found.append(p)
@@ -157,7 +188,7 @@ class CitationChaser:
         merged_dois: set[str] = set()
         results: list[CandidatePaper] = []
         for p in s2_results + oa_results:
-            doi_key = p.doi.lower().strip() if p.doi else None
+            doi_key = _doi_key(p.doi)
             if doi_key and doi_key in merged_dois:
                 continue
             results.append(p)
@@ -172,10 +203,11 @@ class CitationChaser:
         seen_dois: set[str],
     ) -> list[CandidatePaper]:
         """Fetch citing papers from Semantic Scholar."""
-        # Build paper identifier: prefer DOI, fall back to title search
-        s2_id = f"DOI:{quote(paper.doi)}" if paper.doi else None
-        if not s2_id:
+        bare = _bare_doi(paper.doi)
+        if not bare:
             return []
+        seen_keys = {key for item in seen_dois if (key := _doi_key(item))}
+        s2_id = f"DOI:{quote(bare)}"
 
         headers: dict[str, str] = {}
         if self.s2_api_key:
@@ -203,7 +235,8 @@ class CitationChaser:
         for item in data.get("data", []):
             citing = item.get("citingPaper") or {}
             doi = (citing.get("externalIds") or {}).get("DOI")
-            if doi and doi.lower().strip() in seen_dois:
+            doi_key = _doi_key(doi)
+            if doi_key and doi_key in seen_keys:
                 continue
             title = str(citing.get("title") or "").strip()
             if not title:
@@ -224,8 +257,8 @@ class CitationChaser:
                 source_category=SourceCategory.OTHER_SOURCE,
             )
             papers.append(candidate)
-            if doi:
-                seen_dois.add(doi.lower().strip())
+            if doi_key:
+                seen_keys.add(doi_key)
         return papers
 
     async def _chase_openalex(
@@ -234,10 +267,12 @@ class CitationChaser:
         seen_dois: set[str],
     ) -> list[CandidatePaper]:
         """Fetch citing papers from OpenAlex."""
-        if not paper.doi:
+        bare = _bare_doi(paper.doi)
+        if not bare:
             return []
+        seen_keys = {key for item in seen_dois if (key := _doi_key(item))}
 
-        openalex_doi = f"https://doi.org/{paper.doi}"
+        openalex_doi = f"https://doi.org/{bare}"
         params = {
             "filter": f"cites:{openalex_doi}",
             "per-page": self.max_per_paper,
@@ -257,8 +292,9 @@ class CitationChaser:
         papers: list[CandidatePaper] = []
         for item in data.get("results") or []:
             doi_raw = item.get("doi") or ""
-            doi = doi_raw.replace("https://doi.org/", "").strip() or None
-            if doi and doi.lower().strip() in seen_dois:
+            doi = _bare_doi(doi_raw) or None
+            doi_key = _doi_key(doi)
+            if doi_key and doi_key in seen_keys:
                 continue
             title = str(item.get("title") or "").strip()
             if not title:
@@ -280,6 +316,6 @@ class CitationChaser:
                 source_category=SourceCategory.OTHER_SOURCE,
             )
             papers.append(candidate)
-            if doi:
-                seen_dois.add(doi.lower().strip())
+            if doi_key:
+                seen_keys.add(doi_key)
         return papers
