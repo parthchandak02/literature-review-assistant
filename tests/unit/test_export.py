@@ -129,6 +129,28 @@ def test_build_bibtex_includes_background_and_methodology_when_cited_set_contain
     assert "Page2021" in out
 
 
+def test_build_bibtex_escapes_backslash_without_double_escaping_braces() -> None:
+    citations = [
+        (
+            "c1",
+            "Smith2024",
+            None,
+            "Path \\ and {braces} & 100%",
+            '["Smith, Jane"]',
+            2024,
+            "Journal\\One",
+            None,
+        ),
+    ]
+    out = build_bibtex(citations)
+    assert "\\textbackslash{}" in out
+    assert "\\textbackslash\\{\\}" not in out
+    assert "\\{braces\\}" in out
+    assert "\\&" in out
+    assert "100\\%" in out
+    assert "Journal\\textbackslash{}One" in out
+
+
 def test_markdown_to_latex_basic():
     md = "**Title:** My Review\n\n**Abstract**\n\nShort abstract.\n\n## Introduction\n\nSome text."
     out = markdown_to_latex(md, citekeys=set())

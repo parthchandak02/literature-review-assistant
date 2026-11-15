@@ -81,7 +81,7 @@ _DOI_URL_PREFIXES = (
     "http://dx.doi.org/",
 )
 
-# LaTeX special characters that need escaping (order matters: backslash first).
+# LaTeX special characters that need escaping in a single pass.
 _LATEX_SPECIAL = [
     ("\\", "\\textbackslash{}"),
     ("{", "\\{"),
@@ -96,14 +96,13 @@ _LATEX_SPECIAL = [
     ("<", "{\\textless}"),
     (">", "{\\textgreater}"),
 ]
+_LATEX_TRANS = str.maketrans(dict(_LATEX_SPECIAL))
 
 
 def _escape_bibtex(s: str) -> str:
     """Escape special BibTeX/LaTeX characters in plain text fields."""
-    # Normalise to composed form but keep printable ASCII structure intact.
-    for char, replacement in _LATEX_SPECIAL:
-        s = s.replace(char, replacement)
-    return s
+    # Single-pass translation avoids re-escaping braces emitted for backslashes.
+    return s.translate(_LATEX_TRANS)
 
 
 def _bibtex_protect_title(title: str) -> str:
