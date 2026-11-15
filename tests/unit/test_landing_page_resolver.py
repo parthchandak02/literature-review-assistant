@@ -25,6 +25,7 @@ from src.extraction.table_extraction import (
     _extract_pmid_from_pubmed_url,
     _ieee_document_pdf_url,
     _is_pdf_like_href,
+    _norm_url_for_match,
     _PDFLinkParser,
     _publisher_direct_pdf_url,
     _resolve_landing_page,
@@ -181,6 +182,25 @@ def test_ieee_document_pdf_url_builder():
 def test_url_match_tokens_normalize_query_order():
     tokens = _url_match_tokens("https://example.org/path/?b=2&a=1")
     assert "example.org/path?a=1&b=2" in tokens
+
+
+def test_url_match_tokens_strip_only_www_prefix():
+    """www. is a prefix, not a character set.
+
+    str.lstrip("www.") also eats a host that starts with w, so wiley.com and
+    who.int collapse onto iley.com and ho.int and can take the wrong DOI.
+    """
+    with_www = _url_match_tokens("https://www.wiley.com/doi/10.1002/abc")
+    bare = _url_match_tokens("https://wiley.com/doi/10.1002/abc")
+    other = _url_match_tokens("https://iley.com/doi/10.1002/abc")
+    assert "wiley.com/doi/10.1002/abc" in with_www
+    assert "wiley.com/doi/10.1002/abc" in bare
+    assert with_www.isdisjoint(other)
+
+    who = _url_match_tokens("https://www.who.int/publications/i/item/123")
+    assert "who.int/publications/i/item/123" in who
+    assert who.isdisjoint(_url_match_tokens("https://ho.int/publications/i/item/123"))
+    assert _norm_url_for_match("https://www.wiley.com/doi/10.1002/abc/") == "wiley.com/doi/10.1002/abc"
 
 
 # ---------------------------------------------------------------------------
