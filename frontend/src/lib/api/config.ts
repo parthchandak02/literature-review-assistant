@@ -1,4 +1,6 @@
 import { APIResponseError, apiFetch } from "./client"
+import { STUB_LLM } from "@/lib/uiDemo/install"
+import { demoConfigYaml } from "@/lib/uiDemo/fixtures"
 import { API_BASE } from "./internal"
 import type { RunRequest } from "./types"
 import type { StoredApiKeys } from "./storage"
@@ -50,6 +52,12 @@ export async function generateConfigStream(
   reviewType: "systematic" | "scoping" = "systematic",
   questionFramework?: "PICO" | "PCC",
 ): Promise<string> {
+  if (STUB_LLM) {
+    onProgress("keywords", { demo: true })
+    onProgress("draft", { demo: true })
+    await new Promise((r) => setTimeout(r, 400))
+    return demoConfigYaml
+  }
   const res = await fetch(`${API_BASE}/config/generate/stream`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },

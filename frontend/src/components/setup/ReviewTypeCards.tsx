@@ -7,12 +7,12 @@ const OPTIONS: { value: ReviewTypeChoice; title: string; description: string }[]
   {
     value: "systematic",
     title: "Systematic review",
-    description: "Answers a focused question with appraised evidence (PICO, PRISMA 2020).",
+    description: "Focused question with appraised evidence (PICO, PRISMA 2020).",
   },
   {
     value: "scoping",
     title: "Scoping review",
-    description: "Maps what evidence exists and where the gaps are (PCC, PRISMA-ScR).",
+    description: "Map the evidence and gaps (PCC, PRISMA-ScR).",
   },
 ]
 

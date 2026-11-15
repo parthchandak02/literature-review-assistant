@@ -48,8 +48,18 @@ export function SetupView({
   }
 
   return (
-    <div className="max-w-xl mx-auto pt-6 pb-16 px-4">
-      <h1 className="mb-6 text-lg font-semibold text-foreground">New review</h1>
+    <div className="mx-auto w-full max-w-xl px-4 pb-16 pt-2 lg:max-w-5xl lg:px-8 lg:pt-4">
+      <div className="lg:grid lg:grid-cols-[minmax(0,1fr)_minmax(0,26rem)] lg:items-start lg:gap-12 xl:gap-14">
+        <header className="mb-6 lg:sticky lg:top-6 lg:mb-0 lg:pt-2">
+          <p className="text-sm text-muted">Literature Review Assistant</p>
+          <h1 className="mt-2 text-2xl font-semibold tracking-tight text-foreground sm:text-[1.65rem]">
+            New review
+          </h1>
+          <p className="mt-3 max-w-md text-sm leading-relaxed text-muted">
+            State your research question. We draft search strategy, screening rules, and the manuscript workflow.
+          </p>
+        </header>
+        <div className="glass-panel-strong p-5 sm:p-6">
       {disabled && (
         <div
           role="status"
@@ -79,6 +89,8 @@ export function SetupView({
           setHistoryErrorDismissed(true)
         }}
       />
+        </div>
+      </div>
     </div>
   )
 }
