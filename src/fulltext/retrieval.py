@@ -1025,12 +1025,20 @@ def _domain_policy_for_url(url: str | None) -> _DomainPolicy:
     return _DEFAULT_POLICY
 
 
+def _host_without_www(netloc: str) -> str:
+    """Drop a leading www. label. Do not use str.lstrip, which treats the argument as a character set."""
+    host = netloc.lower()
+    if host.startswith("www."):
+        return host[4:]
+    return host
+
+
 def _url_match_tokens(url: str | None) -> set[str]:
     """Generate normalized URL tokens for matching metadata/link variants."""
     if not url:
         return set()
     p = urlparse(url.strip())
-    host = p.netloc.lower().lstrip("www.")
+    host = _host_without_www(p.netloc)
     path = p.path.lower()
     base = f"{host}{path.rstrip('/')}" if path else host
     tokens = {base}
@@ -1098,7 +1106,7 @@ def _norm_url_for_match(url: str | None) -> str:
     if not url:
         return ""
     p = urlparse(url.strip())
-    host = p.netloc.lower().lstrip("www.")
+    host = _host_without_www(p.netloc)
     path = p.path.rstrip("/").lower()
     return f"{host}{path}"
 
