@@ -101,8 +101,7 @@ async def run_prospero_gate(state: ReviewState) -> bool:
     if rc:
         rc.emit_phase_start(
             "phase_1_prospero_gate",
-            "Awaiting PROSPERO registration. "
-            "Submit via POST /api/run/{run_id}/submit-prospero to continue.",
+            "Awaiting PROSPERO registration. Submit via POST /api/run/{run_id}/submit-prospero to continue.",
             total=0,
         )
 

@@ -122,8 +122,7 @@ def _format_authors(raw: str | None) -> str:
         if raw.startswith("["):
             authors_list = json.loads(raw)
             return ", ".join(
-                (a.get("name") or a.get("raw_name") or str(a)) if isinstance(a, dict) else str(a)
-                for a in authors_list
+                (a.get("name") or a.get("raw_name") or str(a)) if isinstance(a, dict) else str(a) for a in authors_list
             )
     except (json.JSONDecodeError, TypeError, AttributeError):
         pass
@@ -267,9 +266,7 @@ async def _fetch_record_rows(db_path: str, workflow_id: str) -> list[dict[str, A
                 "year": year if year is not None else "",
                 "journal": journal or "",
                 "information_source": format_information_source(str(source_database) if source_database else None),
-                "identification_type": format_identification_type(
-                    str(source_category) if source_category else None
-                ),
+                "identification_type": format_identification_type(str(source_category) if source_category else None),
                 "doi": _clean_export_doi(str(doi) if doi else None),
                 "record_link": reviewer_record_link(
                     doi=str(doi) if doi else None,

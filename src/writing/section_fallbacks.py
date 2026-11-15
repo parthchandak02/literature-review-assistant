@@ -41,9 +41,7 @@ def _methods_screening_sentence(grounding: WritingGroundingData | None) -> str:
 def _topic_scope_from_grounding(grounding: WritingGroundingData | None) -> str:
     if grounding is None:
         return "the review question"
-    topic_scope = str(
-        getattr(grounding, "research_question", "") or getattr(grounding, "review_topic", "")
-    ).strip()
+    topic_scope = str(getattr(grounding, "research_question", "") or getattr(grounding, "review_topic", "")).strip()
     return topic_scope or "the review question"
 
 
@@ -188,9 +186,7 @@ def _build_deterministic_section_fallback(
         first = sorted(valid_citekeys)[0]
         fallback_citations = [first]
     if section == "abstract":
-        databases = (
-            ", ".join(getattr(grounding, "databases_searched", []) or []) or "bibliographic databases"
-        )
+        databases = ", ".join(getattr(grounding, "databases_searched", []) or []) or "bibliographic databases"
         grounding_question = str(getattr(grounding, "research_question", "") or "").strip()
         review_topic = (
             review_objective_phrase(grounding_question)
@@ -538,7 +534,9 @@ def build_template_abstract(
     phrase = review_objective_phrase(research_question, getattr(review, "pico", None))
     results = prisma_sentence.strip()
     if grounding is not None and getattr(grounding, "study_design_counts", None):
-        results = f"{results} Included evidence comprised {_format_abstract_design_summary(grounding.study_design_counts)}."
+        results = (
+            f"{results} Included evidence comprised {_format_abstract_design_summary(grounding.study_design_counts)}."
+        )
     results = results.strip() or "Study selection counts were not available."
     keywords = [str(k).strip() for k in (getattr(review, "keywords", None) or [])[:5] if str(k).strip()]
     keywords_value = ", ".join(keywords) if keywords else label

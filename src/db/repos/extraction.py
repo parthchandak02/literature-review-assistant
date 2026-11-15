@@ -61,9 +61,7 @@ class ExtractionRepo:
                 )
                 continue
             json_status = record.primary_study_status.value
-            effective_status = (
-                column_status if column_status != "unknown" else json_status
-            )
+            effective_status = column_status if column_status != "unknown" else json_status
             if effective_status != json_status:
                 try:
                     record.primary_study_status = PrimaryStudyStatus(effective_status)

@@ -771,9 +771,7 @@ async def run_screening_node(state: ReviewState, ctx: GraphRunContext[ReviewStat
             _not_retrieved_ids = await repository.get_fulltext_not_retrieved_ids(state.workflow_id)
             state.fulltext_not_retrieved = len(_not_retrieved_ids)
             no_full_text_excluded = len(_not_retrieved_ids)
-            fulltext_screened_count = len(
-                await repository.get_processed_paper_ids(state.workflow_id, "fulltext")
-            )
+            fulltext_screened_count = len(await repository.get_processed_paper_ids(state.workflow_id, "fulltext"))
             if rc and hasattr(rc, "log_status"):
                 rc.log_status(
                     f"Skipping fulltext PDF retrieval and LLM screening "

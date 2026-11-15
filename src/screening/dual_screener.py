@@ -1616,7 +1616,9 @@ class DualReviewerScreener:
                 provider=self.provider,
             )
             if jev_outcome.routed == "jev" and jev_outcome.decision is not None:
-                await self._persist_reviewer_decision(workflow_id, stage, jev_outcome.decision, "Jev reviewer decision.")
+                await self._persist_reviewer_decision(
+                    workflow_id, stage, jev_outcome.decision, "Jev reviewer decision."
+                )
                 return jev_outcome.decision
 
         shadow_task = asyncio.create_task(self._jev_shadow_calls([paper])) if jev_b_mode == "shadow" else None

@@ -111,9 +111,7 @@ def threshold_sweep(
     for tau in exclude_thresholds:
         inc_tau = include_threshold if include_threshold is not None else tau
         routed = [
-            r
-            for r in scored
-            if (r.jev_confidence or 0.0) >= (tau if r.jev_choice.lower() == "exclude" else inc_tau)
+            r for r in scored if (r.jev_confidence or 0.0) >= (tau if r.jev_choice.lower() == "exclude" else inc_tau)
         ]
         wrong = [r for r in routed if _binary(r.jev_choice) != _binary(r.final_ta)]
         false_excl = [r for r in routed if r.jev_choice.lower() == "exclude" and _binary(r.final_ta)]
@@ -282,9 +280,7 @@ def surface_summaries(conn: sqlite3.Connection) -> dict[str, Any]:
             summary["mean_overlap_at_k"] = _round(statistics.fmean(vals)) if vals else None
         if surface == "study_design_classifier":
             pairs = [(d.get("mapped"), d.get("llm_decision")) for d in details if d.get("llm_decision")]
-            summary["agreement_with_llm"] = (
-                _round(sum(1 for a, b in pairs if a == b) / len(pairs)) if pairs else None
-            )
+            summary["agreement_with_llm"] = _round(sum(1 for a, b in pairs if a == b) / len(pairs)) if pairs else None
         out[surface] = summary
     return out
 
@@ -333,14 +329,9 @@ def evaluate_db(db_path: Path, *, route_confidence: float = 0.6, exclude_confide
 def select_live_sample(conn: sqlite3.Connection, n: int, seed: int = 13) -> list[str]:
     """Papers that reached LLM reviewer B at title/abstract; all final includes first, then random excludes."""
     final_ta, _ = _final_maps(conn)
-    candidates = sorted(
-        pid
-        for pid in _llm_reviewer_b(conn)
-        if pid in final_ta
-    )
+    candidates = sorted(pid for pid in _llm_reviewer_b(conn) if pid in final_ta)
     with_abstract = {
-        r["paper_id"]
-        for r in conn.execute("SELECT paper_id FROM papers WHERE COALESCE(abstract, '') <> ''")
+        r["paper_id"] for r in conn.execute("SELECT paper_id FROM papers WHERE COALESCE(abstract, '') <> ''")
     }
     candidates = [pid for pid in candidates if pid in with_abstract]
     includes = [pid for pid in candidates if final_ta[pid] in INCLUDE_LIKE]
@@ -461,9 +452,17 @@ def _format_text(report: dict[str, Any]) -> str:
     s = report["screening"]
     lines = [f"Jev eval ({report['source']}): {report['db']}"]
     if not s["n_rows"] and report["source"] == "jev_decisions":
-        lines.append("  no jev_decisions screening rows in this DB (pre-shadow run?); use --live-sample N --confirm-live")
+        lines.append(
+            "  no jev_decisions screening rows in this DB (pre-shadow run?); use --live-sample N --confirm-live"
+        )
     lines.append(f"  screening rows={s['n_rows']} jev_answers={s['n_jev_answers']} jev_errors={s['n_jev_errors']}")
-    for key in ("jev_vs_llm_b", "jev_vs_final_ta", "llm_b_vs_final_ta", "jev_vs_final_included", "llm_b_vs_final_included"):
+    for key in (
+        "jev_vs_llm_b",
+        "jev_vs_final_ta",
+        "llm_b_vs_final_ta",
+        "jev_vs_final_included",
+        "llm_b_vs_final_included",
+    ):
         m = s[key]
         lines.append(
             f"  {key:<24} n={m['n']:<4} agree={m['agreement']} recall_inc={m['recall_include']} "
@@ -500,7 +499,9 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--json", action="store_true", help="Print the full JSON report")
     parser.add_argument("--live-sample", type=int, default=0, help="Re-screen N papers via Jev + LLM reviewer B")
     parser.add_argument("--confirm-live", action="store_true", help="Required to make external API calls")
-    parser.add_argument("--review", default="", help="Review YAML for live sample (default: config_snapshot.yaml next to --db)")
+    parser.add_argument(
+        "--review", default="", help="Review YAML for live sample (default: config_snapshot.yaml next to --db)"
+    )
     parser.add_argument("--settings", default="config/settings.yaml", help="Settings YAML for live sample")
     parser.add_argument("--concurrency", type=int, default=4, help="Max in-flight calls per provider in live sample")
     parser.add_argument("--out", default="", help="Also write the JSON report to this path")

@@ -8,9 +8,7 @@ from src.orchestration.state import ReviewState
 
 
 class FinalizeNode(BaseNode[ReviewState]):
-    async def run(
-        self, ctx: GraphRunContext[ReviewState]
-    ) -> End[WorkflowRunResult]:
+    async def run(self, ctx: GraphRunContext[ReviewState]) -> End[WorkflowRunResult]:
         state = ctx.state
         summary = await run_finalize_node(state, ctx)
         return End(WorkflowRunResult.from_summary(summary))

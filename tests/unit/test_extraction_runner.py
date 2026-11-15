@@ -1203,4 +1203,3 @@ async def test_extraction_runner_handles_fulltext_vision_and_grade_exceptions_gr
     assert result is None
     assert [r.paper_id for r in state.extraction_records] == ["p-resilient"]
     assert state.extraction_records[0].extraction_source == "pmc"
-

@@ -51,7 +51,7 @@ def test_parse_masterlist_csv_handles_cp1252_and_semicolon(tmp_path: Path) -> No
     csv_path = tmp_path / "latin.csv"
     content = (
         "Authors;Title;Year;Source title;DOI;Link;Abstract;Author Keywords\n"
-        'A. Author;Therapy efficacy;2023;Journal Y;10.1000/xyz;'
+        "A. Author;Therapy efficacy;2023;Journal Y;10.1000/xyz;"
         "https://www.scopus.com/inward/record.uri?eid=2-s2.0-456;Summary;term1,term2\n"
     )
     csv_path.write_bytes(content.encode("cp1252"))

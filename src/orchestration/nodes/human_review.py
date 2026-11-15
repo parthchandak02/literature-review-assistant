@@ -15,9 +15,7 @@ if TYPE_CHECKING:
 class HumanReviewCheckpointNode(BaseNode[ReviewState]):
     """Optional pause between screening and extraction for human review."""
 
-    async def run(
-        self, ctx: GraphRunContext[ReviewState]
-    ) -> ExtractionQualityNode | End[WorkflowRunResult]:
+    async def run(self, ctx: GraphRunContext[ReviewState]) -> ExtractionQualityNode | End[WorkflowRunResult]:
         state = ctx.state
         paused = await run_human_review_checkpoint(state)
         if paused:

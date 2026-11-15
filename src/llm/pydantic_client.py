@@ -148,9 +148,7 @@ def _is_gemini(model: str) -> bool:
 
 def _needs_thinking_disabled(model: str) -> bool:
     lowered = model.lower()
-    return model.startswith(_DEEPSEEK_PREFIX) or (
-        model.startswith("fireworks:") and "deepseek" in lowered
-    )
+    return model.startswith(_DEEPSEEK_PREFIX) or (model.startswith("fireworks:") and "deepseek" in lowered)
 
 
 def _is_fireworks_glm(model: str) -> bool:

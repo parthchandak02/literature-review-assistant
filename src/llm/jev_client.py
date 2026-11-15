@@ -67,7 +67,9 @@ async def ask_jev(
             resp.raise_for_status()
             data = await resp.json()
     if not isinstance(data, dict) or "answers" not in data:
-        raise ValueError(f"Jev response missing answers: keys={list(data.keys()) if isinstance(data, dict) else type(data)}")
+        raise ValueError(
+            f"Jev response missing answers: keys={list(data.keys()) if isinstance(data, dict) else type(data)}"
+        )
     usage = data.get("usage") if isinstance(data.get("usage"), dict) else {}
     return JevAskResult(
         answers=data["answers"],

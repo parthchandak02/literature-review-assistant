@@ -47,9 +47,6 @@ def test_reviewer_record_link_uses_public_publisher_url() -> None:
 def test_reviewer_record_link_extracts_doi_from_scopus_inward_uri() -> None:
     link = reviewer_record_link(
         doi=None,
-        url=(
-            "https://www.scopus.com/inward/record.uri?eid=2-s2.0-1"
-            "&doi=10.54079%2Fjpmi.39.4.3759"
-        ),
+        url=("https://www.scopus.com/inward/record.uri?eid=2-s2.0-1&doi=10.54079%2Fjpmi.39.4.3759"),
     )
     assert link == "https://doi.org/10.54079/jpmi.39.4.3759"

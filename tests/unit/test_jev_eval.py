@@ -49,9 +49,7 @@ def _build_db(path: Path) -> Path:
             " VALUES ('wf', ?, 'title_abstract', ?, 'llm', 'reviewer_b', 0.8)",
             (pid, llm_b),
         )
-        conn.execute(
-            "INSERT INTO dual_screening_results VALUES ('wf', ?, 'title_abstract', 1, ?, 0)", (pid, final)
-        )
+        conn.execute("INSERT INTO dual_screening_results VALUES ('wf', ?, 'title_abstract', 1, ?, 0)", (pid, final))
         conn.execute(
             "INSERT INTO study_cohort_membership VALUES ('wf', ?, ?)",
             (pid, "included_primary" if included else "excluded_screening"),

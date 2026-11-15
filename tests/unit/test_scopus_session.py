@@ -56,9 +56,7 @@ def test_gateway_item_to_candidate_maps_rich_fields() -> None:
     assert paper.url == "https://www.scopus.com/inward/record.uri?eid=2-s2.0-123"
 
 
-def test_load_scopus_session_cookie_missing_file_returns_none(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
+def test_load_scopus_session_cookie_missing_file_returns_none(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     missing = tmp_path / "missing-cookies.txt"
     monkeypatch.setenv("SCOPUS_SESSION_COOKIE_FILE", str(missing))
     assert load_scopus_session_cookie() is None

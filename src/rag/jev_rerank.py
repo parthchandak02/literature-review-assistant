@@ -150,7 +150,11 @@ async def record_rerank_shadow(
         cost: float | None = None
         if shadow.result is not None:
             cost = await log_jev_cost(
-                repository, jev=jev, result=shadow.result, phase=jev_cost_phase(_PHASE, "shadow"), workflow_id=workflow_id
+                repository,
+                jev=jev,
+                result=shadow.result,
+                phase=jev_cost_phase(_PHASE, "shadow"),
+                workflow_id=workflow_id,
             )
         jev_top = _top_ids(shadow.chunk_ids, shadow.scores, top_k) if shadow.scores else []
         overlap = len(set(jev_top) & set(llm_top_ids)) / max(1, min(top_k, len(llm_top_ids))) if jev_top else None

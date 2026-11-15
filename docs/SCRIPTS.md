@@ -41,7 +41,7 @@ Only these files are user-facing CLIs. Implementation lives in `scripts/lib/`.
 | Script | Subcommands / modes | Purpose |
 |--------|---------------------|---------|
 | `scripts/ops_pm2.sh` | `restart`, `sync`, `help` | PM2 process control (`litreview-api`, `litreview-ui`, `litreview-tunnel`) |
-| `scripts/check.sh` | `local`, `release` | Full test suites (ruff, pytest, frontend, replay) |
+| `scripts/check.sh` | `local`, `release` | Full test suites (ruff check, ruff format, pytest, frontend, replay) |
 | `scripts/check.py` | `api`, `replay-fixture`, `replay-workflow`, `config-methodology`, `jev-eval` | Individual quality checks |
 | `scripts/review.py` | `start`, `watch`, `info` | Review workflow operator tools |
 | `scripts/repair.py` | `finalize`, `re-extract`, `inject-citations`, `regen-replay-fixture` | Fix old or broken runs |

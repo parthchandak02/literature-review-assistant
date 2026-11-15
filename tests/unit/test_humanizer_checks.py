@@ -73,9 +73,7 @@ def test_en_dash_in_numeric_ranges_not_flagged() -> None:
     ]
     for text in samples:
         flags = scan_humanizer_flags(text)
-        assert not any(flag.code == "em_dash_overuse" for flag in flags), (
-            f"en-dash false positive in: {text!r}"
-        )
+        assert not any(flag.code == "em_dash_overuse" for flag in flags), f"en-dash false positive in: {text!r}"
         assert has_high_severity(flags) is False
 
 

@@ -81,11 +81,7 @@ async def save_workflow_config_draft(
     review_path = run_dir / "review.yaml"
     review_path.write_text(cleaned_yaml, encoding="utf-8")
 
-    header = (
-        f"# workflow_id: {workflow_id}\n"
-        f"# run_dir: {run_dir}\n"
-        f"# draft_saved_at: generated\n#\n"
-    )
+    header = f"# workflow_id: {workflow_id}\n# run_dir: {run_dir}\n# draft_saved_at: generated\n#\n"
     (run_dir / "config_snapshot.yaml").write_text(header + cleaned_yaml, encoding="utf-8")
 
     config_hash = helper_hash_config(str(review_path))
