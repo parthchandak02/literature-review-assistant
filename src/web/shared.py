@@ -265,6 +265,8 @@ def schedule_runtime_db_manuscript_backfill(db_path: str) -> None:
 
 
 async def _resolve_workflow_id_from_db(db_path: str) -> str | None:
+    if not db_path or not pathlib.Path(db_path).is_file():
+        return None
     try:
         async with aiosqlite.connect(db_path) as db:
             async with db.execute("SELECT workflow_id FROM workflows ORDER BY rowid DESC LIMIT 1") as cur:
@@ -355,6 +357,8 @@ def _make_download_slug(workflow_id: str, topic: str, max_words: int = 5) -> str
 
 async def _get_topic_for_db(db_path: str) -> str:
     """Read topic from the workflows table in *db_path*. Returns empty string on failure."""
+    if not db_path or not pathlib.Path(db_path).is_file():
+        return ""
     try:
         async with aiosqlite.connect(db_path) as db:
             async with db.execute("SELECT topic FROM workflows LIMIT 1") as cur:

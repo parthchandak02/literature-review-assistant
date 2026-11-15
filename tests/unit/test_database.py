@@ -1,4 +1,6 @@
+import sqlite3
 from pathlib import Path
+from unittest.mock import patch
 
 import aiosqlite
 import pytest
@@ -1030,3 +1032,15 @@ async def test_validate_schema_contract_fails_on_missing_columns(tmp_path: Path)
         await db.commit()
         with pytest.raises(RuntimeError, match="event_log missing columns"):
             await _validate_schema_contract(db)
+
+
+@pytest.mark.asyncio
+async def test_open_runtime_db_readonly_missing_file_skips_aiosqlite(tmp_path: Path) -> None:
+    from src.db.database import open_runtime_db
+
+    missing_db = tmp_path / "missing" / "runtime.db"
+    with patch("src.db.database.aiosqlite.connect") as mock_connect:
+        with pytest.raises(sqlite3.OperationalError, match="unable to open database file"):
+            async with open_runtime_db(missing_db, readonly=True):
+                pass
+    mock_connect.assert_not_called()
