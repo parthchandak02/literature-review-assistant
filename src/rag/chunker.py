@@ -124,6 +124,11 @@ def _sentence_window_chunks(
             )
             idx += 1
 
+        # Once the current window reaches the final sentence, any further
+        # advance can only emit strict-suffix duplicate chunks.
+        if j >= n:
+            break
+
         # Advance by (group_size - overlap) sentences, minimum 1.
         advance = max(1, len(group) - overlap)
         i += advance
