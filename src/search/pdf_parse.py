@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import io
 import logging
+import unicodedata
 from concurrent.futures import ThreadPoolExecutor
 from functools import partial
 from pathlib import Path
@@ -63,26 +64,31 @@ def path_is_valid_pdf(path: str | Path) -> bool:
 
 
 def is_binary_garbage(text: str) -> bool:
-    """Return True when decoded text still looks like raw binary content."""
+    """Return True when decoded text still looks like raw binary content.
+
+    Letters, numbers, punctuation, and symbols in any script count as text.
+    Only control, format, surrogate, private-use, and unassigned characters
+    count against the garbage ratio, so CJK or Cyrillic prose is kept while
+    a latin-1 decode of PDF bytes is still rejected.
+    """
     sample = str(text or "")[:4000]
     if not sample:
         return True
     stripped = sample.lstrip()
     if stripped.startswith("%PDF"):
         return True
-    non_printable = 0
+    non_text = 0
     total = 0
     for ch in sample:
         total += 1
-        code = ord(ch)
         if ch in "\n\r\t\f":
             continue
-        if 32 <= code <= 126:
+        if unicodedata.category(ch)[0] in "LMNPSZ":
             continue
-        non_printable += 1
+        non_text += 1
     if total == 0:
         return True
-    return (non_printable / total) > 0.15
+    return (non_text / total) > 0.15
 
 
 def validated_full_text(text: str, *, max_chars: int = DEFAULT_PDF_MAX_CHARS) -> str:
