@@ -300,7 +300,7 @@ search_overrides:
 
 
 def test_historical_snapshot_scores_wf0011_vs_wf0012_when_available() -> None:
-    root = Path("/Users/parthchandak/projects/literature-review-assistant")
+    root = Path("/home/parth/projects/literature-review-assistant")
     wf0011 = (
         root
         / "runs/2026-03-10/wf-0011-what-are-the-clinical-operational-and-financial-impacts-of-trans/run_10-41-24AM/config_snapshot.yaml"
@@ -516,7 +516,7 @@ def test_quality_evaluator_penalizes_generic_search_overrides() -> None:
 
 
 def test_historical_snapshot_scores_wf0013_against_wf0011_wf0012_when_available() -> None:
-    root = Path("/Users/parthchandak/projects/literature-review-assistant")
+    root = Path("/home/parth/projects/literature-review-assistant")
     wf0011 = (
         root
         / "runs/2026-03-10/wf-0011-what-are-the-clinical-operational-and-financial-impacts-of-trans/run_10-41-24AM/config_snapshot.yaml"
