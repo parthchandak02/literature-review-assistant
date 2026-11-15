@@ -52,6 +52,16 @@ def test_is_binary_garbage_rejects_pdf_header() -> None:
     assert is_binary_garbage("Normal academic prose with sufficient printable content.") is False
 
 
+def test_is_binary_garbage_keeps_non_ascii_prose() -> None:
+    """Full text in non-Latin scripts is prose, not a failed PDF decode."""
+    chinese = "本研究评估了数字登记系统对疫苗接种覆盖率的影响，共纳入240名参与者。" * 30
+    cyrillic = "Исследование показало рост охвата вакцинацией с 61% до 84% среди детей." * 20
+    assert is_binary_garbage(chinese) is False
+    assert validated_full_text(chinese) == chinese
+    assert is_binary_garbage(cyrillic) is False
+    assert is_binary_garbage(bytes(range(256)).decode("latin-1") * 20) is True
+
+
 def test_validated_full_text_rejects_garbage() -> None:
     assert validated_full_text("%PDF-1.4\x00\x01") == ""
     prose = "Coverage increased from 61% to 84% across 240 participants. " * 5
