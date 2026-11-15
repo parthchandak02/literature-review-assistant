@@ -19,7 +19,7 @@ Public traffic is the Cloudflare tunnel → `:8001` serving `frontend/dist`. Vit
 ## Local hot-reload (recommended for testing)
 
 ```bash
-cd /Volumes/ExternalSSD/Projects/literature-review-assistant
+cd /home/parth/projects/literature-review-assistant
 uv sync
 cd frontend && pnpm install && cd ..
 

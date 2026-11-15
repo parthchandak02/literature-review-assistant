@@ -22,7 +22,7 @@ export default defineConfig(({ command }) => ({
     },
   },
   server: {
-    host: '0.0.0.0',
+    host: '127.0.0.1',  // loopback only; the public site goes through the cloudflared tunnel to the API
     proxy: {
       '/api': {
         target: `http://127.0.0.1:${process.env.PORT ?? 8001}`,
