@@ -19,7 +19,7 @@ export function ThemeToggle({ className }: ThemeToggleProps) {
         toggleTheme()
       }}
       className={cn(
-        "relative z-20 flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border transition-colors duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-intent-primary focus-visible:ring-offset-1",
+        "touch-hit relative z-20 flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border transition-colors duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-intent-primary focus-visible:ring-offset-1 pointer-coarse:h-10 pointer-coarse:w-10",
         isLight
           ? "border-border/90 bg-surface-2/80 text-intent-warning hover:bg-surface-1"
           : "border-border/80 bg-surface-2/90",

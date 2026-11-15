@@ -152,6 +152,20 @@ html[data-theme="light"] {
   --ambient-orange-alpha-soft: 3%;
   --ambient-base-start: #fcfcfc;
   --ambient-base-end: #f3f3f3;
+  --app-background:
+    radial-gradient(
+      46% 38% at 12% 8%,
+      color-mix(in srgb, var(--ambient-violet) var(--ambient-violet-alpha), transparent) 0%,
+      color-mix(in srgb, var(--ambient-violet) var(--ambient-violet-alpha-soft), transparent) 45%,
+      transparent 74%
+    ),
+    radial-gradient(
+      42% 32% at 88% 12%,
+      color-mix(in srgb, var(--ambient-orange) var(--ambient-orange-alpha), transparent) 0%,
+      color-mix(in srgb, var(--ambient-orange) var(--ambient-orange-alpha-soft), transparent) 40%,
+      transparent 72%
+    ),
+    linear-gradient(180deg, var(--ambient-base-start) 0%, var(--ambient-base-end) 100%);
 
   --sidebar-card-bg: rgba(255, 255, 255, 0.52);
   --sidebar-card-border: rgba(20, 20, 20, 0.09);

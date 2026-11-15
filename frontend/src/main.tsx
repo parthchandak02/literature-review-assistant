@@ -8,6 +8,11 @@ import { ThemeProvider } from './context/ThemeContext.tsx'
 import { QueryProvider } from './context/QueryProvider.tsx'
 import { getPreferredTheme } from './lib/theme'
 import { setTheme } from './lib/themeStore'
+import { installUiDemoFetch, UI_DEMO_ENABLED } from './lib/uiDemo/install'
+
+if (UI_DEMO_ENABLED) {
+  installUiDemoFetch()
+}
 
 setTheme(getPreferredTheme())
 

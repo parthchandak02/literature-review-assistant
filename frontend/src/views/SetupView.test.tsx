@@ -88,16 +88,19 @@ describe("SetupView", () => {
     }
   })
 
-  it("orders heading, question, review type, options, then the primary CTA", () => {
+  it("orders heading, question, review type, options, then the primary CTA", async () => {
+    const user = userEvent.setup()
     renderSetup()
-    const heading = screen.getByRole("heading", { level: 1, name: "New review" })
+  const heading = screen.getByRole("heading", { level: 1, name: "New review" })
     const question = screen.getByRole("textbox", { name: "Research question" })
     const systematic = screen.getByRole("radio", { name: /Systematic review/ })
-    const healthSdg = screen.getByRole("checkbox", { name: /Health \+ SDG alignment/ })
-    const reuse = screen.getByRole("button", { name: /Reuse past config/ })
     const cta = screen.getByRole("button", { name: "Generate config" })
     expect(precedes(heading, question)).toBe(true)
     expect(precedes(question, systematic)).toBe(true)
+    expect(precedes(systematic, cta)).toBe(true)
+    await user.click(screen.getByRole("button", { name: /More options/ }))
+    const healthSdg = screen.getByRole("checkbox", { name: /Health \+ SDG alignment/ })
+    const reuse = screen.getByRole("button", { name: /Reuse past config/ })
     expect(precedes(systematic, healthSdg)).toBe(true)
     expect(precedes(healthSdg, reuse)).toBe(true)
     expect(precedes(reuse, cta)).toBe(true)
@@ -163,6 +166,7 @@ describe("SetupView", () => {
   it("shows the reuse control with an empty hint when there is no history", async () => {
     const user = userEvent.setup()
     renderSetup()
+    await user.click(screen.getByRole("button", { name: /More options/ }))
     await user.click(screen.getByRole("button", { name: /Reuse past config/ }))
     expect(await screen.findByText(/No past reviews yet/)).toBeInTheDocument()
     await user.keyboard("{Escape}")

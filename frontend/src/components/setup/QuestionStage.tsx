@@ -7,6 +7,7 @@ import { useSettings } from "@/context/SettingsContext"
 import { fetchEnvKeysStatus, fetchRequiredLlmUiKeys, llmProviderLabel, loadApiKeys } from "@/lib/api"
 import type { EnvKeysStatus, HistoryEntry } from "@/lib/api"
 import type { ConfigGenerateRequest, CsvMode, ReviewTypeChoice } from "./types"
+import { CollapsibleSection } from "@/components/ui/section"
 import { CsvDropZone } from "./CsvDropZone"
 import { ReviewTypeCards } from "./ReviewTypeCards"
 import { ReviewTypeDecisionStage } from "./ReviewTypeDecisionStage"
@@ -136,7 +137,7 @@ export function QuestionStage({
             <button
               type="button"
               onClick={() => setQuizOpen(true)}
-              className="rounded-sm text-xs text-intent-primary-text underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              className="touch-hit rounded-md px-2 py-2 text-xs font-medium text-intent-primary-text underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
             >
               Help me decide
             </button>
@@ -155,37 +156,39 @@ export function QuestionStage({
         )}
       </section>
 
-      <section className="space-y-3" aria-label="Options">
-        <label className="flex w-full cursor-pointer items-start gap-2.5 rounded-lg border border-border bg-card px-3 py-2.5 transition-colors hover:bg-surface-2 has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-ring">
-          <input
-            type="checkbox"
-            checked={healthSdgEnabled}
-            onChange={(e) => setHealthSdgEnabled(e.target.checked)}
-            className="mt-0.5 h-4 w-4 shrink-0 accent-intent-primary"
-          />
-          <span className="min-w-0 flex-1">
-            <span className="flex items-center gap-1.5 text-xs font-medium text-foreground">
-              <HeartPulse className="h-3.5 w-3.5 text-intent-success shrink-0" aria-hidden />
-              Health + SDG alignment
+      <CollapsibleSection title="More options" description="CSV, SDG profile, reuse" defaultOpen={false}>
+        <div className="space-y-3 pt-1">
+          <label className="flex w-full cursor-pointer items-start gap-2.5 rounded-lg border border-border bg-card px-3 py-2.5 transition-colors hover:bg-surface-2 has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-ring">
+            <input
+              type="checkbox"
+              checked={healthSdgEnabled}
+              onChange={(e) => setHealthSdgEnabled(e.target.checked)}
+              className="mt-0.5 h-4 w-4 shrink-0 accent-intent-primary"
+            />
+            <span className="min-w-0 flex-1">
+              <span className="flex items-center gap-1.5 text-xs font-medium text-foreground">
+                <HeartPulse className="h-3.5 w-3.5 shrink-0 text-intent-success" aria-hidden />
+                Health + SDG alignment
+              </span>
+              <span className="mt-0.5 block text-2xs leading-relaxed text-muted">
+                Adds health-impact pathways and UN SDG alignment to the generated config.
+              </span>
             </span>
-            <span className="mt-0.5 block text-2xs text-muted leading-relaxed">
-              Adds health-impact pathways and UN SDG alignment to the generated config.
-            </span>
-          </span>
-        </label>
+          </label>
 
-        <CsvDropZone file={csvFile} onFile={setCsvFile} mode={csvMode} onModeChange={setCsvMode} />
+          <CsvDropZone file={csvFile} onFile={setCsvFile} mode={csvMode} onModeChange={setCsvMode} />
 
-        <div className="flex flex-wrap items-center gap-2">
-          <ReuseConfigPopover
-            history={history}
-            onSelect={onLoadFromHistory}
-            loadingHistoryId={loadingHistoryId}
-            disabled={disabled}
-          />
-          <span className="text-xs text-muted">Start from a config you used before.</span>
+          <div className="flex flex-wrap items-center gap-2">
+            <ReuseConfigPopover
+              history={history}
+              onSelect={onLoadFromHistory}
+              loadingHistoryId={loadingHistoryId}
+              disabled={disabled}
+            />
+            <span className="text-xs text-muted">Reuse a past config.</span>
+          </div>
         </div>
-      </section>
+      </CollapsibleSection>
 
       {loadError && <FetchError message={loadError} onDismiss={onClearError} />}
 
