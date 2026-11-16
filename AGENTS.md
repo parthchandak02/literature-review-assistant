@@ -45,6 +45,29 @@ Public URL: `https://litreview.parthchandak.info` (Cloudflare Tunnel → local `
 - LLM provider or API key changes -> `.cursor/skills/llm-provider/SKILL.md`
 - Validation/readiness -> `docs/TASKS.md`
 - Scripts / ops commands -> `docs/SCRIPTS.md` or `./scripts/help.sh`
+- UX before/after screenshots -> [UX screenshot harness](#ux-screenshot-harness) below
+
+## UX screenshot harness
+
+Developer-only Playwright helpers for visual review of the local dashboard. They are not part of the review pipeline and are not wired into `make check-local`. Outputs go under `tmp/ux-shots/<label>/` (gitignored). Requires a running UI (API on `:8001` or the Vite proxy) and a local Playwright Chromium install (`pip install playwright && playwright install chromium`).
+
+| Script | Purpose | Entrypoint |
+|--------|---------|------------|
+| `scripts/ux_screenshots.py` | Capture desktop (dark/light) and mobile shots of Setup, Activity, Results, Data, Config, and Cost | `python3 scripts/ux_screenshots.py <label> [--base http://localhost:8001]` |
+| `scripts/ux_screening_preview.py` | Present a completed run as `awaiting_review` on the screening gate (rewrites history/attach GETs only; blocks other non-GET API writes) | `python3 scripts/ux_screening_preview.py <label> [--base URL] [--workflow wf-0001]` |
+
+How to run:
+
+```bash
+# terminal 1: API serving the UI (or use Vite on :5173 and pass --base http://localhost:5173)
+uv run uvicorn src.web.app:app --port 8001
+
+# terminal 2: labeled before/after captures
+python3 scripts/ux_screenshots.py before
+python3 scripts/ux_screening_preview.py before-screening --workflow wf-0001
+```
+
+How to test: unit contract in `tests/unit/test_ux_screenshot_harness_docs.py` (docs + CLI shape). Manual check: open files under `tmp/ux-shots/<label>/` after a capture. Full script index: `docs/SCRIPTS.md`.
 
 ## Hard Constraints
 
