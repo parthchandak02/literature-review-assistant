@@ -1044,3 +1044,47 @@ async def test_open_runtime_db_readonly_missing_file_skips_aiosqlite(tmp_path: P
             async with open_runtime_db(missing_db, readonly=True):
                 pass
     mock_connect.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_connect_shielded_closes_connection_when_cancelled_mid_connect(tmp_path: Path) -> None:
+    import asyncio
+    from unittest.mock import AsyncMock
+
+    from src.db.database import connect_sqlite, open_runtime_db
+
+    started = asyncio.Event()
+    release = asyncio.Event()
+    opened_conns: list[AsyncMock] = []
+
+    async def fake_connect(_target: str, **_kwargs: object) -> AsyncMock:
+        conn = AsyncMock()
+        opened_conns.append(conn)
+        started.set()
+        await release.wait()
+        return conn
+
+    with patch("src.db.database.aiosqlite.connect", side_effect=fake_connect):
+        for cm_factory in (
+            lambda p: connect_sqlite(p),
+            lambda p: open_runtime_db(p),
+            lambda p: get_db(str(p)),
+        ):
+            started.clear()
+            release.clear()
+
+            async def _enter(factory=cm_factory, path=tmp_path / "c.db") -> None:
+                async with factory(path):
+                    pass
+
+            task = asyncio.create_task(_enter())
+            await started.wait()
+            task.cancel()
+            await asyncio.sleep(0)
+            release.set()
+            with pytest.raises(asyncio.CancelledError):
+                await task
+
+    assert len(opened_conns) == 3
+    for conn in opened_conns:
+        conn.close.assert_awaited_once()

@@ -6,9 +6,7 @@ import datetime
 from pathlib import Path
 from typing import Any
 
-import aiosqlite
-
-from src.db.database import get_db
+from src.db.database import connect_sqlite, get_db
 from src.db.repositories import WorkflowRepository
 from src.models.papers import decode_html_entities
 from src.orchestration.phase_catalog import UI_TIMELINE_PHASE_ORDER
@@ -103,7 +101,7 @@ async def resolve_workflow_id(db_path: str) -> str | None:
     if not db_path or not Path(db_path).is_file():
         return None
     try:
-        async with aiosqlite.connect(db_path) as db:
+        async with connect_sqlite(db_path) as db:
             row = await (await db.execute("SELECT workflow_id FROM workflows ORDER BY rowid DESC LIMIT 1")).fetchone()
         if row and row[0]:
             return str(row[0])

@@ -20,11 +20,11 @@ from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 from typing import Any
 
-import aiosqlite
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 
+from src.db.database import connect_sqlite
 from src.db.workflow_registry import _open_registry as _open_registry_db
 from src.web.path_guard import is_sensitive_file
 from src.web.routers import (
@@ -43,8 +43,8 @@ from src.web.routers import (
 )
 
 # Re-export helpers that tests import from src.web.app
-from src.web.routers.history import _fetch_run_stats as _fetch_run_stats  # noqa: F811
-from src.web.routers.run_lifecycle import _inject_csv_paths_into_yaml as _inject_csv_paths_into_yaml  # noqa: F811
+from src.web.routers.history import _fetch_run_stats as _fetch_run_stats
+from src.web.routers.run_lifecycle import _inject_csv_paths_into_yaml as _inject_csv_paths_into_yaml
 from src.web.state import (
     _active_runs,
     _eviction_loop,
@@ -105,7 +105,7 @@ async def lifespan(_app: FastAPI) -> AsyncGenerator[None, None]:
             pending_workflow_tasks.append(record.task)
             if record.db_path and record.workflow_id:
                 try:
-                    async with aiosqlite.connect(record.db_path) as _db:
+                    async with connect_sqlite(record.db_path) as _db:
                         await _db.execute(
                             "UPDATE workflows SET status='interrupted' WHERE workflow_id=?",
                             (record.workflow_id,),

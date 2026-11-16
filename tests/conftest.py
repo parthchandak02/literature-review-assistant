@@ -130,7 +130,7 @@ async def drain_web_tasks() -> None:
     import asyncio
 
     import src.utils.structured_log as sl
-    from src.web.state import _active_runs, drain_background_tasks
+    from src.web.state import _active_runs, _event_store, drain_background_tasks
 
     loop = asyncio.get_running_loop()
     run_tasks = [
@@ -142,6 +142,8 @@ async def drain_web_tasks() -> None:
         task.cancel()
     if run_tasks:
         await asyncio.gather(*run_tasks, return_exceptions=True)
+
+    await _event_store.drain_all_flushes(loop=loop, timeout=2.0)
 
     try:
         await asyncio.wait_for(drain_background_tasks(cancel=False), timeout=2.0)

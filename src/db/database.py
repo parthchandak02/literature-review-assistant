@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import sqlite3
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from pathlib import Path
+from typing import Any
 
 import aiosqlite
 
@@ -743,6 +745,31 @@ async def repair_foreign_key_integrity(db: aiosqlite.Connection) -> int:
     return inserted
 
 
+async def _connect_shielded(target: str, **kwargs: Any) -> aiosqlite.Connection:
+    """Open an aiosqlite connection cleanly even if cancelled mid-handshake."""
+    connect_task = asyncio.ensure_future(aiosqlite.connect(target, **kwargs))
+    try:
+        return await asyncio.shield(connect_task)
+    except asyncio.CancelledError:
+        try:
+            opened = await connect_task
+        except BaseException:
+            pass
+        else:
+            await opened.close()
+        raise
+
+
+@asynccontextmanager
+async def connect_sqlite(db_path: str | Path, **kwargs: Any) -> AsyncIterator[aiosqlite.Connection]:
+    """Open a raw aiosqlite connection shielded against mid-connect cancellation."""
+    db = await _connect_shielded(str(db_path), **kwargs)
+    try:
+        yield db
+    finally:
+        await db.close()
+
+
 @asynccontextmanager
 async def open_runtime_db(db_path: str | Path, *, readonly: bool = False) -> AsyncIterator[aiosqlite.Connection]:
     """Open a per-run runtime.db with WAL, FK enforcement, and busy-timeout."""
@@ -751,9 +778,9 @@ async def open_runtime_db(db_path: str | Path, *, readonly: bool = False) -> Asy
     if readonly:
         if not path.is_file():
             raise sqlite3.OperationalError(f"unable to open database file: {path}")
-        db = await aiosqlite.connect(f"file:{path}?mode=ro", uri=True, timeout=connect_timeout)
+        db = await _connect_shielded(f"file:{path}?mode=ro", uri=True, timeout=connect_timeout)
     else:
-        db = await aiosqlite.connect(str(path), timeout=connect_timeout)
+        db = await _connect_shielded(str(path), timeout=connect_timeout)
     try:
         db.row_factory = aiosqlite.Row
         await _init_connection(db)
@@ -766,7 +793,7 @@ async def open_runtime_db(db_path: str | Path, *, readonly: bool = False) -> Asy
 async def get_db(db_path: str = "data/checkpoints/review_state.db") -> AsyncIterator[aiosqlite.Connection]:
     path = Path(db_path)
     path.parent.mkdir(parents=True, exist_ok=True)
-    db = await aiosqlite.connect(str(path))
+    db = await _connect_shielded(str(path))
     try:
         db.row_factory = aiosqlite.Row
         await _init_connection(db)

@@ -19,6 +19,7 @@ from fastapi import HTTPException
 
 from src.config.env_context import async_env_override_context
 from src.config.loader import load_configs as _load_configs
+from src.db.database import connect_sqlite
 from src.db.workflow_registry import _open_registry as _open_registry_db
 from src.db.workflow_registry import update_heartbeat as _update_registry_heartbeat
 from src.db.workflow_registry import update_status as _update_registry_status
@@ -538,20 +539,21 @@ async def _run_wrapper(record: _RunRecord, review_path: str, req: RunRequest) ->
             _append_event(record, _done_evt)
             record.done = True
         except asyncio.CancelledError:
-            record.done = True
             record.error = "Cancelled"
             _cancelled_evt: dict[str, Any] = {"type": "cancelled"}
             _append_event(record, _cancelled_evt)
-            if record.workflow_id and record.run_root:
-                try:
-                    await _update_registry_status(record.run_root, record.workflow_id, "interrupted")
-                except Exception as exc:
-                    _logger.error("Failed to update registry status to interrupted: %s", exc)
-                await _maybe_persist_registry_stats(record.run_root, record.workflow_id)
+            try:
+                if record.workflow_id and record.run_root:
+                    try:
+                        await _update_registry_status(record.run_root, record.workflow_id, "interrupted")
+                    except Exception as exc:
+                        _logger.error("Failed to update registry status to interrupted: %s", exc)
+                    await _maybe_persist_registry_stats(record.run_root, record.workflow_id)
+            finally:
+                record.done = True
         except Exception as exc:
             import traceback
 
-            record.done = True
             record.error = str(exc)
             _tb = traceback.format_exc()
             _logger.exception("Run failed: %s", exc)
@@ -561,12 +563,15 @@ async def _run_wrapper(record: _RunRecord, review_path: str, req: RunRequest) ->
                 "traceback": _tb,
             }
             _append_event(record, _error_evt)
-            if record.workflow_id and record.run_root:
-                try:
-                    await _update_registry_status(record.run_root, record.workflow_id, "failed")
-                except Exception as exc:
-                    _logger.error("Failed to update registry status to failed: %s", exc)
-                await _maybe_persist_registry_stats(record.run_root, record.workflow_id)
+            try:
+                if record.workflow_id and record.run_root:
+                    try:
+                        await _update_registry_status(record.run_root, record.workflow_id, "failed")
+                    except Exception as exc:
+                        _logger.error("Failed to update registry status to failed: %s", exc)
+                    await _maybe_persist_registry_stats(record.run_root, record.workflow_id)
+            finally:
+                record.done = True
         finally:
             pending_aux = [t for t in (heartbeat_task, flusher_task) if t is not None]
             for aux_task in pending_aux:
@@ -578,6 +583,10 @@ async def _run_wrapper(record: _RunRecord, review_path: str, req: RunRequest) ->
             except Exception:
                 pass
             await _flush_pending_events(record)
+            try:
+                await _event_store.await_pending_flushes(record, timeout=2.0)
+            except TimeoutError:
+                pass
             from src.web.run_concurrency import release_run_slot
 
             release_run_slot()
@@ -658,15 +667,17 @@ async def _resume_wrapper(
         _append_event(record, _done_resume_evt)
         record.done = True
     except asyncio.CancelledError:
-        record.done = True
         record.error = "Cancelled"
         _cancelled_resume_evt: dict[str, Any] = {"type": "cancelled"}
         _append_event(record, _cancelled_resume_evt)
         try:
-            await _update_registry_status(run_root, workflow_id, "interrupted")
-        except Exception as exc:
-            _logger.error("Failed to update registry status to interrupted: %s", exc)
-        await _maybe_persist_registry_stats(run_root, workflow_id)
+            try:
+                await _update_registry_status(run_root, workflow_id, "interrupted")
+            except Exception as exc:
+                _logger.error("Failed to update registry status to interrupted: %s", exc)
+            await _maybe_persist_registry_stats(run_root, workflow_id)
+        finally:
+            record.done = True
     except Exception as exc:
         import traceback
 
@@ -674,7 +685,7 @@ async def _resume_wrapper(
         _logger.exception("Resume failed: %s", exc)
         _runtime_completed = False
         try:
-            async with aiosqlite.connect(db_path) as _db:
+            async with connect_sqlite(db_path) as _db:
                 async with _db.execute(
                     "SELECT status FROM workflows WHERE workflow_id = ?",
                     (workflow_id,),
@@ -685,7 +696,6 @@ async def _resume_wrapper(
             _runtime_completed = False
 
         if _runtime_completed:
-            record.done = True
             record.error = None
             try:
                 _summary_path = pathlib.Path(db_path).parent / "run_summary.json"
@@ -696,12 +706,14 @@ async def _resume_wrapper(
             _done_resume_evt2: dict[str, Any] = {"type": "done", "outputs": record.outputs}
             _append_event(record, _done_resume_evt2)
             try:
-                await _update_registry_status(run_root, workflow_id, "completed")
-            except Exception as exc_reg:
-                _logger.error("Failed to update registry status to completed: %s", exc_reg)
-            await _maybe_persist_registry_stats(run_root, workflow_id)
+                try:
+                    await _update_registry_status(run_root, workflow_id, "completed")
+                except Exception as exc_reg:
+                    _logger.error("Failed to update registry status to completed: %s", exc_reg)
+                await _maybe_persist_registry_stats(run_root, workflow_id)
+            finally:
+                record.done = True
         else:
-            record.done = True
             record.error = str(exc)
             _error_resume_evt: dict[str, Any] = {
                 "type": "error",
@@ -710,15 +722,22 @@ async def _resume_wrapper(
             }
             _append_event(record, _error_resume_evt)
             try:
-                await _update_registry_status(run_root, workflow_id, "failed")
-            except Exception as exc_reg:
-                _logger.error("Failed to update registry status to failed: %s", exc_reg)
-            await _maybe_persist_registry_stats(run_root, workflow_id)
+                try:
+                    await _update_registry_status(run_root, workflow_id, "failed")
+                except Exception as exc_reg:
+                    _logger.error("Failed to update registry status to failed: %s", exc_reg)
+                await _maybe_persist_registry_stats(run_root, workflow_id)
+            finally:
+                record.done = True
     finally:
         heartbeat_task.cancel()
         flusher_task.cancel()
         await asyncio.gather(heartbeat_task, flusher_task, return_exceptions=True)
         await _flush_pending_events(record)
+        try:
+            await _event_store.await_pending_flushes(record, timeout=2.0)
+        except TimeoutError:
+            pass
         from src.web.run_concurrency import release_run_slot
 
         release_run_slot()
