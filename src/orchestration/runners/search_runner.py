@@ -17,7 +17,7 @@ from src.db.workflow_registry import (
 from src.db.workflow_registry import (
     update_status as update_registry_status,
 )
-from src.models import GateStatus, WorkflowStepRecord
+from src.models import CandidatePaper, GateStatus, WorkflowStepRecord
 from src.models.workflow import WorkflowRunResult
 from src.orchestration.gates import GateRunner
 from src.orchestration.helpers.runtime import hash_config as helper_hash_config
@@ -28,14 +28,51 @@ from src.orchestration.helpers.step_journal import journal_step_start as helper_
 from src.orchestration.state import ReviewState
 from src.protocol.generator import ProtocolGenerator
 from src.search.base import SearchConnector
+from src.search.citation_chasing import _doi_key
 from src.search.csv_import import parse_masterlist_csv, parse_supplementary_csvs
 from src.search.deduplication import deduplicate_papers
 from src.search.source_quality import quality_priority_score
-from src.search.strategy import SearchStrategyCoordinator
+from src.search.strategy import SearchStrategyCoordinator, effective_date_start
 from src.utils import structured_log
 
 _log = logging.getLogger(__name__)
 logger = logging.getLogger(__name__)
+
+
+async def _load_screened_doi_keys(db) -> set[str]:
+    """Return canonical DOI keys for papers already screened or merged from parent."""
+    known_dois: set[str] = set()
+    async with db.execute(
+        "SELECT DISTINCT p.doi FROM papers p "
+        "WHERE p.doi IS NOT NULL AND ("
+        "  EXISTS (SELECT 1 FROM screening_decisions sd WHERE sd.paper_id = p.paper_id) "
+        "  OR EXISTS (SELECT 1 FROM dual_screening_results dsr WHERE dsr.paper_id = p.paper_id)"
+        ")"
+    ) as _cur:
+        async for _row in _cur:
+            if _row[0]:
+                key = _doi_key(_row[0])
+                if key:
+                    known_dois.add(key)
+    return known_dois
+
+
+def filter_living_review_candidates(
+    papers: list[CandidatePaper],
+    *,
+    known_dois: set[str],
+    floor_year: int | None,
+) -> list[CandidatePaper]:
+    """Drop candidates published before floor_year or already screened under any DOI form."""
+    filtered: list[CandidatePaper] = []
+    for paper in papers:
+        if floor_year is not None and paper.year is not None and paper.year < floor_year:
+            continue
+        doi_key = _doi_key(paper.doi)
+        if doi_key and doi_key in known_dois:
+            continue
+        filtered.append(paper)
+    return filtered
 
 
 def _rc(state: ReviewState):
@@ -204,13 +241,14 @@ async def run_search_node(state: ReviewState, ctx: GraphRunContext[ReviewState])
     state.connector_init_failures = connector_init_failures
     if rc:
         rc.emit_phase_start("phase_2_search", "Running connectors...", total=len(connectors))
+        effective_start = effective_date_start(state.review)
         for name, err in connector_init_failures.items():
             rc.log_connector_result(
                 name=name,
                 status="failed",
                 records=0,
                 query="",
-                date_start=state.review.date_range_start,
+                date_start=effective_start,
                 date_end=state.review.date_range_end,
                 error=err,
             )
@@ -358,22 +396,20 @@ async def run_search_node(state: ReviewState, ctx: GraphRunContext[ReviewState])
             except Exception as _supp_err:
                 _log.warning("Supplementary CSV import failed: %s", _supp_err)
 
-        # Living review: skip papers whose DOIs were already screened in a prior run.
+        # Living review: drop pre-floor candidates and papers whose DOIs were already screened.
         if state.review.living_review:
-            known_dois: set[str] = set()
-            async with db.execute(
-                "SELECT DISTINCT p.doi FROM papers p "
-                "JOIN screening_decisions sd ON p.paper_id = sd.paper_id "
-                "WHERE p.doi IS NOT NULL"
-            ) as _cur:
-                async for _row in _cur:
-                    if _row[0]:
-                        known_dois.add(_row[0].lower().strip())
+            known_dois = await _load_screened_doi_keys(db)
+            floor_year = effective_date_start(state.review)
             before_count = len(all_papers)
-            all_papers = [p for p in all_papers if not (p.doi and p.doi.lower().strip() in known_dois)]
+            all_papers = filter_living_review_candidates(
+                all_papers,
+                known_dois=known_dois,
+                floor_year=floor_year,
+            )
             _log.info(
-                "Living review: skipped %d already-screened papers; %d new candidates",
+                "Living review: dropped %d pre-floor/already-screened papers (floor_year=%s); %d new candidates",
                 before_count - len(all_papers),
+                floor_year,
                 len(all_papers),
             )
 
