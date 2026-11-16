@@ -11,7 +11,7 @@ from typing import Any, Protocol
 
 import aiosqlite
 
-from src.db.database import open_runtime_db
+from src.db.database import connect_sqlite, open_runtime_db
 
 _logger = logging.getLogger(__name__)
 
@@ -93,9 +93,33 @@ class EventStore:
         else:
             await asyncio.wait_for(coro, timeout=timeout)
 
+    async def drain_all_flushes(
+        self,
+        *,
+        loop: asyncio.AbstractEventLoop | None = None,
+        timeout: float = 2.0,
+    ) -> None:
+        """Await all pending flush tasks on the specified event loop."""
+        target_loop = loop or asyncio.get_running_loop()
+        pending = [
+            task
+            for bucket in list(self._flush_tasks.values())
+            for task in list(bucket)
+            if not task.done() and task.get_loop() is target_loop
+        ]
+        if not pending:
+            return
+        try:
+            await asyncio.wait_for(asyncio.gather(*pending, return_exceptions=True), timeout=timeout)
+        except TimeoutError:
+            for task in pending:
+                if not task.done():
+                    task.cancel()
+            await asyncio.gather(*pending, return_exceptions=True)
+
     async def load(self, db_path: str) -> list[dict[str, Any]]:
         try:
-            async with aiosqlite.connect(db_path) as db:
+            async with connect_sqlite(db_path) as db:
                 db.row_factory = aiosqlite.Row
                 async with db.execute("SELECT id, payload, ts FROM event_log ORDER BY id ASC") as cur:
                     rows = await cur.fetchall()

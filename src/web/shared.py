@@ -19,6 +19,7 @@ import pydantic
 from fastapi import HTTPException
 from pydantic import BaseModel
 
+from src.db.database import connect_sqlite
 from src.models import ManuscriptAuditResult
 
 _logger = logging.getLogger(__name__)
@@ -268,7 +269,7 @@ async def _resolve_workflow_id_from_db(db_path: str) -> str | None:
     if not db_path or not pathlib.Path(db_path).is_file():
         return None
     try:
-        async with aiosqlite.connect(db_path) as db:
+        async with connect_sqlite(db_path) as db:
             async with db.execute("SELECT workflow_id FROM workflows ORDER BY rowid DESC LIMIT 1") as cur:
                 row = await cur.fetchone()
                 if row and row[0]:
@@ -360,7 +361,7 @@ async def _get_topic_for_db(db_path: str) -> str:
     if not db_path or not pathlib.Path(db_path).is_file():
         return ""
     try:
-        async with aiosqlite.connect(db_path) as db:
+        async with connect_sqlite(db_path) as db:
             async with db.execute("SELECT topic FROM workflows LIMIT 1") as cur:
                 row = await cur.fetchone()
                 return str(row[0]) if row and row[0] else ""

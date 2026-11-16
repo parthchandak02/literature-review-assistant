@@ -7,7 +7,7 @@ cloudflared/litreview
 pm2/logs
 env: \{ PORT
 loaded at startup
-in your 
+in your
 restart the server
 _API_KEY in
 no raw secrets

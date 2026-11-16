@@ -82,7 +82,7 @@ async def test_log_reliability_to_decision_log(tmp_path) -> None:
 
 def test_calibrate_threshold_imported() -> None:
     """Smoke test: calibrate_threshold and CalibratedThresholds are importable."""
-    from src.screening.reliability import CalibratedThresholds, calibrate_threshold  # noqa: F401
+    from src.screening.reliability import CalibratedThresholds, calibrate_threshold
 
     assert callable(calibrate_threshold)
     ct = CalibratedThresholds(
