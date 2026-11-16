@@ -7,6 +7,8 @@ import os
 import pathlib
 import uuid
 from collections.abc import AsyncGenerator
+from datetime import date, datetime
+from typing import Any
 
 import aiofiles
 import aiosqlite
@@ -14,6 +16,7 @@ from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import FileResponse, StreamingResponse
 from sse_starlette.sse import EventSourceResponse
 
+from src.db.workflow_registry import find_by_workflow_id, run_root_from_db_path
 from src.export.prisma_flow_export import build_prisma_flow_zip_bytes
 from src.models.papers import decode_html_entities
 from src.utils.author_names import first_author_family
@@ -353,11 +356,93 @@ async def get_grade_sof(run_id: str, fmt: str = "json") -> dict:
     return {"run_id": run_id, "topic": table.topic, "rows": [r.model_dump() for r in table.rows]}
 
 
+def _parse_iso_date(value: Any) -> date | None:
+    if value is None:
+        return None
+    if isinstance(value, datetime):
+        return value.date()
+    if isinstance(value, date):
+        return value
+    text = str(value).strip()
+    if not text or text.lower() in {"null", "none"}:
+        return None
+    for candidate in (text, text[:10]):
+        try:
+            return datetime.fromisoformat(candidate).date()
+        except ValueError:
+            pass
+        try:
+            return date.fromisoformat(candidate)
+        except ValueError:
+            pass
+    return None
+
+
+def build_living_refresh_config(
+    config_dict: dict[str, Any],
+    *,
+    parent_updated_at: Any = None,
+) -> dict[str, Any]:
+    """Build incremental review config preserving prior last_search_date or parent registry clock."""
+    updated = dict(config_dict)
+    prior_last_date = _parse_iso_date(updated.get("last_search_date"))
+    floor_date = prior_last_date if prior_last_date is not None else _parse_iso_date(parent_updated_at)
+
+    updated["living_review"] = True
+    if floor_date is not None:
+        updated["last_search_date"] = floor_date.isoformat()
+        prior_start = updated.get("date_range_start")
+        try:
+            prior_start_int = int(prior_start) if prior_start is not None else None
+        except (TypeError, ValueError):
+            prior_start_int = None
+        new_start = max(prior_start_int, floor_date.year) if prior_start_int is not None else floor_date.year
+        updated["date_range_start"] = new_start
+        prior_end = updated.get("date_range_end")
+        if prior_end is not None:
+            try:
+                prior_end_int = int(prior_end)
+            except (TypeError, ValueError):
+                prior_end_int = None
+            if prior_end_int is not None and prior_end_int < new_start:
+                updated["date_range_end"] = new_start
+    else:
+        updated["last_search_date"] = None
+    return updated
+
+
+async def _resolve_parent_updated_at(
+    run_root: str | None,
+    workflow_id: str | None,
+    parent_db_path: str | None,
+) -> str | None:
+    if run_root and workflow_id:
+        entry = await find_by_workflow_id(run_root, workflow_id)
+        if entry and entry.updated_at:
+            return entry.updated_at
+    if parent_db_path and pathlib.Path(parent_db_path).is_file():
+        try:
+            async with aiosqlite.connect(parent_db_path) as db:
+                if workflow_id:
+                    async with db.execute(
+                        "SELECT updated_at FROM workflows WHERE workflow_id = ? LIMIT 1",
+                        (workflow_id,),
+                    ) as cur:
+                        row = await cur.fetchone()
+                        if row and row[0]:
+                            return str(row[0])
+                async with db.execute("SELECT updated_at FROM workflows ORDER BY rowid DESC LIMIT 1") as cur:
+                    row = await cur.fetchone()
+                    if row and row[0]:
+                        return str(row[0])
+        except Exception:
+            pass
+    return None
+
+
 @router.post("/api/run/{run_id}/living-refresh")
 async def living_refresh(run_id: str) -> RunResponse:
     """Launch an incremental living-review run based on a completed run."""
-    from datetime import date as _date
-
     import yaml as _yaml
 
     record = _lifecycle_coordinator.get(run_id)
@@ -370,7 +455,10 @@ async def living_refresh(run_id: str) -> RunResponse:
             )
         prior_yaml = parent_yaml_path.read_text(encoding="utf-8")
         parent_db_path_value = resolved_parent_db
-        prior_run_root = str(pathlib.Path(resolved_parent_db).parent.parent.parent.parent)
+        prior_run_root = run_root_from_db_path(resolved_parent_db)
+        parent_workflow_id = (await _resolve_workflow_id_from_db(resolved_parent_db)) or (
+            run_id if run_id.startswith("wf-") else None
+        )
     else:
         if not record.done:
             raise HTTPException(
@@ -379,6 +467,11 @@ async def living_refresh(run_id: str) -> RunResponse:
         prior_yaml = getattr(record, "review_yaml", None)
         parent_db_path_value = record.db_path or None
         prior_run_root = record.run_root
+        if parent_db_path_value and not (pathlib.Path(prior_run_root) / "workflows_registry.db").is_file():
+            prior_run_root = run_root_from_db_path(parent_db_path_value)
+        parent_workflow_id = record.workflow_id or (
+            await _resolve_workflow_id_from_db(parent_db_path_value) if parent_db_path_value else None
+        )
 
     if not prior_yaml:
         raise HTTPException(status_code=422, detail="Prior run has no review YAML stored; cannot refresh.")
@@ -388,8 +481,15 @@ async def living_refresh(run_id: str) -> RunResponse:
     except Exception as exc:
         raise HTTPException(status_code=422, detail=f"Failed to parse prior review YAML: {exc}") from exc
 
-    config_dict["living_review"] = True
-    config_dict["last_search_date"] = str(_date.today())
+    parent_updated_at: str | None = None
+    if _parse_iso_date(config_dict.get("last_search_date")) is None:
+        parent_updated_at = await _resolve_parent_updated_at(
+            prior_run_root,
+            parent_workflow_id,
+            parent_db_path_value,
+        )
+
+    config_dict = build_living_refresh_config(config_dict, parent_updated_at=parent_updated_at)
 
     new_yaml = _yaml.dump(config_dict, allow_unicode=True, default_flow_style=False)
 

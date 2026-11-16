@@ -124,9 +124,30 @@ def build_boolean_query(config: ReviewConfig) -> str:
     return f"({keyword_part})"
 
 
+def _parse_date_year(value: object) -> int | None:
+    """Extract a 4-digit year from an ISO date string or date object."""
+    if value is None:
+        return None
+    text = str(value).strip()
+    if len(text) >= 4 and text[:4].isdigit():
+        return int(text[:4])
+    return None
+
+
+def effective_date_start(config: ReviewConfig) -> int:
+    """Return the effective lower-bound year for connectors and living-review filtering."""
+    start = config.date_range_start
+    if config.living_review and config.last_search_date:
+        floor_year = _parse_date_year(config.last_search_date)
+        if floor_year is not None:
+            start = max(start, floor_year)
+    return start
+
+
 def build_database_query(config: ReviewConfig, database_name: str) -> str:
     name = database_name.lower()
     primary_only = requires_primary_studies(config)
+    effective_start = effective_date_start(config)
     if config.search_overrides:
         if name in config.search_overrides:
             if primary_only:
@@ -202,7 +223,7 @@ def build_database_query(config: ReviewConfig, database_name: str) -> str:
         kws = _keyword_terms(config, limit=16)
         wos_part1 = " OR ".join(f'TS="{k}"' for k in kws[:8]) if kws else f'TS="{config.pico.intervention[:60]}"'
         wos_part2 = " OR ".join(f'TS="{k}"' for k in kws[8:16]) if len(kws) > 8 else wos_part1
-        date_s = config.date_range_start or 2010
+        date_s = effective_start or 2010
         date_e = config.date_range_end or 2026
         _primary_clause = f" {_WOS_PRIMARY_ONLY_EXCLUSION}" if primary_only else ""
         return f"({wos_part1}) AND ({wos_part2}) AND PY={date_s}-{date_e}{_primary_clause}"
@@ -215,7 +236,7 @@ def build_database_query(config: ReviewConfig, database_name: str) -> str:
         kw_part1 = " OR ".join(f'"{k}"' for k in kws[:8]) if kws else f'"{config.pico.intervention[:60]}"'
         # Second clause: use keywords[8:16] for broader coverage; fall back to first group.
         kw_part2 = " OR ".join(f'"{k}"' for k in kws[8:16]) if len(kws) > 8 else kw_part1
-        date_s = config.date_range_start or 2009
+        date_s = effective_start or 2009
         date_e = config.date_range_end or 2027
         _primary_clause = f" {_SCOPUS_PRIMARY_ONLY_EXCLUSION}" if primary_only else ""
         return (
@@ -228,7 +249,7 @@ def build_database_query(config: ReviewConfig, database_name: str) -> str:
         kws = _keyword_terms(config, limit=16)
         kw_part1 = " OR ".join(f'"{k}"' for k in kws[:8]) if kws else f'"{config.pico.intervention[:60]}"'
         kw_part2 = " OR ".join(f'"{k}"' for k in kws[8:16]) if len(kws) > 8 else kw_part1
-        date_s = config.date_range_start or 2009
+        date_s = effective_start or 2009
         date_e = config.date_range_end or 2027
         _primary_clause = f" {_EMBASE_PRIMARY_ONLY_EXCLUSION}" if primary_only else ""
         return (
@@ -243,6 +264,7 @@ def build_database_query(config: ReviewConfig, database_name: str) -> str:
 def build_relaxed_database_query(config: ReviewConfig, database_name: str) -> str:
     """Build deterministic fallback query when first-pass recall is too low."""
     name = database_name.lower()
+    effective_start = effective_date_start(config)
     kws = _keyword_terms(config, limit=10)
     if not kws:
         return build_database_query(config, database_name)
@@ -255,11 +277,11 @@ def build_relaxed_database_query(config: ReviewConfig, database_name: str) -> st
     if name == "ieee_xplore":
         return f"({or_terms})"
     if name in {"scopus", "embase"}:
-        date_s = config.date_range_start or 2009
+        date_s = effective_start or 2009
         date_e = config.date_range_end or 2027
         return f"TITLE-ABS-KEY({or_terms}) AND PUBYEAR > {date_s - 1} AND PUBYEAR < {date_e + 1}"
     if name in {"web_of_science", "wos"}:
-        date_s = config.date_range_start or 2010
+        date_s = effective_start or 2010
         date_e = config.date_range_end or 2026
         wos_terms = " OR ".join(f'TS="{k}"' for k in kws[:6])
         return f"({wos_terms}) AND PY={date_s}-{date_e}"
@@ -298,6 +320,7 @@ class SearchStrategyCoordinator:
     ) -> tuple[list[SearchResult], int]:
         # One asyncio task per connector so completions stream to the UI as each DB returns
         # (asyncio.gather would defer all on_connector_done callbacks until every search finished).
+        date_start = effective_date_start(self.config)
         query_pairs: list[tuple[SearchConnector, str]] = []
         pending: list[asyncio.Task[Any]] = []
         for connector in self.connectors:
@@ -314,7 +337,7 @@ class SearchStrategyCoordinator:
                     out = await c.search(
                         query=q,
                         max_results=lim,
-                        date_start=self.config.date_range_start,
+                        date_start=date_start,
                         date_end=self.config.date_range_end,
                     )
                     return (c, q, out)
@@ -352,7 +375,7 @@ class SearchStrategyCoordinator:
                         "failed",
                         0,
                         query,
-                        self.config.date_range_start,
+                        date_start,
                         self.config.date_range_end,
                         err_msg,
                     )
@@ -390,7 +413,7 @@ class SearchStrategyCoordinator:
                     "success",
                     total,
                     query,
-                    self.config.date_range_start,
+                    date_start,
                     self.config.date_range_end,
                     None,
                 )
@@ -422,7 +445,7 @@ class SearchStrategyCoordinator:
                     retry_out = await connector.search(
                         query=relaxed_query,
                         max_results=limit,
-                        date_start=self.config.date_range_start,
+                        date_start=date_start,
                         date_end=self.config.date_range_end,
                     )
                 except Exception as exc:
@@ -452,7 +475,7 @@ class SearchStrategyCoordinator:
                         "success",
                         sum(r.records_retrieved for r in retry_list),
                         relaxed_query,
-                        self.config.date_range_start,
+                        date_start,
                         self.config.date_range_end,
                         None,
                     )

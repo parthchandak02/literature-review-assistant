@@ -3160,3 +3160,154 @@ async def test_history_costs_aggregates_returns_valid_response(client: httpx.Asy
     assert response.status_code == 200
     data = response.json()
     assert isinstance(data, dict)
+
+
+@pytest.mark.asyncio
+async def test_living_refresh_preserves_prior_last_search_date_and_raises_start(
+    client: httpx.AsyncClient,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    import yaml
+
+    run_root = tmp_path / "runs"
+    run_dir = run_root / "2023-06-01" / "wf-3301-topic" / "run_01-00-00PM"
+    run_dir.mkdir(parents=True, exist_ok=True)
+    db_path = run_dir / "runtime.db"
+
+    async with get_db(str(db_path)) as db:
+        repo = WorkflowRepository(db)
+        await repo.create_workflow("wf-3301", "Living topic", "hash-3301")
+        await repo.update_workflow_status("wf-3301", "completed")
+
+    prior_yaml = yaml.safe_dump(
+        {
+            "research_question": "Living topic?",
+            "review_type": "systematic",
+            "pico": {
+                "population": "adults",
+                "intervention": "intervention",
+                "comparison": "control",
+                "outcome": "outcome",
+            },
+            "keywords": ["intervention", "outcome"],
+            "domain": "health",
+            "scope": "scope",
+            "inclusion_criteria": ["primary"],
+            "exclusion_criteria": ["reviews"],
+            "date_range_start": 2015,
+            "date_range_end": 2026,
+            "target_databases": ["openalex"],
+            "living_review": False,
+            "last_search_date": "2023-06-01",
+        }
+    )
+    (run_dir / "review.yaml").write_text(prior_yaml, encoding="utf-8")
+
+    registry_path = run_root / "workflows_registry.db"
+    async with aiosqlite.connect(str(registry_path)) as reg_db:
+        await reg_db.executescript(REGISTRY_SCHEMA)
+        await reg_db.execute(
+            """
+            INSERT OR REPLACE INTO workflows_registry
+            (workflow_id, topic, config_hash, db_path, status, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            ("wf-3301", "Living topic", "hash-3301", str(db_path), "completed", "2025-01-10 09:00:00"),
+        )
+        await reg_db.commit()
+
+    async def _resolve(_run_id: str, _run_root: str = "runs") -> str:
+        return str(db_path)
+
+    captured: list[tuple[str, str, str, object]] = []
+
+    async def _fake_launch(run_id: str, topic: str, review_yaml: str, req: object) -> None:
+        captured.append((run_id, topic, review_yaml, req))
+
+    monkeypatch.setattr("src.web.routers.advanced.resolve_runtime_db", _resolve)
+    monkeypatch.setattr("src.web.routers.run_lifecycle.launch_new_run", _fake_launch)
+
+    resp = await client.post("/api/run/wf-3301/living-refresh")
+    assert resp.status_code == 200
+    assert len(captured) == 1
+    _, _, new_yaml, req = captured[0]
+    parsed = yaml.safe_load(new_yaml)
+    assert parsed["living_review"] is True
+    assert parsed["last_search_date"] == "2023-06-01"
+    assert parsed["date_range_start"] == 2023
+    assert getattr(req, "parent_db_path") == str(db_path)
+
+
+@pytest.mark.asyncio
+async def test_living_refresh_uses_parent_registry_updated_at_when_last_search_date_missing(
+    client: httpx.AsyncClient,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    import yaml
+
+    run_root = tmp_path / "runs"
+    run_dir = run_root / "2024-05-10" / "wf-3302-topic" / "run_01-00-00PM"
+    run_dir.mkdir(parents=True, exist_ok=True)
+    db_path = run_dir / "runtime.db"
+
+    async with get_db(str(db_path)) as db:
+        repo = WorkflowRepository(db)
+        await repo.create_workflow("wf-3302", "Living topic 2", "hash-3302")
+        await repo.update_workflow_status("wf-3302", "completed")
+
+    prior_yaml = yaml.safe_dump(
+        {
+            "research_question": "Living topic 2?",
+            "review_type": "systematic",
+            "pico": {
+                "population": "adults",
+                "intervention": "intervention",
+                "comparison": "control",
+                "outcome": "outcome",
+            },
+            "keywords": ["intervention", "outcome"],
+            "domain": "health",
+            "scope": "scope",
+            "inclusion_criteria": ["primary"],
+            "exclusion_criteria": ["reviews"],
+            "date_range_start": 2015,
+            "date_range_end": 2026,
+            "target_databases": ["openalex"],
+        }
+    )
+    (run_dir / "review.yaml").write_text(prior_yaml, encoding="utf-8")
+
+    registry_path = run_root / "workflows_registry.db"
+    async with aiosqlite.connect(str(registry_path)) as reg_db:
+        await reg_db.executescript(REGISTRY_SCHEMA)
+        await reg_db.execute(
+            """
+            INSERT OR REPLACE INTO workflows_registry
+            (workflow_id, topic, config_hash, db_path, status, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            ("wf-3302", "Living topic 2", "hash-3302", str(db_path), "completed", "2024-05-10 12:34:56"),
+        )
+        await reg_db.commit()
+
+    async def _resolve(_run_id: str, _run_root: str = "runs") -> str:
+        return str(db_path)
+
+    captured: list[tuple[str, str, str, object]] = []
+
+    async def _fake_launch(run_id: str, topic: str, review_yaml: str, req: object) -> None:
+        captured.append((run_id, topic, review_yaml, req))
+
+    monkeypatch.setattr("src.web.routers.advanced.resolve_runtime_db", _resolve)
+    monkeypatch.setattr("src.web.routers.run_lifecycle.launch_new_run", _fake_launch)
+
+    resp = await client.post("/api/run/wf-3302/living-refresh")
+    assert resp.status_code == 200
+    assert len(captured) == 1
+    _, _, new_yaml, _ = captured[0]
+    parsed = yaml.safe_load(new_yaml)
+    assert parsed["living_review"] is True
+    assert parsed["last_search_date"] == "2024-05-10"
+    assert parsed["date_range_start"] == 2024
