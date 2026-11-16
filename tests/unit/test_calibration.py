@@ -8,7 +8,7 @@ import pytest
 
 from src.models import CandidatePaper, ReviewerType, ScreeningDecision, ScreeningDecisionType
 from src.models.screening import DualScreeningResult
-from src.screening.reliability import CalibratedThresholds, calibrate_threshold
+from src.screening.reliability import CalibratedThresholds, calibrate_threshold, compute_cohens_kappa
 
 
 def _make_paper(paper_id: str) -> CandidatePaper:
@@ -189,3 +189,58 @@ async def test_calibrate_exclude_is_never_negative():
         initial_include_threshold=0.02,
     )
     assert result.exclude_threshold >= 0.0
+
+
+def _balanced_disagreement(papers, agreements: set[int]) -> list[DualScreeningResult]:
+    """Balanced include/exclude labels. `agreements` indexes the papers where reviewers match."""
+    results = []
+    for i, paper in enumerate(papers):
+        decision_a = ScreeningDecisionType.INCLUDE if i < len(papers) / 2 else ScreeningDecisionType.EXCLUDE
+        if i in agreements:
+            decision_b = decision_a
+        else:
+            decision_b = (
+                ScreeningDecisionType.EXCLUDE
+                if decision_a is ScreeningDecisionType.INCLUDE
+                else ScreeningDecisionType.INCLUDE
+            )
+        results.append(_make_result(paper.paper_id, decision_a, decision_b))
+    return results
+
+
+@pytest.mark.asyncio
+async def test_calibrate_keeps_best_negative_kappa():
+    """A kappa below zero is a real score and must be able to win.
+
+    The search used to seed the best score at 0, so every negative kappa was
+    discarded. The run then reported kappa 0 and kept the initial threshold
+    even when a later threshold agreed more.
+    """
+    papers = [_make_paper(f"p{i}") for i in range(6)]
+    worse = _balanced_disagreement(papers, agreements=set())
+    better = _balanced_disagreement(papers, agreements={2, 4})
+    worse_kappa = compute_cohens_kappa(worse, stage="calibration").cohens_kappa
+    better_kappa = compute_cohens_kappa(better, stage="calibration").cohens_kappa
+    assert worse_kappa < better_kappa < 0
+
+    observed: list[tuple[float, float]] = []
+
+    async def _screener(sample, threshold):
+        batch = worse if not observed else better
+        observed.append((threshold, compute_cohens_kappa(batch, stage="calibration").cohens_kappa))
+        return batch
+
+    result = await calibrate_threshold(
+        papers=papers,
+        screener_fn=_screener,
+        target_kappa=0.7,
+        max_iterations=3,
+        sample_size=6,
+        initial_include_threshold=0.85,
+    )
+
+    best_threshold, best_kappa = max(observed, key=lambda item: item[1])
+    assert result.achieved_kappa == round(best_kappa, 4)
+    assert result.include_threshold == round(best_threshold, 3)
+    assert result.achieved_kappa < 0
+    assert result.include_threshold != 0.85

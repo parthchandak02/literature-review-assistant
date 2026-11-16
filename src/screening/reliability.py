@@ -124,7 +124,9 @@ async def calibrate_threshold(
     sample = random.sample(papers, min(sample_size, len(papers)))
     lo, hi = 0.5, 0.95
     current = initial_include_threshold
-    best_kappa = 0.0
+    # None until a real score is observed. Seeding at 0 dropped every negative
+    # kappa, then reported 0 for a threshold that never produced that score.
+    best_kappa: float | None = None
     best_threshold = current
 
     for iteration in range(1, max_iterations + 1):
@@ -144,7 +146,7 @@ async def calibrate_threshold(
             target_kappa,
         )
 
-        if kappa > best_kappa:
+        if best_kappa is None or kappa > best_kappa:
             best_kappa = kappa
             best_threshold = current
 
@@ -157,10 +159,11 @@ async def calibrate_threshold(
         current = (lo + hi) / 2.0
 
     exclude = max(0.0, best_threshold - 0.05)
+    reported_kappa = 0.0 if best_kappa is None else best_kappa
     result = CalibratedThresholds(
         include_threshold=round(best_threshold, 3),
         exclude_threshold=round(exclude, 3),
-        achieved_kappa=round(best_kappa, 4),
+        achieved_kappa=round(reported_kappa, 4),
         iterations=min(max_iterations, iteration),
         sample_size=len(sample),
     )
