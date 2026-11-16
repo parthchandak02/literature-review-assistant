@@ -33,6 +33,8 @@ Plain-language index for `scripts/`. Agents: read this before adding or invoking
 | Show backup destination / last backup | `./scripts/backup.sh status` |
 | Schedule daily backups at 03:00 (PM2) | `pm2 start ecosystem.config.js --only litreview-backup && pm2 save` |
 | Restore missing reviews from the Drive backup | `./scripts/backup.sh restore` (prints the rsync command) |
+| Capture UX before/after dashboard screenshots | `python3 scripts/ux_screenshots.py <label>` (needs Playwright + running UI) |
+| Screenshot the screening review gate as awaiting review | `python3 scripts/ux_screening_preview.py <label> [--workflow wf-0001]` |
 
 ## Entrypoints
 
@@ -48,6 +50,8 @@ Only these files are user-facing CLIs. Implementation lives in `scripts/lib/`.
 | `scripts/regenerate_prisma.py` | `--run`, `--dry-run`, `--run-root` | Recompute PRISMA counts from `runtime.db`, redraw `fig_prisma_flow.png` and write `prisma_counts.json` beside it (also refreshes `submission/figures/` copy if present). `--dry-run` prints old (sidecar) vs new counts and writes nothing |
 | `scripts/hermes.sh` | `maintain`, `link-skill`, `help` | Hermes operator setup (see staleness warning in script) |
 | `scripts/backup.sh` | `run`, `status`, `restore`, `install`, `uninstall` | Copy `runs/` into Google Drive for desktop (`My Drive/PROJECTS/Literature Review Assistant/runs-backup`); SQLite `.backup` snapshots; never deletes. `install` uses launchd, which needs Full Disk Access for `/bin/bash`; prefer the PM2 `litreview-backup` job |
+| `scripts/ux_screenshots.py` | `<label>`, `--base` | Developer UX harness: Playwright captures of Setup/Activity/Results/Data/Config/Cost (dark, light, mobile) into `tmp/ux-shots/<label>/`. Not a release gate. See `AGENTS.md` (UX screenshot harness). |
+| `scripts/ux_screening_preview.py` | `<label>`, `--base`, `--workflow` | Developer UX harness: open the screening gate as `awaiting_review` without mutating the run (history/attach GET rewrite only). |
 | `scripts/help.sh` | (no args) | Print this routing table in the terminal |
 
 ## Makefile targets

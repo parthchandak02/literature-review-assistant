@@ -63,6 +63,9 @@ Rebuild replay test fixture after schema     uv run python scripts/repair.py reg
 Hermes operator setup                        ./scripts/hermes.sh maintain
 Back up reviews to Google Drive               ./scripts/backup.sh run   (status | restore)
 
+Capture UX dashboard screenshots             python3 scripts/ux_screenshots.py <label>
+  (Playwright + running UI; see AGENTS.md)     python3 scripts/ux_screening_preview.py <label>
+
 ENTRYPOINTS (user-facing — use these)
   scripts/ops_pm2.sh   servers (PM2 restart, deploy)
   scripts/check.sh     run full test suites (local | release)
@@ -71,6 +74,7 @@ ENTRYPOINTS (user-facing — use these)
   scripts/repair.py    fix old runs (finalize, re-extract, inject-citations, regen-replay-fixture)
   scripts/regenerate_prisma.py  redraw PRISMA figure + prisma_counts.json from runtime.db
   scripts/hermes.sh    Hermes maintain | link-skill
+  scripts/ux_screenshots.py / ux_screening_preview.py  developer UX captures (not a release gate)
 
 DO NOT call scripts/lib/* directly — implementation modules only.
 
