@@ -179,10 +179,14 @@ def compute_display_label(paper: CandidatePaper) -> str:
     if paper.authors:
         raw_family = family_name(paper.authors[0]) or HumanName(str(paper.authors[0])).last or ""
         surname = re.sub(r"[^a-zA-Z]", "", raw_family)
+        # "De Souza" collapses to "DeSouza", which matches the same two-hump
+        # pattern as a hyphen stripped from a title token ("AI-Based" -> "AIBased").
+        # A family name that already had more than one word is not that artifact.
+        multi_part_family = len(raw_family.split()) > 1
         if (
             len(surname) >= 2
             and surname.lower() not in _GENERIC_AUTHOR_PLACEHOLDERS
-            and (_SURNAME_PREFIX_RE.match(surname) or not _is_camelcase_compound(surname))
+            and (multi_part_family or _SURNAME_PREFIX_RE.match(surname) or not _is_camelcase_compound(surname))
         ):
             author_token = surname
 

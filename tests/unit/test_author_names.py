@@ -46,3 +46,26 @@ def test_display_label_uses_family_name() -> None:
     assert label("Yu, Jennifer") == "Yu"
     assert label("Roth JK") == "Roth"
     assert label("Paul McMillan") == "McMillan"
+
+
+def test_display_label_keeps_multipart_family_names() -> None:
+    """Spaces in a family name must survive the camelcase-artifact filter.
+
+    "De Souza" collapses to "DeSouza" before that check. That string looks like
+    the hyphen-stripping artifact "AIBased", so the surname was discarded and
+    the label was taken from the title instead.
+    """
+
+    def label(author: str) -> str:
+        return compute_display_label(
+            CandidatePaper(
+                title="Effects of a clinical workflow intervention",
+                authors=[author],
+                source_database="x",
+            )
+        )
+
+    assert label("De Souza, Maria") == "DeSouza"
+    assert label("Le Blanc, Jean") == "LeBlanc"
+    assert label("Van Buren, Martin") == "VanBuren"
+    assert label("AI-Based") != "AIBased"
