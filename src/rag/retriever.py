@@ -150,6 +150,24 @@ class RAGRetriever:
         return scores.tolist()
 
     @staticmethod
+    def _ranks_descending(scores: list[float]) -> list[int]:
+        """Return 0-based worst rank within each tied group (descending order)."""
+        n = len(scores)
+        order = sorted(range(n), key=lambda i: scores[i], reverse=True)
+        ranks = [0] * n
+        pos = 0
+        while pos < n:
+            val = scores[order[pos]]
+            end = pos + 1
+            while end < n and scores[order[end]] == val:
+                end += 1
+            worst_rank = end - 1
+            for j in range(pos, end):
+                ranks[order[j]] = worst_rank
+            pos = end
+        return ranks
+
+    @staticmethod
     def _rrf_scores(
         dense_scores: list[float],
         bm25_scores: list[float],
@@ -162,40 +180,16 @@ class RAGRetriever:
         within their tied group, which is a conservative RRF tie-breaking
         convention (avoids artificially boosting tied chunks).
         """
-        try:
-            import numpy as np
-        except ImportError:
-            # Fall back to pure-Python RRF if numpy unavailable.
-            n = len(dense_scores)
-            dense_order = sorted(range(n), key=lambda i: -dense_scores[i])
-            bm25_order = sorted(range(n), key=lambda i: -bm25_scores[i])
-            rank_d = [0] * n
-            rank_b = [0] * n
-            for rank, idx in enumerate(dense_order):
-                rank_d[idx] = rank
-            for rank, idx in enumerate(bm25_order):
-                rank_b[idx] = rank
-            return [1.0 / (k + rank_d[i]) + 1.0 / (k + rank_b[i]) for i in range(n)]
-
-        import numpy as np
-
+        if len(dense_scores) != len(bm25_scores):
+            raise ValueError(
+                f"dense_scores ({len(dense_scores)}) and bm25_scores ({len(bm25_scores)}) must have the same length"
+            )
         n = len(dense_scores)
-        d = np.array(dense_scores, dtype=np.float64)
-        b = np.array(bm25_scores, dtype=np.float64)
-
-        # argsort ascending; reverse for best-first ranking.
-        dense_order = np.argsort(d)[::-1]
-        bm25_order = np.argsort(b)[::-1]
-
-        # rank_d[i] = position of chunk i in the dense ranking (0 = best).
-        rank_d = np.empty(n, dtype=np.float64)
-        rank_d[dense_order] = np.arange(n, dtype=np.float64)
-
-        rank_b = np.empty(n, dtype=np.float64)
-        rank_b[bm25_order] = np.arange(n, dtype=np.float64)
-
-        rrf = 1.0 / (k + rank_d) + 1.0 / (k + rank_b)
-        return rrf.tolist()
+        if n == 0:
+            return []
+        rank_d = RAGRetriever._ranks_descending(dense_scores)
+        rank_b = RAGRetriever._ranks_descending(bm25_scores)
+        return [1.0 / (k + rank_d[i]) + 1.0 / (k + rank_b[i]) for i in range(n)]
 
     async def search(
         self,
