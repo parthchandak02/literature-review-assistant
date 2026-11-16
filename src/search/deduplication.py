@@ -45,9 +45,45 @@ def _metadata_richness(paper: CandidatePaper) -> int:
     return score
 
 
+def _filled_text(preferred: str | None, other: str | None) -> str | None:
+    """Keep preferred when it has text; otherwise take the other side."""
+    if (preferred or "").strip():
+        return preferred
+    if (other or "").strip():
+        return other
+    return preferred
+
+
+def _filled_keywords(preferred: list[str] | None, other: list[str] | None) -> list[str] | None:
+    """Keep preferred keywords when any are non-blank; otherwise take the other side."""
+    if any((item or "").strip() for item in (preferred or [])):
+        return preferred
+    if any((item or "").strip() for item in (other or [])):
+        return list(other or [])
+    return preferred
+
+
+def _longer_abstract(preferred: str | None, other: str | None) -> str | None:
+    """Keep the longer abstract. Equal length stays with the preferred record."""
+    if len((other or "").strip()) > len((preferred or "").strip()):
+        return other
+    return preferred
+
+
 def _prefer_richer(existing: CandidatePaper, candidate: CandidatePaper) -> CandidatePaper:
-    """Return the richer paper; preserve existing when scores tie."""
-    return candidate if _metadata_richness(candidate) > _metadata_richness(existing) else existing
+    """Return the richer paper, filling identifiers and the longer abstract from the other.
+
+    The winner is updated in place. MinHash dedup keeps a paper by object identity,
+    so the returned object has to be one of the two inputs. Ties keep the existing record.
+    """
+    richer = candidate if _metadata_richness(candidate) > _metadata_richness(existing) else existing
+    other = existing if richer is candidate else candidate
+    richer.doi = _filled_text(richer.doi, other.doi)
+    richer.pmid = _filled_text(richer.pmid, other.pmid)
+    richer.url = _filled_text(richer.url, other.url)
+    richer.keywords = _filled_keywords(richer.keywords, other.keywords)
+    richer.abstract = _longer_abstract(richer.abstract, other.abstract)
+    return richer
 
 
 def _normalize_title(title: str) -> str:
@@ -56,11 +92,31 @@ def _normalize_title(title: str) -> str:
     return re.sub(r"\s+", " ", s).strip()
 
 
+_DOI_PREFIXES = (
+    "https://dx.doi.org/",
+    "http://dx.doi.org/",
+    "https://doi.org/",
+    "http://doi.org/",
+    "doi:",
+)
+
+
 def _normalize_doi(doi: str | None) -> str:
-    """Normalize DOI to canonical lowercase token for exact-match dedup."""
-    cleaned = (doi or "").strip().lower()
-    cleaned = re.sub(r"^https?://(dx\.)?doi\.org/", "", cleaned)
-    return cleaned
+    """Normalize a DOI to a lowercase token for exact-match dedup.
+
+    Resolver URLs and a leading ``doi:`` label collapse to one token, matching
+    citation chasing: ``https://doi.org/10.x``, ``https://dx.doi.org/10.x``, and ``doi:10.x``.
+    """
+    text = (doi or "").strip().lower()
+    changed = True
+    while text and changed:
+        changed = False
+        for prefix in _DOI_PREFIXES:
+            if text.startswith(prefix):
+                text = text[len(prefix) :].strip()
+                changed = True
+                break
+    return text
 
 
 def _shingled_tokens(text: str, k: int = 3) -> set[str]:
