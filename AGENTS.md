@@ -47,6 +47,7 @@ Public URL: `https://litreview.parthchandak.info` (Cloudflare Tunnel → local `
 - Scripts / ops commands -> `docs/SCRIPTS.md` or `./scripts/help.sh`
 - UX before/after screenshots -> [UX screenshot harness](#ux-screenshot-harness) below
 - Offline per-run LLM cost breakdown -> [Run cost summary CLI](#run-cost-summary-cli) below
+- Redraw a run's PRISMA figure from `runtime.db` -> [PRISMA regenerate CLI](#prisma-regenerate-cli) below
 
 ## Run cost summary CLI
 
@@ -93,6 +94,31 @@ python3 scripts/ux_screening_preview.py before-screening --workflow wf-0001
 ```
 
 How to test: unit contract in `tests/unit/test_ux_screenshot_harness_docs.py` (docs + CLI shape). Manual check: open files under `tmp/ux-shots/<label>/` after a capture. Full script index: `docs/SCRIPTS.md`.
+
+## PRISMA regenerate CLI
+
+Offline repair tool that recomputes PRISMA 2020 flow counts from a run's `runtime.db`, redraws `fig_prisma_flow.png`, and writes `prisma_counts.json` beside it. No network calls and no LLM spend. Use when the figure or sidecar drifted from DB truth (for example after a screening repair) without re-running the whole pipeline.
+
+| Piece | Role |
+|-------|------|
+| Entrypoint | `scripts/regenerate_prisma.py` (`--run`, optional `--dry-run`, `--run-root`) |
+| Implementation | `src/prisma/regenerate.py` (`regenerate_prisma`, `format_counts_diff`, `stale_manuscript_warning`) |
+| Data source | Live counts from the run `runtime.db`; compares against any existing `prisma_counts.json` sidecar |
+
+How to run:
+
+```bash
+# Preview old (sidecar) vs new (DB) counts; write nothing
+uv run python scripts/regenerate_prisma.py --run wf-XXXX --dry-run
+
+# Or point at a run directory / runtime.db path
+uv run python scripts/regenerate_prisma.py --run runs/<run_id>
+uv run python scripts/regenerate_prisma.py --run runs/<run_id>/runtime.db
+```
+
+`--dry-run` prints the count diff only. A real run also refreshes `submission/figures/fig_prisma_flow.png` when that copy exists. If `doc_manuscript.md` still quotes the old numbers, the CLI prints a stale-manuscript warning on stderr (it does not rewrite prose).
+
+How to test: unit contracts in `tests/unit/test_prisma_regenerate_docs.py` (docs + CLI shape) and `tests/unit/test_prisma_counts_automation.py` (regenerate behavior). Manual check: `--dry-run` on any finished run, confirm the printed old/new table, then omit `--dry-run` and open the rewritten figure. Full script index: `docs/SCRIPTS.md`.
 
 ## Hard Constraints
 
