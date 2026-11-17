@@ -78,17 +78,24 @@ def validate_doi_year(doi: str | None, cited_year: int | None) -> str | None:
 
 
 def normalize_doi(doi: str | None) -> str:
+    """Return a canonical ``https://doi.org/<bare>`` URL when possible.
+
+    Host matching is case-insensitive so ``DOI.org`` resolver URLs are not
+    re-prefixed. A leading ``doi:`` label may include whitespace after the colon.
+    """
     if not doi:
         return ""
     doi = doi.strip()
     if not doi:
         return ""
-    if doi.lower().startswith("https://doi.org/") or doi.lower().startswith("http://doi.org/"):
-        return f"https://doi.org/{doi.split('doi.org/', 1)[-1]}"
-    if doi.lower().startswith("doi.org/"):
-        return f"https://{doi}"
-    if doi.lower().startswith("doi:"):
-        return f"https://doi.org/{doi[4:].lstrip('/')}"
+    lower = doi.lower()
+    if lower.startswith(("https://doi.org/", "http://doi.org/", "doi.org/")):
+        bare = re.split(r"doi\.org/", doi, maxsplit=1, flags=re.IGNORECASE)[-1]
+        bare = bare.strip().lstrip("/")
+        return f"https://doi.org/{bare}" if bare else ""
+    if lower.startswith("doi:"):
+        bare = doi[4:].strip().lstrip("/")
+        return f"https://doi.org/{bare}" if bare else ""
     if doi.startswith("10."):
         return f"https://doi.org/{doi}"
     return doi
