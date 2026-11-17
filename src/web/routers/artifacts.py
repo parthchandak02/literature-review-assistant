@@ -739,7 +739,7 @@ async def fetch_pdfs_for_run(run_id: str) -> StreamingResponse:
                             source = ft_result.source if ft_result.success else "abstract"
                             if not ft_result.success and ft_result.error:
                                 error_msg = ft_result.error
-                    except Exception as exc:  # noqa: BLE001
+                    except Exception as exc:
                         error_msg = str(exc)
                         reason_code = "exception"
                         _logger.warning("fetch-pdfs: failed for %s: %s", paper_id, exc)

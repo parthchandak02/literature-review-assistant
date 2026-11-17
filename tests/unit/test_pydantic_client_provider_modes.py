@@ -19,7 +19,7 @@ class _FakeAgent:
     def __init__(self, _model: object, *, output_type: object, **_kwargs: object) -> None:
         _FakeAgent.captured_output_type = output_type
 
-    async def run(self, _prompt: object, *, model_settings: object) -> _FakeResult:  # noqa: ARG002
+    async def run(self, _prompt: object, *, model_settings: object) -> _FakeResult:
         return _FakeResult(output={"ok": True})
 
 

@@ -173,7 +173,7 @@ async def test_strategy_best_effort_continues_on_connector_error(tmp_path) -> No
         name = "openalex"
         source_category = SourceCategory.DATABASE
 
-        async def search(self, *args, **kwargs):  # noqa: ANN002, ANN003
+        async def search(self, *args, **kwargs):
             raise RuntimeError("simulated failure")
 
     async with get_db(str(tmp_path / "phase2_errors.db")) as db:

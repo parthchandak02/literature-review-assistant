@@ -75,7 +75,7 @@ async def write_prospero_artifacts(state: ReviewState, rc=None) -> Path:
             for _pid, _entry in (_manifest or {}).items():
                 if (_entry or {}).get("file_path"):
                     _fulltext_ids.add(str(_pid))
-        except Exception as _manifest_err:  # noqa: BLE001
+        except Exception as _manifest_err:
             logger.warning(
                 "FinalizeNode: could not derive fulltext IDs from papers manifest: %s",
                 _manifest_err,
@@ -86,7 +86,7 @@ async def write_prospero_artifacts(state: ReviewState, rc=None) -> Path:
             try:
                 _manifest = json.loads(_manifest_path.read_text(encoding="utf-8"))
                 _fulltext_retrieved = sum(1 for _entry in _manifest.values() if (_entry or {}).get("file_path"))
-            except Exception as _manifest_err:  # noqa: BLE001
+            except Exception as _manifest_err:
                 logger.warning(
                     "FinalizeNode: could not derive fulltext count from papers manifest: %s",
                     _manifest_err,
@@ -192,7 +192,7 @@ async def run_finalize_node(state: ReviewState, ctx: GraphRunContext[ReviewState
                 persist_assembly=True,
             )
             logger.info("FinalizeNode: wrote doc_manuscript.tex and references.bib")
-        except Exception as _tex_err:  # noqa: BLE001
+        except Exception as _tex_err:
             logger.warning("FinalizeNode: LaTeX artifact generation failed: %s", _tex_err)
             _finalize_errors.append(f"LaTeX artifact generation failed: {_tex_err}")
     else:
@@ -201,7 +201,7 @@ async def run_finalize_node(state: ReviewState, ctx: GraphRunContext[ReviewState
     if state.review and state.output_dir:
         try:
             await write_prospero_artifacts(state, rc)
-        except Exception as _pros_err:  # noqa: BLE001
+        except Exception as _pros_err:
             logger.warning("FinalizeNode: PROSPERO DOCX generation failed (non-fatal): %s", _pros_err)
 
     if state.workflow_id and state.run_root:
@@ -210,7 +210,7 @@ async def run_finalize_node(state: ReviewState, ctx: GraphRunContext[ReviewState
 
             await _pkg_sub(state.workflow_id, state.run_root)
             logger.info("FinalizeNode: submission/ pre-populated")
-        except Exception as _sub_err:  # noqa: BLE001
+        except Exception as _sub_err:
             logger.warning("FinalizeNode: submission pre-packaging failed: %s", _sub_err)
             _finalize_errors.append(f"submission pre-packaging failed: {_sub_err}")
 

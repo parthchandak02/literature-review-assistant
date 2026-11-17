@@ -9,7 +9,7 @@ from src.visualization.research_diagram_placement import plan_inline_diagram_pla
 @pytest.mark.asyncio
 async def test_plan_inline_diagram_placements_falls_back_when_agent_fails(monkeypatch: pytest.MonkeyPatch) -> None:
     class _Client:
-        async def complete_validated(self, *args, **kwargs):  # noqa: ANN002, ARG002
+        async def complete_validated(self, *args, **kwargs):
             raise RuntimeError("boom")
 
     monkeypatch.setattr(

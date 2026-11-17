@@ -338,7 +338,7 @@ async def render_custom_research_diagrams(
                     usage=drawing_usage,
                     latency_ms=int((monotonic() - started) * 1000),
                 )
-            except Exception as exc:  # noqa: BLE001
+            except Exception as exc:
                 logger.warning("Custom diagram generation failed (%s round %d): %s", brief.diagram_id, round_index, exc)
                 round_records.append(
                     DiagramGenerationRound(
@@ -381,7 +381,7 @@ async def render_custom_research_diagrams(
                     usage=critique_usage,
                     latency_ms=int((monotonic() - critique_started) * 1000),
                 )
-            except Exception as exc:  # noqa: BLE001
+            except Exception as exc:
                 logger.warning("Diagram critic failed (%s round %d): %s", brief.diagram_id, round_index, exc)
                 generation_round.critique = DiagramCritiqueResult(
                     style_score=0.55,
@@ -424,7 +424,7 @@ async def render_custom_research_diagrams(
         try:
             Path(best_result.output_path).replace(final_path)
             best_result = best_result.model_copy(update={"output_path": str(final_path)})
-        except Exception:  # noqa: BLE001
+        except Exception:
             logger.debug("Could not normalize final filename for %s", brief.diagram_id, exc_info=True)
 
         if not (
