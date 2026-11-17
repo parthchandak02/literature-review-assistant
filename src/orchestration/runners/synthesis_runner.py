@@ -118,7 +118,16 @@ def _try_meta_analysis(
             variances=variances,
             heterogeneity_threshold=het_threshold,
         )
-    except Exception:
+    except Exception as exc:
+        logger.warning(
+            "Meta-analysis pooling failed for outcome=%s measure=%s n_studies=%d: %s: %s",
+            outcome_name,
+            effect_measure,
+            len(effects),
+            type(exc).__name__,
+            exc,
+            exc_info=True,
+        )
         return None, None, None
 
     rendered_forest: str | None = None
@@ -133,8 +142,17 @@ def _try_meta_analysis(
             title=f"Forest plot: {outcome_name} ({effect_measure})",
         )
         meta_result = meta_result.model_copy(update={"forest_plot_path": rendered_forest})
-    except Exception:
-        pass
+    except Exception as exc:
+        logger.warning(
+            "Forest plot render failed for outcome=%s measure=%s n_studies=%d path=%s: %s: %s",
+            outcome_name,
+            effect_measure,
+            len(effects),
+            forest_path,
+            type(exc).__name__,
+            exc,
+            exc_info=True,
+        )
 
     if len(effects) >= funnel_min_studies:
         try:
@@ -149,8 +167,17 @@ def _try_meta_analysis(
             )
             if rendered_funnel:
                 meta_result = meta_result.model_copy(update={"funnel_plot_path": rendered_funnel})
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.warning(
+                "Funnel plot render failed for outcome=%s measure=%s n_studies=%d path=%s: %s: %s",
+                outcome_name,
+                effect_measure,
+                len(effects),
+                funnel_path,
+                type(exc).__name__,
+                exc,
+                exc_info=True,
+            )
 
     return meta_result, rendered_forest, rendered_funnel
 
