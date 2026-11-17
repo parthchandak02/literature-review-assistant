@@ -46,6 +46,31 @@ Public URL: `https://litreview.parthchandak.info` (Cloudflare Tunnel → local `
 - Validation/readiness -> `docs/TASKS.md`
 - Scripts / ops commands -> `docs/SCRIPTS.md` or `./scripts/help.sh`
 - UX before/after screenshots -> [UX screenshot harness](#ux-screenshot-harness) below
+- Offline per-run LLM cost breakdown -> [Run cost summary CLI](#run-cost-summary-cli) below
+
+## Run cost summary CLI
+
+Offline operator tool for a single run's LLM spend. Reads `cost_records` from that run's `runtime.db`, prints per-model/phase rows, then a provider-family rollup. No network calls and no writes.
+
+| Piece | Role |
+|-------|------|
+| Entrypoint | `scripts/review.py info` with `--costs` |
+| Implementation | `scripts/lib/diag_costs.py` (`run_costs` / `summarize`); call only via the entrypoint |
+| Data source | Canonical `cost_records` table in the resolved `runtime.db` |
+
+How to run:
+
+```bash
+# By workflow id (resolves db_path from workflows_registry.db under runs/)
+uv run python scripts/review.py info --workflow-id wf-XXXX --costs
+
+# Or point at a run directory that contains runtime.db
+uv run python scripts/review.py info --run-dir runs/<run_id> --costs
+```
+
+Optional: omit `--costs` for the usual Rich diagnostic tables only. For dashboard/API aggregates across many runs, use Settings → Costs (`CostsPanel`) or `GET /api/history/costs/aggregates` (see `docs/ARCHITECTURE.md#llm-and-costs`).
+
+How to test: unit contract in `tests/unit/test_review_costs_docs.py` (docs + CLI flag shape). Manual check: run the commands above against any finished run and confirm model/phase rows and the "By provider family" section print. Full script index: `docs/SCRIPTS.md`.
 
 ## UX screenshot harness
 
