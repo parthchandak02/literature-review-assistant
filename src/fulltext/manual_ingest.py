@@ -45,11 +45,26 @@ def manual_pdf_directory() -> Path | None:
     return path if path.is_dir() else None
 
 
+_DOI_PREFIXES = (
+    "https://dx.doi.org/",
+    "http://dx.doi.org/",
+    "https://doi.org/",
+    "http://doi.org/",
+    "doi:",
+)
+
+
 def _normalize_doi(doi: str) -> str:
-    bare = doi.strip()
-    if "doi.org/" in bare.lower():
-        bare = bare.split("doi.org/", 1)[-1]
-    return bare.lower().rstrip(".")
+    bare = (doi or "").strip().lower()
+    changed = True
+    while bare and changed:
+        changed = False
+        for prefix in _DOI_PREFIXES:
+            if bare.startswith(prefix):
+                bare = bare[len(prefix) :].strip()
+                changed = True
+                break
+    return bare.rstrip(".")
 
 
 def _rebuild_index(directory: Path) -> dict[str, Path]:

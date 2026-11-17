@@ -30,6 +30,12 @@ def test_manual_ingest_finds_pdf_by_doi_in_filename(manual_pdf_dir: Path) -> Non
     assert path.name == "10.1016_j.jamda.2024.01.014.pdf"
 
 
+def test_manual_ingest_finds_pdf_when_lookup_has_doi_label(manual_pdf_dir: Path) -> None:
+    path = find_manual_pdf_path("doi:10.1016/j.jamda.2024.01.014")
+    assert path is not None
+    assert path.name == "10.1016_j.jamda.2024.01.014.pdf"
+
+
 def test_manual_ingest_loads_pdf_bytes(manual_pdf_dir: Path) -> None:
     body = load_manual_pdf_bytes("10.1016/j.jamda.2024.01.014")
     assert body is not None
