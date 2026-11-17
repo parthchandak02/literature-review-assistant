@@ -44,6 +44,8 @@ Monitor workflow stage (cron-friendly)       uv run python scripts/review.py wat
 
 Show run diagnostics                         uv run python scripts/review.py info \\
                                                --workflow-id wf-XXXX
+Show run diagnostics + LLM cost summary      uv run python scripts/review.py info \\
+  (offline; reads cost_records only)           --workflow-id wf-XXXX --costs
 
 Fix manuscript sections on an old run        uv run python scripts/repair.py finalize \\
                                                --run-dir runs/<run_id>
