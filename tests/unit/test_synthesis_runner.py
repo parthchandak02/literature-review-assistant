@@ -230,7 +230,9 @@ def test_try_meta_analysis_returns_none_without_two_positive_variances(
     assert captured["forest"] == []
 
 
-def test_try_meta_analysis_drops_result_when_pooling_fails(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_try_meta_analysis_drops_result_when_pooling_fails(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
     captured = _patch_plots(monkeypatch)
 
     def _boom(*_args, **_kwargs):
@@ -238,20 +240,30 @@ def test_try_meta_analysis_drops_result_when_pooling_fails(monkeypatch: pytest.M
 
     monkeypatch.setattr(f"{_RUNNER}.pool_effects", _boom)
 
-    result, forest, funnel = _try_meta_analysis(
-        _pair("0.2", "0.3", se="0.1"),
-        outcome_name="exam_score",
-        het_threshold=40.0,
-        effect_measure="mean_difference",
-        forest_path="forest.png",
-        funnel_path="funnel.png",
-    )
+    with caplog.at_level("WARNING", logger=_RUNNER):
+        result, forest, funnel = _try_meta_analysis(
+            _pair("0.2", "0.3", se="0.1"),
+            outcome_name="exam_score",
+            het_threshold=40.0,
+            effect_measure="mean_difference",
+            forest_path="forest.png",
+            funnel_path="funnel.png",
+        )
 
     assert (result, forest, funnel) == (None, None, None)
     assert captured["forest"] == []
+    pooling_warnings = [r for r in caplog.records if "Meta-analysis pooling failed" in r.message]
+    assert len(pooling_warnings) == 1
+    assert "outcome=exam_score" in pooling_warnings[0].message
+    assert "measure=mean_difference" in pooling_warnings[0].message
+    assert "n_studies=2" in pooling_warnings[0].message
+    assert "RuntimeError" in pooling_warnings[0].message
+    assert "statsmodels failed" in pooling_warnings[0].message
 
 
-def test_try_meta_analysis_keeps_pooled_result_when_a_plot_fails(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_try_meta_analysis_keeps_pooled_result_when_a_plot_fails(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
     _patch_plots(monkeypatch)
 
     def _forest_ok(*_args, **_kwargs):
@@ -264,37 +276,52 @@ def test_try_meta_analysis_keeps_pooled_result_when_a_plot_fails(monkeypatch: py
         raise OSError("disk full")
 
     monkeypatch.setattr(f"{_RUNNER}.render_forest_plot", _forest_fails)
-    result, forest, funnel = _try_meta_analysis(
-        _pair("0.2", "0.3", se="0.1"),
-        outcome_name="exam_score",
-        het_threshold=40.0,
-        effect_measure="mean_difference",
-        forest_path="forest.png",
-        funnel_path="funnel.png",
-        funnel_min_studies=2,
-    )
+    with caplog.at_level("WARNING", logger=_RUNNER):
+        result, forest, funnel = _try_meta_analysis(
+            _pair("0.2", "0.3", se="0.1"),
+            outcome_name="exam_score",
+            het_threshold=40.0,
+            effect_measure="mean_difference",
+            forest_path="forest.png",
+            funnel_path="funnel.png",
+            funnel_min_studies=2,
+        )
     assert result is not None
     assert result.forest_plot_path is None
     assert result.funnel_plot_path == "funnel.png"
     assert forest is None
     assert funnel == "funnel.png"
+    forest_warnings = [r for r in caplog.records if "Forest plot render failed" in r.message]
+    assert len(forest_warnings) == 1
+    assert "outcome=exam_score" in forest_warnings[0].message
+    assert "path=forest.png" in forest_warnings[0].message
+    assert "OSError" in forest_warnings[0].message
+    assert "disk full" in forest_warnings[0].message
 
+    caplog.clear()
     monkeypatch.setattr(f"{_RUNNER}.render_forest_plot", _forest_ok)
     monkeypatch.setattr(f"{_RUNNER}.render_funnel_plot", _funnel_fails)
-    result, forest, funnel = _try_meta_analysis(
-        _pair("0.2", "0.3", se="0.1"),
-        outcome_name="exam_score",
-        het_threshold=40.0,
-        effect_measure="mean_difference",
-        forest_path="forest.png",
-        funnel_path="funnel.png",
-        funnel_min_studies=2,
-    )
+    with caplog.at_level("WARNING", logger=_RUNNER):
+        result, forest, funnel = _try_meta_analysis(
+            _pair("0.2", "0.3", se="0.1"),
+            outcome_name="exam_score",
+            het_threshold=40.0,
+            effect_measure="mean_difference",
+            forest_path="forest.png",
+            funnel_path="funnel.png",
+            funnel_min_studies=2,
+        )
     assert result is not None
     assert result.forest_plot_path == "forest.png"
     assert result.funnel_plot_path is None
     assert forest == "forest.png"
     assert funnel is None
+    funnel_warnings = [r for r in caplog.records if "Funnel plot render failed" in r.message]
+    assert len(funnel_warnings) == 1
+    assert "outcome=exam_score" in funnel_warnings[0].message
+    assert "path=funnel.png" in funnel_warnings[0].message
+    assert "OSError" in funnel_warnings[0].message
+    assert "disk full" in funnel_warnings[0].message
 
 
 def _narrative() -> NarrativeSynthesis:
