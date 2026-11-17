@@ -155,7 +155,7 @@ async def _render_mermaid_via_kroki(mermaid_source: str, out_path: Path) -> Path
                 svg_bytes = await resp.read()
         out_path.write_bytes(svg_bytes)
         return out_path
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         logger.warning("Kroki render failed (%s); skipping flowchart diagram.", exc)
         return None
 
@@ -227,7 +227,7 @@ async def render_taxonomy_diagram(
             return None
         loop = asyncio.get_running_loop()
         return await loop.run_in_executor(None, _render_dot_to_svg, dot_source, out_path)
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         logger.warning("Taxonomy diagram generation failed (%s); skipping.", exc)
         return None
 
@@ -304,7 +304,7 @@ async def render_framework_diagram(
             return None
         loop = asyncio.get_running_loop()
         return await loop.run_in_executor(None, _render_dot_to_svg, dot_source, out_path)
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         logger.warning("Framework diagram generation failed (%s); skipping.", exc)
         return None
 
@@ -373,7 +373,7 @@ async def render_flowchart_diagram(
             logger.warning("LLM flowchart output does not look like Mermaid; skipping.")
             return None
         return await _render_mermaid_via_kroki(mermaid_source, out_path)
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         logger.warning("Flowchart diagram generation failed (%s); skipping.", exc)
         return None
 

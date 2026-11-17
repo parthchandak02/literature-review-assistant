@@ -642,7 +642,7 @@ async def run_post_assembly(
         logger.warning("Concept diagram generation timed out after 180s -- skipping")
     except asyncio.CancelledError:
         logger.warning("Concept diagram generation cancelled -- skipping")
-    except Exception as _cd_exc:  # noqa: BLE001
+    except Exception as _cd_exc:
         logger.warning("Concept diagram generation failed: %s", _cd_exc)
     else:
         await save_subphase_checkpoint("phase_6e_concepts", papers_processed=len(SECTIONS))
@@ -657,7 +657,7 @@ async def run_post_assembly(
         if _manifest_path.exists():
             try:
                 _manifest_entries = json.loads(_manifest_path.read_text(encoding="utf-8"))
-            except Exception as _manifest_exc:  # noqa: BLE001
+            except Exception as _manifest_exc:
                 logger.warning("Custom diagram: invalid papers manifest: %s", _manifest_exc)
 
         async with get_db(state.db_path) as _dg_db:
@@ -744,7 +744,7 @@ async def run_post_assembly(
                     temperature=_placement_agent.temperature,
                     provider=_dg_provider,
                 )
-            except Exception as _placement_exc:  # noqa: BLE001
+            except Exception as _placement_exc:
                 logger.warning("Custom diagram placement planning failed: %s", _placement_exc)
             _placement_path = Path(state.artifacts.get("diagram_placement_plan", ""))
             if _placement_path.name:
@@ -811,7 +811,7 @@ async def run_post_assembly(
         logger.warning("Custom diagram generation timed out -- skipping")
     except asyncio.CancelledError:
         logger.warning("Custom diagram generation cancelled -- skipping")
-    except Exception as _custom_diag_exc:  # noqa: BLE001
+    except Exception as _custom_diag_exc:
         logger.warning("Custom diagram generation failed: %s", _custom_diag_exc)
 
     # --- Re-assemble manuscript with concept diagram SVGs ---
@@ -841,5 +841,5 @@ async def run_post_assembly(
         )
         manuscript_path.write_text(patched, encoding="utf-8")
         logger.info("WritingNode: manuscript patched with concept diagram figures")
-    except Exception as _patch_exc:  # noqa: BLE001
+    except Exception as _patch_exc:
         logger.warning("WritingNode: concept diagram manuscript patch failed (non-fatal): %s", _patch_exc)

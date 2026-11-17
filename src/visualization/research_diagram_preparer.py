@@ -282,7 +282,7 @@ async def prepare_research_diagram_briefs(
                 cache_write_tokens=cache_write,
             )
         return normalized, usage
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         logger.warning("Diagram preparer failed for %s, using fallback briefs: %s", workflow_id, exc)
         return (
             _fallback_brief_pack(

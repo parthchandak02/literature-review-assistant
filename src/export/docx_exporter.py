@@ -37,7 +37,7 @@ def _convert_svg_to_png(svg_path: Path, png_path: Path) -> None:
             text=True,
         )
         return
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         raise RuntimeError(f"conversion from SVG failed: {exc}") from exc
 
 
@@ -67,7 +67,7 @@ def _rewrite_svg_image_links_for_docx(markdown: str, source_dir: Path, work_dir:
         png_path = work_dir / png_name
         try:
             _convert_svg_to_png(svg_path, png_path)
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             logger.warning('Could not convert image %s: "%s"', path_token, exc)
             return f"*Figure omitted in DOCX export (SVG conversion failed): {Path(path_token).name}*"
         converted[path_token] = png_name

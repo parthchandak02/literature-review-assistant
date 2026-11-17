@@ -186,7 +186,7 @@ async def plan_inline_diagram_placements(
                 cache_write_tokens=cache_write,
             )
         return DiagramPlacementPlan(workflow_id=workflow_id, decisions=decisions, warnings=warnings), usage
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         logger.warning("Diagram placement planner failed; using deterministic fallback: %s", exc)
         fallback: list[DiagramPlacementDecision] = []
         for brief in brief_pack.diagrams:

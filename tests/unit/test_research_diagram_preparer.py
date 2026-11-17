@@ -9,7 +9,7 @@ from src.visualization import research_diagram_preparer as preparer
 @pytest.mark.asyncio
 async def test_prepare_research_diagram_briefs_falls_back_on_client_error(monkeypatch: pytest.MonkeyPatch) -> None:
     class _Client:
-        async def complete_validated(self, *args, **kwargs):  # noqa: ANN002, ARG002
+        async def complete_validated(self, *args, **kwargs):
             raise RuntimeError("forced failure")
 
     monkeypatch.setattr(preparer, "get_chat_client", lambda: _Client())
@@ -57,7 +57,7 @@ async def test_prepare_research_diagram_briefs_normalizes_returned_pack(monkeypa
     )
 
     class _Client:
-        async def complete_validated(self, *args, **kwargs):  # noqa: ANN002, ARG002
+        async def complete_validated(self, *args, **kwargs):
             return fake, 10, 20, 1, 2, 0
 
     monkeypatch.setattr(preparer, "get_chat_client", lambda: _Client())

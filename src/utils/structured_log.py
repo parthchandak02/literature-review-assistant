@@ -104,8 +104,8 @@ async def shutdown_log_writer() -> None:
 
 
 def _write_to_run_file(
-    logger: Any,  # noqa: ARG001
-    method: str,  # noqa: ARG001
+    logger: Any,
+    method: str,
     event_dict: EventDict,
 ) -> EventDict:
     """structlog processor: write JSON line to the current run's app.jsonl.
@@ -141,7 +141,7 @@ def configure_run_logging(log_dir: str) -> None:
     if log_dir not in _file_handles:
         app_log_path = Path(log_dir) / "app.jsonl"
         app_log_path.parent.mkdir(parents=True, exist_ok=True)
-        _file_handles[log_dir] = open(app_log_path, "a", encoding="utf-8")  # noqa: SIM115
+        _file_handles[log_dir] = open(app_log_path, "a", encoding="utf-8")
 
     if not _structlog_configured:
         processors: list[Processor] = [

@@ -29,13 +29,13 @@ def _resolve_repo_root() -> Path:
 REPO_ROOT = _resolve_repo_root()
 sys.path.insert(0, str(REPO_ROOT))
 
-from src.db.workflow_registry import (  # noqa: E402
+from src.db.workflow_registry import (
     candidate_run_roots,
     find_by_workflow_id,
     find_by_workflow_id_fallback,
     resolve_workflow_db_path,
 )
-from src.utils.structured_log import load_events_from_jsonl  # noqa: E402
+from src.utils.structured_log import load_events_from_jsonl
 
 FOLLOW_EVENT_TYPES = {"phase_start", "phase_done", "error", "done", "cancelled"}
 
