@@ -4,13 +4,14 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import Any
+from unittest.mock import AsyncMock, patch
 
 import pytest
 from fastapi import HTTPException
 
 from src.db.workflow_registry import register
 from src.web.lifecycle_reconciler import LifecycleReconciler
-from src.web.run_resolver import RunResolver, resolve_runtime_db
+from src.web.run_resolver import RunResolver, resolve_registry_entry, resolve_runtime_db
 
 
 @dataclass
@@ -72,7 +73,9 @@ async def test_resolve_db_path_non_workflow_identifier_raises_404() -> None:
     with pytest.raises(HTTPException) as exc:
         await resolver.resolve_db_path("not-a-workflow")
     assert exc.value.status_code == 404
-    assert exc.value.detail == "Run not found"
+    assert "not-a-workflow" in str(exc.value.detail)
+    assert "Run not found" in str(exc.value.detail)
+    assert "wf-*" in str(exc.value.detail)
 
 
 @pytest.mark.asyncio
@@ -98,6 +101,7 @@ async def test_resolve_db_path_missing_workflow_raises_404(tmp_path) -> None:
     with pytest.raises(HTTPException) as exc:
         await resolver.resolve_db_path("wf-missing", str(tmp_path))
     assert exc.value.status_code == 404
+    assert exc.value.detail == "Run not found for workflow_id 'wf-missing'"
 
 
 @pytest.mark.asyncio
@@ -149,3 +153,39 @@ async def test_reconcile_effective_status_missing_workflow_raises_404(tmp_path) 
     with pytest.raises(HTTPException) as exc:
         await resolver.reconcile_effective_status("wf-missing", str(tmp_path))
     assert exc.value.status_code == 404
+    assert exc.value.detail == "Workflow not found for workflow_id 'wf-missing'"
+
+
+@pytest.mark.asyncio
+async def test_load_registry_row_logs_when_open_fails(tmp_path, caplog) -> None:
+    run_root = str(tmp_path)
+    registry = tmp_path / "workflows_registry.db"
+    registry.write_text("not-a-sqlite-db")
+    resolver = _make_resolver()
+    with caplog.at_level("WARNING", logger="src.web.run_resolver"):
+        row = await resolver._load_registry_row("wf-broken", run_root)
+    assert row is None
+    assert any(
+        "Failed to load registry row" in record.message
+        and "wf-broken" in record.message
+        and "run_root=" in record.message
+        for record in caplog.records
+    )
+
+
+@pytest.mark.asyncio
+async def test_resolve_registry_entry_missing_includes_workflow_id(tmp_path) -> None:
+    with (
+        patch(
+            "src.web.run_resolver.find_by_workflow_id",
+            new=AsyncMock(return_value=None),
+        ),
+        patch(
+            "src.web.run_resolver.find_by_workflow_id_fallback",
+            new=AsyncMock(return_value=None),
+        ),
+    ):
+        with pytest.raises(HTTPException) as exc:
+            await resolve_registry_entry("wf-absent", str(tmp_path))
+    assert exc.value.status_code == 404
+    assert exc.value.detail == "Workflow not found in registry for workflow_id 'wf-absent'"

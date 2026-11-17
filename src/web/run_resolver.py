@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import pathlib
 from typing import Any
 
@@ -18,6 +19,8 @@ from src.db.workflow_registry import (
 )
 from src.db.workflow_registry import _open_registry as _open_registry_db
 from src.web.lifecycle_reconciler import LifecycleReconciler
+
+_logger = logging.getLogger(__name__)
 
 _REGISTRY_ROW_COLUMNS = """
     workflow_id, topic, status, db_path,
@@ -67,11 +70,19 @@ class RunResolver:
             return record.db_path
 
         if not identifier.startswith("wf-"):
-            raise HTTPException(status_code=404, detail="Run not found")
+            raise HTTPException(
+                status_code=404,
+                detail=(
+                    f"Run not found for identifier {identifier!r} (expected an active run id or a wf-* workflow id)"
+                ),
+            )
 
         db_path = await self.resolve_registry_db_path(identifier, run_root)
         if not db_path:
-            raise HTTPException(status_code=404, detail="Run not found")
+            raise HTTPException(
+                status_code=404,
+                detail=f"Run not found for workflow_id {identifier!r}",
+            )
         return db_path
 
     async def resolve_registry_db_path(self, workflow_id: str, run_root: str = "runs") -> str | None:
@@ -94,7 +105,10 @@ class RunResolver:
         if resolved_row is None:
             resolved_row = await self._load_registry_row(workflow_id, run_root)
             if resolved_row is None:
-                raise HTTPException(status_code=404, detail="Workflow not found")
+                raise HTTPException(
+                    status_code=404,
+                    detail=f"Workflow not found for workflow_id {workflow_id!r}",
+                )
 
         if live_run_id is None:
             live_run_id = self.live_run_id_for_workflow(workflow_id)
@@ -118,7 +132,16 @@ class RunResolver:
                     (workflow_id,),
                 ) as cur:
                     return await cur.fetchone()
-        except Exception:
+        except Exception as exc:
+            _logger.warning(
+                "Failed to load registry row for workflow_id=%s run_root=%s registry=%s: %s: %s",
+                workflow_id,
+                run_root,
+                registry,
+                type(exc).__name__,
+                exc,
+                exc_info=True,
+            )
             return None
 
 
@@ -152,5 +175,8 @@ async def resolve_registry_entry(
     if entry is None:
         entry = await find_by_workflow_id_fallback(effective_root, workflow_id)
     if entry is None:
-        raise HTTPException(status_code=404, detail="Workflow not found in registry")
+        raise HTTPException(
+            status_code=404,
+            detail=f"Workflow not found in registry for workflow_id {workflow_id!r}",
+        )
     return entry
