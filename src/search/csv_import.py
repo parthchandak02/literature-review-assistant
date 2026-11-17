@@ -153,10 +153,11 @@ def _parse_year(raw: str) -> int | None:
 
 
 def _clean_doi(raw: str) -> str | None:
-    """Strip whitespace and 'https://doi.org/' prefix from DOI."""
+    """Strip whitespace, resolver URLs, and a leading ``doi:`` label."""
     cleaned = (raw or "").strip()
-    cleaned = re.sub(r"^https?://doi\.org/", "", cleaned)
-    cleaned = re.sub(r"^https?://dx\.doi\.org/", "", cleaned)
+    cleaned = re.sub(r"^https?://(?:dx\.)?doi\.org/", "", cleaned, flags=re.IGNORECASE)
+    cleaned = re.sub(r"^doi:\s*", "", cleaned, flags=re.IGNORECASE)
+    cleaned = cleaned.strip()
     return cleaned if cleaned else None
 
 

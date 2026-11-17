@@ -404,14 +404,31 @@ async def _fetch_semanticscholar(doi: str, diagnostics: list[str] | None = None)
 # ---------------------------------------------------------------------------
 
 
+_DOI_PREFIXES = (
+    "https://dx.doi.org/",
+    "http://dx.doi.org/",
+    "https://doi.org/",
+    "http://doi.org/",
+    "doi:",
+)
+
+
 def _normalize_doi(doi: str) -> str:
-    """Return bare DOI (e.g. 10.1016/j.test.2024.01.001) for API queries."""
-    if not doi:
-        return ""
-    s = doi.strip()
-    if "doi.org/" in s.lower():
-        s = s.split("doi.org/")[-1]
-    return s
+    """Return bare DOI (e.g. 10.1016/j.test.2024.01.001) for API queries.
+
+    Strips resolver URLs and a leading ``doi:`` label, matching search
+    deduplication so Unpaywall / S2 / CORE / Crossref get a bare token.
+    """
+    text = (doi or "").strip().lower()
+    changed = True
+    while text and changed:
+        changed = False
+        for prefix in _DOI_PREFIXES:
+            if text.startswith(prefix):
+                text = text[len(prefix) :].strip()
+                changed = True
+                break
+    return text
 
 
 async def _fetch_core(doi: str, api_key: str, diagnostics: list[str] | None = None) -> FullTextResult | None:

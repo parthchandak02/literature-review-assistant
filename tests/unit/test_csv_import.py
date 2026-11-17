@@ -7,8 +7,23 @@ import pytest
 
 from src.models.enums import SourceCategory
 from src.models.papers import CandidatePaper
-from src.search.csv_import import parse_masterlist_csv, validate_csv_file
+from src.search.csv_import import _clean_doi, parse_masterlist_csv, validate_csv_file
 from src.search.deduplication import deduplicate_papers
+
+
+@pytest.mark.parametrize(
+    ("raw", "expected"),
+    [
+        ("doi:10.1000/xyz", "10.1000/xyz"),
+        ("DOI:10.1000/XYZ", "10.1000/XYZ"),
+        ("https://doi.org/10.1000/abc", "10.1000/abc"),
+        ("https://dx.doi.org/10.1000/abc", "10.1000/abc"),
+        ("10.1000/abc", "10.1000/abc"),
+        ("", None),
+    ],
+)
+def test_clean_doi_strips_label_and_resolver_urls(raw: str, expected: str | None) -> None:
+    assert _clean_doi(raw) == expected
 
 
 def test_parse_masterlist_csv_parses_scopus_headers(tmp_path: Path) -> None:
