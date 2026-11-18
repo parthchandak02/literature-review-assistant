@@ -26,6 +26,13 @@ logger = logging.getLogger(__name__)
 # Gemini 2.5 Pro supports 1M tokens; 32K chars is well within budget and
 # covers most academic papers (8-15 pages ~ 24K-45K chars).
 _PDF_MAX_CHARS = DEFAULT_PDF_MAX_CHARS
+_DOI_PREFIXES = (
+    "https://dx.doi.org/",
+    "http://dx.doi.org/",
+    "https://doi.org/",
+    "http://doi.org/",
+    "doi:",
+)
 
 
 class PDFRetrievalResult(BaseModel):
@@ -462,10 +469,23 @@ class PDFRetriever:
 
     @staticmethod
     def _bare_doi(doi: str) -> str:
-        """Strip https://doi.org/ prefix to get the bare DOI for API queries."""
-        if "doi.org/" in doi.lower():
-            doi = doi.split("doi.org/")[-1]
-        return doi.strip()
+        """Return a bare DOI token for Unpaywall / Semantic Scholar queries.
+
+        Strips resolver URLs (case-insensitive) and a leading ``doi:`` label so
+        mixed-case hosts like ``https://DOI.org/10.x`` and labels like
+        ``doi:10.x`` do not leak into API paths.
+        """
+        text = (doi or "").strip()
+        changed = True
+        while text and changed:
+            changed = False
+            folded = text.lower()
+            for prefix in _DOI_PREFIXES:
+                if folded.startswith(prefix):
+                    text = text[len(prefix) :].strip()
+                    changed = True
+                    break
+        return text
 
     async def _resolve_unpaywall(self, doi: str) -> str | None:
         email = get_env("CROSSREF_EMAIL") or get_env("PUBMED_EMAIL") or "unknown@example.com"
