@@ -13,3 +13,9 @@ def test_ruff_select_includes_unused_noqa() -> None:
     data = tomllib.loads(PYPROJECT_PATH.read_text(encoding="utf-8"))
     select = data["tool"]["ruff"]["lint"]["select"]
     assert "RUF100" in select
+
+
+def test_ruff_select_includes_asyncio_dangling_task() -> None:
+    data = tomllib.loads(PYPROJECT_PATH.read_text(encoding="utf-8"))
+    select = data["tool"]["ruff"]["lint"]["select"]
+    assert "RUF006" in select
