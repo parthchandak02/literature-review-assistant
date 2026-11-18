@@ -60,6 +60,23 @@ async def test_retrieve_batch_normalizes_unexpected_exception():
     assert "boom" in (results["p-1"].error or "")
 
 
+@pytest.mark.parametrize(
+    ("raw", "expected"),
+    [
+        ("https://DOI.org/10.1186/s12909-025-06913-5", "10.1186/s12909-025-06913-5"),
+        ("http://Dx.DOI.org/10.1186/s12909-025-06913-5", "10.1186/s12909-025-06913-5"),
+        ("doi:10.1186/s12909-025-06913-5", "10.1186/s12909-025-06913-5"),
+        ("DOI: 10.1186/s12909-025-06913-5", "10.1186/s12909-025-06913-5"),
+        ("https://doi.org/10.1186/s12909-025-06913-5", "10.1186/s12909-025-06913-5"),
+        ("10.1186/s12909-025-06913-5", "10.1186/s12909-025-06913-5"),
+        ("", ""),
+    ],
+)
+def test_bare_doi_strips_mixed_case_resolver_and_doi_label(raw: str, expected: str) -> None:
+    """Unpaywall/S2 need a bare token; mixed-case hosts and doi: labels must not leak."""
+    assert PDFRetriever._bare_doi(raw) == expected
+
+
 def test_infer_reason_code_cookie_wall() -> None:
     reason = PDFRetriever._infer_reason_code(
         "abstract",
