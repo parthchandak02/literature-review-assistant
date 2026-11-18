@@ -165,7 +165,13 @@ async def humanize_async(
                 return text
         return refined
     except Exception as exc:
-        logger.warning("Humanizer LLM call failed (%s); returning original text.", type(exc).__name__)
+        logger.warning(
+            "Humanizer LLM call failed for section '%s' model=%s (%s: %s); returning original text.",
+            section or "unknown",
+            model,
+            type(exc).__name__,
+            exc,
+        )
         return text
 
 
