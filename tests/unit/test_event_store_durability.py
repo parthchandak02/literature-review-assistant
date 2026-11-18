@@ -97,6 +97,32 @@ async def test_append_schedules_tracked_flush_task(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
+async def test_append_keeps_strong_ref_to_notify_task() -> None:
+    """Non-durable appends must retain the notify task until it finishes (RUF006)."""
+    store = EventStore()
+    record = _StubRecord()
+    started = asyncio.Event()
+    release = asyncio.Event()
+
+    async def slow_notify(rec: _StubRecord) -> None:
+        started.set()
+        await release.wait()
+        async with rec._event_cond:
+            rec._event_cond.notify_all()
+
+    with patch.object(store, "notify", side_effect=slow_notify):
+        store.append(record, {"type": "progress", "msg": "x"})
+        await started.wait()
+        key = id(record)
+        pending = store._flush_tasks.get(key, set())
+        assert len(pending) == 1
+        assert not next(iter(pending)).done()
+        release.set()
+        await store.await_pending_flushes(record, timeout=5.0)
+        assert key not in store._flush_tasks
+
+
+@pytest.mark.asyncio
 async def test_failed_flush_retries_on_next_flush(tmp_path: Path) -> None:
     store = EventStore()
     db_path = tmp_path / "runtime.db"

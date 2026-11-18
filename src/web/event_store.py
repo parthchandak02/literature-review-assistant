@@ -158,7 +158,9 @@ class EventStore:
         event["durability"] = "durable" if event_type in DURABLE_EVENT_TYPES else "eventual"
         record.event_log.append(event)
         try:
-            asyncio.create_task(self.notify(record))
+            # Keep a strong ref so the waiter wake-up is not GC'd mid-flight (RUF006).
+            notify_task = asyncio.create_task(self.notify(record))
+            self._register_flush_task(record, notify_task)
         except Exception:
             pass
         if event_type in DURABLE_EVENT_TYPES:
