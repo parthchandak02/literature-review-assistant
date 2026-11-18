@@ -322,7 +322,12 @@ class RunLifecycleCoordinator:
         )
 
         if not is_under_any(pathlib.Path(req.db_path), _attachable_roots()):
-            raise HTTPException(status_code=400, detail="Invalid database path")
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    f"Invalid database path: {req.db_path!r} is outside allowed attachable run roots"
+                ),
+            )
         _validate_db_path(req.db_path)
         resolved = await self.resolve_workflow(req.workflow_id, db_path_hint=req.db_path)
 

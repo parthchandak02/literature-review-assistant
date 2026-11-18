@@ -159,7 +159,7 @@ def _validate_db_path(path: str, run_root: str | None = None) -> pathlib.Path:
 
     When *run_root* is provided, the resolved path must be under that directory.
     Always requires the path to end with ``.db`` and exist on disk.
-    Raises HTTPException(400) on validation failure.
+    Raises HTTPException(400) on validation failure with a reason-specific detail.
     """
     resolved = pathlib.Path(path).resolve()
     if run_root is not None:
@@ -167,11 +167,25 @@ def _validate_db_path(path: str, run_root: str | None = None) -> pathlib.Path:
         try:
             resolved.relative_to(root)
         except ValueError:
-            raise HTTPException(status_code=400, detail="Invalid database path")
-    if not resolved.suffix == ".db":
-        raise HTTPException(status_code=400, detail="Invalid database path")
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    f"Invalid database path: {str(resolved)!r} is outside run root {str(root)!r}"
+                ),
+            ) from None
+    if resolved.suffix != ".db":
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"Invalid database path: {str(resolved)!r} must end with .db "
+                f"(got suffix {resolved.suffix!r})"
+            ),
+        )
     if not resolved.is_file():
-        raise HTTPException(status_code=400, detail="Invalid database path")
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid database path: {str(resolved)!r} does not exist or is not a file",
+        )
     return resolved
 
 

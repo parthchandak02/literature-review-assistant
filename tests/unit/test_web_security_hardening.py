@@ -158,6 +158,10 @@ async def test_attach_history_rejects_db_outside_run_roots(only_tmp_runs_root: p
     with pytest.raises(HTTPException) as exc:
         await _lifecycle_coordinator.attach_history(AttachRequest(workflow_id="wf-x", topic="t", db_path=str(outside)))
     assert exc.value.status_code == 400
+    detail = str(exc.value.detail)
+    assert "Invalid database path" in detail
+    assert "outside allowed attachable run roots" in detail
+    assert str(outside) in detail
 
 
 @pytest.mark.asyncio
