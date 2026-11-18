@@ -48,6 +48,7 @@ Public URL: `https://litreview.parthchandak.info` (Cloudflare Tunnel → local `
 - UX before/after screenshots -> [UX screenshot harness](#ux-screenshot-harness) below
 - Offline per-run LLM cost breakdown -> [Run cost summary CLI](#run-cost-summary-cli) below
 - Redraw a run's PRISMA figure from `runtime.db` -> [PRISMA regenerate CLI](#prisma-regenerate-cli) below
+- Compare Jev vs LLM reviewer B on a finished run -> [Jev eval CLI](#jev-eval-cli) below
 
 ## Run cost summary CLI
 
@@ -119,6 +120,31 @@ uv run python scripts/regenerate_prisma.py --run runs/<run_id>/runtime.db
 `--dry-run` prints the count diff only. A real run also refreshes `submission/figures/fig_prisma_flow.png` when that copy exists. If `doc_manuscript.md` still quotes the old numbers, the CLI prints a stale-manuscript warning on stderr (it does not rewrite prose).
 
 How to test: unit contracts in `tests/unit/test_prisma_regenerate_docs.py` (docs + CLI shape) and `tests/unit/test_prisma_counts_automation.py` (regenerate behavior). Manual check: `--dry-run` on any finished run, confirm the printed old/new table, then omit `--dry-run` and open the rewritten figure. Full script index: `docs/SCRIPTS.md`.
+
+## Jev eval CLI
+
+Offline quality check that compares Jev screening decisions against LLM reviewer B and final title/abstract decisions from a finished run's `runtime.db`. Default mode is read-only (no network, no writes). Optional `--live-sample N` re-screens N papers through Jev and reviewer B; that path costs money and refuses to run without `--confirm-live`.
+
+| Piece | Role |
+|-------|------|
+| Entrypoint | `scripts/check.py jev-eval` (`--db`, optional `--json`, `--live-sample`, `--confirm-live`, `--out`) |
+| Implementation | `scripts/lib/check_jev_eval.py` (`evaluate_db`, `run_live_sample`, `build_parser`); call only via the entrypoint |
+| Data source | Read-only tables `jev_decisions`, `screening_decisions`, `dual_screening_results`, `study_cohort_membership`, and `cost_records` |
+
+How to run:
+
+```bash
+# Offline agreement / recall / kappa report for one runtime.db
+uv run python scripts/check.py jev-eval --db runs/<run_id>/runtime.db
+
+# Same report as JSON (stdout), optional write to a file
+uv run python scripts/check.py jev-eval --db runs/<run_id>/runtime.db --json --out /tmp/jev-eval.json
+
+# Live re-screen of N papers (external API calls; requires --confirm-live)
+uv run python scripts/check.py jev-eval --db runs/<run_id>/runtime.db --live-sample N --confirm-live
+```
+
+How to test: unit contracts in `tests/unit/test_jev_eval.py` (metrics and offline report) and `tests/unit/test_jev_eval_docs.py` (docs + CLI shape). Manual check: run the offline command on any finished run and confirm agreement, recall, and kappa lines print. Full script index: `docs/SCRIPTS.md`.
 
 ## Hard Constraints
 
