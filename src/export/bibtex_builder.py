@@ -73,12 +73,15 @@ _INSTITUTIONAL_KEYWORDS = frozenset(
     }
 )
 
-# DOI URL prefixes to strip when normalising a DOI string.
+# DOI URL and label prefixes to strip when normalising a DOI string.
 _DOI_URL_PREFIXES = (
-    "https://doi.org/",
-    "http://doi.org/",
     "https://dx.doi.org/",
     "http://dx.doi.org/",
+    "https://doi.org/",
+    "http://doi.org/",
+    "dx.doi.org/",
+    "doi.org/",
+    "doi:",
 )
 
 # LaTeX special characters that need escaping in a single pass.
@@ -266,11 +269,18 @@ def _is_institutional_name(name_parts: list[str]) -> bool:
 
 
 def _normalize_doi(doi: str) -> str:
-    """Return bare DOI, stripping any leading URL prefix."""
-    for prefix in _DOI_URL_PREFIXES:
-        if doi.startswith(prefix):
-            return doi[len(prefix) :]
-    return doi.lstrip("/")
+    """Return bare DOI, stripping any leading URL or ``doi:`` prefix."""
+    text = (doi or "").strip()
+    changed = True
+    while text and changed:
+        changed = False
+        folded = text.lower()
+        for prefix in _DOI_URL_PREFIXES:
+            if folded.startswith(prefix):
+                text = text[len(prefix) :].strip()
+                changed = True
+                break
+    return text.lstrip("/")
 
 
 def _month_int_to_abbr(month: int | None) -> str | None:
