@@ -151,6 +151,48 @@ def test_build_bibtex_escapes_backslash_without_double_escaping_braces() -> None
     assert "Journal\\textbackslash{}One" in out
 
 
+def test_build_bibtex_normalizes_mixed_case_resolver_and_doi_label() -> None:
+    citations = [
+        (
+            "c1",
+            "Smith2024",
+            "https://DOI.org/10.1186/s12909-025-06913-5",
+            "Mixed Case Resolver Study",
+            '["Smith, Jane"]',
+            2024,
+            None,
+            None,
+        ),
+        (
+            "c2",
+            "Jones2024",
+            "DOI: 10.1000/xyz",
+            "Labeled DOI Study",
+            '["Jones, Alex"]',
+            2024,
+            None,
+            None,
+        ),
+        (
+            "c3",
+            "Lee2024",
+            "doi.org/10.1000/abc",
+            "Host Only DOI Study",
+            '["Lee, Sam"]',
+            2024,
+            "Journal X",
+            None,
+        ),
+    ]
+    out = build_bibtex(citations)
+    assert "doi = {10.1186/s12909-025-06913-5}," in out
+    assert "url = {https://doi.org/10.1186/s12909-025-06913-5}," in out
+    assert "https://doi.org/https://" not in out
+    assert "doi = {10.1000/xyz}," in out
+    assert "url = {https://doi.org/10.1000/xyz}," in out
+    assert "doi = {10.1000/abc}," in out
+
+
 def test_markdown_to_latex_basic():
     md = "**Title:** My Review\n\n**Abstract**\n\nShort abstract.\n\n## Introduction\n\nSome text."
     out = markdown_to_latex(md, citekeys=set())
