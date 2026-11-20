@@ -49,6 +49,7 @@ Public URL: `https://litreview.parthchandak.info` (Cloudflare Tunnel → local `
 - Offline per-run LLM cost breakdown -> [Run cost summary CLI](#run-cost-summary-cli) below
 - Redraw a run's PRISMA figure from `runtime.db` -> [PRISMA regenerate CLI](#prisma-regenerate-cli) below
 - Compare Jev vs LLM reviewer B on a finished run -> [Jev eval CLI](#jev-eval-cli) below
+- Validate or rebuild workflow replay test fixtures -> [Workflow replay CLI](#workflow-replay-cli) below
 
 ## Run cost summary CLI
 
@@ -145,6 +146,33 @@ uv run python scripts/check.py jev-eval --db runs/<run_id>/runtime.db --live-sam
 ```
 
 How to test: unit contracts in `tests/unit/test_jev_eval.py` (metrics and offline report) and `tests/unit/test_jev_eval_docs.py` (docs + CLI shape). Manual check: run the offline command on any finished run and confirm agreement, recall, and kappa lines print. Full script index: `docs/SCRIPTS.md`.
+
+## Workflow replay CLI
+
+Offline validation and fixture refresh tools for workflow `runtime.db` files and `tests/fixtures/replay/`. No network calls and no LLM spend. Note that `replay-workflow` records `validation_runs` and `validation_checks` rows inside the target `runtime.db` (`scripts/check.sh` copies fixture DBs to a temp file before validating). After adding a migration in `src/db/database.py`, run `regen-replay-fixture` for both `default` and `adversarial` profiles so `check-local` and `check-release` stay aligned with the schema version.
+
+| Piece | Role |
+|-------|------|
+| Entrypoint | `scripts/check.py replay-fixture`, `scripts/check.py replay-workflow`, `scripts/repair.py regen-replay-fixture` |
+| Implementation | `scripts/lib/check_replay_fixture.py` (`check_fixture`), `scripts/lib/check_workflow_replay.py` (`_run_checks`), `scripts/lib/maint_replay_fixture.py` (`run_regen_replay_fixture`); call only via the entrypoints |
+| Data source | `tests/fixtures/replay/manifest.json` and `runtime.db` / `runtime_adversarial.db`, or any run's `runtime.db` plus `doc_manuscript.md` |
+
+How to run:
+
+```bash
+# Verify committed replay fixture DBs match current schema_version in src/db/database.py
+uv run python scripts/check.py replay-fixture
+
+# Validate a workflow runtime.db against replay checks (profiles: quick, standard, deep, local, adversarial)
+uv run python scripts/check.py replay-workflow --workflow-id wf-XXXX --profile local --fail-on-error
+uv run python scripts/check.py replay-workflow --workflow-id wf-XXXX --db-path /tmp/runtime.db --profile local --fail-on-error
+
+# Rebuild tests/fixtures/replay after a DB schema migration (apply migrations + update manifest.json)
+uv run python scripts/repair.py regen-replay-fixture --workflow-id wf-XXXX
+uv run python scripts/repair.py regen-replay-fixture --profile adversarial
+```
+
+How to test: unit contract in `tests/unit/test_workflow_replay_docs.py` (docs + CLI shape). Manual check: run `uv run python scripts/check.py replay-fixture` and confirm `replay fixture OK` prints with the current `schema_version`. Full script index: `docs/SCRIPTS.md`.
 
 ## Hard Constraints
 
