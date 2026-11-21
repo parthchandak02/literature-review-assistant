@@ -14,6 +14,7 @@ from pathlib import Path
 from src.db.database import get_db
 from src.db.repositories import CitationRepository, WorkflowRepository
 from src.db.workflow_registry import find_by_workflow_id, find_by_workflow_id_fallback
+from src.export.bibtex_builder import _normalize_doi as _normalize_bare_doi
 from src.export.bibtex_builder import build_bibtex, build_citekey_alias_map
 from src.export.docx_exporter import generate_docx
 from src.export.ieee_latex import markdown_to_latex
@@ -286,8 +287,9 @@ def _build_number_to_citekey(
         url = row[8] if len(row) > 8 else None
         title = row[3] if len(row) > 3 else ""
         if doi:
-            norm = doi.replace("https://doi.org/", "").replace("http://doi.org/", "").strip().rstrip(".,")
-            doi_to_citekey[norm] = citekey
+            norm = _normalize_bare_doi(str(doi)).rstrip(".,)").lower()
+            if norm:
+                doi_to_citekey[norm] = citekey
         if url:
             url_norm = str(url).strip().rstrip("/")
             url_to_citekey[url_norm] = citekey
@@ -300,7 +302,7 @@ def _build_number_to_citekey(
     in_refs = False
     num_to_citekey: dict[str, str] = {}
     ref_num_re = re.compile(r"^\[(\d+)\]\s+")
-    doi_re = re.compile(r"doi:\s*(https?://doi\.org/)?([^\s\]]+)")
+    doi_re = re.compile(r"doi:\s*(https?://(?:dx\.)?doi\.org/)?([^\s\]]+)", re.IGNORECASE)
     url_re = re.compile(r"https?://[^\s\]]+")
     # Capture quoted title: e.g. "Some title text,"
     title_re = re.compile(r'"([^"]{8,120})"')
@@ -323,7 +325,7 @@ def _build_number_to_citekey(
         # Layer 1: DOI match
         doi_match = doi_re.search(line)
         if doi_match:
-            norm_doi = doi_match.group(2).rstrip(".,)")
+            norm_doi = _normalize_bare_doi(doi_match.group(2)).rstrip(".,)").lower()
             if norm_doi in doi_to_citekey:
                 num_to_citekey[num] = doi_to_citekey[norm_doi]
                 continue
