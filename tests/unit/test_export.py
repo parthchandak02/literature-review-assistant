@@ -255,6 +255,69 @@ def test_build_number_to_citekey_handles_parenthesized_doi() -> None:
     assert mapping["8"] == "Grechukha2025"
 
 
+def test_build_number_to_citekey_matches_mixed_case_doi_prefixes_and_labels() -> None:
+    md = (
+        "## References\n\n"
+        '[1] Alpha, A., "Study One," 2024. doi: https://doi.org/10.1000/ABC-1\n\n'
+        '[2] Beta, B., "Study Two," 2024. doi: https://dx.doi.org/10.1000/def-2\n\n'
+        '[3] Gamma, G., "Study Three," 2024. DOI: https://DOI.org/10.1000/ghi(3)-x\n\n'
+        '[4] Delta, D., "Study Four," 2024. doi: 10.1000/JKL-4\n'
+    )
+    citations = [
+        (
+            "c1",
+            "Alpha2024",
+            "https://DOI.org/10.1000/abc-1",
+            "Unrelated stored title 1",
+            '[{"last":"Alpha","first":"A"}]',
+            2024,
+            "J",
+            None,
+            None,
+        ),
+        (
+            "c2",
+            "Beta2024",
+            "doi: 10.1000/DEF-2",
+            "Unrelated stored title 2",
+            '[{"last":"Beta","first":"B"}]',
+            2024,
+            "J",
+            None,
+            None,
+        ),
+        (
+            "c3",
+            "Gamma2024",
+            "http://dx.doi.org/10.1000/ghi(3)-x.",
+            "Unrelated stored title 3",
+            '[{"last":"Gamma","first":"G"}]',
+            2024,
+            "J",
+            None,
+            None,
+        ),
+        (
+            "c4",
+            "Delta2024",
+            "doi.org/10.1000/jkl-4",
+            "Unrelated stored title 4",
+            '[{"last":"Delta","first":"D"}]',
+            2024,
+            "J",
+            None,
+            None,
+        ),
+    ]
+    mapping = _build_number_to_citekey(md, citations)
+    assert mapping == {
+        "1": "Alpha2024",
+        "2": "Beta2024",
+        "3": "Gamma2024",
+        "4": "Delta2024",
+    }
+
+
 def test_get_figure_entries_and_latex_paths_share_manifest(tmp_path) -> None:
     manuscript = tmp_path / "doc_manuscript.md"
     manuscript.write_text("stub", encoding="utf-8")
