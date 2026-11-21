@@ -118,6 +118,7 @@ from src.orchestration.phase_catalog import PHASE_ORDER
 from src.orchestration.resume import load_resume_state
 from src.orchestration.state import ReviewState
 from src.search.base import SearchConnector
+from src.utils import structured_log
 from src.writing.context_builder import sanitize_summary_text_for_writing
 
 _log = logging.getLogger(__name__)
@@ -351,16 +352,20 @@ _BUDGETED_NODE_PHASES: dict[type, str] = {
 
 async def run_graph_with_budget(start: BaseNode[ReviewState], state: ReviewState) -> WorkflowRunResult:
     """Drive RUN_GRAPH node by node, enforcing ``gates.cost_budget_max`` before paid phases."""
-    async with RUN_GRAPH.iter(start, state=state) as graph_run:
-        node: BaseNode[ReviewState] | End[WorkflowRunResult] = start
-        while not isinstance(node, End):
-            phase = _BUDGETED_NODE_PHASES.get(type(node))
-            if phase is not None:
-                blocked = await enforce_cost_budget(state, phase)
-                if blocked is not None:
-                    return blocked
-            node = await graph_run.next(node)
-        return node.data
+    try:
+        async with RUN_GRAPH.iter(start, state=state) as graph_run:
+            node: BaseNode[ReviewState] | End[WorkflowRunResult] = start
+            while not isinstance(node, End):
+                phase = _BUDGETED_NODE_PHASES.get(type(node))
+                if phase is not None:
+                    blocked = await enforce_cost_budget(state, phase)
+                    if blocked is not None:
+                        return blocked
+                node = await graph_run.next(node)
+            return node.data
+    finally:
+        if state.log_dir:
+            await structured_log.close_run_logging(state.log_dir)
 
 
 # ---------------------------------------------------------------------------

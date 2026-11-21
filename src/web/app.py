@@ -26,6 +26,7 @@ from fastapi.responses import FileResponse
 
 from src.db.database import connect_sqlite
 from src.db.workflow_registry import _open_registry as _open_registry_db
+from src.utils import structured_log
 from src.web.path_guard import is_sensitive_file
 from src.web.routers import (
     advanced_router,
@@ -127,6 +128,7 @@ async def lifespan(_app: FastAPI) -> AsyncGenerator[None, None]:
                 len(pending_workflow_tasks),
             )
     await drain_background_tasks(cancel=True)
+    await structured_log.shutdown_log_writer()
 
 
 # ---------------------------------------------------------------------------

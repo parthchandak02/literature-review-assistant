@@ -7,6 +7,7 @@ import structlog
 
 from src.utils.structured_log import (
     bind_run,
+    close_run_logging,
     configure_run_logging,
     drain_log_writer,
     load_events_from_jsonl,
@@ -142,3 +143,55 @@ async def test_concurrent_log_writes_are_all_persisted(structured_log_run: str, 
 
     lines = (tmp_path / "app.jsonl").read_text(encoding="utf-8").strip().split("\n")
     assert len(lines) == 20
+
+
+@pytest.mark.asyncio
+async def test_close_run_logging_closes_only_target_run_until_last_closes(tmp_path: Path) -> None:
+    import src.utils.structured_log as sl
+
+    dir_a = str(tmp_path / "run_a")
+    dir_b = str(tmp_path / "run_b")
+    try:
+        configure_run_logging(dir_a)
+        configure_run_logging(dir_b)
+
+        logger = structlog.get_logger()
+        bind_run("wf-a", "run-a", dir_a)
+        logger.info("event_a")
+        bind_run("wf-b", "run-b", dir_b)
+        logger.info("event_b_1")
+
+        fh_a = sl._file_handles[dir_a]
+        fh_b = sl._file_handles[dir_b]
+        await close_run_logging(dir_a)
+
+        assert fh_a.closed
+        assert dir_a not in sl._file_handles
+        assert not fh_b.closed
+        assert dir_b in sl._file_handles
+        assert sl._writer_task is not None and not sl._writer_task.done()
+
+        logger.info("event_b_2")
+        await close_run_logging(dir_b)
+
+        assert fh_b.closed
+        assert not sl._file_handles
+        assert sl._writer_task is None
+        assert len((tmp_path / "run_a" / "app.jsonl").read_text(encoding="utf-8").strip().splitlines()) == 1
+        assert len((tmp_path / "run_b" / "app.jsonl").read_text(encoding="utf-8").strip().splitlines()) == 2
+    finally:
+        await shutdown_log_writer()
+        sl._structlog_configured = False
+        structlog.reset_defaults()
+
+
+@pytest.mark.asyncio
+async def test_shutdown_log_writer_closes_open_file_handles(structured_log_run: str) -> None:
+    import src.utils.structured_log as sl
+
+    fh = sl._file_handles[structured_log_run]
+    structlog.get_logger().info("before_shutdown")
+    await shutdown_log_writer()
+
+    assert fh.closed
+    assert not sl._file_handles

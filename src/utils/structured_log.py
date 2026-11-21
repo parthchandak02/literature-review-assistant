@@ -75,32 +75,82 @@ def _ensure_writer_started() -> bool:
         loop = asyncio.get_running_loop()
     except RuntimeError:
         return False
-    if _writer_task is not None and not _writer_task.done():
+    if _writer_task is not None and not _writer_task.done() and _writer_task.get_loop() is loop:
         return True
-    if _log_queue is None:
-        _log_queue = asyncio.Queue()
+    _log_queue = asyncio.Queue()
     _writer_task = loop.create_task(_background_writer())
     return True
 
 
+def _close_file_handle(log_dir: str) -> None:
+    """Flush and close a single run log handle if open."""
+    fh = _file_handles.pop(log_dir, None)
+    if fh is None:
+        return
+    try:
+        fh.flush()
+    except Exception:
+        pass
+    try:
+        fh.close()
+    except Exception:
+        pass
+
+
+def close_run_logging_sync(log_dir: str | None = None) -> None:
+    """Synchronously close open run log handle(s) for ``log_dir`` or all runs."""
+    targets = [log_dir] if log_dir is not None else list(_file_handles.keys())
+    for key in targets:
+        _close_file_handle(key)
+
+
 async def drain_log_writer() -> None:
     """Wait until all queued log lines have been written (for tests/shutdown)."""
-    if _log_queue is not None:
-        await _log_queue.join()
+    if _log_queue is None or _writer_task is None or _writer_task.done():
+        return
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        return
+    if _writer_task.get_loop() is not loop:
+        return
+    await _log_queue.join()
 
 
-async def shutdown_log_writer() -> None:
-    """Drain pending writes and stop the background writer task."""
+async def shutdown_log_writer(*, close_handles: bool = True) -> None:
+    """Drain pending writes, stop the background writer task, and optionally close handles."""
     global _log_queue, _writer_task
-    await drain_log_writer()
-    if _writer_task is not None and not _writer_task.done():
-        _writer_task.cancel()
-        try:
-            await _writer_task
-        except asyncio.CancelledError:
-            pass
-    _writer_task = None
-    _log_queue = None
+    try:
+        await drain_log_writer()
+    finally:
+        if _writer_task is not None and not _writer_task.done():
+            try:
+                loop = asyncio.get_running_loop()
+            except RuntimeError:
+                loop = None
+            if loop is not None and _writer_task.get_loop() is loop:
+                _writer_task.cancel()
+                try:
+                    await _writer_task
+                except asyncio.CancelledError:
+                    pass
+        _writer_task = None
+        _log_queue = None
+        if close_handles:
+            close_run_logging_sync()
+
+
+async def close_run_logging(log_dir: str | None = None) -> None:
+    """Drain pending writes and close run log handle(s) for ``log_dir`` (or all).
+
+    When no open handles remain, also stops the background writer task cleanly.
+    """
+    try:
+        await drain_log_writer()
+    finally:
+        close_run_logging_sync(log_dir)
+    if not _file_handles:
+        await shutdown_log_writer(close_handles=False)
 
 
 def _write_to_run_file(
