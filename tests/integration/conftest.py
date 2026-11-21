@@ -18,6 +18,7 @@ previous test.
 from __future__ import annotations
 
 import os
+from collections.abc import Iterator
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -219,7 +220,7 @@ def mock_search_connectors(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 @pytest.fixture(autouse=True)
-def clear_pydantic_ai_http_cache() -> None:
+def clear_pydantic_ai_http_cache() -> Iterator[None]:
     """Clear PydanticAI's cached httpx client before and after each test.
 
     PydanticAI caches a shared httpx.AsyncClient via _cached_async_http_client
@@ -244,8 +245,8 @@ def clear_pydantic_ai_http_cache() -> None:
 
 
 @pytest.fixture(autouse=True)
-def reset_structured_log() -> None:
-    """Reset structured_log global state before each test.
+def reset_structured_log() -> Iterator[None]:
+    """Reset structured_log global state before and after each test.
 
     Without this, any test that starts a workflow (e.g. via the API endpoint
     test that calls POST /api/run) will configure the logger to write to that
@@ -255,19 +256,18 @@ def reset_structured_log() -> None:
     """
     import src.utils.structured_log as sl
 
-    for fh in sl._file_handles.values():
-        try:
-            fh.close()
-        except OSError:
-            pass
-    sl._file_handles.clear()
-    sl._structlog_configured = False
-    sl._log_queue = None
-    sl._writer_task = None
-    structlog.reset_defaults()
-    yield
-    sl._log_queue = None
-    sl._writer_task = None
+    def _reset() -> None:
+        sl.close_run_logging_sync()
+        sl._structlog_configured = False
+        sl._log_queue = None
+        sl._writer_task = None
+        structlog.reset_defaults()
+
+    _reset()
+    try:
+        yield
+    finally:
+        _reset()
 
 
 @pytest.fixture
