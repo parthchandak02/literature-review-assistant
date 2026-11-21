@@ -50,6 +50,7 @@ Public URL: `https://litreview.parthchandak.info` (Cloudflare Tunnel → local `
 - Redraw a run's PRISMA figure from `runtime.db` -> [PRISMA regenerate CLI](#prisma-regenerate-cli) below
 - Compare Jev vs LLM reviewer B on a finished run -> [Jev eval CLI](#jev-eval-cli) below
 - Validate or rebuild workflow replay test fixtures -> [Workflow replay CLI](#workflow-replay-cli) below
+- Repair an existing run's manuscript sections, failed extractions, or missing citations -> [Run repair CLI](#run-repair-cli) below
 
 ## Run cost summary CLI
 
@@ -173,6 +174,33 @@ uv run python scripts/repair.py regen-replay-fixture --profile adversarial
 ```
 
 How to test: unit contract in `tests/unit/test_workflow_replay_docs.py` (docs + CLI shape). Manual check: run `uv run python scripts/check.py replay-fixture` and confirm `replay fixture OK` prints with the current `schema_version`. Full script index: `docs/SCRIPTS.md`.
+
+## Run repair CLI
+
+Post-run repair subcommands for fixing manuscript assembly, placeholder extraction rows, or missing included-study citations on an existing run directory without re-running the full pipeline. Note: these are authorized repair tools for historical or interrupted runs; for process or pipeline bugs, fix the code under `src/` rather than patching `runs/` by hand. `finalize` is offline and deterministic (no LLM spend). `re-extract` calls the extraction LLM for failed records (`is_extraction_failed`), and `inject-citations` patches `section_drafts` in `runtime.db`, rewrites `doc_manuscript.md`, `doc_manuscript.tex`, and `references.bib`, and may call the LLM fallback citation resolver when mechanical DOI/URL/title matching leaves unmatched references.
+
+| Piece | Role |
+|-------|------|
+| Entrypoint | `scripts/repair.py finalize`, `scripts/repair.py re-extract`, `scripts/repair.py inject-citations` |
+| Implementation | `scripts/lib/maint_finalize.py` (`run_finalize`), `scripts/lib/maint_re_extract.py` (`run_re_extract`), `scripts/lib/inject_citations.py` (`run_inject_citations`, `resolve_run_dir`); call only via the entrypoint |
+| Data source | Run directory `runtime.db`, `doc_manuscript.md`, `review.yaml` / `config_snapshot.yaml`, and `doc_search_strategies_appendix.md` |
+
+How to run:
+
+```bash
+# Offline: strip and re-assemble appended manuscript sections (Declarations, GRADE, tables, figures, references, appendix)
+uv run python scripts/repair.py finalize --run-dir runs/<run_id>
+
+# Paid LLM calls: re-run extraction for placeholder/failed records, then run finalize to refresh the manuscript
+uv run python scripts/repair.py re-extract --run-dir runs/<run_id>
+uv run python scripts/repair.py re-extract --run-dir runs/<run_id> --config config/review.yaml
+
+# Patch uncited included-study citekeys into Results section_draft and regenerate .md, .tex, and references.bib
+uv run python scripts/repair.py inject-citations --workflow-id wf-XXXX
+uv run python scripts/repair.py inject-citations --run-dir runs/<run_id>
+```
+
+How to test: unit contract in `tests/unit/test_run_repair_docs.py` (docs + CLI shape). Manual check: run `uv run python scripts/repair.py --help` (or a subcommand `--help`) to verify flags, or run `finalize` on a scratch copy of a finished run directory and confirm `doc_manuscript.md` updates cleanly. Full script index: `docs/SCRIPTS.md`.
 
 ## Hard Constraints
 
