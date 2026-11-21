@@ -30,7 +30,8 @@ def _terminal_status_from_done_payload(payload_raw: str | None) -> str | None:
         return None
     try:
         payload = json.loads(payload_raw)
-    except json.JSONDecodeError:
+    except json.JSONDecodeError as exc:
+        _logger.warning("Malformed done event payload during terminal status check: %s", exc)
         return None
     if not isinstance(payload, dict):
         return None
@@ -121,8 +122,13 @@ class LifecycleReconciler:
                                 if ev_status:
                                     out["terminal_status"] = ev_status
                                     out["source"] = "event_log"
-                    except Exception:
-                        pass
+                    except Exception as exc:
+                        _logger.warning(
+                            "Failed to query event_log for terminal evidence in %s: %s: %s",
+                            db_path,
+                            type(exc).__name__,
+                            exc,
+                        )
                     if out["terminal_status"] is None:
                         try:
                             async with db.execute(
@@ -134,8 +140,13 @@ class LifecycleReconciler:
                             if wf_status in {"completed", "failed", "interrupted"}:
                                 out["terminal_status"] = wf_status
                                 out["source"] = "workflows_table"
-                        except Exception:
-                            pass
+                        except Exception as exc:
+                            _logger.warning(
+                                "Failed to query workflows table for terminal evidence in %s: %s: %s",
+                                db_path,
+                                type(exc).__name__,
+                                exc,
+                            )
                     if out["terminal_status"] is None:
                         try:
                             async with db.execute(
@@ -147,9 +158,21 @@ class LifecycleReconciler:
                             if cp_status == "completed":
                                 out["terminal_status"] = "completed"
                                 out["source"] = "finalize_checkpoint"
-                        except Exception:
-                            pass
-            except Exception:
+                        except Exception as exc:
+                            _logger.warning(
+                                "Failed to query checkpoints table for terminal evidence in %s: %s: %s",
+                                db_path,
+                                type(exc).__name__,
+                                exc,
+                            )
+            except Exception as exc:
+                _logger.warning(
+                    "Failed to open runtime DB %s while collecting terminal evidence: %s: %s",
+                    db_path,
+                    type(exc).__name__,
+                    exc,
+                    exc_info=True,
+                )
                 return out
         summary_path = db_file.parent / "run_summary.json"
         if summary_path.exists():
@@ -160,8 +183,13 @@ class LifecycleReconciler:
                 if out["terminal_status"] is None and summary_status in {"completed", "failed", "interrupted"}:
                     out["terminal_status"] = summary_status
                     out["source"] = "run_summary"
-            except Exception:
-                pass
+            except Exception as exc:
+                _logger.warning(
+                    "Failed to read terminal status from %s: %s: %s",
+                    summary_path,
+                    type(exc).__name__,
+                    exc,
+                )
         return out
 
     async def resolve_effective_status(
@@ -193,8 +221,17 @@ class LifecycleReconciler:
             if registry_status != terminal:
                 try:
                     await update_registry_status(run_root, str(row["workflow_id"]), terminal)
-                except Exception:
-                    pass
+                except Exception as exc:
+                    _logger.warning(
+                        "Lifecycle repair failed for parked workflow %s (%s -> %s) in %s: %s: %s",
+                        row["workflow_id"],
+                        registry_status,
+                        terminal,
+                        run_root,
+                        type(exc).__name__,
+                        exc,
+                        exc_info=True,
+                    )
                 else:
                     _logger.info(
                         "Lifecycle repair: workflow %s status %s -> %s (parked run)",
@@ -223,12 +260,23 @@ class LifecycleReconciler:
             if registry_status != terminal:
                 try:
                     await update_registry_status(run_root, str(row["workflow_id"]), terminal)
-                except Exception:
-                    pass
+                except Exception as exc:
+                    _logger.warning(
+                        "Lifecycle repair failed for workflow %s (%s -> %s, source=%s) in %s: %s: %s",
+                        row["workflow_id"],
+                        registry_status,
+                        terminal,
+                        evidence.get("source"),
+                        run_root,
+                        type(exc).__name__,
+                        exc,
+                        exc_info=True,
+                    )
                 else:
                     _logger.info(
-                        "Lifecycle repair: workflow %s status running -> %s (%s)",
+                        "Lifecycle repair: workflow %s status %s -> %s (%s)",
                         row["workflow_id"],
+                        registry_status,
                         terminal,
                         evidence.get("source"),
                     )
