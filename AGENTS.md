@@ -180,6 +180,7 @@ How to test: unit contract in `tests/unit/test_workflow_replay_docs.py` (docs + 
 - Use typed contracts from `src/models/` at phase boundaries.
 - Keep model ids configured in `config/settings.yaml`.
 - Preserve endpoint parity anchor in `docs/API.md#rest-endpoints` Section 10.1.
+- New dependency versions must be at least 7 days old (`exclude-newer = "7 days"` in `pyproject.toml`, `minimumReleaseAge: 10080` in `frontend/pnpm-workspace.yaml`); for a security fix, pin an explicit version and exempt it via `[tool.uv.exclude-newer-package]` (or `--exclude-newer-package`) / `minimumReleaseAgeExclude`.
 
 ## Commit and Push
 
