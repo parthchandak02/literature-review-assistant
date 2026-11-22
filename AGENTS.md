@@ -51,6 +51,7 @@ Public URL: `https://litreview.parthchandak.info` (Cloudflare Tunnel → local `
 - Compare Jev vs LLM reviewer B on a finished run -> [Jev eval CLI](#jev-eval-cli) below
 - Validate or rebuild workflow replay test fixtures -> [Workflow replay CLI](#workflow-replay-cli) below
 - Repair an existing run's manuscript sections, failed extractions, or missing citations -> [Run repair CLI](#run-repair-cli) below
+- Import a master-list or supplementary CSV into search -> [CSV search import](#csv-search-import) below
 
 ## Run cost summary CLI
 
@@ -201,6 +202,33 @@ uv run python scripts/repair.py inject-citations --run-dir runs/<run_id>
 ```
 
 How to test: unit contract in `tests/unit/test_run_repair_docs.py` (docs + CLI shape). Manual check: run `uv run python scripts/repair.py --help` (or a subcommand `--help`) to verify flags, or run `finalize` on a scratch copy of a finished run directory and confirm `doc_manuscript.md` updates cleanly. Full script index: `docs/SCRIPTS.md`.
+
+## CSV search import
+
+Offline-capable ingestion workflow for importing externally exported search CSVs (Scopus, Embase, CINAHL, PubMed, or RIS-derived exports) into `phase_2_search` as typed `SearchResult` objects without altering downstream deduplication, screening, or PRISMA accounting. Two modes are supported: `masterlist_csv_path` replaces all live database connectors while keeping DB persistence, protocol generation, and checkpointing identical; `supplementary_csv_paths` merges additional CSV exports onto live connector results before deduplication. The parser sniffs encodings (`utf-8-sig`, `utf-8`, `cp1252`, `latin-1`) and delimiters (`,`, `;`, tab, `|`), normalizes DOIs, matches flexible column aliases (a recognizable Title column is required), and groups rows by inferred source database (`src/search/source_inference.py`).
+
+| Piece | Role |
+|-------|------|
+| Importer | `src/search/csv_import.py` (`validate_csv_file`, `parse_masterlist_csv`, `parse_supplementary_csvs`) |
+| Source inference | `src/search/source_inference.py` (`infer_csv_row_source`, `detect_csv_export_format`, `resolve_database_column`) |
+| Pipeline runner | `src/orchestration/runners/search_runner.py` (branches on `masterlist_csv_path` or merges `supplementary_csv_paths`) |
+| HTTP API | `POST /api/run-with-masterlist`, `POST /api/run-with-supplementary-csv` in `src/web/routers/run_lifecycle.py` |
+| Config schema | `masterlist_csv_path`, `supplementary_csv_paths` on `ReviewConfig` in `src/models/config.py` |
+
+How to run:
+
+```bash
+# Offline pre-flight validation of a CSV export (returns total rows and per-source counts)
+uv run python -c "from src.search.csv_import import validate_csv_file; print(validate_csv_file('path/to/export.csv'))"
+
+# CLI run: set masterlist_csv_path or supplementary_csv_paths in config/review.yaml
+# (target_databases is still required by ReviewConfig validation even when masterlist_csv_path is set)
+uv run python -m src.main run --config config/review.yaml
+```
+
+For web uploads, send multipart form data (`csv_file` and `review_yaml`, plus required API keys) to `POST /api/run-with-masterlist` or `POST /api/run-with-supplementary-csv`; the router stages the file under `runs/staging/<run_id>/`, validates it with `validate_csv_file`, injects the path into `review_yaml`, and launches the workflow.
+
+How to test: run `uv run pytest tests/unit/test_csv_import.py tests/unit/test_source_inference.py tests/unit/test_csv_import_docs.py -q` for parser, source-inference, and docs contract checks, and `uv run pytest tests/integration/test_api_endpoints.py -k "masterlist or supplementary" -q` for the upload endpoints.
 
 ## Hard Constraints
 
