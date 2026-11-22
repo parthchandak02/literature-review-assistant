@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 from dataclasses import dataclass, field
 from pathlib import Path
 from unittest.mock import patch
@@ -163,3 +164,113 @@ async def test_failed_flush_retries_on_next_flush(tmp_path: Path) -> None:
 
 def test_durable_event_types_include_terminal_markers() -> None:
     assert {"done", "error", "cancelled", "phase_start", "phase_done"}.issubset(DURABLE_EVENT_TYPES)
+
+
+@pytest.mark.asyncio
+async def test_load_logs_warning_with_db_path_on_error(
+    tmp_path: Path,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    store = EventStore()
+    db_path = tmp_path / "missing_or_corrupt.db"
+
+    with caplog.at_level(logging.WARNING, logger="src.web.event_store"):
+        with patch("src.web.event_store.connect_sqlite", side_effect=OSError("disk error")):
+            events = await store.load(str(db_path))
+
+    assert events == []
+    assert any(
+        record.levelno == logging.WARNING and str(db_path) in record.message and "disk error" in record.message
+        for record in caplog.records
+    )
+
+
+@pytest.mark.asyncio
+async def test_append_logs_warning_when_background_flush_fails(
+    tmp_path: Path,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    store = EventStore()
+    db_path = tmp_path / "runtime.db"
+    workflow_id = "wf-bg-flush-fail"
+    await _init_runtime_db(db_path, workflow_id)
+
+    record = _StubRecord(db_path=str(db_path), workflow_id=workflow_id)
+    with caplog.at_level(logging.WARNING, logger="src.web.event_store"):
+        with patch("src.web.event_store.open_runtime_db", side_effect=RuntimeError("sqlite busy")):
+            store.append(record, {"type": "phase_start", "phase": "phase_1"})
+            await store.await_pending_flushes(record, timeout=5.0)
+
+    assert record._flush_index == 0
+    assert any(
+        rec.levelno == logging.WARNING
+        and "flush_pending" in rec.message
+        and workflow_id in rec.message
+        and str(db_path) in rec.message
+        and "sqlite busy" in rec.message
+        for rec in caplog.records
+    )
+
+
+def test_append_without_running_loop_logs_debug_context(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    store = EventStore()
+    record = _StubRecord(db_path="/tmp/runtime.db", workflow_id="wf-no-loop")
+
+    with caplog.at_level(logging.DEBUG, logger="src.web.event_store"):
+        store.append(record, {"type": "phase_start", "phase": "phase_1"})
+
+    assert len(record.event_log) == 1
+    assert any(
+        rec.levelno == logging.DEBUG
+        and "no running event loop" in rec.message
+        and "wf-no-loop" in rec.message
+        and "phase_start" in rec.message
+        for rec in caplog.records
+    )
+
+
+@pytest.mark.asyncio
+async def test_append_logs_warning_on_unexpected_schedule_failure(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    store = EventStore()
+    record = _StubRecord(db_path="/tmp/runtime.db", workflow_id="wf-sched-fail")
+
+    with caplog.at_level(logging.WARNING, logger="src.web.event_store"):
+        with patch("src.web.event_store.asyncio.create_task", side_effect=ValueError("loop closing")):
+            store.append(record, {"type": "done"})
+
+    assert len(record.event_log) == 1
+    assert any(
+        rec.levelno == logging.WARNING
+        and "wf-sched-fail" in rec.message
+        and "done" in rec.message
+        and "loop closing" in rec.message
+        for rec in caplog.records
+    )
+
+
+@pytest.mark.asyncio
+async def test_drain_all_flushes_logs_warning_on_timeout(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    store = EventStore()
+    record = _StubRecord(db_path="/tmp/runtime.db", workflow_id="wf-drain-timeout")
+    gate = asyncio.Event()
+
+    async def stuck_notify(_rec: _StubRecord) -> None:
+        await gate.wait()
+
+    with caplog.at_level(logging.WARNING, logger="src.web.event_store"):
+        with patch.object(store, "notify", side_effect=stuck_notify):
+            store.append(record, {"type": "progress", "msg": "stuck"})
+            await store.drain_all_flushes(timeout=0.01)
+
+    assert any(
+        rec.levelno == logging.WARNING
+        and "drain_all_flushes timed out" in rec.message
+        and "waiting for 1 task(s)" in rec.message
+        for rec in caplog.records
+    )
