@@ -255,6 +255,9 @@ async def run_screening_node(state: ReviewState, ctx: GraphRunContext[ReviewStat
         paper_by_id = {p.paper_id: p for p in meta_acceptable}
         keyword_prefilter_excluded = 0
         keyword_prefilter_fallback_applied = False
+        kw_fallback_threshold = float(
+            getattr(state.settings.screening, "keyword_prefilter_fallback_exclusion_ratio", 0.80)
+        )
         empty_abstract_pool = 0
         empty_abstract_excluded = 0
         empty_abstract_rescued = 0
@@ -262,9 +265,6 @@ async def run_screening_node(state: ReviewState, ctx: GraphRunContext[ReviewStat
 
         if cap is not None:
             kw_min = state.settings.screening.keyword_filter_min_matches
-            kw_fallback_threshold = float(
-                getattr(state.settings.screening, "keyword_prefilter_fallback_exclusion_ratio", 0.80)
-            )
             kw_excluded, to_rank = keyword_prefilter(meta_acceptable, state.review, state.settings.screening)
             if kw_min > 0:
                 _kw_only_exclusions = sum(

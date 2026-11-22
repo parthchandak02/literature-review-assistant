@@ -1048,3 +1048,32 @@ async def test_screening_runner_partial_checkpoint_and_cohens_kappa(tmp_path: Pa
         cursor = await db.execute("SELECT decision_type FROM decision_log")
         types = {r[0] for r in await cursor.fetchall()}
         assert "inter_rater_reliability" in types
+
+
+async def test_screening_runner_uncapped_max_llm_screen_none_emits_prefilter_done(tmp_path: Path) -> None:
+    """When max_llm_screen is None (e.g. max_quality profile), Phase 3 must emit prefilter telemetry without crashing."""
+    papers = [_make_paper("p-uncapped-1"), _make_paper("p-uncapped-2")]
+    state = await _init_state(
+        tmp_path,
+        papers,
+        screening=ScreeningConfig(
+            max_llm_screen=None,
+            keyword_prefilter_fallback_exclusion_ratio=0.75,
+            calibrate_threshold=False,
+            batch_screen_enabled=False,
+        ),
+    )
+
+    with (
+        patch("src.orchestration.runners.screening_runner._llm_available", return_value=True),
+        patch("src.orchestration.runners.screening_runner.PydanticAIScreeningClient", _DeterministicIncludeClient),
+        patch("src.orchestration.runners.screening_runner.PDFRetriever", _FakePDFRetriever),
+    ):
+        result = await run_screening_node(state, _ctx(state))
+
+    assert result is None
+    assert {p.paper_id for p in state.included_papers} == {"p-uncapped-1", "p-uncapped-2"}
+    pf = next(e for e in _emitted_events(state.run_context) if e.get("type") == "screening_prefilter_done")
+    assert pf["dual_review_cap"] is None
+    assert pf["keyword_fallback_threshold"] == pytest.approx(0.75)
+    assert pf["to_llm"] == 2
