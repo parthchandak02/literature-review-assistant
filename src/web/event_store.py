@@ -61,18 +61,35 @@ class EventStore:
             )
             await db.commit()
 
-    def _register_flush_task(self, record: EventRecord, task: asyncio.Task[None]) -> None:
+    def _register_flush_task(
+        self,
+        record: EventRecord,
+        task: asyncio.Task[None],
+        *,
+        task_name: str = "background",
+    ) -> None:
         key = id(record)
         tasks = self._flush_tasks.setdefault(key, set())
         tasks.add(task)
 
         def _on_done(done_task: asyncio.Task[None]) -> None:
             bucket = self._flush_tasks.get(key)
-            if bucket is None:
+            if bucket is not None:
+                bucket.discard(done_task)
+                if not bucket:
+                    self._flush_tasks.pop(key, None)
+            if done_task.cancelled():
                 return
-            bucket.discard(done_task)
-            if not bucket:
-                self._flush_tasks.pop(key, None)
+            exc = done_task.exception()
+            if exc is not None:
+                _logger.warning(
+                    "EventStore %s task failed (workflow_id=%s, db_path=%s): %s",
+                    task_name,
+                    record.workflow_id,
+                    record.db_path,
+                    exc,
+                    exc_info=(type(exc), exc, exc.__traceback__),
+                )
 
         task.add_done_callback(_on_done)
 
@@ -112,6 +129,11 @@ class EventStore:
         try:
             await asyncio.wait_for(asyncio.gather(*pending, return_exceptions=True), timeout=timeout)
         except TimeoutError:
+            _logger.warning(
+                "EventStore drain_all_flushes timed out after %.2fs waiting for %d task(s); cancelling remaining",
+                timeout,
+                len(pending),
+            )
             for task in pending:
                 if not task.done():
                     task.cancel()
@@ -132,7 +154,13 @@ class EventStore:
                     event["ts"] = str(row["ts"] or "")
                 events.append(event)
             return events
-        except Exception:
+        except Exception as exc:
+            _logger.warning(
+                "EventStore failed to load event_log from db_path=%s: %s",
+                db_path,
+                exc,
+                exc_info=True,
+            )
             return []
 
     async def notify(self, record: EventRecord) -> None:
@@ -149,6 +177,31 @@ class EventStore:
             await self.persist(record.db_path, record.workflow_id, new)
             record._flush_index += len(new)
 
+    def _log_schedule_failure(
+        self,
+        task_name: str,
+        record: EventRecord,
+        event_type: str,
+        exc: Exception,
+    ) -> None:
+        if isinstance(exc, RuntimeError) and "no running event loop" in str(exc).lower():
+            _logger.debug(
+                "EventStore skipped %s scheduling (no running event loop; workflow_id=%s, event_type=%s)",
+                task_name,
+                record.workflow_id,
+                event_type,
+            )
+            return
+        _logger.warning(
+            "EventStore failed to schedule %s task (workflow_id=%s, db_path=%s, event_type=%s): %s",
+            task_name,
+            record.workflow_id,
+            record.db_path,
+            event_type,
+            exc,
+            exc_info=True,
+        )
+
     def append(self, record: EventRecord, event: dict[str, Any]) -> None:
         if not event.get("id"):
             event["id"] = f"evt-{uuid.uuid4().hex}"
@@ -157,15 +210,21 @@ class EventStore:
         event_type = str(event.get("type") or "")
         event["durability"] = "durable" if event_type in DURABLE_EVENT_TYPES else "eventual"
         record.event_log.append(event)
+        notify_coro = self.notify(record)
         try:
             # Keep a strong ref so the waiter wake-up is not GC'd mid-flight (RUF006).
-            notify_task = asyncio.create_task(self.notify(record))
-            self._register_flush_task(record, notify_task)
-        except Exception:
-            pass
+            notify_task = asyncio.create_task(notify_coro)
+            self._register_flush_task(record, notify_task, task_name="notify")
+        except Exception as exc:
+            if hasattr(notify_coro, "close"):
+                notify_coro.close()
+            self._log_schedule_failure("notify", record, event_type, exc)
         if event_type in DURABLE_EVENT_TYPES:
+            flush_coro = self.flush_pending(record)
             try:
-                task = asyncio.create_task(self.flush_pending(record))
-                self._register_flush_task(record, task)
-            except Exception:
-                pass
+                task = asyncio.create_task(flush_coro)
+                self._register_flush_task(record, task, task_name="flush_pending")
+            except Exception as exc:
+                if hasattr(flush_coro, "close"):
+                    flush_coro.close()
+                self._log_schedule_failure("flush_pending", record, event_type, exc)
