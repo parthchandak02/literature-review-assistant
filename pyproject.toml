@@ -44,6 +44,8 @@ dependencies = [
   "pylatexenc>=2.10",
   "pycountry>=26.2.16",
   "sentence-transformers>=3.0",
+  # Listed directly so [tool.uv.sources] can point Linux at the CPU-only build (see below).
+  "torch>=2.14",
 ]
 
 [dependency-groups]
@@ -119,3 +121,14 @@ constraint-dependencies = ["pydantic-ai>=1.107.6,<2", "google-genai>=2.34.0,<3",
 # xai-sdk (pulled in by pydantic-ai's xai extra, unused here) caps packaging <26,
 # which blocks the patched virtualenv used by pre-commit.
 override-dependencies = ["packaging>=26.3"]
+
+# PyTorch (pulled in by sentence-transformers) defaults to the CUDA build on Linux: ~4.5 GB of
+# NVIDIA libraries the servers never use (no GPU). Linux gets the CPU-only wheels (~200 MB);
+# macOS wheels on PyPI are already CPU/MPS-only, so the Mac keeps PyPI.
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true
+
+[tool.uv.sources]
+torch = [{ index = "pytorch-cpu", marker = "sys_platform == 'linux'" }]
