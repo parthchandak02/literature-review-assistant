@@ -260,7 +260,7 @@ def _render_single_tool_figure(
     y_labels = [label for label, _ in row_data]
     domain_colors_per_col: list[list[str]] = [[] for _ in range(n_domains)]
 
-    for row_idx, (label, color_keys) in enumerate(row_data):
+    for row_idx, (_label, color_keys) in enumerate(row_data):
         for col_idx, (hex_color, key) in enumerate(zip(dot_colors[row_idx], color_keys)):
             ax_dots.scatter(
                 col_idx,

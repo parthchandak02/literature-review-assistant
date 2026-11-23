@@ -110,7 +110,7 @@ class ProtocolGenerator:
         screening_cfg = getattr(settings, "screening", None)
         batch_threshold = float(getattr(screening_cfg, "batch_screen_threshold", 0.20))
         validation_fraction = float(getattr(screening_cfg, "batch_screen_validation_fraction", 0.10))
-        validation_pct = int(round(validation_fraction * 100))
+        validation_pct = round(validation_fraction * 100)
         return ProtocolDocument(
             workflow_id=workflow_id,
             research_question=config.research_question,

@@ -248,6 +248,7 @@ async def test_append_logs_warning_on_unexpected_schedule_failure(
         and "wf-sched-fail" in rec.message
         and "done" in rec.message
         and "loop closing" in rec.message
+        and rec.exc_info is not None
         for rec in caplog.records
     )
 

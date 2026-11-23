@@ -167,7 +167,7 @@ def _validate_db_path(path: str, run_root: str | None = None) -> pathlib.Path:
         try:
             resolved.relative_to(root)
         except ValueError:
-            raise HTTPException(status_code=400, detail="Invalid database path")
+            raise HTTPException(status_code=400, detail="Invalid database path") from None
     if not resolved.suffix == ".db":
         raise HTTPException(status_code=400, detail="Invalid database path")
     if not resolved.is_file():

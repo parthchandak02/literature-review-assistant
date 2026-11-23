@@ -192,3 +192,40 @@ async def test_strategy_best_effort_continues_on_connector_error(tmp_path) -> No
         results, _ = await coordinator.run(max_results=20)
         assert len(results) == 1
         assert results[0].database_name == "pubmed"
+
+
+@pytest.mark.asyncio
+async def test_lookup_doi_venue_strips_exact_url_prefixes(monkeypatch: pytest.MonkeyPatch) -> None:
+    from unittest.mock import AsyncMock, MagicMock
+
+    from src.search.openalex import lookup_doi_venue
+
+    seen_urls: list[str] = []
+
+    mock_response = MagicMock()
+    mock_response.status = 200
+    mock_response.json = AsyncMock(return_value={"primary_location": {"source": {"display_name": "Test Journal"}}})
+    mock_response.__aenter__ = AsyncMock(return_value=mock_response)
+    mock_response.__aexit__ = AsyncMock(return_value=None)
+
+    def _get(url: str, **_kwargs: object) -> MagicMock:
+        seen_urls.append(url)
+        return mock_response
+
+    mock_session = MagicMock()
+    mock_session.get = _get
+
+    mock_client = MagicMock()
+    mock_client.__aenter__ = AsyncMock(return_value=mock_session)
+    mock_client.__aexit__ = AsyncMock(return_value=None)
+
+    monkeypatch.setattr("src.search.openalex.aiohttp.ClientSession", lambda **_kw: mock_client)
+
+    assert await lookup_doi_venue("https://doi.org/10.1000/xyz", "key") == {"source": {"display_name": "Test Journal"}}
+    assert await lookup_doi_venue("http://doi.org/10.1000/xyz", "key") == {"source": {"display_name": "Test Journal"}}
+    assert await lookup_doi_venue("doi-stub/10.1000/xyz", "key") == {"source": {"display_name": "Test Journal"}}
+    assert seen_urls == [
+        "https://api.openalex.org/works/https://doi.org/10.1000/xyz",
+        "https://api.openalex.org/works/https://doi.org/10.1000/xyz",
+        "https://api.openalex.org/works/https://doi.org/doi-stub/10.1000/xyz",
+    ]

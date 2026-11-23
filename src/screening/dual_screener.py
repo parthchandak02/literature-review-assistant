@@ -385,9 +385,13 @@ class DualReviewerScreener:
                             (float(_pdf_timeout) * float(chunk_len) / float(max(1, _pdf_concurrency))) + 15.0,
                         )
 
-                        def _chunk_progress(done: int, _chunk_total: int) -> None:
+                        def _chunk_progress(
+                            done: int,
+                            _chunk_total: int,
+                            _offset: int = processed_so_far,
+                        ) -> None:
                             if on_pdf_progress:
-                                on_pdf_progress(processed_so_far + done, total_fulltext)
+                                on_pdf_progress(_offset + done, total_fulltext)
 
                         chunk_results: dict[str, PDFRetrievalResult] = {}
                         try:

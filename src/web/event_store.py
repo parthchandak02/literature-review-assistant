@@ -199,7 +199,7 @@ class EventStore:
             record.db_path,
             event_type,
             exc,
-            exc_info=True,
+            exc_info=exc,
         )
 
     def append(self, record: EventRecord, event: dict[str, Any]) -> None:

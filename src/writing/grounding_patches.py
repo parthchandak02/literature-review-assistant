@@ -237,7 +237,7 @@ def _patch_methods_grounding(content: str, grounding: WritingGroundingData | Non
     batch_validation_n = int(getattr(grounding, "batch_screen_validation_n", 0) or 0)
     batch_validation_npv = float(getattr(grounding, "batch_screen_validation_npv", 0.0) or 0.0)
     if batch_validation_n > 0:
-        validation_npv_pct = int(round(batch_validation_npv * 100))
+        validation_npv_pct = round(batch_validation_npv * 100)
         validation_sentence = (
             f"To verify automated exclusions, {batch_validation_n} low-relevance records were "
             f"cross-checked by dual review; {validation_npv_pct}% were confirmed as true exclusions."

@@ -32,7 +32,6 @@ def configure_pdf_parse_pool(max_workers: int = 4) -> None:
 
 
 def _get_parse_executor() -> ThreadPoolExecutor:
-    global _parse_executor
     if _parse_executor is None:
         configure_pdf_parse_pool(_parse_pool_size)
     assert _parse_executor is not None

@@ -176,7 +176,7 @@ async def lookup_doi_venue(doi: str, api_key: str) -> dict[str, Any] | None:
 
     Returns None if the DOI is not found or the API returns an error.
     """
-    clean_doi = doi.lstrip("https://doi.org/").lstrip("http://doi.org/")
+    clean_doi = doi.removeprefix("https://doi.org/").removeprefix("http://doi.org/")
     url = f"{_BASE_URL}/https://doi.org/{clean_doi}"
     params: dict[str, str] = {
         "select": "primary_location,cited_by_count",

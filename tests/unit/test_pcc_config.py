@@ -36,7 +36,7 @@ def test_scoping_requires_populated_pcc() -> None:
 
 
 def test_scoping_rejects_empty_pcc_fields() -> None:
-    with pytest.raises(ValueError, match="pcc.concept"):
+    with pytest.raises(ValueError, match=r"pcc\.concept"):
         ReviewConfig(
             review_type=ReviewType.SCOPING,
             pcc=PCCConfig(population="adults", concept="", context="community"),

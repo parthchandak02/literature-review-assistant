@@ -318,16 +318,16 @@ async def _build_extraction_diagnostics(
                 actual_parts[key.strip()] = float(value.strip())
             except ValueError:
                 continue
-        included_from_gate = int(round(parsed.get("included_records", float(len(relevant_records)))))
+        included_from_gate = round(parsed.get("included_records", float(len(relevant_records))))
         summary_ratio = float(parsed.get("summary_ratio", 0.0))
         participant_ratio = float(parsed.get("participant_ratio", 0.0))
         fulltext_ratio = float(parsed.get("fulltext_ratio", 0.0))
         completeness_ratio = float(actual_parts.get("completeness", completeness_ratio))
         weak_evidence_rate = float(actual_parts.get("weak", weak_evidence_rate))
-        summary_backed_count = int(round(included_from_gate * summary_ratio))
-        participant_detail_count = int(round(included_from_gate * participant_ratio))
-        fulltext_backed_count = int(round(included_from_gate * fulltext_ratio))
-        weak_evidence_count = int(round(included_from_gate * weak_evidence_rate))
+        summary_backed_count = round(included_from_gate * summary_ratio)
+        participant_detail_count = round(included_from_gate * participant_ratio)
+        fulltext_backed_count = round(included_from_gate * fulltext_ratio)
+        weak_evidence_count = round(included_from_gate * weak_evidence_rate)
         relevant_record_count = included_from_gate
         metric_details = str(gate_result["details"])
     else:

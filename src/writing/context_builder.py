@@ -1429,7 +1429,7 @@ def format_grounding_block(data: WritingGroundingData) -> str:
         # This block adds the mandatory retrieval-effort disclosure for Q1 journals.
         if data.fulltext_not_retrieved > 0:
             _retrieval_pct = int(100 * data.fulltext_not_retrieved / data.fulltext_sought)
-            _disclosure_pct = int(round(data.fulltext_nonretrieval_caution_threshold * 100))
+            _disclosure_pct = round(data.fulltext_nonretrieval_caution_threshold * 100)
             lines.append(
                 f"CRITICAL -- FULL-TEXT RETRIEVAL EFFORT (Q1 REQUIREMENT): "
                 f"{data.fulltext_not_retrieved} of {data.fulltext_sought} reports "

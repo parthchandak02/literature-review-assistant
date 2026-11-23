@@ -93,7 +93,22 @@ line-length = 120
 target-version = "py311"
 
 [tool.ruff.lint]
-select = ["E", "F", "I", "UP", "RUF006", "RUF100"]
+select = [
+    "E",
+    "F",
+    "I",
+    "UP",
+    "B007",
+    "B023",
+    "B904",
+    "LOG014",
+    "PLE1310",
+    "PLW0602",
+    "RUF006",
+    "RUF043",
+    "RUF046",
+    "RUF100",
+]
 # E501: line-too-long -- codebase uses 120-char lines throughout; reformatting all is out of scope
 # UP042: StrEnum -- converting str+Enum to StrEnum is a refactor beyond a lint pass; kept for now
 # RUF006: asyncio-dangling-task -- fire-and-forget tasks need a strong reference until done
