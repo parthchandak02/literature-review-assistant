@@ -322,6 +322,11 @@ class RunLifecycleCoordinator:
         )
 
         if not is_under_any(pathlib.Path(req.db_path), _attachable_roots()):
+            _logger.warning(
+                "Attach rejected for workflow_id=%s: db_path %s is outside attachable roots",
+                req.workflow_id,
+                req.db_path,
+            )
             raise HTTPException(status_code=400, detail="Invalid database path")
         _validate_db_path(req.db_path)
         resolved = await self.resolve_workflow(req.workflow_id, db_path_hint=req.db_path)
@@ -349,12 +354,27 @@ class RunLifecycleCoordinator:
         if summary_path.exists():
             try:
                 record.outputs = _json.loads(summary_path.read_text(encoding="utf-8"))
-            except Exception:
-                pass
+            except Exception as exc:
+                _logger.warning(
+                    "Failed to load run_summary.json during history attach for workflow_id=%s path=%s: %s: %s",
+                    req.workflow_id,
+                    summary_path,
+                    type(exc).__name__,
+                    exc,
+                    exc_info=True,
+                )
         record.event_log = await _load_event_log_from_db(resolved.db_path, req.workflow_id)
         try:
             evidence = await _collect_terminal_evidence(resolved.db_path)
-        except Exception:
+        except Exception as exc:
+            _logger.warning(
+                "Failed to collect terminal evidence during history attach for workflow_id=%s db_path=%s: %s: %s",
+                req.workflow_id,
+                resolved.db_path,
+                type(exc).__name__,
+                exc,
+                exc_info=True,
+            )
             evidence = {"terminal_status": None, "source": None}
 
         normalized_req_status = _normalize_status(req.status)
