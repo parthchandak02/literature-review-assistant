@@ -92,7 +92,7 @@ def _latency_summary(values: list[int]) -> dict[str, Any]:
     if not values:
         return {"n": 0}
     ordered = sorted(values)
-    p95 = ordered[min(len(ordered) - 1, int(round(0.95 * (len(ordered) - 1))))]
+    p95 = ordered[min(len(ordered) - 1, round(0.95 * (len(ordered) - 1)))]
     return {
         "n": len(ordered),
         "mean_ms": round(statistics.fmean(ordered), 1),

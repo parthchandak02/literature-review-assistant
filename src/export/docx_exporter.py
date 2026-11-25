@@ -155,7 +155,7 @@ def _fix_table_layout(docx_path: Path) -> None:
             if total > 0:
                 for col in grid_cols:
                     raw = int(col.get(qn("w:w"), "0") or "0")
-                    new_w = int(round(raw / total * TEXT_WIDTH_TWIPS))
+                    new_w = round(raw / total * TEXT_WIDTH_TWIPS)
                     col.set(qn("w:w"), str(new_w))
                     scaled.append(new_w)
 

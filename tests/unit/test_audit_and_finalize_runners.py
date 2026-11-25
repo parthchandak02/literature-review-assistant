@@ -553,12 +553,12 @@ async def test_audit_runner_passes_db_backed_counts_in_audit_context(tmp_path: P
 async def test_write_prospero_artifacts_validates_required_state(tmp_path: Path) -> None:
     state = await _init_state(tmp_path)
     state.review = None
-    with pytest.raises(ValueError, match="requires state.review and state.output_dir"):
+    with pytest.raises(ValueError, match=r"requires state\.review and state\.output_dir"):
         await write_prospero_artifacts(state)
 
     state2 = await _init_state(tmp_path, workflow_id="wf-no-out")
     state2.output_dir = ""
-    with pytest.raises(ValueError, match="requires state.review and state.output_dir"):
+    with pytest.raises(ValueError, match=r"requires state\.review and state\.output_dir"):
         await write_prospero_artifacts(state2)
 
 
