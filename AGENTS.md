@@ -52,6 +52,7 @@ Public URL: `https://litreview.parthchandak.info` (Cloudflare Tunnel → local `
 - Validate or rebuild workflow replay test fixtures -> [Workflow replay CLI](#workflow-replay-cli) below
 - Repair an existing run's manuscript sections, failed extractions, or missing citations -> [Run repair CLI](#run-repair-cli) below
 - Import a master-list or supplementary CSV into search -> [CSV search import](#csv-search-import) below
+- Retrieve paper PDFs via OA tier racing, institutional session cookies, or a manual PDF folder -> [Full-text retrieval and manual PDF ingest](#full-text-retrieval-and-manual-pdf-ingest) below
 
 ## Run cost summary CLI
 
@@ -229,6 +230,31 @@ uv run python -m src.main run --config config/review.yaml
 For web uploads, send multipart form data (`csv_file` and `review_yaml`, plus required API keys) to `POST /api/run-with-masterlist` or `POST /api/run-with-supplementary-csv`; the router stages the file under `runs/staging/<run_id>/`, validates it with `validate_csv_file`, injects the path into `review_yaml`, and launches the workflow.
 
 How to test: run `uv run pytest tests/unit/test_csv_import.py tests/unit/test_source_inference.py tests/unit/test_csv_import_docs.py -q` for parser, source-inference, and docs contract checks, and `uv run pytest tests/integration/test_api_endpoints.py -k "masterlist or supplementary" -q` for the upload endpoints.
+
+## Full-text retrieval and manual PDF ingest
+
+Tiered full-text and PDF resolver (`src/fulltext/`, ADR-0002) used during `phase_3b_fulltext` screening (`PDFRetriever`) and `phase_4_extraction_quality` table extraction. `fetch_full_text` tries three priority groups before falling back to abstract text: Group A checks instant publisher-direct PDF URLs (MDPI, Frontiers, BMC, SpringerOpen, JMIR, PLoS, PeerJ, IEEE stamp); Group B races open-access sources in parallel (landing-page `citation_pdf_url` meta tag, Unpaywall, arXiv, Semantic Scholar `openAccessPdf`, bioRxiv/medRxiv, CORE with `CORE_API_KEY`, opt-in OpenAlex Content with `OPENALEX_API_KEY`, and Europe PMC) and cancels pending tasks on the first hit; Group C runs sequential authenticated or local fallbacks including ScienceDirect Article API (`SCOPUS_API_KEY` / `SCOPUS_INSTTOKEN`), institutional ScienceDirect PDF download via browser session cookies (`SCOPUS_SESSION_COOKIE_FILE` or `EMBASE_SESSION_COOKIE_FILE`), an operator manual PDF drop folder (`FULLTEXT_MANUAL_PDF_DIR` or `MANUAL_PDF_DIR`, matching recursive `*.pdf` filenames that contain the DOI with `/` or `_`/`-` after the `10.xxxx` prefix), PubMed Central, Crossref links, and full landing-page HTML resolution.
+
+| Piece | Role |
+|-------|------|
+| Bounded context facade | `src/fulltext/__init__.py` (`FullTextResolver`, `FullTextResolveRequest`, `FullTextResult`, `fetch_full_text`, `resolve_landing_page`) |
+| Tiered resolver | `src/fulltext/retrieval.py` (`fetch_full_text`, `resolve_landing_page`, `FullTextResult`) |
+| Institutional session tier | `src/fulltext/institutional.py` (`fetch_sciencedirect_pdf_via_session`, `resolve_sciencedirect_pii`) and `src/search/scopus_session.py` (`load_scopus_session_cookie`) |
+| Manual PDF drop folder | `src/fulltext/manual_ingest.py` (`manual_pdf_directory`, `find_manual_pdf_path`, `load_manual_pdf_bytes`, `reset_manual_index_cache`) |
+| Pipeline and CLI callers | `src/search/pdf_retrieval.py` (`PDFRetriever`), `src/orchestration/runners/extraction_runner.py`, and `scripts/review.py info --fetch-pdfs` (`scripts/lib/review_show_info.py`) |
+
+How to run:
+
+```bash
+# Offline: verify that a manually dropped PDF in FULLTEXT_MANUAL_PDF_DIR matches a DOI
+FULLTEXT_MANUAL_PDF_DIR=/path/to/pdfs uv run python -c "from src.fulltext.manual_ingest import find_manual_pdf_path; print(find_manual_pdf_path('10.1016/j.jamda.2024.01.014'))"
+
+# Live CLI check: attempt full-text retrieval for a run's included studies and save to runs/<run_id>/papers/
+uv run python scripts/review.py info --workflow-id wf-XXXX --fetch-pdfs
+uv run python scripts/review.py info --run-dir runs/<run_id> --fetch-pdfs
+```
+
+How to test: run `uv run pytest tests/unit/test_institutional_fulltext.py tests/unit/test_fulltext_doi_normalize.py tests/unit/test_pdf_retrieval.py tests/unit/test_landing_page_resolver.py tests/unit/test_fulltext_retrieval_docs.py -q`.
 
 ## Hard Constraints
 
