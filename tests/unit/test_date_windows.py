@@ -89,3 +89,23 @@ def test_normalize_criteria_collapses_extra_whitespace() -> None:
         "2000-2026",
     )
     assert out == ["Eligible 2000-2026 only"]
+
+
+def test_normalize_criteria_does_not_double_append_after_from_or_since_range() -> None:
+    en_dash = "\u2013"
+    criteria = [
+        "Published from 2010-2024",
+        "Studies since 2010 to present",
+        f"Records from 2010{en_dash}2020 in English",
+        "published since 2015",
+    ]
+    out = normalize_criteria_date_windows(criteria, "2010-2024")
+    assert out == [
+        "Published from 2010-2024",
+        "Studies since 2010-2024",
+        "Records from 2010-2024 in English",
+        "published since 2010-2024",
+    ]
+    assert normalize_criteria_date_windows(["Studies since 2010 to present"], "2010-present") == [
+        "Studies since 2010-present"
+    ]

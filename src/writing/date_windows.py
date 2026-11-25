@@ -43,8 +43,11 @@ def normalize_criteria_date_windows(criteria: list[str], canonical_window: str) 
             flags=re.IGNORECASE,
         ),
     )
+    # Skip years that already start a range (including the canonical window the
+    # range patterns just wrote), so "from 2010-2024" does not become "from 2010-2024-2024".
     standalone_year_re = re.compile(
-        r"\b(?P<prefix>published\s+(?:after|from|since)|from|since)\s+(?P<year>\d{4})\b",
+        r"\b(?P<prefix>published\s+(?:after|from|since)|from|since)\s+(?P<year>\d{4})\b"
+        r"(?!\s*(?:-|[\u2013\u2014]|to\b))",
         flags=re.IGNORECASE,
     )
     normalized: list[str] = []
